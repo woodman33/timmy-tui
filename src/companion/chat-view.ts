@@ -13,31 +13,30 @@
  *   GET /api/chat/models?source=<s>&search=&sort=&maker=&capability=&cost=&context=
  *                                                 the catalog rows of one source (openrouter, ollama-local, ollama-cloud), sorted
  *                                                 and filtered (a sort never resets a filter), at most MODELS_MAX of them, with
- *                                                 the total, the makers and where the rows came from
+ *                                                 how many the filters keep (matched), the source's rows (all), the makers and
+ *                                                 where the rows came from
  *
  * Each needs the companion's token (refused, 401, before anything is read). Nothing here writes, sends a prompt or spends.
- * The one request it makes is the local Ollama's list of models (GET /api/tags on this computer's loopback, the address the
- * setup recorded): it runs no model and costs nothing. OpenRouter's catalog is the one this computer already has (the one
+ * The one kind of request it makes is the local Ollama's list of models and their facts (GET /api/tags and POST /api/show at
+ * the address the chat asks, src/capabilities/ollama-route.ts): no model runs and nothing is spent; its answer is kept
+ * LOCAL_KEEP_MS, so the page's reads every few seconds do not ask each time. OpenRouter's catalog is the one this computer already has (the one
  * `timmy models --refresh` fetched into the Timmy home, else the snapshot shipped with Timmy), named with its date; nothing
  * asks OpenRouter from here. Ollama Cloud and Cloudflare are never asked from here (a Cloudflare request can create a
  * gateway and bill): their state is what this computer holds, and says so.
  *
- * The shared contract of the slice (the lead's CHAT-COMMON brief): H169's src/models/catalog.ts (CatalogRow, CatalogQuery,
- * queryCatalog, loadCatalog) and H170's src/setup/providers-state.ts (ProviderState, providerStates). Until they land, the
- * data that exists is read behind this file's own functions in the contract's shapes (companionCatalog, queryRows,
- * companionProviders), so the lead can switch each at the merge.
+ * The shared contract of the slice (the lead's CHAT-COMMON brief): the rows, their query and their load are H169's
+ * (src/models/catalog.ts loadCatalog and queryCatalog, merged in from r10/review-build), read here with refresh 'never': the
+ * rail shows what this computer keeps, and asks no one for a catalog. Each provider's state is read behind this file's own
+ * function in H170's shape (companionProviders, ProviderState) until src/setup/providers-state.ts is switched in.
  */
 import type express from 'express';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConversationManager } from '../agent/conversation.js';
 import { freeOnlyOn } from '../agent/model-price.js';
-import { cachePath, catalogPath } from '../models/registry.js';
+import { loadCatalog, queryCatalog, type CatalogLoad, type CatalogQuery, type CatalogRow, type ModelSource } from '../models/catalog.js';
 import type { ActiveProject } from '../project/index.js';
 import { chatTurnOf } from '../repl/seal.js';
-import { cloudModelTag, listOllamaModels, ollamaAt, sizeWords } from '../setup/ollama-models.js';
-import { OLLAMA_DEFAULT, readSetupState } from '../setup/questions.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
@@ -53,36 +52,7 @@ export const TURNS_MAX = 120;
 /** The most characters of one message the page is given (a longer one is cut, and says so). */
 export const TEXT_MAX = 16_000;
 
-// ── the shared contract's shapes (H169's src/models/catalog.ts; the lead switches these at the merge) ──
-
-export type ModelSource = 'openrouter' | 'ollama-local' | 'ollama-cloud';
-export interface CatalogRow {
-  source: ModelSource;
-  id: string;
-  name: string;
-  maker: string;
-  description?: string;
-  /** epoch seconds: when OpenRouter ADDED it, not its release */
-  created?: number;
-  contextLength?: number;
-  price: { inPerM?: number; outPerM?: number; free: boolean | 'unknown' };
-  /** undefined = unknown */
-  caps: { tools?: boolean; vision?: boolean; reasoning?: boolean };
-  inputModalities?: string[];
-  installed?: boolean;
-  running?: boolean;
-  sizeBytes?: number;
-}
-export interface CatalogQuery {
-  source: ModelSource;
-  search?: string;
-  sort: 'recent' | 'name' | 'price' | 'context';
-  maker?: string;
-  capability?: 'tools' | 'vision' | 'reasoning';
-  cost?: 'free' | 'paid';
-  minContext?: number;
-}
-export interface CatalogRead { rows: CatalogRow[]; from: 'live' | 'cache' | 'none'; fetchedAt?: string; error?: string; words: string }
+export type { CatalogQuery, CatalogRow, ModelSource };
 
 // ── H170's ProviderState (src/setup/providers-state.ts; switched at the merge) ──
 
@@ -99,172 +69,54 @@ const SOURCES: readonly ModelSource[] = ['openrouter', 'ollama-local', 'ollama-c
 const SORTS: ReadonlyArray<CatalogQuery['sort']> = ['recent', 'name', 'price', 'context'];
 const CAPS: ReadonlyArray<NonNullable<CatalogQuery['capability']>> = ['tools', 'vision', 'reasoning'];
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
-/** OpenRouter's per-token price as USD per million tokens; "-1" (a router's variable price) and anything else unreadable: unknown */
-const perM = (raw: unknown): number | undefined => {
-  if (typeof raw !== 'string' && typeof raw !== 'number') return undefined;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.round(n * 1e6 * 1e6) / 1e6 : undefined;
-};
+const day = (iso?: string): string => (iso ? iso.slice(0, 10) : 'an unknown date');
 
-/** The maker of an OpenRouter model: its name's part before ": " ("OpenAI: GPT-6 Astra"), else its id's before "/". */
-export function makerOf(id: string, name?: string): string {
-  const fromName = name && /^([^:]{1,40}):\s/.exec(name)?.[1]?.trim();
-  if (fromName) return fromName;
-  const prefix = id.includes('/') ? id.split('/')[0] : '';
-  return prefix || 'unknown maker';
-}
+/** A source's rows as this computer keeps them (H169's loadCatalog, refresh never: nothing is asked for a catalog), in words. */
+export interface CatalogRead extends CatalogLoad { words: string; observed?: ProviderState }
 
-/** One OpenRouter catalog entry (its public /api/v1/models shape) as a row; null for one that is not a model. */
-export function openRouterRow(m: unknown): CatalogRow | null {
-  if (!isObject(m)) return null;
-  const id = str(m.id);
-  if (!id) return null;
-  const name = str(m.name) ?? id;
-  const pricing = isObject(m.pricing) ? m.pricing : {};
-  const inPerM = perM(pricing.prompt);
-  const outPerM = perM(pricing.completion);
-  const known = inPerM !== undefined && outPerM !== undefined;
-  const params = Array.isArray(m.supported_parameters) ? m.supported_parameters.filter((p): p is string => typeof p === 'string') : null;
-  const arch = isObject(m.architecture) ? m.architecture : {};
-  const inputs = Array.isArray(arch.input_modalities) ? arch.input_modalities.filter((p): p is string => typeof p === 'string') : null;
-  const created = typeof m.created === 'number' && Number.isFinite(m.created) && m.created > 0 ? m.created : undefined;
-  const ctx = typeof m.context_length === 'number' && m.context_length > 0 ? m.context_length : undefined;
-  return {
-    source: 'openrouter', id, name, maker: makerOf(id, name),
-    ...(str(m.description) ? { description: str(m.description)!.slice(0, 2000) } : {}),
-    ...(created ? { created } : {}),
-    ...(ctx ? { contextLength: ctx } : {}),
-    price: { ...(inPerM !== undefined ? { inPerM } : {}), ...(outPerM !== undefined ? { outPerM } : {}), free: known ? inPerM === 0 && outPerM === 0 : 'unknown' },
-    caps: {
-      ...(params ? { tools: params.includes('tools'), reasoning: params.includes('reasoning') || params.includes('include_reasoning') } : {}),
-      ...(inputs ? { vision: inputs.includes('image') } : {}),
-    },
-    ...(inputs ? { inputModalities: inputs } : {}),
-  };
-}
-
-const readJson = (file: string): unknown => { try { return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as unknown : undefined; } catch { return undefined; } };
+/** The local Ollama's last answer, kept a moment so the Chat's every-few-seconds read does not list Ollama each time. */
+const LOCAL_KEEP_MS = 15_000;
+let localKept: { at: number; key: string; read: CatalogRead } | null = null;
 
 /**
- * OpenRouter's catalog as this computer has it: the one `timmy models --refresh` fetched (the Timmy home's
- * models/openrouter-catalog.json), else the snapshot shipped with Timmy, else none. Asks nothing.
+ * One source's rows: OpenRouter's catalog as this computer keeps it (fetched into the Timmy home, else the snapshot shipped
+ * with Timmy), the local Ollama's models (its list of models: no model runs, nothing is spent; the one request), or Ollama
+ * Cloud's (read only when asked, so none here). Never throws.
  */
-export function openRouterCatalog(env: Env = process.env, files: { fetched?: string; shipped?: string } = {}): CatalogRead {
-  const tries: Array<[string, 'fetched' | 'shipped']> = [[files.fetched ?? catalogPath(env), 'fetched'], [files.shipped ?? cachePath(), 'shipped']];
-  for (const [file, kind] of tries) {
-    const j = readJson(file);
-    const list = Array.isArray(j) ? j : isObject(j) && Array.isArray(j.models) ? j.models : null;
-    if (!list) continue;
-    const at = isObject(j) ? str(j.fetchedAt) : undefined;
-    const rows = list.map(openRouterRow).filter((r): r is CatalogRow => r !== null);
-    const day = at ? at.slice(0, 10) : 'an unknown date';
-    return {
-      rows, from: 'cache', ...(at ? { fetchedAt: at } : {}),
-      words: kind === 'fetched'
-        ? `OpenRouter's public catalog as this computer fetched it on ${day} (timmy models --refresh fetches it again); not a live quote`
-        : `OpenRouter's public catalog of ${day}, the snapshot shipped with Timmy (timmy models --refresh fetches a newer one); not a live quote`,
-    };
+export async function companionCatalog(source: ModelSource, env: Env, o: { now?: () => number; fresh?: boolean } = {}): Promise<CatalogRead> {
+  const now = (o.now ?? Date.now)();
+  if (source === 'ollama-local') {
+    const key = JSON.stringify([env.TIMMY_HOME, env.OLLAMA_HOST, env.OLLAMA_BASE_URL, env.TIMMY_CHAT_MODEL]);
+    // `fresh` (the page's Refresh): Ollama is asked again now
+    if (!o.fresh && localKept && localKept.key === key && now - localKept.at < LOCAL_KEEP_MS) return localKept.read;
+    const load = await loadCatalog('ollama-local', { env, refresh: 'never', timeoutMs: 2000 });
+    const at = load.fetchedAt ?? new Date(now).toISOString();
+    const n = load.rows.length;
+    const read: CatalogRead = load.from === 'live'
+      ? { ...load, words: `Ollama on this computer answered its list of models: ${n} installed here. No model ran.`, observed: { id: 'ollama-local', state: 'checked', at, words: `${n} installed on this computer (its list of models; no model ran).` } }
+      : { ...load, words: `Ollama on this computer did not answer: ${load.error ?? 'no answer'}.`, observed: { id: 'ollama-local', state: 'unreachable', at, words: `Ollama on this computer did not answer its list of models (${load.error ?? 'no answer'}).`, next: 'Start Ollama (the app, or ollama serve), then Refresh.' } };
+    localKept = { at: now, key, read };
+    return read;
   }
-  return { rows: [], from: 'none', error: 'no catalog on this computer', words: 'No OpenRouter catalog on this computer yet: timmy models --refresh fetches its public list (no key, no model call).' };
-}
-
-/** The Ollama address the setup recorded (providers.json's ollama_host, else the setup's answer, else the default). */
-export function recordedOllama(env: Env): string {
-  const s = readSetupState(env);
-  return s.providers.ollama ?? s.recorded?.answers.ollama ?? OLLAMA_DEFAULT;
-}
-
-/**
- * The local Ollama's models (GET /api/tags at the recorded address: no model runs, nothing is spent), each a row of its own
- * source: a cloud-backed tag is Ollama Cloud even when this computer's Ollama serves it (a cloud model served through
- * localhost is cloud). An address that is not this computer's is not asked: the local route is loopback only.
- */
-export async function ollamaCatalog(env: Env, o: { timeoutMs?: number; now?: () => Date } = {}): Promise<CatalogRead & { observed?: ProviderState }> {
-  const host = recordedOllama(env);
-  const at = ollamaAt(host);
-  const now = (o.now ?? (() => new Date()))().toISOString();
-  if ('error' in at) {
-    return { rows: [], from: 'none', error: at.error, words: `The recorded Ollama address is not one Timmy uses (${at.error}).`, observed: { id: 'ollama-local', state: 'refused', words: `Ollama's recorded address is not one Timmy uses: ${at.error}.`, next: 'In the REPL: /setup chat asks again.' } };
+  const load = await loadCatalog(source, { env, refresh: 'never' });
+  if (source === 'openrouter') {
+    const words = load.from === 'none'
+      ? 'No OpenRouter catalog on this computer yet: timmy models --refresh fetches its public list (no key, no model call).'
+      : load.cache === 'fetched'
+        ? `OpenRouter's public catalog as this computer fetched it on ${day(load.fetchedAt)} (timmy models --refresh fetches it again); not a live quote`
+        : `OpenRouter's public catalog of ${day(load.fetchedAt)}, the snapshot shipped with Timmy (timmy models --refresh fetches a newer one); not a live quote`;
+    return { ...load, words };
   }
-  if (!at.loopback) {
-    return { rows: [], from: 'none', error: 'not this computer', words: 'The recorded Ollama is another computer\'s: the local route asks only this computer\'s Ollama, so it was not asked.', observed: { id: 'ollama-local', state: 'refused', words: 'The recorded Ollama is another computer\'s; the local route is this computer\'s only.', next: 'In the REPL: /setup chat records this computer\'s Ollama.' } };
-  }
-  const list = await listOllamaModels(host, { timeoutMs: o.timeoutMs ?? 2000 });
-  if (!list.ok) {
-    return { rows: [], from: 'none', error: list.why, words: `Ollama on this computer did not answer (${list.why}).`, observed: { id: 'ollama-local', state: 'unreachable', at: now, words: `Ollama on this computer did not answer its list of models (${list.why}).`, next: 'Start Ollama (ollama serve), then Refresh.' } };
-  }
-  const rows: CatalogRow[] = list.models.map((m) => {
-    const cloud = m.cloud || cloudModelTag(m.name);
-    const maker = m.name.includes('/') ? m.name.split('/')[0] : m.name.split(':')[0];
-    return {
-      source: cloud ? 'ollama-cloud' : 'ollama-local', id: m.name, name: m.name, maker,
-      description: cloud
-        ? 'Listed by Ollama on this computer, served from Ollama\'s cloud: the chat leaves this computer.'
-        : `Local weights on this computer${[m.parameterSize, m.quantization].filter(Boolean).length ? ` (${[m.parameterSize, m.quantization].filter(Boolean).join(', ')})` : ''}${m.size !== null ? `, ${sizeWords(m.size)} on disk (not the memory it needs to run)` : ''}.`,
-      price: cloud ? { free: 'unknown' } : { inPerM: 0, outPerM: 0, free: true },
-      caps: {},
-      installed: !cloud,
-      ...(m.size !== null ? { sizeBytes: m.size } : {}),
-    };
-  });
-  const local = rows.filter((r) => r.source === 'ollama-local').length;
-  return {
-    rows, from: 'live', fetchedAt: now,
-    words: `Ollama on this computer answered its list of models: ${local} installed here${rows.length > local ? `, ${rows.length - local} cloud-backed` : ''}. No model ran.`,
-    observed: { id: 'ollama-local', state: 'checked', at: now, words: `${local} installed on this computer (its list of models; no model ran).` },
-  };
-}
-
-/** The rows of one source as this computer can read them now (the stand-in for H169's loadCatalog). */
-export async function companionCatalog(source: ModelSource, env: Env): Promise<CatalogRead & { observed?: ProviderState }> {
-  if (source === 'openrouter') return openRouterCatalog(env);
-  const local = await ollamaCatalog(env);
-  const rows = local.rows.filter((r) => r.source === source);
-  if (source === 'ollama-local') return { ...local, rows };
-  // Ollama Cloud: only what this computer's Ollama lists as cloud-backed; its own catalog needs a key and H170's adapter
-  return { ...local, rows, words: rows.length
-    ? `${rows.length} cloud-backed model${rows.length === 1 ? '' : 's'} listed by Ollama on this computer (served from Ollama's cloud). Ollama Cloud's own list needs its key (not set up here).`
-    : 'Ollama Cloud\'s own list needs its key, which is not set up on this computer; Ollama on this computer lists no cloud-backed model.' };
-}
-
-const lower = (s: string | undefined): string => (s ?? '').toLowerCase();
-
-/** Sort and filter rows (the stand-in for H169's queryCatalog): pure; a sort never resets a filter; unknown sorts last. */
-export function queryRows(rows: readonly CatalogRow[], q: CatalogQuery): { rows: CatalogRow[]; total: number; makers: string[] } {
-  const words = lower(q.search).split(/\s+/).filter(Boolean);
-  const makers = [...new Set(rows.map((r) => r.maker))].sort((a, b) => a.localeCompare(b));
-  const kept = rows.filter((r) => {
-    if (q.maker && r.maker !== q.maker) return false;
-    if (q.capability && r.caps[q.capability] !== true) return false;
-    if (q.cost === 'free' && r.price.free !== true) return false;
-    if (q.cost === 'paid' && r.price.free !== false) return false;
-    if (q.minContext && !(typeof r.contextLength === 'number' && r.contextLength >= q.minContext)) return false;
-    if (words.length) {
-      const hay = `${lower(r.id)} ${lower(r.name)} ${lower(r.maker)} ${lower(r.description)}`;
-      if (!words.every((w) => hay.includes(w))) return false;
-    }
-    return true;
-  });
-  const price = (r: CatalogRow): number | undefined => (r.price.inPerM !== undefined && r.price.outPerM !== undefined ? r.price.inPerM + r.price.outPerM : undefined);
-  const known = <T>(a: T | undefined, b: T | undefined, cmp: (x: T, y: T) => number): number => (a === undefined && b === undefined ? 0 : a === undefined ? 1 : b === undefined ? -1 : cmp(a, b));
-  const byName = (a: CatalogRow, b: CatalogRow): number => a.name.localeCompare(b.name);
-  const sorted = [...kept].sort((a, b) => {
-    const c = q.sort === 'recent' ? known(a.created, b.created, (x, y) => y - x)
-      : q.sort === 'price' ? known(price(a), price(b), (x, y) => x - y)
-        : q.sort === 'context' ? known(a.contextLength, b.contextLength, (x, y) => y - x) : 0;
-    return c || byName(a, b);
-  });
-  return { rows: sorted, total: kept.length, makers };
+  return { ...load, words: load.error ? `${load.error}.` : 'Ollama Cloud\'s list.' };
 }
 
 /** A page's query as a CatalogQuery; anything it does not know is left out (never an error). */
 export function catalogQueryOf(q: Record<string, unknown>): CatalogQuery {
   const one = (v: unknown): string | undefined => (typeof v === 'string' ? v.trim().slice(0, 120) : undefined);
-  const source = SOURCES.find((s) => s === one(q.source)) ?? 'openrouter';
-  const sort = SORTS.find((s) => s === one(q.sort)) ?? 'recent';
+  const source = SOURCES.find((x) => x === one(q.source)) ?? 'openrouter';
+  const sort = SORTS.find((x) => x === one(q.sort)) ?? 'recent';
   const capability = CAPS.find((c) => c === one(q.capability));
   const cost = one(q.cost) === 'free' ? 'free' as const : one(q.cost) === 'paid' ? 'paid' as const : undefined;
   const ctx = Number(one(q.context));
@@ -301,6 +153,17 @@ export function companionProviders(env: Env, cwd: string, observed?: ProviderSta
       : { id: 'cloudflare', state: 'not set up', words: 'Optional. Not set up: chat and logs work without it. Timmy never checks it from here: a request can create a gateway and bill.' },
   ];
 }
+
+/**
+ * The official pages each provider's setup links to (the handoff's PROVIDER_SETUP_GUIDE, checked on 2026-10-22; H170's
+ * ProviderState.links replaces these at the merge). The page shows them as links and loads none of them.
+ */
+export const SETUP_LINKS: Readonly<Record<ProviderState['id'], ReadonlyArray<{ label: string; url: string }>>> = Object.freeze({
+  'openrouter': [{ label: 'openrouter.ai/keys', url: 'https://openrouter.ai/keys' }, { label: 'OpenRouter’s sign-in for apps (PKCE)', url: 'https://openrouter.ai/docs/guides/overview/auth/oauth' }],
+  'ollama-local': [{ label: 'docs.ollama.com/quickstart', url: 'https://docs.ollama.com/quickstart' }, { label: 'ollama.com/library/qwen3:0.6b', url: 'https://ollama.com/library/qwen3:0.6b' }],
+  'ollama-cloud': [{ label: 'ollama.com/settings/keys', url: 'https://ollama.com/settings/keys' }, { label: 'ollama.com/pricing', url: 'https://ollama.com/pricing' }],
+  'cloudflare': [{ label: 'developers.cloudflare.com/ai-gateway', url: 'https://developers.cloudflare.com/ai-gateway/get-started/' }],
+});
 
 // ── the project's saved conversation ──
 
@@ -389,7 +252,7 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     if (!project) { answer(res, { ok: false, error: ctx.projectUnknown }, 404); return; }
     try {
       const env = ctx.chatEnv();
-      const local = await ollamaCatalog(env);
+      const local = await companionCatalog('ollama-local', env, { fresh: req.query.fresh === '1' });
       const route = pageRoute(env, process.cwd());
       answer(res, {
         ok: true,
@@ -400,6 +263,7 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
         scope: PAGE_SCOPE,
         policy: { freeOnly: freeOnlyOn(env), localOnly: null, localOnlyWords: 'Local-only is not in this revision (it comes with the route policy).' },
         providers: companionProviders(env, process.cwd(), local.observed),
+        links: SETUP_LINKS,
         logs: { words: 'Logs and receipts stay on this computer: the project\'s .timmy folder and its conversation in .sessions.', cloud: 'Cloud copies: off (not set up).' },
       });
     } catch { answer(res, { ok: false, error: FAILED }, 500); }
@@ -409,11 +273,12 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     if (!project) { answer(res, { ok: false, error: ctx.projectUnknown }, 404); return; }
     try {
       const q = catalogQueryOf(req.query as Record<string, unknown>);
-      const read = await companionCatalog(q.source, ctx.chatEnv());
-      const out = queryRows(read.rows, q);
+      const read = await companionCatalog(q.source, ctx.chatEnv(), { fresh: req.query.fresh === '1' });
+      // queryCatalog's total is the source's rows before the search and the filters; matched, the rows they keep
+      const out = queryCatalog(read.rows, q);
       answer(res, {
-        ok: true, query: q, from: read.from, ...(read.fetchedAt ? { fetchedAt: read.fetchedAt } : {}), ...(read.error ? { error: read.error } : {}),
-        words: read.words, total: out.total, all: read.rows.length, makers: out.makers, rows: out.rows.slice(0, MODELS_MAX),
+        ok: true, query: q, from: read.from, ...(read.fetchedAt ? { fetchedAt: read.fetchedAt } : {}), ...(read.cache ? { cache: read.cache } : {}), ...(read.error ? { error: read.error } : {}),
+        words: read.words, matched: out.rows.length, all: out.total, makers: out.makers, rows: out.rows.slice(0, MODELS_MAX),
       });
     } catch { answer(res, { ok: false, error: FAILED }, 500); }
   });

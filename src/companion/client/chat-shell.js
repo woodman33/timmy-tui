@@ -26,6 +26,9 @@ const cx = {
   running: null,
   /** the Models rail */
   models: { provider: 'openrouter', sub: 'local', q: { search: '', sort: 'recent', maker: '', capability: '', cost: '', context: '' }, answer: null, asking: 0, selected: '', chosenProvider: false },
+  /** a first-run choice whose setup the center shows ('' none), and the choices shown again on request */
+  setup: '',
+  forceChoices: false,
   /** the bottom drawer open now ('' none) and the control that opened it */
   drawer: '',
   drawerFrom: null,
@@ -151,7 +154,18 @@ const showWorkspaceTabBefore = showWorkspaceTab;
 // eslint-disable-next-line no-global-assign
 showWorkspaceTab = function showWorkspaceTabWithShell(id, o = {}) {
   showWorkspaceTabBefore(id, o);
-  if (workspace.tab === id) onDest(id);
+  if (workspace.tab !== id) return;
+  onDest(id);
+  if (o.focus && id === 'chat') document.querySelector('#rail-menu .rail-item[data-dest="chat"]')?.focus();
+};
+// the frame drawn (a read every few seconds, and at once when the bus brings a turn's end): the menu's waiting counts and the
+// Chat's controls (Stop for a turn running elsewhere, the waiting count) follow it at once
+const drawFrameBefore = drawFrame;
+// eslint-disable-next-line no-global-assign
+drawFrame = function drawFrameWithShell(...args) {
+  const r = drawFrameBefore.apply(this, args);
+  try { drawRail(); if (cx.dest === 'chat') { drawControls(); railProject(); } } catch (e) { /* the shell draws again on its timer */ }
+  return r;
 };
 // the project the page shows: the rail's selector, the crumb, the draft
 const projectHeaderBefore = projectHeader;
@@ -171,10 +185,11 @@ projectHeader = function projectHeaderWithShell(p) {
 
 // ── the Chat: the project's saved conversation, this page's own turns, the route and the composer ──
 
-function readView(force = false) {
+function readView(force = false, fresh = false) {
   if (!companion.token || companion.refused) { drawChat(); return Promise.resolve(); }
   if (cx.asking) return cx.asking;
-  cx.asking = companion.fetch(`/api/chat/view${projectQuery()}`)
+  const q = [projectQuery(''), fresh ? 'fresh=1' : ''].filter(Boolean).join('&');
+  cx.asking = companion.fetch(`/api/chat/view${q ? `?${q}` : ''}`)
     .then((r) => r.json().then((body) => ({ r, body })))
     .then(({ r, body }) => {
       if (!r.ok || !body || body.ok !== true) { cx.viewFailed = (body && body.error) || `The companion answered HTTP ${r.status}.`; return; }
@@ -211,11 +226,14 @@ function textBlock(text, cls = 'cx-text') {
 
 const SURFACE_SAID = { workbench: 'the Workbench', repl: 'the REPL', monitor: 'the monitor', companion: 'a companion page', unknown: 'another surface' };
 
-function savedTurn(t) {
+const openTools = new Set();
+function savedTurn(t, i) {
   if (t.kind === 'tool') {
     const lines = String(t.text || '').split('\n').length;
-    return h('li', { class: 'cx-turn is-tool' }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '⚒'),
-      h('details', { class: 'cx-tool' }, h('summary', null, 'Tool result · ', h('strong', null, t.tool || 'a tool'), ` · ${lines} line${lines === 1 ? '' : 's'}${t.cut ? ' (cut)' : ''}`), h('pre', null, t.text)));
+    const key = `${(cx.view && cx.view.conversation && cx.view.conversation.session) || ''}:${i}`;
+    const box = h('details', { class: 'cx-tool', 'data-tool-key': key, open: openTools.has(key) }, h('summary', null, 'Tool result · ', h('strong', null, t.tool || 'a tool'), ` · ${lines} line${lines === 1 ? '' : 's'}${t.cut ? ' (cut)' : ''}`), h('pre', null, t.text));
+    box.addEventListener('toggle', () => { if (box.open) openTools.add(key); else openTools.delete(key); });
+    return h('li', { class: 'cx-turn is-tool' }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '⚒'), box);
   }
   const you = t.kind === 'you';
   const who = h('div', { class: 'cx-who' }, h('strong', null, you ? 'YOU' : 'TIMMY'));
@@ -285,16 +303,8 @@ function drawChat() {
       : 'The project keeps no conversation yet. The Workbench, the REPL and the monitor save theirs here; this page’s own chat (below) is not saved.';
     if (tag) { tag.hidden = !(v.route && v.route.kind === 'local' && fakeModel(v.route.model)); tag.textContent = 'FAKE model on this computer'; }
   }
-  turns.replaceChildren(...((conv && conv.turns) || []).map(savedTurn));
-  // this page's own turns, said apart from the project's conversation
-  const own = $('cx-own');
-  if (own) {
-    if (cx.own.length) {
-      const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s own chat' });
-      cx.own.forEach((t, i) => list.append(ownTurn(t, i)));
-      own.replaceChildren(h('p', { class: 'cx-divider' }, 'This page’s own chat · not saved to the project’s conversation · no tools · no receipt'), list);
-    } else own.replaceChildren();
-  }
+  turns.replaceChildren(...((conv && conv.turns) || []).map((t, i) => savedTurn(t, i)));
+  drawOwn();
   drawEmpty();
   drawRoute();
   drawComposer();
@@ -310,23 +320,134 @@ function drawChat() {
   if (scroll && cx.follow && atEnd) scroll.scrollTop = scroll.scrollHeight;
 }
 
+// ── the center's state: first run, a provider's setup, no model, or chat ──
+
+const EXPLORE_KEY = 'timmy.chat.explore';
+function explored() { try { return localStorage.getItem(EXPLORE_KEY) === '1'; } catch (e) { return false; } }
+function setExplored(on) { try { if (on) localStorage.setItem(EXPLORE_KEY, '1'); else localStorage.removeItem(EXPLORE_KEY); } catch (e) { /* no storage here */ } }
+
+/**
+ * What the center shows: 'reading' until the companion answers; 'setup' while a provider's setup is open; 'first-run' with no
+ * route, no conversation and the choices not set aside yet; 'no-model' with no route otherwise; 'empty' with a route and no
+ * conversation; 'chat'.
+ */
+function centerState() {
+  const v = cx.view;
+  if (!v) return 'reading';
+  if (cx.setup) return 'setup';
+  const r = routeOf(v);
+  const empty = (!v.conversation || v.conversation.turns.length === 0) && cx.own.length === 0;
+  if (r && r.ready) return empty ? 'empty' : 'chat';
+  return (empty && !explored()) || cx.forceChoices ? 'first-run' : 'no-model';
+}
+
+/** The first run's four ways in, as the terminal's (OpenRouter, Ollama on this computer, Ollama Cloud, none); Cloudflare apart. */
+const WAYS = [
+  { id: 'openrouter', kicker: 'Hosted models', title: 'Connect OpenRouter', words: 'Browse models from many makers with your own OpenRouter account. Timmy never asks for its password.', act: 'Set up OpenRouter' },
+  { id: 'ollama-local', kicker: 'On this computer', title: 'Use Ollama on this computer', words: 'Run installed models here. No account and no key; nothing leaves this computer.', act: 'Set up Ollama here' },
+  { id: 'ollama-cloud', kicker: 'Remote inference', title: 'Use Ollama Cloud', words: 'Use your Ollama account’s cloud models. No local weights to download.', act: 'Set up Ollama Cloud' },
+  { id: 'explore', kicker: 'No model needed', title: 'Explore without a model', words: 'Open the project, browse its files and keep local logs. Connect a model when you need an answer.', act: 'Continue exploring' },
+];
+
+/** The way the first run suggests: Ollama here when it answered with a model installed, else OpenRouter (said why, in words). */
+function suggestedWay() {
+  const local = providerState('ollama-local');
+  const installed = local && local.state === 'checked' && !/^0 installed/.test(local.words);
+  return installed ? { id: 'ollama-local', why: 'Ollama on this computer answered with a model installed, so it can answer here with no account.' }
+    : { id: 'openrouter', why: 'Nothing on this computer answered with a model installed, so a hosted provider is the shortest way to an answer.' };
+}
+
+/** A provider's official page, as the companion names it (GET /api/chat/view's links: this page holds no address of its own). */
+const link = (id, i) => {
+  const l = cx.view && cx.view.links && cx.view.links[id] && cx.view.links[id][i];
+  return l ? h('a', { href: l.url, target: '_blank', rel: 'noopener noreferrer' }, l.label) : h('span', null, 'its official page');
+};
+
+/** A provider's setup, in words: its state as this computer holds it, and the steps (Timmy installs, downloads and buys nothing here). */
+function setupBody(id) {
+  const st = providerState(id);
+  const state = st ? h('p', { class: 'cx-setup-state' }, h('span', { class: `cx-setup-word${st.state === 'checked' ? ' is-live' : ''}` }, st.state === 'checked' ? `● ${st.state}${st.at ? ` ${clock(st.at)}` : ''}` : st.state), ` · ${st.words}`) : h('p', { class: 'cx-setup-state' }, 'Reading this computer’s state…');
+  const cmd = (c) => h('span', { class: 'cx-cmd' }, h('code', null, c), h('button', { type: 'button', class: 'cx-link', 'data-cx-copy': c }, 'Copy'));
+  if (id === 'openrouter') return ['Hosted models', 'Connect OpenRouter', [state, h('ol', { class: 'cx-steps' },
+    h('li', null, 'Use your own OpenRouter account, and make a key with a small limit: ', link('openrouter', 0), '. Buying credits is your decision on OpenRouter’s site; Timmy never buys any.'),
+    h('li', null, 'Give the key to Timmy in the terminal (it reads it from the keyboard and keeps it in the Timmy home, readable only by you): ', cmd('timmy init --openrouter -')),
+    h('li', null, 'Signing in from the browser instead of a key (', link('openrouter', 1), ') is part of this checkpoint’s setup in the terminal; this page then shows the key as saved, not checked, until a check answers.')),
+    h('p', { class: 'cx-setup-note' }, 'A key never reaches this page: it shows only where the key is kept and its state.')]];
+  if (id === 'ollama-local') return ['On this computer', 'Use Ollama on this computer', [state, h('ol', { class: 'cx-steps' },
+    h('li', null, 'Install Ollama yourself if it is not here: ', link('ollama-local', 0), '. Timmy installs nothing.'),
+    h('li', null, 'Start it (the app, or ', h('code', null, 'ollama serve'), '), then Refresh below: this page asks it for its list of models, which runs no model.'),
+    h('li', null, 'Install a model yourself, for example ', h('code', null, 'ollama pull qwen3:0.6b'), ' (', link('ollama-local', 1), ': a 523 MB download, not the memory it needs to run, and not benchmarked for Timmy). This page downloads nothing.'),
+    h('li', null, 'Choose it for chat in the terminal: ', cmd('timmy init --chat local --model <model>'), ' (or /setup chat in the REPL).')),
+    h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'refresh' }, 'Refresh'))]];
+  if (id === 'ollama-cloud') return ['Remote inference', 'Use Ollama Cloud', [state, h('ol', { class: 'cx-steps' },
+    h('li', null, 'Sign in to (or create) your Ollama account and make a key: ', link('ollama-cloud', 0), '. Its plans and usage: ', link('ollama-cloud', 1), '.'),
+    h('li', null, 'Its key is set up in the terminal, as part of this checkpoint’s setup; no local weights are downloaded for it.'),
+    h('li', null, 'A cloud model served through this computer’s Ollama is still cloud inference: the chat leaves this computer, and local-only refuses it.'))]];
+  return ['Advanced, optional', 'Cloudflare', [state, h('p', null, 'An AI Gateway routes and observes model requests; Workers AI runs hosted models; the Agents SDK hosts agents. Each is optional and separate from the logs on this computer, which work without it.'),
+    h('p', null, 'Timmy never checks Cloudflare from here: a first request can create a gateway and bill. Its setup: ', link('cloudflare', 0), '.')]];
+}
+
+/** This page's own turns, said apart from the project's conversation. */
+function drawOwn() {
+  const own = $('cx-own');
+  if (!own) return;
+  if (!cx.own.length) { own.replaceChildren(); return; }
+  const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s own chat' });
+  cx.own.forEach((t, i) => list.append(ownTurn(t, i)));
+  own.replaceChildren(h('p', { class: 'cx-divider' }, 'This page’s own chat · not saved to the project’s conversation · no tools · no receipt'), list);
+}
+
+/** While an answer streams: this page's turns, the composer and the status line, following the end when the person is there. */
+function drawStreaming() {
+  const scroll = $('cx-scroll');
+  const atEnd = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40 : true;
+  drawOwn();
+  drawComposer();
+  drawStatus();
+  if (scroll && cx.follow && atEnd) scroll.scrollTop = scroll.scrollHeight;
+}
+
 function drawEmpty() {
   const box = $('cx-empty');
   if (!box) return;
-  const v = cx.view;
-  const empty = v && v.conversation && v.conversation.turns.length === 0 && cx.own.length === 0;
-  box.hidden = !empty;
-  if (!empty) return;
-  const r = routeOf(v);
-  if (r && r.ready) {
-    box.replaceChildren(h('h3', null, 'Start the conversation.'),
-      h('p', null, `Your first message goes to ${r.model} (${routeWhere(r)}). This page’s own chat is not saved to the project; the Workbench’s is.`),
-      h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'focus-composer' }, 'Write a message')));
-  } else {
-    box.replaceChildren(h('h3', null, 'Connect a model to chat.'),
-      h('p', null, 'Your project, its files and its local logs work without a model. Answers need a model: on this computer (Ollama) or a provider you connect.'),
-      h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn is-primary', 'data-cx': 'open-models' }, 'Choose a model')));
+  const st = centerState();
+  document.body.dataset.chatState = st;
+  const away = st === 'first-run' || st === 'setup';
+  for (const el of [document.querySelector('.cx-head'), $('cx-turns'), $('cx-route'), $('cx-composer'), document.querySelector('.cx-hint')]) if (el) el.hidden = away;
+  box.hidden = !['first-run', 'setup', 'no-model', 'empty'].includes(st);
+  if (box.hidden) return;
+  const r = routeOf(cx.view);
+  if (st === 'first-run') {
+    const sug = suggestedWay();
+    box.replaceChildren(
+      h('p', { class: 'cx-kicker' }, 'Welcome / first run'), h('h2', { class: 'cx-title' }, 'How would you like to run chat?'),
+      h('p', { class: 'cx-sub' }, 'Choose one; you can add the others later. Your project and its logs begin on this computer, and no account is needed to explore.'),
+      h('div', { class: 'cx-ways' }, ...WAYS.map((w) => h('button', { type: 'button', class: `cx-way${w.id === sug.id ? ' is-suggested' : ''}`, 'data-cx-way': w.id },
+        h('span', { class: 'cx-way-k' }, w.kicker), h('span', { class: 'cx-way-title' }, w.title), h('span', { class: 'cx-way-words' }, w.words), h('span', { class: 'cx-way-act' }, `${w.act} →`)))),
+      h('div', { class: 'cx-note-box' }, h('strong', null, 'Local logs are included. Cloud sync is optional.'), h('span', null, 'Logs and receipts stay in the project’s .timmy folder. Cloudflare (advanced) can be set up later: '), h('button', { type: 'button', class: 'cx-link', 'data-cx-way': 'cloudflare' }, 'Cloudflare settings')),
+      h('div', { class: 'cx-guide' }, h('span', { class: 'cx-guide-k' }, 'Timmy guide · fixed words, no model'), h('p', null, `Suggested: ${WAYS.find((w) => w.id === sug.id).title}. ${sug.why} OpenRouter runs remotely; Ollama on this computer runs here; you can explore now and connect either later.`)));
+    return;
   }
+  if (st === 'setup') {
+    const [kicker, title, body] = setupBody(cx.setup);
+    box.replaceChildren(h('p', { class: 'cx-kicker' }, kicker), h('h2', { class: 'cx-title' }, title), ...body,
+      h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'setup-back' }, '← Back to the choices')));
+    return;
+  }
+  if (st === 'no-model') {
+    const conv = cx.view && cx.view.conversation;
+    const n = conv ? conv.turns.length : 0;
+    box.replaceChildren(h('h3', null, 'A model is optional until you need an answer.'),
+      h('p', null, `${r && r.words ? r.words.replace(/^Send is off: /, 'Send is off: ') : 'No route for chat is set up.'}`),
+      h('p', null, 'Write a draft below: connecting a model later keeps your draft and this project’s local history in place.'),
+      h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn is-primary', 'data-cx': 'open-models' }, 'Choose a model →'), h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'setup-choices' }, 'Review setup choices')),
+      h('dl', { class: 'cx-avail' }, h('dt', null, 'Project files'), h('dd', null, 'available on this computer'), h('dt', null, 'Logs & records'), h('dd', null, 'kept on this computer'), h('dt', null, 'The saved conversation'), h('dd', null, n ? `${n} message${n === 1 ? '' : 's'} above` : 'none yet'), h('dt', null, 'AI answers'), h('dd', null, 'not connected')));
+    return;
+  }
+  // a route and no conversation yet: one useful next action
+  box.replaceChildren(h('h3', null, 'Start the conversation.'),
+    h('p', null, `Your first message goes to ${r.model} (${routeWhere(r)}). This page’s own chat is not saved to the project; the Workbench’s is.`),
+    h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'focus-composer' }, 'Write a message')));
 }
 
 function drawRoute() {
@@ -358,9 +479,11 @@ function drawComposer() {
     return;
   }
   send.classList.remove('is-stop');
-  send.textContent = 'Send ↑';
   const ready = Boolean(r && r.ready);
-  send.disabled = !ready || !input.value.trim();
+  send.textContent = ready || !r ? 'Send ↑' : 'Choose a model ↑';
+  send.disabled = ready ? !input.value.trim() : !r;
+  // with no route the panel's "Choose a model" is the one primary step; this one is a plain control
+  send.classList.toggle('is-muted', Boolean(r && !ready));
   send.title = !ready ? (r ? r.words || 'Send is off' : 'The route is not known yet') : !input.value.trim() ? 'Write a message first' : `Sends to ${r.model}: ${r.words || ''}`;
   input.placeholder = ready ? 'Ask a question, describe an idea, or make a plan…' : 'You can write a draft. Choose a model when you are ready.';
 }
@@ -400,7 +523,7 @@ async function sendNow() {
   cx.follow = true;
   drawChat();
   let raf = 0;
-  const redraw = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawChat(); }); };
+  const redraw = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawStreaming(); }); };
   try {
     await companion.chat(history, (event, data) => {
       if (event === 'delta' && typeof data === 'string') { turn.answer += data; redraw(); }
@@ -421,6 +544,33 @@ async function sendNow() {
 }
 
 function stopNow() { if (cx.running) cx.running.abort(); }
+
+/** What the Chat says for a moment (a Stop asked of another surface's turn, and its answer), in words. */
+function chatNote(words, state) {
+  const note = $('cx-note');
+  if (!note) return;
+  note.textContent = words;
+  note.hidden = !words;
+  if (state) note.dataset.state = state; else delete note.dataset.state;
+}
+
+/** Stop the project's turn another surface is answering, by its id (POST /api/chat/stop, the companion's existing route). */
+async function stopOther(btn) {
+  const id = btn.dataset.stopTurn || '';
+  if (!id || btn.getAttribute('aria-busy') === 'true') return;
+  btn.setAttribute('aria-busy', 'true');
+  btn.disabled = true;
+  try {
+    const r = await companion.fetch(`/api/chat/stop${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ turn: id }) });
+    const body = await r.json().catch(() => null);
+    chatNote(body && typeof (body.words || body.error) === 'string' ? (body.words || body.error) : `The companion answered HTTP ${r.status}.`, r.ok ? null : 'failed');
+  } catch (err) {
+    chatNote(`Not stopped: the companion could not be reached (${err && err.message ? err.message : String(err)}).`, 'failed');
+  } finally {
+    btn.removeAttribute('aria-busy');
+    btn.disabled = false;
+  }
+}
 
 // ── the Models rail ──
 
@@ -488,8 +638,13 @@ function modelDetail(row) {
     if (row.created) add('Added to OpenRouter', new Date(row.created * 1000).toISOString().slice(0, 10));
   } else {
     add('Runs', row.source === 'ollama-local' ? 'on this computer (local weights)' : 'in Ollama’s cloud: the chat leaves this computer');
+    if (row.parameterSize) add('Parameters', row.parameterSize);
+    if (row.quantization) add('Quantization', row.quantization);
     if (typeof row.sizeBytes === 'number') add('On disk', `${(row.sizeBytes / 1e9).toFixed(1)} GB (not the memory it needs)`);
+    add('Context', typeof row.contextLength === 'number' ? `${row.contextLength.toLocaleString('en-US')} tokens` : 'unknown');
     add('Tools', capWord(row.caps.tools));
+    add('Vision', capWord(row.caps.vision));
+    if (typeof row.running === 'boolean') add('Loaded now', row.running ? 'yes' : 'no');
   }
   const r = routeOf(cx.view);
   const use = h('div', { class: 'cm-use' });
@@ -498,7 +653,7 @@ function modelDetail(row) {
     use.append(h('button', { type: 'button', class: 'cx-btn', disabled: true, 'aria-describedby': 'cm-use-why' }, 'Use for the next turn'),
       h('p', { id: 'cm-use-why' }, `Not available on this page yet: its Send asks ${r && r.model ? r.model : 'the setup’s model'}, the setup’s choice. In the REPL, /setup chat keeps the model every surface uses.`));
   }
-  return h('div', { class: 'cm-detail', 'aria-live': 'polite' }, h('p', { class: 'cm-detail-k' }, 'Selected'), h('h3', null, row.name), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud'),
+  return h('div', { class: 'cm-detail', 'aria-live': 'polite' }, h('p', { class: 'cm-detail-k' }, 'Selected'), h('h3', null, row.name), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.makerLabel || row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud'),
     row.description ? h('p', null, row.description) : null, h('dl', { class: 'cm-facts' }, ...facts), use);
 }
 
@@ -547,7 +702,7 @@ function drawModelsRail() {
   const makers = (a && a.ok && a.makers) || [];
   kids.push(h('div', { class: 'cm-filters' },
     selectOpt('sort', 'Sort', m.q.sort, Object.entries(SORT_WORDS), 'is-sort'),
-    selectOpt('maker', 'Maker', m.q.maker, [['', 'All'], ...makers.map((x) => [x, x])]),
+    selectOpt('maker', 'Maker', m.q.maker, [['', 'All'], ...makers.map((x) => (typeof x === 'string' ? [x, x] : [x.id, `${x.label} (${x.count})`]))]),
     selectOpt('capability', 'Capability', m.q.capability, [['', 'All'], ['tools', 'Tools'], ['vision', 'Vision'], ['reasoning', 'Reasoning']]),
     selectOpt('cost', 'Cost', m.q.cost, [['', 'All'], ['free', 'Free only'], ['paid', 'Paid only']]),
     selectOpt('context', 'Context', m.q.context, [['', 'All'], ['32000', '32K+'], ['128000', '128K+'], ['1000000', '1M+']])));
@@ -557,7 +712,8 @@ function drawModelsRail() {
     const used = rows.find(inUse);
     m.selected = (used || rows[0]).id;
   }
-  kids.push(h('div', { class: 'cm-list-head' }, h('span', null, m.provider === 'openrouter' ? (a && a.from === 'cache' ? 'Public catalog snapshot' : 'Catalog') : m.sub === 'local' ? 'Installed on this computer' : 'Cloud-backed'), h('span', null, a && a.ok ? `${a.total} model${a.total === 1 ? '' : 's'}${a.total > rows.length ? ` · first ${rows.length}` : ''}` : '')));
+  const matched = a && a.ok ? (typeof a.matched === 'number' ? a.matched : rows.length) : 0;
+  kids.push(h('div', { class: 'cm-list-head' }, h('span', null, m.provider === 'openrouter' ? (a && a.from === 'cache' ? (a.cache === 'fetched' ? 'Public catalog · fetched' : 'Public catalog snapshot') : 'Catalog') : m.sub === 'local' ? 'Installed on this computer' : 'Ollama Cloud'), h('span', null, a && a.ok ? `${matched} model${matched === 1 ? '' : 's'}${matched > rows.length ? ` · first ${rows.length}` : ''}` : '')));
   const list = h('ul', { class: 'cm-list', id: 'cm-list', role: 'listbox', 'aria-label': 'Models' });
   if (!a) list.append(h('li', { class: 'cm-empty' }, 'Reading the models…'));
   else if (!a.ok) list.append(h('li', { class: 'cm-empty' }, a.error));
@@ -600,7 +756,7 @@ function drawControls() {
   for (const [id, glyph, words] of CONTROLS) kids.push(ctlButton(id, glyph, words, counts[id]));
   const other = f && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
   if (cx.running) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop' }, '■ Stop'));
-  else if (other) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop-other', 'data-stop-turn': other.id, title: other.words }, `■ Stop the turn in ${other.surface}`));
+  else if (other) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop-other', 'data-stop-turn': other.id, title: other.words }, `■ Stop the turn in ${SURFACE_SAID[other.surface] || 'another surface'}`));
   else kids.push(h('button', { type: 'button', class: 'cx-ctl is-off', disabled: true, title: 'Nothing is being answered now' }, '■ Stop'));
   kids.push(ctlButton('logs', '▤', 'Logs', 'this computer'), ctlButton('cloudflare', '☁', 'Cloudflare', ''));
   bar.replaceChildren(...kids);
@@ -692,7 +848,7 @@ document.addEventListener('click', (event) => {
   if (!at) return;
   const dest = at.closest('#rail-menu .rail-item');
   if (dest) {
-    if (dest.dataset.dest) { awayNote(''); showWorkspaceTab(dest.dataset.dest); return; }
+    if (dest.dataset.dest) { awayNote(''); document.body.classList.remove('rail-open'); showWorkspaceTab(dest.dataset.dest); return; }
     if (dest.dataset.away === 'connections') { awayNote(''); showWorkspaceTab('home'); const box = document.querySelector('.home-conn-box'); if (box) box.scrollIntoView({ block: 'nearest' }); return; }
     if (dest.dataset.away === 'files') { awayNote('files'); return; }
   }
@@ -712,11 +868,14 @@ document.addEventListener('click', (event) => {
   if (ctl) { openDrawer(ctl.dataset.cxCtl, ctl); return; }
   if (at.closest('#cx-keys')) { openDrawer('keys', $('cx-keys')); return; }
   if (at.closest('#cx-models-toggle')) { toggleModels(); return; }
+  if (at.closest('#cx-menu, #ws-menu')) { toggleRail(); return; }
   if (at.closest('#cx-change')) { toggleModels(true); $('cm-search')?.focus(); return; }
   const prov = at.closest('[data-cm-provider]');
   if (prov) { cx.models.provider = prov.dataset.cmProvider; cx.models.sub = prov.dataset.cmSub || 'local'; cx.models.chosenProvider = true; cx.models.answer = null; cx.models.selected = ''; drawModelsRail(); readModels(); document.getElementById(prov.id)?.focus(); return; }
   const row = at.closest('[data-model]');
   if (row && row.classList.contains('cm-row')) { cx.models.selected = row.dataset.model; drawModelsRail(); document.querySelector(`.cm-row[data-model="${CSS.escape(row.dataset.model)}"]`)?.focus(); return; }
+  const way = at.closest('[data-cx-way]');
+  if (way) { chooseWay(way.dataset.cxWay); return; }
   const act = at.closest('[data-cx]');
   if (!act) return;
   const what = act.dataset.cx;
@@ -727,18 +886,84 @@ document.addEventListener('click', (event) => {
   else if (what === 'focus-composer') $('cx-input')?.focus();
   else if (what === 'open-models') { toggleModels(true); $('cm-search')?.focus(); }
   else if (what === 'stop') stopNow();
-  else if (what === 'stop-other' && typeof stopTurn === 'function') stopTurn(act);
+  else if (what === 'stop-other') stopOther(act);
   else if (what === 'older') { closeDrawer(); $('cx-older')?.scrollIntoView({ block: 'start' }); }
+  else if (what === 'setup-back') { cx.setup = ''; drawChat(); document.querySelector('[data-cx-way]')?.focus(); }
+  else if (what === 'setup-choices') { setExplored(false); cx.setup = ''; cx.forceChoices = true; drawChat(); }
+  else if (what === 'refresh') { readView(true, true).then(() => readModels()); }
 });
+
+/** A first-run choice: a provider's setup in the center with the Models rail on it, or exploring without a model. */
+function chooseWay(id) {
+  if (id === 'explore') { setExplored(true); cx.setup = ''; cx.forceChoices = false; drawChat(); $('cx-input')?.focus(); return; }
+  cx.setup = id;
+  const m = cx.models;
+  m.provider = id === 'openrouter' ? 'openrouter' : id === 'cloudflare' ? 'cloudflare' : 'ollama';
+  m.sub = id === 'ollama-cloud' ? 'cloud' : 'local';
+  m.chosenProvider = true; m.answer = null; m.selected = '';
+  toggleModels(true);
+  drawChat();
+  readModels();
+  document.querySelector('[data-cx="setup-back"]')?.focus();
+}
+
+/** Under 1180 px the Models rail is a drawer over the conversation (closed until asked for), and under 760 px the menu is too. */
+const NARROW = '(max-width: 1180px)';
+const PHONE = '(max-width: 760px)';
+const narrow = () => { try { return matchMedia(NARROW).matches; } catch (e) { return false; } };
+let modelsFrom = null;
+
+function modelsShown() {
+  const body = $('cx-body');
+  if (!body) return false;
+  return narrow() ? body.classList.contains('models-open') : !body.classList.contains('models-closed');
+}
 
 function toggleModels(open) {
   const body = $('cx-body');
   const btn = $('cx-models-toggle');
   if (!body || !btn) return;
-  const show = open === undefined ? body.classList.contains('models-closed') : open;
-  body.classList.toggle('models-closed', !show);
+  const show = open === undefined ? !modelsShown() : open;
+  if (narrow()) {
+    if (show && !body.classList.contains('models-open')) modelsFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    body.classList.toggle('models-open', show);
+  } else {
+    body.classList.toggle('models-closed', !show);
+    try { localStorage.setItem('timmy.chat.models', show ? 'open' : 'closed'); } catch (e) { /* no storage here */ }
+  }
   btn.setAttribute('aria-pressed', show ? 'true' : 'false');
-  try { localStorage.setItem('timmy.chat.models', show ? 'open' : 'closed'); } catch (e) { /* no storage here */ }
+  btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+}
+
+/** A drawer of the narrow layout closed by Esc: focus goes back where it was. */
+function closeNarrowDrawers() {
+  const body = $('cx-body');
+  if (narrow() && body && body.classList.contains('models-open')) {
+    toggleModels(false);
+    const back = modelsFrom && document.contains(modelsFrom) ? modelsFrom : $('cx-models-toggle');
+    modelsFrom = null;
+    back?.focus();
+    return true;
+  }
+  return closeRail();
+}
+
+let railFrom = null;
+function toggleRail(open) {
+  const show = open === undefined ? !document.body.classList.contains('rail-open') : open;
+  if (show && !document.body.classList.contains('rail-open')) railFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  document.body.classList.toggle('rail-open', show);
+  for (const id of ['cx-menu', 'ws-menu']) $(id)?.setAttribute('aria-expanded', show ? 'true' : 'false');
+  if (show) document.querySelector('#rail-menu .rail-item[aria-current="page"]')?.focus();
+}
+/** The menu drawn over the page closed: focus goes back to what opened it. */
+function closeRail() {
+  if (!document.body.classList.contains('rail-open')) return false;
+  toggleRail(false);
+  const back = railFrom && document.contains(railFrom) && railFrom.getClientRects().length ? railFrom : (cx.dest === 'chat' ? $('cx-menu') : $('ws-menu'));
+  railFrom = null;
+  back?.focus();
+  return true;
 }
 
 document.addEventListener('change', (event) => {
@@ -751,7 +976,11 @@ document.addEventListener('input', (event) => {
   if (el instanceof HTMLTextAreaElement && el.id === 'cx-input') { saveDraft(); drawComposer(); }
 });
 document.addEventListener('submit', (event) => {
-  if (event.target instanceof HTMLFormElement && event.target.id === 'cx-composer') { event.preventDefault(); if (cx.running) stopNow(); else sendNow(); }
+  if (event.target instanceof HTMLFormElement && event.target.id === 'cx-composer') {
+    event.preventDefault();
+    const r = routeOf(cx.view);
+    if (cx.running) stopNow(); else if (r && !r.ready) { toggleModels(true); $('cm-search')?.focus(); } else sendNow();
+  }
 });
 document.addEventListener('keydown', (event) => {
   const at = event.target;
@@ -762,6 +991,7 @@ document.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Escape') {
     if (closeDrawer()) { event.preventDefault(); return; }
+    if (closeNarrowDrawers()) { event.preventDefault(); return; }
     const pm = $('rail-project-menu');
     if (pm && !pm.hidden) { toggleProjectMenu(false); $('rail-project')?.focus(); event.preventDefault(); return; }
   }
@@ -787,7 +1017,8 @@ $('cx-scroll')?.addEventListener('scroll', () => {
 (() => {
   let models = 'open';
   try { models = localStorage.getItem('timmy.chat.models') || 'open'; } catch (e) { models = 'open'; }
-  if (models === 'closed') toggleModels(false);
+  if (models === 'closed' && !narrow()) toggleModels(false);
+  $('cx-models-toggle')?.setAttribute('aria-expanded', modelsShown() ? 'true' : 'false');
   drawRail();
   restoreDraft();
   onDest(workspace.tab);

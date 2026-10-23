@@ -6,19 +6,28 @@
  * Real: the companion server, its token, the routes, the conversation file (.sessions, as the REPL keeps it) and a receipts
  * chain the test writes in the shape src/repl/seal.ts seals a turn (the page reads its model, status and surface, and
  * verifies nothing). FAKE, labelled: the local Ollama (tests/fixtures/fake-ollama-chat.ts, its model fake-qwen3:8b, no
- * model behind it). OpenRouter's rows come from tests/fixtures/openrouter-public-catalog-2026-10-22.json, OpenRouter's public
- * catalog of 2026-10-22 trimmed to six models, kept where `timmy models --refresh` keeps a fetched catalog.
+ * model behind it). OpenRouter's rows come from tests/fixtures/openrouter-public-catalog-2026-10-22.json (H169's: OpenRouter's
+ * public catalog of 2026-10-22 trimmed to 12 models), kept where `timmy models --refresh` keeps a fetched catalog. The rows
+ * and their query are H169's (src/models/catalog.ts, tested in tests/models-catalog.test.ts); here, what the Chat reads.
  */
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { companionProviders, catalogQueryOf, openRouterCatalog, openRouterRow, queryRows, savedConversation, type CatalogRow } from '../src/companion/chat-view.js';
+import { companionCatalog, companionProviders, catalogQueryOf, savedConversation } from '../src/companion/chat-view.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const FIXTURE = join(__dirname, 'fixtures', 'openrouter-public-catalog-2026-10-22.json');
+/** The fixture's models as `timmy models --refresh` keeps a fetched catalog in the Timmy home (models/openrouter-catalog.json). */
+interface FixtureModel { id: string; created?: number; pricing?: Record<string, string>; architecture?: { output_modalities?: string[] } }
+const FIXTURE_MODELS = (JSON.parse(readFileSync(FIXTURE, 'utf8')) as { data: FixtureModel[] }).data;
+const TEXT_MODELS = FIXTURE_MODELS.filter((m) => !m.architecture?.output_modalities || m.architecture.output_modalities.includes('text'));
+function keepCatalog(home: string): void {
+  mkdirSync(join(home, 'models'), { recursive: true });
+  writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: FIXTURE_MODELS }));
+}
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const ANSWER_1 = 'FAKE answer 1: a plan in three steps (no model behind it).';
 const ANSWER_2 = 'FAKE answer 2, which no receipt of this project seals.';
@@ -64,47 +73,28 @@ describe('the Chat\'s data: the saved conversation, the catalog rows and the pro
     expect(savedConversation(join(box, 'none'), {})).toEqual({ session: null, total: 0, turns: [] });
   });
 
-  it('OpenRouter\'s public rows: the maker, price per million and free only when both prices are 0 (a router\'s -1 is unknown), the capabilities the catalog lists', () => {
-    const cat = openRouterCatalog({}, { fetched: FIXTURE, shipped: join(box, 'absent.json') });
-    expect(cat).toMatchObject({ from: 'cache', fetchedAt: '2026-10-22T16:00:00.000Z' });
-    expect(cat.words).toContain('as this computer fetched it on 2026-10-22');
-    expect(cat.rows).toHaveLength(6);
-    const by = new Map(cat.rows.map((r) => [r.id, r]));
-    expect(by.get('recursive/flint-v1.0:free')).toMatchObject({ name: 'Recursive: Flint (free)', maker: 'Recursive', price: { inPerM: 0, outPerM: 0, free: true }, caps: { tools: true, vision: false }, contextLength: 262144 });
-    expect(by.get('minimax/minimax-m3.1-flash')).toMatchObject({ maker: 'MiniMax', price: { inPerM: 0.15, outPerM: 0.6, free: false }, caps: { tools: true, vision: true } });
-    expect(by.get('typesafe/jev-router')!.price).toEqual({ free: 'unknown' });
-    expect(by.get('scaledown/summarize')!.price).toMatchObject({ outPerM: 0, free: false });
-    expect(by.get('moondream/moondream3-preview')!.caps.tools).toBe(false);
-    expect(openRouterRow({ name: 'no id' })).toBeNull();
-    // no catalog on this computer: none, said so
-    expect(openRouterCatalog({}, { fetched: join(box, 'x.json'), shipped: join(box, 'y.json') })).toMatchObject({ rows: [], from: 'none' });
+  it('OpenRouter\'s rows as this computer keeps them, asking no one: the fetched copy with its date, else the snapshot shipped with Timmy', async () => {
+    const home = join(box, 'home-fetched');
+    keepCatalog(home);
+    const fetched = await companionCatalog('openrouter', { TIMMY_HOME: home });
+    expect(fetched).toMatchObject({ from: 'cache', cache: 'fetched', fetchedAt: '2026-10-22T16:00:00.000Z' });
+    expect(fetched.asked).toBeFalsy();
+    expect(fetched.words).toBe('OpenRouter\'s public catalog as this computer fetched it on 2026-10-22 (timmy models --refresh fetches it again); not a live quote');
+    expect(fetched.rows.map((r) => r.id).sort()).toEqual(FIXTURE_MODELS.map((m) => m.id).sort());
+    const shipped = await companionCatalog('openrouter', { TIMMY_HOME: join(box, 'home-empty') });
+    expect(shipped).toMatchObject({ from: 'cache', cache: 'shipped' });
+    expect(shipped.asked).toBeFalsy();
+    expect(shipped.words).toMatch(/^OpenRouter's public catalog of \d{4}-\d{2}-\d{2}, the snapshot shipped with Timmy/);
+    // Ollama Cloud's list is read only when asked: none here, said why
+    const cloud = await companionCatalog('ollama-cloud', { TIMMY_HOME: join(box, 'home-empty') });
+    expect(cloud).toMatchObject({ rows: [], from: 'none' });
+    expect(cloud.asked).toBeFalsy();
+    expect(cloud.words).toMatch(/^Ollama Cloud is not set up: no key/);
   });
 
-  it('sorts and filters: Recently added by when OpenRouter added it, a sort never resets a filter, unknown sorts last, makers listed, search over id, name and description', () => {
-    const rows = openRouterCatalog({}, { fetched: FIXTURE, shipped: join(box, 'absent.json') }).rows;
-    const ids = (r: { rows: CatalogRow[] }): string[] => r.rows.map((x) => x.id);
-    const recent = queryRows(rows, { source: 'openrouter', sort: 'recent' });
-    expect(recent.total).toBe(6);
-    expect(ids(recent)[0]).toBe('recursive/flint-v1.0:free');
-    const created = recent.rows.map((r) => r.created!);
-    expect([...created].sort((a, b) => b - a)).toEqual(created);
-    expect(recent.makers).toEqual([...recent.makers].sort((a, b) => a.localeCompare(b)));
-    expect(ids(queryRows(rows, { source: 'openrouter', sort: 'recent', cost: 'free' }))).toEqual(['recursive/flint-v1.0:free']);
-    // paid: priced and not free; the router's unknown price is neither
-    const paid = ids(queryRows(rows, { source: 'openrouter', sort: 'name', cost: 'paid' }));
-    expect(paid).not.toContain('typesafe/jev-router');
-    expect(paid).not.toContain('recursive/flint-v1.0:free');
-    // a sort with a filter keeps the filter
-    const vision = queryRows(rows, { source: 'openrouter', sort: 'price', capability: 'vision' });
-    expect(vision.rows.every((r) => r.caps.vision === true)).toBe(true);
-    expect(queryRows(rows, { source: 'openrouter', sort: 'context', capability: 'vision' }).total).toBe(vision.total);
-    // price: the unknown last
-    expect(ids(queryRows(rows, { source: 'openrouter', sort: 'price' })).at(-1)).toBe('typesafe/jev-router');
-    expect(ids(queryRows(rows, { source: 'openrouter', sort: 'recent', search: 'haiku' }))).toEqual(['anthropic/claude-haiku-5.5']);
-    expect(queryRows(rows, { source: 'openrouter', sort: 'recent', minContext: 1_000_000 }).rows.every((r) => (r.contextLength ?? 0) >= 1_000_000)).toBe(true);
-    expect(ids(queryRows(rows, { source: 'openrouter', sort: 'recent', maker: 'Moondream' }))).toEqual(['moondream/moondream3-preview']);
-    // the page's query: what it does not know is left out
+  it('the page\'s query: what it does not know is left out', () => {
     expect(catalogQueryOf({ source: 'ollama-local', sort: 'nonsense', capability: 'magic', cost: 'free', context: '-5', search: ' qwen ' })).toEqual({ source: 'ollama-local', sort: 'recent', cost: 'free', search: 'qwen' });
+    expect(catalogQueryOf({ source: 'openrouter', sort: 'price', capability: 'vision', cost: 'paid', context: '128000', maker: 'anthropic' })).toEqual({ source: 'openrouter', sort: 'price', capability: 'vision', cost: 'paid', minContext: 128000, maker: 'anthropic' });
   });
 
   it('the providers\' states without asking anything: a saved key is "saved, not checked", none is "not set up", Cloudflare is never checked from here', () => {
@@ -135,8 +125,7 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     const root = join(box, 'project');
     project(root);
     ollama = await startFakeOllama({ models: [{ name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'], size: 5_200_000_000 }, { name: 'fake-gpt-oss:120b-cloud', remote_host: 'https://ollama.com:443' }] });
-    mkdirSync(join(home, 'models'), { recursive: true });
-    copyFileSync(FIXTURE, join(home, 'models', 'openrouter-catalog.json'));
+    keepCatalog(home);
     writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'local', ollama: ollama.host, model: 'fake-qwen3:8b' } }));
     const env = { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: join(box, 'settings') };
     process.env.TIMMY_REPO = root;
@@ -169,25 +158,35 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     const local = body.providers.find((p: { id: string }) => p.id === 'ollama-local');
     expect(local).toMatchObject({ state: 'checked', words: '1 installed on this computer (its list of models; no model ran).' });
     expect(Date.parse(local.at)).toBeGreaterThan(Date.now() - 60_000);
-    // the one request off this process: the local Ollama's list of models, no model asked
-    expect(ollama.requests.map((r) => `${r.method} ${r.path}`)).toEqual(['GET /api/tags']);
+    // the requests off this process: the local Ollama's list of models and their facts; no model asked
+    const asked = new Set(ollama.requests.map((r) => `${r.method} ${r.path}`));
+    expect(asked.has('GET /api/tags')).toBe(true);
+    for (const a of asked) expect(['GET /api/tags', 'POST /api/show', 'GET /api/ps', 'GET /api/version']).toContain(a);
     expect(ollama.chats()).toHaveLength(0);
   });
 
-  it('the models: OpenRouter\'s rows sorted Recently added and filtered on the server; Ollama Local\'s installed model and the cloud-backed tag kept apart', async () => {
+  it('the models: OpenRouter\'s rows sorted Recently added and filtered on the server (a sort keeps a filter); Ollama Local\'s installed model; Ollama Cloud read only when asked', async () => {
     const or = (await get('/api/chat/models?source=openrouter')).body;
-    expect(or).toMatchObject({ ok: true, from: 'cache', total: 6, all: 6, query: { source: 'openrouter', sort: 'recent' } });
-    expect(or.rows[0].id).toBe('recursive/flint-v1.0:free');
+    expect(or).toMatchObject({ ok: true, from: 'cache', cache: 'fetched', all: TEXT_MODELS.length, matched: TEXT_MODELS.length, query: { source: 'openrouter', sort: 'recent' } });
+    const newest = [...TEXT_MODELS].sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
+    expect(or.rows[0].id).toBe(newest.id);
     expect(or.words).toContain('2026-10-22');
-    const free = (await get('/api/chat/models?source=openrouter&sort=name&cost=free')).body;
-    expect(free.rows.map((r: { id: string }) => r.id)).toEqual(['recursive/flint-v1.0:free']);
-    expect(free.query).toEqual({ source: 'openrouter', sort: 'name', cost: 'free' });
+    expect(or.makers.length).toBeGreaterThan(1);
+    expect(or.makers[0]).toEqual({ id: expect.any(String), label: expect.any(String), count: expect.any(Number) });
+    const free = (await get('/api/chat/models?source=openrouter&cost=free')).body;
+    expect(free.rows.length).toBeGreaterThan(0);
+    expect(free.rows.every((r: { price: { free: unknown } }) => r.price.free === true)).toBe(true);
+    expect(free.rows.map((r: { id: string }) => r.id)).toContain('recursive/flint-v1.0:free');
+    expect(free).toMatchObject({ all: TEXT_MODELS.length, matched: free.rows.length });
+    const byName = (await get('/api/chat/models?source=openrouter&sort=name&cost=free')).body;
+    expect(byName.query).toEqual({ source: 'openrouter', sort: 'name', cost: 'free' });
+    expect(byName.rows.map((r: { id: string }) => r.id).sort()).toEqual(free.rows.map((r: { id: string }) => r.id).sort());
     const local = (await get('/api/chat/models?source=ollama-local')).body;
     expect(local.rows.map((r: { id: string; installed: boolean }) => [r.id, r.installed])).toEqual([['fake-qwen3:8b', true]]);
-    expect(local.rows[0].price).toEqual({ inPerM: 0, outPerM: 0, free: true });
+    expect(local.rows[0].price).toMatchObject({ inPerM: 0, outPerM: 0, free: true });
     const cloud = (await get('/api/chat/models?source=ollama-cloud')).body;
-    expect(cloud.rows.map((r: { id: string; source: string; installed: boolean }) => [r.id, r.source, r.installed])).toEqual([['fake-gpt-oss:120b-cloud', 'ollama-cloud', false]]);
-    expect(cloud.rows[0].price.free).toBe('unknown');
+    expect(cloud).toMatchObject({ ok: true, rows: [], from: 'none', matched: 0 });
+    expect(cloud.words).toMatch(/^Ollama Cloud is not set up: no key/);
     expect(ollama.chats()).toHaveLength(0);
   });
 });
