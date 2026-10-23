@@ -510,9 +510,10 @@ function predictCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
  *  environment its run detail names, when it names one. */
 function sandboxRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Line[] {
   const { g } = c;
-  const rows: Line[] = [...head('Sandbox', 'where it runs', w, g)];
+  // R11 (H167, step 3d): the column is headed by where it runs, not "Sandbox": none runs in one (the word is said only to say so)
+  const rows: Line[] = [...head('Run', 'where it runs', w, g)];
   // (R10 H163; H168's F4: the runner, upmd, is the Inspector's, [i])
-  rows.push(...para('this computer, in the project folder', w, 'text', '', 2, g.ellipsis));
+  rows.push(...para('this computer, in the project folder; no sandbox', w, 'text', '', 2, g.ellipsis));
   // R10 (H167): the runner's file and the environment its run detail names are the Inspector's ([i]), not this column's
   void run;
   return rows;

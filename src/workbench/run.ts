@@ -25,6 +25,7 @@ import { tildePath } from '../utils/home-scrub.js';
 import { ownScreen } from '../utils/logger.js';
 import { appendReceipt, receiptsDir } from '../utils/receipts.js';
 import { WorkbenchApp } from './app.js';
+import { osc52 } from './clipboard.js';
 import { Controller } from './controller.js';
 import { glyphsFor } from './frame.js';
 import { CompanionControl, StudioControl, systemOpener } from './servers.js';
@@ -100,6 +101,8 @@ export async function runWorkbench(): Promise<number> {
       return capabilities(liveDeps({ env, model: 'the configured model', projectRoot: ws.root }));
     },
     onExit: (code, words) => { after = words; finish(code); },
+    // R11 (H167, step 3e; H168's R22): the clipboard escape, to the terminal this Workbench draws on (none: nothing is sent)
+    copy: (text) => { if (!process.stdout.isTTY) return false; process.stdout.write(osc52(text)); return true; },
   });
   say = (text) => { if (text) controller.say(text); };
   ask = (req) => controller.askPerson(req);

@@ -117,7 +117,7 @@ export function frameOf(a: FrameAsk): Frame {
   // the Chat tab's pipeline row, above its two columns
   if (layout.strip) {
     const c = ctx(layout.strip);
-    placed.push({ rect: layout.strip, rows: panel({ title: 'Pipeline · intent → predict → sandbox → receipt', lines: pipelineLines(c, c.width), focused: false }, layout.strip, g) });
+    placed.push({ rect: layout.strip, rows: panel({ title: 'Pipeline · intent → predict → run → receipt', lines: pipelineLines(c, c.width), focused: false }, layout.strip, g) });
   }
 
   // the navigation drawer (its selection is the workspace shown)

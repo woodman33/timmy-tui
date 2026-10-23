@@ -180,7 +180,7 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
         await t.keys(p.key);
         await t.waitFor(p.title, `${p.name} at ${w}x${h}`);
         // the run's end is read (Chat's pipeline names its receipt) and the frame's waiting counts are drawn
-        if (p.name === 'chat') await t.waitFor(/Pipeline · intent → predict → sandbox → receipt[\s\S]*sealed/, `Chat's pipeline with the run's sealed records at ${w}x${h}`);
+        if (p.name === 'chat') await t.waitFor(/Pipeline · intent → predict → run → receipt[\s\S]*sealed/, `Chat's pipeline with the run's sealed records at ${w}x${h}`);
         if (p.name === 'control-room') await t.waitFor(new RegExp(`${leftId} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300`), `the FAKE job's pane in the Control Room at ${w}x${h}`);
         // kept once it is whole (its tab's title, its bottom border, its key-hint line) and the same in two reads
         const name = `${p.name}-${w}x${h}-FAKE-fixtures`;

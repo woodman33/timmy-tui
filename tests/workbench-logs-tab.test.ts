@@ -208,7 +208,7 @@ describe('tab 0: the event log, the sequence cards and the raw output', () => {
     }
   });
 
-  it('the sequence: .intent and .predict amber, sandbox / run grey, .receipt green only as verifyReceiptIn confirms it now', () => {
+  it('the sequence: .intent and .predict amber, run grey, .receipt green only as verifyReceiptIn confirms it now; the cards\' plain words (R11 step 3d)', () => {
     const f = fixture();
     const d = readLogs({ home: f.home, root: f.root, env: env() });
     const k = indexOf(d, (e) => e.tag === 'workflow');
@@ -219,9 +219,24 @@ describe('tab 0: the event log, the sequence cards and the raw output', () => {
       // (R7 H150: .intent and .predict amber, role accent; keys and commands are role action, the text's colour: B10)
       expect(rolesOf(v.lines, /^\s*\.intent\s*$/)).toEqual(['accent']);
       expect(rolesOf(v.lines, /^\s*\.predict\s*$/)).toEqual(['accent']);
-      // the run is structure: its card's title grey beside the others, its label plain in the stacked rows
-      expect(rolesOf(v.lines, /^\s*sandbox \/ run\s*$/)).toEqual([c >= COLUMNS_FROM ? 'border' : 'strong']);
+      // the run is structure: its card's title grey beside the others, its label plain in the stacked rows (R11 H167 step
+      // 3d: the label is `run`, never "sandbox": none ran in one, and the card says so in words)
+      // (the card's title segment is the bare word, grey; an event row's tag "run" is bare too at 120 columns, strong, and is
+      // not the card's; the stacked label is padded)
+      if (c >= COLUMNS_FROM) expect(rolesOf(v.lines, /^run$/).filter((r) => r !== 'strong')).toEqual(['border']);
+      else expect(rolesOf(v.lines, /^\s+run\s+$/)).toEqual(['strong']);
+      expect(all).not.toMatch(/sandbox \//);
       expect(rolesOf(v.lines, /^\s*\.receipt\s*$/)).toEqual(['live']);
+      if (c >= COLUMNS_FROM) {
+        // the cards' plain words beside their labels (R11 step 3d), each whole (a card too narrow for the fullest takes a
+        // shorter one: "This computer; no sandbox" at 120 columns); the run's always says that no sandbox ran, and its row
+        // says what ran it, where
+        expect(all).toMatch(c >= 160 ? /\.intent  The request, as recorded ── o1a2b3c4d/ : /\.intent  The request\S* o1a2b3c4d/);
+        expect(all).toMatch(c >= 160 ? /\.predict  Prediction, sealed before the run ─/ : /\.predict  (?:Sealed before the run|Prediction) ─/);
+        expect(all).toMatch(c >= 160 ? /run  Ran on this computer; no sandbox ─/ : /run  (?:On this computer; no sandbox|This computer; no sandbox) ─/);
+        expect(all).toMatch(c >= 160 ? /\.receipt  Receipt, sealed after the run ━/ : /\.receipt  Sealed after the run ━/);
+        expect(all).toMatch(/upmd · this computer · no sandbox/);
+      } else expect(all).toMatch(/run +j1a2b3c build\.md › build · completed · took [\d.]+ s · exit 0 · upmd · this/);
       // the request whole where its card has room for it
       expect(all).toMatch(/\/run build\.md build/);
       expect(all).toMatch(/sealed before/);
@@ -252,7 +267,7 @@ describe('tab 0: the event log, the sequence cards and the raw output', () => {
     const stacked = text(logsView(ctxAt(100, 30, flow), d).lines);
     expect(stacked).toMatch(/\.intent +not recorded · no \.timmy\/operations\/o0000beef\.json in this project/);
     expect(stacked).toMatch(/\.predict +not recorded · no prediction is sealed for this operation/);
-    expect(stacked).toMatch(/sandbox \/ run +not recorded · no job or run of this operation is recorded/);
+    expect(stacked).toMatch(/run +not recorded · no job or run of this operation is recorded/);
     const lone = indexOf(d, (e) => e.tag === 'run');
     const w = logsView(ctxAt(100, 30, lone), d);
     expect(text(w.lines)).toMatch(/This row names no operation: there is no sequence to show\./);

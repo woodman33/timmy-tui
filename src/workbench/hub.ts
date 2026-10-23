@@ -12,7 +12,7 @@
  *   Home         the connection cards, as observed (● live green only for an observed answer; ○ configured; ✕ unreachable
  *                or refused, amber; · not set up with its step; ? unknown), and a preview: what the companion and Studio
  *                show, in words (the board, the files, the last run), with Companion · Show (c) to see it rendered
- *   Chat         the pipeline row (intent → predict → sandbox → receipt) of the newest run, from its records, and the event
+ *   Chat         the pipeline row (intent → predict → run → receipt) of the newest run, from its records, and the event
  *                log, newest at the top
  *   the log      Activity & log's newest lines, from the frame's log
  *
@@ -732,9 +732,19 @@ export function plainWords(words: string, data: Pick<Data, 'jobs'>): string {
 
 // ── Chat: the pipeline row and the event log ───────────────────────────────────
 
+// R11 (H167, step 3d): the third chip is `run`, never `sandbox`: no run of this project is recorded as run in a sandbox
+// (src/workbench/state.ts readPipeline says what ran it); the word sandbox is said only to say none ran
 const STAGES: ReadonlyArray<{ id: 'intent' | 'predict' | 'sandbox' | 'receipt'; name: string }> = [
-  { id: 'intent', name: 'intent' }, { id: 'predict', name: 'predict' }, { id: 'sandbox', name: 'sandbox' }, { id: 'receipt', name: 'receipt' },
+  { id: 'intent', name: 'intent' }, { id: 'predict', name: 'predict' }, { id: 'sandbox', name: 'run' }, { id: 'receipt', name: 'receipt' },
 ];
+
+/** R11 (H167, step 3d): the run chip's wordings, the fullest first: "ran on this computer; no sandbox" where the row holds
+ *  it whole beside the other chips' words, else shorter, never a claim of a sandbox (none is recorded for any run yet). */
+function runWordings(s: PipelineStage): readonly string[] {
+  if (s.state === 'running') return ['running on this computer; no sandbox', 'running; no sandbox', 'running here'];
+  if (s.state === 'failed') return ['failed on this computer; no sandbox', 'failed; no sandbox', 'failed here'];
+  return ['ran on this computer; no sandbox', 'this computer; no sandbox', 'this computer'];
+}
 
 /** A stage's role: .intent and .predict amber when recorded; a verified receipt green; a failure amber with ✕; else quiet. */
 function stageRole(id: string, s: PipelineStage): Role {
@@ -745,7 +755,7 @@ function stageRole(id: string, s: PipelineStage): Role {
   return 'text';
 }
 
-/** The Chat tab's pipeline row: intent → predict → sandbox → receipt of the newest run, from its records; two rows. */
+/** The Chat tab's pipeline row: intent → predict → run → receipt of the newest run, from its records; two rows. */
 export function pipelineLines(c: ViewCtx, width: number): Line[] {
   const g = c.g;
   const p = c.data.pipeline;
@@ -766,7 +776,14 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   const words = stages.map((x) => stageWords(x.st.id, x.s, p ?? null));
   const room = width - fixed;
   const receiptRoom = Math.max(1, Math.min(lineCells([S(words[3])]), room - 3 * 12));
-  const three = fillShares(words.slice(0, 3), room - receiptRoom, g, [2, 1, 0]);
+  // R11 (H167, step 3d): the run chip takes the fullest of its wordings that leaves the other two whole (the plan's "Ran on
+  // this computer; no sandbox" where the row holds it; "this computer" at the least); a wording is chosen, not cut
+  const threeRoom = room - receiptRoom;
+  const others = lineCells([S(words[0])]) + lineCells([S(words[1])]);
+  const ran = stages[2].s.state;
+  const run = ran === 'done' || ran === 'running' || ran === 'failed' ? runWordings(stages[2].s) : [words[2]];
+  words[2] = run.find((w) => others + lineCells([S(w)]) <= threeRoom) ?? run[run.length - 1];
+  const three = fillShares(words.slice(0, 3), threeRoom, g, [2, 1, 0]);
   const texts = [...three, cut(words[3], receiptRoom, g.ellipsis)];
   const row: Line = [];
   stages.forEach((x, i) => {
@@ -780,8 +797,11 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   const head: Seg[] = p?.kind === 'chat'
     ? [S('newest turn ', 'secondary'), S((p.label ?? 'chat turn').replace(/^chat turn /, ''), 'strong'), ...(p.live ? [S(` ${g.sep} being answered now`, 'secondary')] : [])]
     : [S('newest run ', 'secondary'), S(p?.label ?? '', 'strong')];
+  // (R11 step 3d: where the chip holds only its shortest wording, "this computer", the row under says the whole: "ran on this
+  // computer; no sandbox")
+  const whole: Seg[] = p && run.length > 1 && !words[2].includes('no sandbox') ? [S(` ${g.sep} ${run[0]}`, 'secondary')] : [];
   const source: Line = p?.operation
-    ? [...head, ...(p.kind === 'chat' && asked ? [S(` ${g.sep} asked: `, 'secondary'), S(asked, 'text')] : []), S(`  ${g.sep} `, 'secondary'), key('i'), S(' its records', 'secondary')]
+    ? [...head, ...whole, ...(p.kind === 'chat' && asked ? [S(` ${g.sep} asked: `, 'secondary'), S(asked, 'text')] : []), S(`  ${g.sep} `, 'secondary'), key('i'), S(' its records', 'secondary')]
     : [S('Nothing has run in this project yet: each stage says not run yet. A run from 3 Workflows, or a message sent here, fills it as its records are written.', 'secondary')];
   return [row, source];
 }
@@ -794,9 +814,11 @@ function stageWords(id: (typeof STAGES)[number]['id'], s: PipelineStage, p: Data
   if (id === 'predict') return s.state === 'done' ? 'sealed before it ran' : 'none sealed';
   if (id === 'sandbox') {
     // none is recorded for any run yet (src/workbench/state.ts readPipeline); R10 (H167; the lead's note on the A2 captures: the
-    // chip was cut at 122 columns): what ran it is the source row's ("newest turn in the Workbench"), not the chip's
+    // chip was cut at 122 columns): what ran it is the source row's ("newest turn in the Workbench"), not the chip's;
+    // R11 (H167, step 3d): the chip is `run` and says where (this computer) and that no sandbox ran (runWordings chooses the
+    // wording the row holds; this is the fullest)
     void p;
-    return `none${s.state === 'running' ? ', running' : s.state === 'failed' ? ', failed' : ''}`;
+    return runWordings(s)[0];
   }
   return s.state === 'done' ? (s.verified ? 'sealed · verified here' : 'sealed') : s.state === 'failed' ? 'does not verify' : s.state === 'running' ? 'not sealed yet' : 'none sealed';
 }

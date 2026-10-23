@@ -285,8 +285,10 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(L).toContain('frozen before the run');
     expect(L).not.toContain('frozen before the run: not recorded');
     // centre: where it ran, the run's blocks, its log's last lines (cut, never wrapped), the RUN box, the preview line
-    expect(C).toContain('SANDBOX · where it runs');
-    expect(flat(centre)).toContain('this computer, in the project folder');
+    // (R11 H167 step 3d: headed RUN, not SANDBOX: none runs in one, and the row says so)
+    expect(C).toContain('RUN · where it runs');
+    expect(C).not.toContain('SANDBOX');
+    expect(flat(centre)).toContain('this computer, in the project folder; no sandbox');
     // the environment the run detail names (its env lock), where it names one; upmd over a pipe adds no runner line
     // (R10 H167: the environment its run detail names, and the runner, are the Inspector's)
     expect(flat(centre)).not.toMatch(/\(upmd\) environment \S/);
@@ -510,8 +512,10 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     const all = at100.text.join('\n');
     expect(all.indexOf('WORKFLOW.md')).toBeLessThan(all.indexOf('RUN PAIR.md › second'));
     expect(all.indexOf('RUN PAIR.md › second')).toBeLessThan(all.indexOf('second.intent'));
-    expect(all.indexOf('second.intent')).toBeLessThan(all.indexOf('SANDBOX'));
-    expect(all.indexOf('SANDBOX')).toBeLessThan(all.indexOf('second.receipt'));
+    // (R11 H167 step 3d: the centre column is headed RUN · where it runs, never SANDBOX)
+    expect(all.indexOf('second.intent')).toBeLessThan(all.indexOf('RUN · where it runs'));
+    expect(all.indexOf('RUN · where it runs')).toBeLessThan(all.indexOf('second.receipt'));
+    expect(all).not.toContain('SANDBOX');
     expect(at100.v.items[ui.cursor['center:workflows']].line).toBeLessThan(AT_100.height);
     // a short body (160 columns, 14 rows): each column clipped says which of its rows show
     const short = body(data, ui, { width: 156, height: 14, columns: 160 });

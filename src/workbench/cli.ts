@@ -33,7 +33,7 @@ export function workbenchHelp(): string {
     '           the one primary next step amber, one that cannot run now grey (#8E8E93; selected, it says why); the run',
     '           state and Stop current',
     '  Body     Home: the connections as last observed, and a preview in words of what the companion and Studio show',
-    '           (c and s show them rendered). Chat: the pipeline (intent, predict, sandbox, receipt, from the records, else',
+    '           (c and s show them rendered). Chat: the pipeline (intent, predict, run, receipt, from the records, else',
     '           "not run yet"), the conversation and its composer, and the event log, the newest first. Every other tab:',
     '           its workspace, with Context (Tools, Inspector, Files) beside it from 120 columns, a drawer below (i)',
     '  Foot     Activity & log: the newest events (a expands it), then the keys',

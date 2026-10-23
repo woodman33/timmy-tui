@@ -50,7 +50,7 @@ export interface Layout {
   /** whether row 2 has its detail row (the selected action, the run state and Stop): false on a short terminal, where the
    *  run state and Stop move to Activity's first row */
   topDetail: boolean;
-  /** the Chat tab's pipeline row (intent → predict → sandbox → receipt), above its two columns */
+  /** the Chat tab's pipeline row (intent → predict → run → receipt), above its two columns */
   strip: Rect | null;
   nav: Rect | null;
   /** R10 CHAT (H167): 'rail': the Chat screen's permanent left rail */

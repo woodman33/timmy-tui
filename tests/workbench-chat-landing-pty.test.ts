@@ -200,10 +200,15 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     await sendKeys(pane, ['Enter']);
     const signin = await waitScreen(pane, { what: 'the sign-in\'s address', re: /The address to sign in at[\s\S]*Open it in the browser/, ms: 20_000 });
     keepScreen(pane, CAPTURES, 'chat-landing-122x37-01b-openrouter-signin', { foot: 'drawn' });
+    // (R11 step 3e, H168's R22: the rows read on without a break: no indent, each but the last the center's whole width)
     const mid = signin.split('\n').map((r) => cols(r, 20, 89));
-    const at = mid.findIndex((r) => r.startsWith('  https://openrouter.ai/auth?'));
+    const at = mid.findIndex((r) => r.startsWith('https://openrouter.ai/auth?'));
     const parts: string[] = [];
-    for (let k = at; k >= 0 && /^ {2}\S+$/.test(mid[k] ?? ''); k++) parts.push(mid[k].slice(2));
+    for (let k = at; k >= 0 && /^\S+$/.test(mid[k] ?? ''); k++) parts.push(mid[k]);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.slice(0, -1).every((r) => [...r].length === 69)).toBe(true);
+    // (under them, c's row: what is known of the terminal tmux gives this pane: unknown, or kitty's or WezTerm's yes)
+    expect(mid[at + parts.length]).toMatch(/^c (?:sends it to the clipboard \(OSC 52; the paste shows whether this|copies it to the clipboard \(OSC 52, which this terminal takes by)$/);
     const url = parts.join('');
     expect(url).toMatch(/^https:\/\/openrouter\.ai\/auth\?callback_url=http%3A%2F%2F127\.0\.0\.1%3A\d+%2Fopenrouter%2Fcallback%2F[\w-]+&code_challenge=[\w-]{43}&code_challenge_method=S256$/);
     expect(existsSync(join(box, 'opened.log'))).toBe(false);

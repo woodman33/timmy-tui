@@ -193,7 +193,8 @@ export interface PipelineStage {
   verified?: boolean;
 }
 
-/** R5 (H131): the Chat tab's pipeline row: intent → predict → sandbox → receipt, of the project's newest run. */
+/** R5 (H131): the Chat tab's pipeline row: intent → predict → run → receipt, of the project's newest run (the third stage's
+ *  key stays `sandbox`: its words say what ran it and that no sandbox did; R11 H167 step 3d). */
 export interface PipelineView {
   operation: string | null;
   /** the run's job, by its label (a chat turn: "chat turn in the Workbench") */
@@ -329,6 +330,8 @@ export interface Ui {
   /** R7 (H150): `whileTurn`: a notice about a turn being answered (its id): drawn as fresh only while that turn is answered */
   flash: { text: string; role: Role; at: number; whileTurn?: string } | null;
   mouse: boolean;
+  /** R11 (H167, step 3e; H168's R22): what is known of the terminal's OSC 52 (src/workbench/clipboard.ts), set once at start */
+  clipboard?: 'yes' | 'no' | 'unknown';
   /** the right Files tab shows only the files related to the selection */
   related: boolean;
   settings: SettingsRead;

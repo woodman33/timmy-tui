@@ -28,6 +28,7 @@ import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { MANUAL_WORDS } from '../setup/openrouter-signin.js';
+import { copyWords } from './clipboard.js';
 import { KEY_PAGE } from '../setup/provider-keys.js';
 import { describeCheck } from '../setup/providers-state.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, noModelChosen, type FileRow, type JobRow } from './state.js';
@@ -661,6 +662,9 @@ function chatView(c: ViewCtx): View {
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
   else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S(shell ? 'No conversation here yet: Enter writes the first message.' : '  No conversation is kept in this project yet.', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
+  // R11 (H167, step 3; H168's pass 4a R38): on the Chat screen a message is drawn selected only while the conversation has the
+  // keyboard (not the composer, Models or the bottom) and one was chosen (↑ ↓ or a click): the cursor's row alone is no mark
+  const marks = !shell || (c.ui.focus === 'center' && !c.ui.input.field && !!c.ui.chosen?.['center:chat']);
   // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
   const bodyW = Math.max(8, c.width - 2 - 6);
   const under = (b: string, sel: boolean, role: Role = 'text'): Line => [S('  ', 'text', sel ? { selected: true } : {}), S(' '.repeat(6), 'text', sel ? { selected: true } : {}), S(b, role, sel ? { selected: true } : {})];
@@ -668,7 +672,7 @@ function chatView(c: ViewCtx): View {
   const stoppedHere = turn && turn.state === 'cancelled' ? stoppedNote(turn, data, g) : null;
   let noted = false;
   msgs.forEach((m, i) => {
-    const sel = i === cur;
+    const sel = marks && i === cur;
     const item: Item = { kind: 'message', key: `msg:${i}`, role: m.role, text: m.text };
     // R5 (H131; the QA of e7f853e, defect 8): Timmy's own record of a turn that ended without its answer (src/agent/core.ts
     // isTimmyRecord) is not the model's words: never under the speaker's label. The partial answer it quotes is shown once,
@@ -1079,11 +1083,14 @@ function connectView(c: ViewCtx, o: ConnectBox): View {
       break;
     case 'signin': {
       title('Sign in with OpenRouter');
-      lines.push(...para('The address to sign in at (OpenRouter\'s own page; it holds no secret):', c.width, 'text'));
+      // R11 (H167, step 3e; H168's R22): the address in rows that read on without a break (no indent, each row the box's whole
+      // width, the next row taking up where the last ended), and under them how to copy it: c through OSC 52 where the
+      // terminal takes that (src/workbench/clipboard.ts says what is known), else the mouse
+      lines.push(...para('The address to sign in at (OpenRouter\'s own page; it holds no secret); its rows read on without a break:', c.width, 'text'));
       const url = o.url ?? '';
-      const w = Math.max(8, c.width - 2);
-      for (let k = 0; k < url.length; k += w) lines.push([S('  '), S(url.slice(k, k + w), 'action', { raw: true })]);
-      lines.push(blank);
+      const w = Math.max(8, c.width);
+      for (let k = 0; k < url.length; k += w) lines.push([S(url.slice(k, k + w), 'action', { raw: true })]);
+      lines.push(...para(copyWords(ui.clipboard ?? 'unknown'), c.width), blank);
       choices();
       note();
       lines.push(blank, ...para('Waiting for OpenRouter\'s answer (5 minutes at most): this box says when the key is saved. Esc cancels the sign-in; nothing is saved then.', c.width));
@@ -1652,7 +1659,7 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       const p = c.data.pipeline;
       lines.push(heading('Newest operation · details'));
       lines.push(...fieldRows('Operation', p.operation ?? 'none', w, 'text', 10));
-      for (const [k, st] of [['Intent', p.intent], ['Predict', p.predict], ['Sandbox', p.sandbox], ['Receipt', p.receipt]] as const) lines.push(...fieldRows(k, st.words, w, 'text', 10));
+      for (const [k, st] of [['Intent', p.intent], ['Predict', p.predict], ['Run', p.sandbox], ['Receipt', p.receipt]] as const) lines.push(...fieldRows(k, st.words, w, 'text', 10));
       lines.push(blank);
     }
     return { lines: [...lines, ...diagnosticsLines(c)], items: [] };
