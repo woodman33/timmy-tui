@@ -35,7 +35,7 @@ const ambers = (page: Page): Promise<Amber[]> => page.evaluate(() => {
     ['the active tab', (el) => (within(el, '#ws-tabs [role="tab"][aria-selected="true"]') && !within(el, '.tab-waiting')) || within(el, '#rail-menu .rail-item[aria-current="page"]')],
     // R10 CHAT (H171): the Models rail's search and filters draw their focus on their box
     // R11 (H171): the composer's field draws its focus on its box too
-    ['focus', (el) => el.matches(':focus-visible') || el.matches('.cm-search:focus-within, .cm-filter:focus-within, .cx-composer:focus-within')],
+    ['focus', (el) => el.matches(':focus-visible') || el.matches('.cm-search:focus-within, .cm-filter:focus-within, .cx-composer:focus-within, .rail-find:focus')],
     // the strip's primary; on tab 9, where the strip gives none, the inspector's own one primary action (H142). R10 CHAT (H171):
     // on Chat, the composition's: Send, the first run's suggested way, or the no-model state's Choose a model
     ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary, .cx-send:not(.is-muted):not(:disabled), .cx-btn.is-primary, .cx-way.is-suggested')],

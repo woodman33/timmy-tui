@@ -517,11 +517,16 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const { page, context, errors, outside } = await open();
     try {
       await openTab(page, 'chat');
-      // R10 CHAT (H171): on Chat the strip is drawn behind the composition (its words checked below), whose own control offers
-      // the same Stop, in words
+      // R10 CHAT (H171): on Chat the strip is drawn behind the composition (its words checked below); R11 step 3: Stop lives in
+      // the composer: its button is Stop while the Workbench answers, saying so beside it
       const btn = await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { state: 'attached', timeout: 15_000 });
-      const own = await page.waitForSelector(`#cx-controls [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
-      expect(await own.textContent()).toBe('■ Stop the turn in the Workbench');
+      // (this home has no route: the first run is shown and the composer is away, so the row keeps the Stop; with the composer
+      // shown, its button is the Stop, "Being answered in the Workbench: Stop asks it to stop." beside it)
+      const own = await page.waitForSelector(`#cx-composer [data-stop-turn="${t.hold.id}"]:visible, #cx-controls [data-stop-turn="${t.hold.id}"]:visible`, { timeout: 15_000 });
+      expect(await own.textContent()).toMatch(/^(?:Stop|■ Stop the turn in the Workbench)$/);
+      // the status row says the running turn in its sentence, whole (it wraps rather than cuts)
+      await page.waitForFunction(() => /^Logs stay on this computer · 1 running \(the chat turn\)$/.test((document.querySelector('#cx-status .is-logs') as HTMLElement | null)?.innerText.replace(/\s+/g, ' ').trim() ?? ''), null, { timeout: 15_000 });
+      expect(await page.$eval('#cx-status .is-logs .cx-st-v', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
       // (R10 H167: where its own key is, in words beside the label, not a command chip)
       expect(await btn.textContent()).toMatch(/^3\.Stop the turn· from this page, or Esc in the composer that sent it \(the Workbench\)$/);
       expect(await btn.getAttribute('class')).toContain('is-primary');

@@ -41,6 +41,8 @@ const cx = {
   /** R11 step 1: a choice of model under way on this page ({ model, source }), and the last choice's outcome for the rail's row */
   choosing: null,
   chose: null,
+  /** R11 step 3: what the rail's finder holds */
+  find: '',
 };
 
 const CX_VIEW_EVERY_MS = 4000;
@@ -68,38 +70,68 @@ function redraw(root, kids) {
 
 // ── the left menu ──
 
-/** The destinations, Chat first; `id` a tab of this page, `away` one this page does not have (it says where it opens). */
+/**
+ * The destinations in the terminal's groups (R11 step 3; H167's rail labels): Chat, the one item under no label; WORK, CREATE and
+ * CONNECT as labels. `id` a tab of this page, `away` one this page does not have (it says where it opens). Each old route stays
+ * reachable: Runs & receipts is the Logs page, Canvas is Studio, Vision is VoxVision, Motion & 3D the create page, Models &
+ * accounts opens Home at its connections, Tools & integrations the Tools & MCP page; Fleet & Clef (this page's own tab) keeps
+ * its place under CONNECT.
+ */
 const DESTS = [
   { id: 'chat', label: 'Chat', glyph: '▤' },
-  { id: 'studio', label: 'Studio', glyph: '▦' },
-  { id: 'workflows', label: 'Workflows', glyph: '⇄' },
-  { id: 'voxvision', label: 'VoxVision', glyph: '◈' },
-  { id: 'create', label: 'Motion', glyph: '∿' },
-  { id: 'control', label: 'Control Room', glyph: '≡' },
+  { group: 'Work' },
   { away: 'files', label: 'Files', glyph: '▢', where: 'terminal' },
-  { id: 'logs', label: 'Logs & records', glyph: '☰' },
-  { away: 'connections', label: 'Connections', glyph: '⌁', where: 'Home' },
-  null,
-  { id: 'home', label: 'Home', glyph: '⌂' },
+  { id: 'workflows', label: 'Workflows', glyph: '⇄' },
+  { id: 'logs', label: 'Runs & receipts', glyph: '☰' },
+  { id: 'studio', label: 'Canvas', glyph: '▦', where: 'Studio' },
+  { group: 'Create' },
+  { id: 'voxvision', label: 'Vision', glyph: '◈' },
+  { id: 'create', label: 'Motion & 3D', glyph: '∿' },
+  { group: 'Connect' },
+  { id: 'home', label: 'Models & accounts', glyph: '⌁', scroll: 'connections' },
+  { id: 'tools', label: 'Tools & integrations', glyph: '⚒' },
+  { id: 'control', label: 'Control Room', glyph: '≡' },
   { id: 'fleet', label: 'Fleet & Clef', glyph: '⋔' },
-  { id: 'tools', label: 'Tools & MCP', glyph: '⚒' },
 ];
 
 function drawRail() {
   const menu = $('rail-menu');
   if (!menu) return;
   const tabs = new Map(((workspace.frame && workspace.frame.tabs) || []).map((t) => [String(t.id), t]));
-  const items = DESTS.map((d) => {
-    if (!d) return h('hr', { class: 'rail-rule', 'aria-hidden': 'true' });
+  const q = (cx.find || '').trim().toLowerCase();
+  const items = [];
+  let group = null;
+  for (const d of DESTS) {
+    if (d.group) { group = h('div', { class: 'rail-sec rail-group', 'data-rail-group': d.group.toLowerCase() }, d.group); items.push(group); continue; }
+    if (q && !d.label.toLowerCase().includes(q) && !(d.id || '').includes(q)) continue;
     const t = d.id ? tabs.get(d.id) : null;
     const waiting = t && t.waiting > 0 ? ` · ${t.waiting}` : '';
-    const title = d.id ? `${t ? t.label : d.label}${t ? ` (key ${t.key})` : ''}${t && t.waiting > 0 ? `: ${t.waiting} waiting on you` : ''}` : d.away === 'files' ? 'Files: not on this page; the project’s folder opens in the terminal or your file manager' : 'Connections: on Home (its connections and runtimes)';
-    return h('button', {
-      type: 'button', class: `rail-item${d.away ? ' is-away' : ''}`, 'data-dest': d.id || '', 'data-away': d.away || '', title,
+    const title = d.id ? `${d.label}${t && t.label !== d.label ? ` (${t.label}${t.key ? `, key ${t.key}` : ''})` : t && t.key ? ` (key ${t.key})` : ''}${t && t.waiting > 0 ? `: ${t.waiting} waiting on you` : ''}` : 'Files: not on this page; the project’s folder opens in the terminal or your file manager';
+    items.push(h('button', {
+      type: 'button', class: `rail-item${d.away ? ' is-away' : ''}`, 'data-dest': d.id || '', 'data-away': d.away || '', 'data-scroll': d.scroll || '', title,
       'aria-current': d.id && d.id === cx.dest ? 'page' : null, ...(t ? { 'aria-keyshortcuts': String(t.key) } : {}),
-    }, h('span', { class: 'rail-glyph', 'aria-hidden': 'true' }, d.glyph), h('span', { class: 'rail-label' }, `${d.label}${waiting}`), d.where ? h('span', { class: 'rail-where' }, d.where) : null);
-  });
+    }, h('span', { class: 'rail-glyph', 'aria-hidden': 'true' }, d.glyph), h('span', { class: 'rail-label' }, `${d.label}${waiting}`), d.where ? h('span', { class: 'rail-where' }, d.where) : null));
+    if (group) { group.hidden = false; group = null; }
+  }
+  // a group with nothing under it (the finder left it empty) is not drawn
+  for (let i = 0; i < items.length; i += 1) if (items[i].classList && items[i].classList.contains('rail-group') && (i === items.length - 1 || items[i + 1].classList.contains('rail-group'))) items[i].hidden = true;
+  if (q && !items.some((el) => el.classList.contains('rail-item'))) items.push(h('p', { class: 'rail-none' }, `Nothing named “${cx.find.trim()}” here.`));
   redraw(menu, items);
+}
+
+/** R11 step 3: the rail's finder (`/` on the Chat screen, or the footer's "/ find"): the destinations filtered by name as you type; Enter opens the first; Esc clears it. */
+function toggleFind(open) {
+  const box = $('rail-find-box');
+  const input = $('rail-find');
+  if (!box || !input) return;
+  const show = open === undefined ? box.hidden : open;
+  box.hidden = !show;
+  $('rail-find-btn')?.setAttribute('aria-expanded', show ? 'true' : 'false');
+  if (show) { input.focus(); input.select(); return; }
+  // (closed: the keyboard leaves the hidden box, so the next key is a page key again)
+  const had = document.activeElement === input;
+  input.value = ''; cx.find = ''; drawRail();
+  if (had) { const btn = $('rail-find-btn'); if (btn && shown(btn)) btn.focus(); else input.blur(); }
 }
 
 function railProject() {
@@ -263,10 +295,11 @@ const seconds = (ms) => (typeof ms === 'number' && Number.isFinite(ms) ? `${(ms 
  */
 function evidence(key, model, rc, tools, extra) {
   const open = openActivity.has(key);
-  const mark = rc ? (rc.verified ? h('span', { class: 'cx-ev-ok' }, '✓') : h('span', { class: 'cx-ev-no' }, '(not verified)')) : null;
-  const line = rc ? `${model || 'model not recorded'} · ${rc.where} · ${seconds(rc.ms)} · receipt ${rc.id} `
+  // (as the terminal's line: ✓ only when the receipt verified on this read, no mark otherwise; "no receipt" when none seals it)
+  const mark = rc && rc.verified ? h('span', { class: 'cx-ev-ok' }, '✓') : null;
+  const line = rc ? `${model || 'model not recorded'} · ${rc.where} · ${seconds(rc.ms)} · receipt ${rc.id}${rc.verified ? ' ' : ''}`
     : extra && extra.own ? `${model || 'no model'} · ${extra.where} · ${extra.seconds} · no receipt`
-      : 'no receipt of this project seals this answer · model, where and time not recorded';
+      : `${model || 'model not recorded'} · no receipt`;
   const btn = h('button', { type: 'button', class: 'cx-evidence', 'aria-expanded': open ? 'true' : 'false', 'data-activity': key },
     h('span', { class: 'cx-ev-mark', 'aria-hidden': 'true' }, open ? '▾' : '▸'), ` ${line}`, mark);
   if (!open) return [btn];
@@ -579,23 +612,23 @@ function drawEmpty() {
     return;
   }
   // R11 step 2 (H171; the plan's section 2): a route and no conversation yet: the welcome (three lines) and four starter actions
-  // that work today, drawn as the first run's choices. (The welcome's words are the plan's and H167's brief's; the terminal's
-  // step 2 words were not posted when this was written.)
+  // that work today, drawn as the first run's choices; the words are the terminal's (H167's step 2), which the page mirrors
   redraw(box, [h('p', { class: 'cx-kicker' }, 'Welcome'), h('h2', { class: 'cx-title' }, 'TIMMY runs tools and workflows on your machine and keeps a receipt for every step.'),
-    h('p', { class: 'cx-welcome-line' }, `Type below and press Enter to send: your first message goes to ${r.model} (${routeWhere(r)}).`),
-    h('p', { class: 'cx-welcome-line' }, 'Logs and receipts stay on this computer, in this project’s .timmy folder (Logs & records shows them). Cloud sync is off.'),
+    h('p', { class: 'cx-welcome-line' }, 'Write below and press Enter: the model on the chip answers.'),
+    h('p', { class: 'cx-welcome-line' }, 'Logs and receipts stay on this computer, in this project’s .timmy folder: Logs & records lists them.'),
+    h('p', { class: 'cx-start-k' }, 'Start with'),
     h('div', { class: 'cx-ways cx-starters' }, ...STARTERS.map((a) => h('button', { type: 'button', class: 'cx-way', 'data-cx-start': a.id },
       h('span', { class: 'cx-way-k' }, a.kicker), h('span', { class: 'cx-way-title' }, a.title), h('span', { class: 'cx-way-words' }, a.words), h('span', { class: 'cx-way-act' }, `${a.act} →`))))]);
 }
 
-/** The four starter actions (the plan's section 2): each a real action this page has today, never a tour. */
+/** The four starter actions (the plan's section 2; the terminal's words): each a real action this page has today, never a tour. */
 const STARTERS = [
-  { id: 'ask', kicker: 'Chat', title: 'Ask about this project', words: 'A sample question goes into the composer as a draft; change it as you like, then Enter sends it.', act: 'Write the draft' },
-  { id: 'image', kicker: 'Vision', title: 'Inspect an image', words: 'Opens VoxVision, this page’s vision workspace: describe an image with the vision tools this computer has.', act: 'Open VoxVision' },
-  { id: 'workflow', kicker: 'Work', title: 'Run a workflow', words: 'Opens Workflows: the repeatable runs this project keeps, each run with its receipt.', act: 'Open Workflows' },
-  { id: 'canvas', kicker: 'Canvas', title: 'Open the canvas', words: 'Opens Studio, the project’s canvas in this browser.', act: 'Open Studio' },
+  { id: 'ask', kicker: 'Chat', title: 'Ask about this project', words: 'A question typed as a draft: what the project does and what ran here last.', act: 'Write the draft' },
+  { id: 'image', kicker: 'Vision', title: 'Inspect an image', words: 'VoxVision: what Timmy measured on this project’s images; /inspect in the REPL inspects a new one.', act: 'Open Vision' },
+  { id: 'workflow', kicker: 'Work', title: 'Run a workflow', words: 'Workflows: this project’s WORKFLOW.md blocks; a run starts after it asks.', act: 'Open Workflows' },
+  { id: 'canvas', kicker: 'Canvas', title: 'Open the canvas', words: 'Studio: this project’s runs and drafts as cards.', act: 'Open the canvas' },
 ];
-const SAMPLE_QUESTION = 'What is in this project, and what would you do first?';
+const SAMPLE_QUESTION = 'What does this project do, and what ran here last?';
 
 /** A starter action: the draft and the composer, or one of this page's tabs. */
 function startWith(id) {
@@ -658,6 +691,20 @@ function drawComposer() {
     if (why) why.textContent = '';
     return;
   }
+  // R11 step 3: Stop lives in the composer: while another surface answers a turn of this project, it asks that turn to stop
+  const other = otherTurn();
+  if (other) {
+    send.disabled = false;
+    send.classList.add('is-stop');
+    send.classList.remove('is-muted');
+    send.textContent = 'Stop';
+    send.dataset.stopTurn = other.id;
+    send.title = other.words || `Asks the turn being answered in ${SURFACE_SAID[other.surface] || 'another surface'} to stop`;
+    if (why) { why.textContent = `Being answered in ${SURFACE_SAID[other.surface] || 'another surface'}: Stop asks it to stop.`; why.title = other.words || ''; why.dataset.row = 'own'; }
+    return;
+  }
+  delete send.dataset.stopTurn;
+  if (why) delete why.dataset.row;
   send.classList.remove('is-stop', 'is-muted');
   send.textContent = 'Send ↑';
   const ready = Boolean(r && r.ready);
@@ -1028,32 +1075,39 @@ function setQuery(name, value) {
 
 // ── the bottom: the conversation's controls, the drawer, the status line ──
 
-/** The conversation's controls, the lead's order; `minor` ones move into More from 1180 px, where Models becomes a drawer (the terminal target's 80 x 24 does so). */
-const CONTROLS = [
-  ['attachments', '⎘', 'Attach', true], ['tools', '⚒', 'Tools', false], ['plan', '☰', 'Plan / Run', true], ['approvals', '✓', 'Permissions', true], ['budget', '$', 'Budget', false],
-];
-const MINOR = [['attachments', '⎘', 'Attach'], ['plan', '☰', 'Plan / Run'], ['approvals', '✓', 'Permissions'], ['cloudflare', '☁', 'Cloudflare']];
+/**
+ * R11 step 3 (the plan's bottom row; H167's): [Attach] [Tools] [Budget] [Logs]; below 1181 px (the terminal target's 80 x 24)
+ * Attach and Logs move into More. Plan / Run, Permissions and Cloudflare live in the Tools drawer ("More controls"); Stop
+ * lives in the composer. What waits on you counts on Tools.
+ */
+const CONTROLS = [['attachments', '⎘', 'Attach', true], ['tools', '⚒', 'Tools', false], ['budget', '$', 'Budget', false], ['logs', '▤', 'Logs', true]];
+const MINOR = [['attachments', '⎘', 'Attach'], ['logs', '▤', 'Logs']];
+const MORE_CONTROLS = [['plan', '☰', 'Plan / Run'], ['approvals', '✓', 'Permissions'], ['cloudflare', '☁', 'Cloudflare']];
 
 function controlCounts() {
   const f = workspace.frame;
   const v = cx.view;
   const waiting = f && f.activity ? f.activity.waitingOnYou : null;
-  return { tools: '0', attachments: '0', plan: '', budget: v && v.policy && v.policy.freeOnly ? 'free-only' : '—', approvals: waiting === null ? '' : String(waiting), logs: 'this computer', cloudflare: '' };
+  return { tools: waiting ? String(waiting) : '', attachments: '', plan: '', budget: v && v.policy && v.policy.freeOnly ? 'free-only' : '', approvals: waiting === null ? '' : String(waiting), logs: '', cloudflare: '' };
+}
+
+/** Another surface's turn of this project being answered now (the frame's activity), for the composer's Stop and the status row. */
+function otherTurn() {
+  const f = workspace.frame;
+  return f && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
 }
 
 function drawControls() {
   const bar = $('cx-controls');
   if (!bar) return;
-  const f = workspace.frame;
   const counts = controlCounts();
-  const kids = [h('span', { class: 'cx-controls-label' }, 'This conversation')];
+  const kids = [];
   for (const [id, glyph, words, minor] of CONTROLS) kids.push(ctlButton(id, glyph, words, counts[id], minor));
-  const other = f && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
-  if (cx.running) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop' }, '■ Stop'));
-  else if (other) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop-other', 'data-stop-turn': other.id, title: other.words }, `■ Stop the turn in ${SURFACE_SAID[other.surface] || 'another surface'}`));
-  else kids.push(h('button', { type: 'button', class: 'cx-ctl is-off', disabled: true, title: 'Nothing is being answered now' }, '■ Stop'));
-  kids.push(h('span', { class: 'cx-ctl-gap', 'aria-hidden': 'true' }), ctlButton('logs', '▤', 'Logs', counts.logs, false), ctlButton('cloudflare', '☁', 'Cloudflare', '', true),
-    h('button', { type: 'button', class: 'cx-more', id: 'cx-more', 'data-cx-ctl': 'more', 'aria-expanded': cx.drawer === 'more' ? 'true' : 'false', 'aria-controls': 'cx-drawer' }, h('span', { 'aria-hidden': 'true' }, '⋯'), 'More'));
+  // (Stop lives in the composer; while the composer is away, on the first run or a setup, another surface's turn keeps its Stop here)
+  const other = otherTurn();
+  const composer = $('cx-composer');
+  if (other && composer && composer.hidden) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop-other', 'data-stop-turn': other.id, title: other.words }, `■ Stop the turn in ${SURFACE_SAID[other.surface] || 'another surface'}`));
+  kids.push(h('button', { type: 'button', class: 'cx-more', id: 'cx-more', 'data-cx-ctl': 'more', 'aria-expanded': cx.drawer === 'more' ? 'true' : 'false', 'aria-controls': 'cx-drawer' }, h('span', { 'aria-hidden': 'true' }, '⋯'), 'More'));
   redraw(bar, kids);
 }
 
@@ -1068,7 +1122,14 @@ function drawerBody(id) {
   const f = workspace.frame;
   const p = (k) => providerState(k);
   switch (id) {
-    case 'tools': return ['Tools', [h('p', null, 'This page’s Send offers no tools: it cannot read or change files or run anything from here (its route says so). The project’s conversation in the Workbench and the REPL offers the project’s tools: listing and reading its files, and writing one only after you allow it.')]];
+    case 'tools': {
+      const counts = controlCounts();
+      return ['Tools', [h('p', null, 'This page’s Send offers no tools: it cannot read or change files or run anything from here. The project’s conversation in the Workbench and the REPL offers the project’s tools, writing a file only after you allow it.'),
+        h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx-dest': 'tools' }, 'Open Tools & integrations')),
+        h('p', { class: 'cx-act-k' }, 'More controls'),
+        h('div', { class: 'cx-more-list' }, ...MORE_CONTROLS.map(([k, glyph, words]) => h('button', { type: 'button', class: 'cx-btn', 'data-cx-ctl': k, 'aria-controls': 'cx-drawer' }, h('span', { 'aria-hidden': 'true' }, `${glyph} `), words, counts[k] ? h('span', { class: 'cx-ctl-n' }, ` ${counts[k]}`) : null))),
+        h('p', { class: 'cx-setup-note' }, 'Stop lives in the composer: it stops this page’s turn, or asks the turn another surface is answering to stop.')]];
+    }
     case 'attachments': return ['Attach', [h('p', null, 'Not on this page yet: its Send carries text only. It needs a Send that carries files, which this revision does not have. In the terminal, /add <file> puts a file in the project, where its preview shows on Home.')]];
     case 'plan': return ['Plan / Run', [h('p', null, 'Plans and runs are the project’s workflows. Workflows shows each run’s progress, result and receipt here; a run starts in the terminal (/run <workflow> <block>).'), h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx-dest': 'workflows' }, 'Open Workflows'))]];
     case 'budget': return ['Budget', [h('div', { class: 'cx-drawer-grid' },
@@ -1094,10 +1155,11 @@ function drawerBody(id) {
       return ['More controls', [h('div', { class: 'cx-more-list' }, ...MINOR.map(([k, glyph, words]) => h('button', { type: 'button', class: 'cx-btn', 'data-cx-ctl': k, 'aria-controls': 'cx-drawer' },
         h('span', { 'aria-hidden': 'true' }, `${glyph} `), words, counts[k] ? h('span', { class: 'cx-ctl-n' }, ` ${counts[k]}`) : null)))]];
     }
-    case 'keys': return ['Keys', [h('div', { class: 'cx-drawer-grid' },
-      h('section', null, h('h4', null, 'In the composer'), h('p', null, 'Enter sends · Shift+Enter a new line · keys you type never open anything')),
-      h('section', null, h('h4', null, 'Anywhere else'), h('p', null, 'M shows or hides Models · ? these keys · 1 to 9, then 0, the destinations · Esc closes a drawer and returns to where you were')),
-      h('section', null, h('h4', null, 'In Models'), h('p', null, 'Up and Down move along the list · Enter shows the model · Tab moves to the next control')))]];
+    case 'keys': return ['Help', [h('div', { class: 'cx-drawer-grid' },
+      h('section', null, h('h4', null, 'Chat'), h('p', null, 'Enter sends · Ctrl+J (or Shift+Enter) a new line · Stop in the composer stops the turn · Enter or a click on the line under an answer opens its activity · keys you type in the composer never open anything')),
+      h('section', null, h('h4', null, 'Models'), h('p', null, 'M shows or hides Models · the chip opens them too · Up and Down move along the list · Enter on a row chooses it for the next turn (Ollama is asked first; nothing runs) · Tab moves to the next control')),
+      h('section', null, h('h4', null, 'Moving around'), h('p', null, '1 to 9, then 0, the destinations · / finds one by name · ? this help · Esc closes a drawer and returns to where you were')),
+      h('section', null, h('h4', null, 'Runs'), h('p', null, 'Runs & receipts lists this project’s runs with their receipts · Workflows shows each run’s progress and result · a run starts in the terminal (/run <workflow> <block>)')))]];
     default: return ['', []];
   }
 }
@@ -1140,18 +1202,31 @@ function nextTurnWords() {
   return `none (${r.label || 'Send is off'})`;
 }
 
+/** The next turn's spend in H167's words: "no charge", "$x in / $y out per 1M", "free", "unknown", "none (no model)". */
+function spendWords() {
+  const r = routeOf(cx.view);
+  if (!r || !r.ready) return 'none (no model)';
+  if (r.kind === 'local') return r.cloud ? 'unknown' : 'no charge';
+  const p = String(r.price || '');
+  if (/^free\b/.test(p)) return 'free';
+  const m = /(\$[\d.,]+) in \/ (\$[\d.,]+) out per 1M/.exec(p);
+  return m ? `${m[1]} in / ${m[2]} out per 1M` : 'unknown';
+}
+
 function drawStatus() {
   const bar = $('cx-status');
   if (!bar) return;
   const r = routeOf(cx.view);
   const fake = r && r.kind === 'local' && fakeModel(r.model);
-  // each word and its value kept together (a phone's width puts the two on two lines, never a word apart from its value)
+  const other = otherTurn();
+  // R11 step 3: sentences, as the terminal's status row ("Logs stay on this computer · 1 running (the chat turn)"; "cloud sync off · spend …")
+  const running = cx.running ? ' · 1 running (this page’s turn)' : other ? ' · 1 running (the chat turn)' : '';
   bar.replaceChildren(
-    h('span', { class: 'cx-st-pair is-logs' }, h('span', { class: 'cx-st-k' }, 'Logs:'), h('span', { class: 'cx-st-v' }, `this computer / ${cx.running ? 'answering' : 'idle'}`)),
-    h('span', { class: 'cx-st-sep', 'aria-hidden': 'true' }, '|'),
+    h('span', { class: 'cx-st-pair is-logs' }, h('span', { class: 'cx-st-v' }, `Logs stay on this computer${running}`)),
+    h('span', { class: 'cx-st-sep', 'aria-hidden': 'true' }, '·'),
     // (R11 step 1: the next turn's model, as the terminal's status row says it)
     h('span', { class: 'cx-st-pair is-inference' }, h('span', { class: 'cx-st-k' }, 'Next turn:'), h('span', { class: 'cx-st-v' }, nextTurnWords())),
-    h('span', { class: 'cx-st-right' }, h('span', { class: 'cx-st-sync' }, 'Cloud sync off'), fake ? h('span', null, 'FAKE model') : null));
+    h('span', { class: 'cx-st-right' }, h('span', { class: 'cx-st-sync' }, `cloud sync off · spend ${spendWords()}`), fake ? h('span', null, 'FAKE model') : null));
 }
 
 // ── events ──
@@ -1161,7 +1236,12 @@ document.addEventListener('click', (event) => {
   if (!at) return;
   const dest = at.closest('#rail-menu .rail-item');
   if (dest) {
-    if (dest.dataset.dest) { awayNote(''); document.body.classList.remove('rail-open'); showWorkspaceTab(dest.dataset.dest); return; }
+    if (dest.dataset.dest) {
+      awayNote(''); document.body.classList.remove('rail-open'); showWorkspaceTab(dest.dataset.dest);
+      // (Models & accounts: Home, at its connections)
+      if (dest.dataset.scroll === 'connections') { const box = document.querySelector('.home-conn-box'); if (box) box.scrollIntoView({ block: 'start' }); }
+      return;
+    }
     if (dest.dataset.away === 'connections') { awayNote(''); showWorkspaceTab('home'); const box = document.querySelector('.home-conn-box'); if (box) box.scrollIntoView({ block: 'nearest' }); return; }
     if (dest.dataset.away === 'files') { awayNote('files'); return; }
   }
@@ -1194,6 +1274,8 @@ document.addEventListener('click', (event) => {
   if (way) { chooseWay(way.dataset.cxWay); return; }
   const start = at.closest('[data-cx-start]');
   if (start) { startWith(start.dataset.cxStart); return; }
+  if (at.closest('#rail-find-btn')) { toggleFind(); return; }
+  if (at.closest('#rail-help')) { openDrawer('keys', $('rail-help')); return; }
   const ev = at.closest('[data-activity]');
   if (ev) { const k = ev.dataset.activity; if (openActivity.has(k)) openActivity.delete(k); else openActivity.add(k); cx.convKey = ''; drawChat(); document.querySelector(`[data-activity="${CSS.escape(k)}"]`)?.focus({ preventScroll: true }); return; }
   const act = at.closest('[data-cx]');
@@ -1302,7 +1384,10 @@ document.addEventListener('input', (event) => {
 document.addEventListener('submit', (event) => {
   if (event.target instanceof HTMLFormElement && event.target.id === 'cx-composer') {
     event.preventDefault();
-    if (cx.running) stopNow(); else sendNow();
+    const send = $('cx-send');
+    if (cx.running) stopNow();
+    else if (send && send.dataset.stopTurn) stopOther(send);
+    else sendNow();
   }
 });
 document.addEventListener('keydown', (event) => {
@@ -1318,6 +1403,12 @@ document.addEventListener('keydown', (event) => {
       saveDraft(); drawComposer();
       return;
     }
+  }
+  // R11 step 3: the rail's finder: typing filters the destinations, Enter opens the first, Esc clears it
+  if (at instanceof HTMLInputElement && at.id === 'rail-find') {
+    if (event.key === 'Enter') { event.preventDefault(); const first = document.querySelector('#rail-menu .rail-item'); if (first instanceof HTMLElement) { first.click(); toggleFind(false); } return; }
+    if (event.key === 'Escape') { event.preventDefault(); toggleFind(false); $('rail-find-btn')?.focus(); return; }
+    return;
   }
   // Enter on a row of Models chooses it for the next turn (the terminal's Enter); the arrows move along the list
   if (at instanceof Element && at.classList.contains('cm-row') && event.key === 'Enter') { event.preventDefault(); chooseRow(at.dataset.model); return; }
@@ -1337,8 +1428,10 @@ document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typingIn(at) || cx.dest !== 'chat') return;
   if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
   if (event.key === 'm' || event.key === 'M') { event.preventDefault(); toggleModels(); return; }
-  if (event.key === '?') { event.preventDefault(); openDrawer('keys', $('cx-keys')); }
+  if (event.key === '?') { event.preventDefault(); openDrawer('keys', $('cx-keys')); return; }
+  if (event.key === '/') { event.preventDefault(); document.body.classList.add('rail-open'); toggleFind(true); }
 });
+$('rail-find')?.addEventListener('input', (event) => { cx.find = event.target instanceof HTMLInputElement ? event.target.value : ''; drawRail(); });
 $('cx-scroll')?.addEventListener('scroll', () => {
   const s = $('cx-scroll');
   cx.follow = s.scrollHeight - s.scrollTop - s.clientHeight < 40;
@@ -1367,5 +1460,6 @@ $('cx-scroll')?.addEventListener('scroll', () => {
   setInterval(() => { if (cx.running) drawStreaming(); }, 1000);
   // the frame (tab labels, waiting counts, the project's commands, a turn running elsewhere) is read by companion.js; the
   // rail and the controls follow it
-  setInterval(() => { drawRail(); if (cx.dest === 'chat') { drawControls(); railProject(); } }, 3000);
+  // (R11 step 3: the composer's Stop and the status row follow the frame's activity too: another surface's turn)
+  setInterval(() => { drawRail(); if (cx.dest === 'chat') { drawControls(); drawComposer(); drawStatus(); railProject(); } }, 3000);
 })();

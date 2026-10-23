@@ -115,6 +115,8 @@ describe.skipIf(!browserPath)('the run detail inspected, in a real browser (R6 H
       expect(await page.getAttribute('#run-detail .rv-checked', 'title')).toContain('verifyReceiptIn');
       // (R10 H167, H168's F3: each stage in words, its receipts' ids in the receipts' Details and the step's tip)
       expect(await all(page, '#run-detail .rv-pipe-step')).toEqual(['.intent the request · not a receipt', '.predict ✓ verified now', 'run ✓ 3 receipts · verified now', '.receipt ✓ verified now']);
+      // (R11 step 3: where the run ran, in plain words: upmd ran the blocks here, no sandbox ran, so none is named)
+      expect(await all(page, '#run-detail [data-rv-ran="this-computer"]')).toEqual(['Ran on this computer; no sandbox.']);
       expect(await page.getAttribute('#run-detail .rv-pipe-step[data-stage="predict"]', 'title')).toMatch(/^receipt [0-9a-f]{8}$/);
       expect(await colour(page, '#run-detail .rv-pipe-step[data-stage="receipt"]')).toBe(GREEN);
       expect(await colour(page, '#run-detail .rv-pipe-step[data-stage="intent"]', 'borderTopColor')).toBe(AMBER);

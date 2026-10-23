@@ -12,7 +12,7 @@
 
 /* ---------- the shell: the left menu beside every destination ---------- */
 
-body.shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); padding: 0; gap: 0; }
+body.shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); padding: 0; gap: 0; }
 /* the other destinations keep R10's layout at its full width (their tab row, strip and columns, as their own checks measure
    them): the menu is one click away there (Menu in their header opens it over the page; Esc or a choice closes it) */
 body.shell:not([data-dest="chat"]) { grid-template-columns: minmax(0, 1fr); }
@@ -52,8 +52,20 @@ body.shell:not([data-dest="chat"]) .ws-menu { display: inline-flex; }
 .rail-item.is-away { color: var(--timmy-text-secondary); }
 .rail-rule { height: 1px; margin: 10px 8px; background: var(--timmy-line); border: 0; }
 .rail-away-note { margin: 4px 8px; padding: 8px 10px; border: 1px solid var(--timmy-line); border-radius: 3px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
-.rail-foot { padding: 12px 18px 14px; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
-.rail-foot strong { display: block; color: var(--timmy-text); font-weight: var(--timmy-weight-body); }
+/* R11 step 3: the rail's footer "? Help  / find" (the terminal's), and its finder */
+.rail-foot { display: flex; gap: 14px; padding: 10px 14px 12px; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.rail-foot-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.rail-foot-btn:hover { color: var(--timmy-text); }
+.rail-foot-btn kbd { padding: 0 5px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font: inherit; font-size: 13px; color: var(--timmy-text); }
+.rail-group { margin-top: 14px; }
+.rail-find-box { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 8px 8px; }
+.rail-find-label { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.rail-find { flex: 1; min-width: 0; min-height: 30px; padding: 3px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 13px; }
+.rail-find:focus { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+.rail-find-hint { flex: 1 1 100%; font-size: 13px; color: var(--timmy-text-secondary); }
+.rail-none { margin: 6px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-start-k { margin-top: 22px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-starters { margin-top: 10px; }
 
 /* ---------- Chat: the composition fills the shell's main column ---------- */
 
@@ -173,7 +185,9 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-input { display: block; flex: 1; min-width: 0; min-height: 46px; max-height: 240px; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 15px; line-height: 1.55; resize: none; caret-color: var(--timmy-accent); }
 .cx-input::placeholder { color: var(--timmy-text-secondary); }
 .cx-input:focus-visible { outline: none; }
-.cx-compose-foot { display: flex; align-items: center; gap: 14px; padding: 8px 10px 10px 12px; }
+.cx-compose-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px 10px 12px; }
+/* R11 step 3: while another surface answers a turn, the reason beside Stop takes a row of its own under the controls */
+.cx-send-why[data-row="own"] { flex: 1 1 100%; order: 4; text-align: left; }
 .cx-send-why { margin-left: auto; min-width: 0; font-size: 13px; color: var(--timmy-text); text-align: right; }
 .cx-send-why:empty { display: none; }
 .cx-compose-foot .cx-send-why ~ .cx-send, .cx-compose-foot .cx-chip ~ .cx-send { margin-left: 0; }
@@ -287,7 +301,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-ctl.is-off { color: var(--timmy-text-secondary); }
 .cx-ctl.is-stop { border-color: var(--timmy-text); }
 .cx-ctl-gap { flex: 1; }
-.cx-drawer { position: relative; max-height: 220px; overflow-y: auto; padding: 14px 52px 14px 22px; border-top: 1px solid var(--timmy-line-strong); background: var(--timmy-ground); }
+.cx-drawer { position: relative; max-height: 260px; overflow-y: auto; padding: 14px 52px 14px 22px; border-top: 1px solid var(--timmy-line-strong); background: var(--timmy-ground); }
 .cx-drawer h3 { font-size: 14px; color: var(--timmy-text); }
 .cx-drawer > p { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); max-width: 110ch; }
 .cx-drawer-close { position: absolute; top: 10px; right: 14px; min-width: 30px; min-height: 30px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; }
@@ -296,7 +310,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-drawer-grid section .cx-d-state { margin-top: 4px; font-size: 13px; color: var(--timmy-text); }
 .cx-drawer-grid section .cx-d-state.is-live { color: var(--timmy-live); }
 .cx-drawer-grid section p { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
-.cx-status { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 16px; border-top: 1px solid var(--timmy-line); font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; }
+.cx-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; min-height: 30px; padding: 2px 16px; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 26px; color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; }
 .cx-status .cx-st-pair { display: inline-flex; gap: 6px; min-width: 0; max-width: 100%; }
 .cx-status .cx-st-pair .cx-st-k { flex-shrink: 0; }
 .cx-status .cx-st-pair .cx-st-v { min-width: 0; }

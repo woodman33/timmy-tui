@@ -508,7 +508,11 @@ function rvView(d, ins, why) {
       predictReceipt ? [rvReceiptMark(predictReceipt), rvReceiptMore(predictReceipt)] : d.prediction ? rvMoreRows([['its receipt', d.prediction.receipt]]) : null),
   ];
   // the run: with an inspection, the viewer above and, under it, the files and the run detail's facts, each scrolling
-  const runFacts = [facts.run, rvEl('h5', null, 'Checks: predicted beside actual'), rvChecks(d), rvEl('h5', null, 'Files'), rvFilesTable(d)];
+  // R11 step 3 (H171; the terminal's words): where the run ran, in plain words: upmd runs its blocks on this computer, and no
+  // sandbox ran, so none is named ("sandbox" never when none ran)
+  const ran = ins ? ins.receipts.list.some((r) => r.stage === 'run') : d.receipts.length > 0;
+  const where = rvEl('p', { class: 'rv-why', 'data-rv-ran': ran ? 'this-computer' : 'none' }, ran ? 'Ran on this computer; no sandbox.' : 'Not run yet: no run receipt.');
+  const runFacts = [where, facts.run, rvEl('h5', null, 'Checks: predicted beside actual'), rvChecks(d), rvEl('h5', null, 'Files'), rvFilesTable(d)];
   const run = ins
     ? [rvViewer(ins, sel), rvScrollBox('rv-lower', 'The files the run changed and made, and its facts', rvFileList(ins, sel), runFacts)]
     : [rvEl('p', { class: 'rv-why', 'data-rv-inspection': 'none' }, why || 'This run was not inspected.'), runFacts];
