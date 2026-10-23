@@ -10,6 +10,7 @@
  * public catalog of 2026-10-22 trimmed to 12 models), kept where `timmy models --refresh` keeps a fetched catalog. The rows
  * and their query are H169's (src/models/catalog.ts, tested in tests/models-catalog.test.ts); here, what the Chat reads.
  */
+import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -17,6 +18,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { companionCatalog, companionProviders, catalogQueryOf, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { appendReceipt } from '../src/utils/receipts.js';
 import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const FIXTURE = join(__dirname, 'fixtures', 'openrouter-public-catalog-2026-10-22.json');
@@ -71,6 +73,65 @@ describe('the Chat\'s data: the saved conversation, the catalog rows and the pro
     expect(c.turns[4].receipt).toBeUndefined();
     // a project with no conversation kept
     expect(savedConversation(join(box, 'none'), {})).toEqual({ session: null, total: 0, turns: [] });
+  });
+
+  it('R11 step 2: the evidence line\'s facts: a receipt is ✓ only when it verifies on this read (links, body hashes, signature); a hand-written one says why not; where it ran, its time, its tools in order, its spend and files; a turn being answered elsewhere is seen by its live hold', async () => {
+    const root = join(box, 'p-evidence');
+    mkdirSync(join(root, '.sessions'), { recursive: true });
+    const t0 = Date.parse('2026-10-22T23:50:00.000Z');
+    const ask = 'Which files are here, and what do they do?';
+    const answer = 'FAKE answer: two files (no model behind this).';
+    const lines = [
+      { role: 'user', content: 'Help me turn this folder into a plan.', timestamp: t0 },
+      { role: 'assistant', content: ANSWER_1, timestamp: t0 + 1000 },
+      { role: 'user', content: ask, timestamp: t0 + 2000 },
+      { role: 'tool', name: 'list_project_files', content: 'README.md\nSHOT.md', timestamp: t0 + 2500 },
+      { role: 'assistant', content: answer, timestamp: t0 + 4100 },
+    ];
+    writeFileSync(join(root, '.sessions', 'session-1792713000000-ev0001.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    // the first answer's receipt sealed by hand (a FAKE, its hash made up): it is on the chain but its body hash does not verify
+    mkdirSync(join(root, '.timmy', 'receipts'), { recursive: true });
+    writeFileSync(join(root, '.timmy', 'receipts', 'runs.jsonl'), `${JSON.stringify({
+      v: 1, id: 'rc_hand', stream: 'runs', ts: '2026-10-22T23:50:01.000Z', kind: 'chat', subject: 'chat.turn · workbench · 0 steps · fake-qwen3:8b', status: 'ok', via: 'ollama',
+      model_resolved: 'fake-qwen3:8b', model_requested: 'fake-qwen3:8b', response_hash: sha(ANSWER_1), hash: `sha256_${'7f'.repeat(32)}`, epoch: 1,
+    })}\n`);
+    let c = savedConversation(root, {});
+    expect(c.turns[1].receipt).toMatchObject({ id: '7f7f7f7f', verified: false, where: 'this computer', tools: [] });
+    expect(c.turns[1].receipt?.why).toMatch(/prev_hash mismatch|body hash mismatch|does not verify|chain is broken/);
+    expect(c.turns[1].receipt?.ms).toBeUndefined();
+    // the second answer's receipt sealed as src/repl/seal.ts seals one (this project's own key), with its tools, time, spend and files
+    const rec = appendReceipt('runs', {
+      kind: 'chat', subject: 'chat.turn · workbench · 1 step · fake-qwen3:8b', policy: 'human-gated', status: 'ok', via: 'ollama', model_resolved: 'fake-qwen3:8b', model_requested: 'fake-qwen3:8b',
+      sources: [{ kind: 'ollama', host: 'http://127.0.0.1:11434', endpoint: 'local', tools: 'on', cost_basis: 'local endpoint' }],
+      tool_outcomes: [{ name: 'list_project_files', outcome: 'completed' }], outcome_rule: 2, files: [{ path: 'PLAN.md', sha256: sha('plan'), created: true, bytes: 4 }],
+      prompt_hash: sha(ask), response_hash: sha(answer), cost_usd: 0, cost_measured: true, ms: 2140,
+    } as never, root);
+    c = savedConversation(root, {});
+    expect(c.turns.map((t) => t.kind)).toEqual(['you', 'timmy', 'you', 'tool', 'timmy']);
+    expect(c.turns[4]).toMatchObject({ kind: 'timmy', text: answer, model: 'fake-qwen3:8b', receipt: { id: rec.hash.slice(7, 15), status: 'ok', surface: 'workbench', where: 'this computer', ms: 2140, steps: 1, tools: [{ name: 'list_project_files', outcome: 'completed' }], cost: { usd: 0, measured: true }, files: 1 } });
+    // not ✓: the hand-written receipt before it breaks the chain up to it (every link up to a receipt must verify), said so
+    expect(c.turns[4].receipt).toMatchObject({ verified: false, why: expect.stringMatching(/^the chain is broken before it/) });
+    // a chain of receipts sealed the proper way: ✓
+    const clean = join(box, 'p-evidence-clean');
+    mkdirSync(join(clean, '.sessions'), { recursive: true });
+    writeFileSync(join(clean, '.sessions', 'session-1792713000000-ev0002.jsonl'), lines.slice(2).map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const rc2 = appendReceipt('runs', { kind: 'chat', subject: 'chat.turn · repl · 1 step · fake-qwen3:8b', policy: 'human-gated', status: 'ok', via: 'ollama', model_resolved: 'fake-qwen3:8b', model_requested: 'fake-qwen3:8b',
+      sources: [{ kind: 'ollama', host: 'http://127.0.0.1:11434', endpoint: 'local', tools: 'on', cost_basis: 'local endpoint' }], tool_outcomes: [{ name: 'list_project_files', outcome: 'completed' }],
+      prompt_hash: sha(ask), response_hash: sha(answer), cost_usd: 0, cost_measured: true, ms: 980 } as never, clean);
+    const cc = savedConversation(clean, {});
+    expect(cc.turns[2].receipt).toMatchObject({ id: rc2.hash.slice(7, 15), verified: true, where: 'this computer', ms: 980 });
+    expect(cc.turns[2].receipt?.why).toBeUndefined();
+    expect(cc.running).toBeUndefined();
+    // a turn being answered by another surface (a live hold of the project, src/agent/chat-turn.ts takeTurnHold's shape, its
+    // writer a process that runs: a sleep of this test's, killed below by its exact pid)
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    try {
+      mkdirSync(join(clean, '.timmy', 'chat-turns'), { recursive: true });
+      const taken = new Date(Date.now() - 1500).toISOString();
+      writeFileSync(join(clean, '.timmy', 'chat-turns', `t${child.pid}-0a0b0c0d.json`), `${JSON.stringify({ schema: 'timmy.chat-turn-hold/1', surface: 'workbench', owner: { pid: child.pid, started: new Date().toISOString() }, taken })}\n`);
+      const r = savedConversation(clean, {});
+      expect(r.running).toEqual([{ surface: 'workbench', since: taken }]);
+    } finally { child.kill(); }
   });
 
   it('a stopped turn (H168\'s pass 3b R19): its receipt found by the person\'s message it answers, its answer before the stop shown, Timmy\'s record of the stop said apart; a prompt asked again takes its own receipt', () => {

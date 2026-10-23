@@ -59,7 +59,7 @@ function redraw(root, kids) {
   const a = document.activeElement;
   let pick = '';
   if (a instanceof HTMLElement && a !== root && root.contains(a)) {
-    const k = ['data-cx-ctl', 'data-cx-way', 'data-cx', 'data-cx-copy', 'data-cx-dest', 'data-dest', 'data-away', 'data-stop-turn', 'href'].find((n) => a.getAttribute(n));
+    const k = ['data-cx-ctl', 'data-cx-way', 'data-cx-start', 'data-activity', 'data-cx', 'data-cx-copy', 'data-cx-dest', 'data-dest', 'data-away', 'data-stop-turn', 'href'].find((n) => a.getAttribute(n));
     pick = a.id ? `#${CSS.escape(a.id)}` : k ? `[${k}="${CSS.escape(a.getAttribute(k))}"]` : '';
   }
   root.replaceChildren(...kids);
@@ -249,10 +249,80 @@ function textBlock(text, cls = 'cx-text') {
 const SURFACE_SAID = { workbench: 'the Workbench', repl: 'the REPL', monitor: 'the monitor', companion: 'a companion page', unknown: 'another surface' };
 
 const openTools = new Set();
-function savedTurn(t, i) {
+const openActivity = new Set();
+const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
+/** A running thing's indicator (the playbook §17: a braille spinner at 80 ms; still, with reduced motion), always with its words. */
+const spinner = () => h('span', { class: 'cx-spin', 'aria-hidden': 'true' }, SPIN[0]);
+const seconds = (ms) => (typeof ms === 'number' && Number.isFinite(ms) ? `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s` : 'time not recorded');
+
+/**
+ * R11 step 2 (H171; the plan's section 2): the one line under an answer, "<model> · <where> · <seconds> · receipt <id> ✓" (✓
+ * only when the companion verified the receipt on this read; "no receipt" when none seals it), a button that opens the
+ * activity: the tools the turn ran as grouped lines, then the receipt's facts. Never the raw receipt in the chat.
+ */
+function evidence(key, model, rc, tools, extra) {
+  const open = openActivity.has(key);
+  const mark = rc ? (rc.verified ? h('span', { class: 'cx-ev-ok' }, '✓') : h('span', { class: 'cx-ev-no' }, '(not verified)')) : null;
+  const line = rc ? `${model || 'model not recorded'} · ${rc.where} · ${seconds(rc.ms)} · receipt ${rc.id} `
+    : extra && extra.own ? `${model || 'no model'} · ${extra.where} · ${extra.seconds} · no receipt`
+      : 'no receipt of this project seals this answer · model, where and time not recorded';
+  const btn = h('button', { type: 'button', class: 'cx-evidence', 'aria-expanded': open ? 'true' : 'false', 'data-activity': key },
+    h('span', { class: 'cx-ev-mark', 'aria-hidden': 'true' }, open ? '▾' : '▸'), ` ${line}`, mark);
+  if (!open) return [btn];
+  const act = h('div', { class: 'cx-activity', role: 'region', 'aria-label': 'Activity of this answer' });
+  // the tools, grouped: the receipt's outcomes in order (its tool_outcomes), each with the result the conversation kept, cut to a line
+  const said = new Map((tools || []).map((m) => [m.tool || '', m]));
+  const lines = h('div', { class: 'cx-act-tools' });
+  if (rc && rc.tools.length) {
+    rc.tools.forEach((t) => {
+      const line = h('p', { class: 'cx-act-line' }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, t.outcome === 'completed' ? '●' : t.outcome === 'failed' ? '✕' : '○'), ` ${t.name} · ${t.outcome}${t.receipt ? ` · its own receipt ${t.receipt.slice(7)}` : ''}`);
+      lines.append(line);
+      const m = said.get(t.name);
+      if (m) lines.append(h('p', { class: 'cx-act-sub' }, `└ ${String(m.text || '').split('\n')[0].slice(0, 120)}${String(m.text || '').includes('\n') || String(m.text || '').length > 120 ? '…' : ''}`));
+    });
+  } else if (tools && tools.length) {
+    tools.forEach((m) => lines.append(h('p', { class: 'cx-act-line' }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, '●'), ` ${m.tool || 'a tool'} · result kept in the conversation`), h('p', { class: 'cx-act-sub' }, `└ ${String(m.text || '').split('\n')[0].slice(0, 120)}`)));
+  } else lines.append(h('p', { class: 'cx-act-line is-none' }, rc ? 'No tool ran: the answer came from the model alone.' : 'No tools: this page’s own chat offers none.'));
+  act.append(h('p', { class: 'cx-act-k' }, 'Tools'), lines);
+  // the receipt's facts, each named; a FAKE receipt in a test is said not verified, never ✓
+  const facts = h('dl', { class: 'cx-facts' });
+  const add = (k, v) => facts.append(h('dt', null, k), h('dd', null, v));
+  if (rc) {
+    add('Receipt', `${rc.id} · sealed by ${SURFACE_SAID[rc.surface] || 'another surface'} · ${rc.status}${typeof rc.steps === 'number' ? ` · ${rc.steps} step${rc.steps === 1 ? '' : 's'}` : ''}`);
+    add('Verified', rc.verified ? '✓ its links, body hashes and signature verify on this computer (checked on this read)' : `✕ not verified: ${rc.why || 'it does not verify'}`);
+    add('Model', model || 'not recorded');
+    add('Ran on', rc.where);
+    add('Time', seconds(rc.ms));
+    add('Spend', rc.cost ? (rc.cost.usd === 0 ? 'none' : `$${rc.cost.usd.toFixed(4)}${rc.cost.measured ? ' (the whole charge reported)' : ' (a lower bound, not the whole charge)'}`) : 'not recorded');
+    if (typeof rc.files === 'number') add('Files written', rc.files === 0 ? 'none' : String(rc.files));
+  } else {
+    add('Receipt', 'none: this page’s own chat is not saved to the project and seals no receipt; the Workbench, the REPL and the monitor seal theirs');
+    if (extra && extra.cost) add('Spend', extra.cost);
+  }
+  act.append(h('p', { class: 'cx-act-k' }, 'Receipt'), facts);
+  return [btn, act];
+}
+
+/** The saved turns drawn: a tool message folds into the answer that follows it (its activity); one after no answer stands alone. */
+function savedTurns(turns, session) {
+  const out = [];
+  let pending = [];
+  turns.forEach((t, i) => {
+    if (t.kind === 'tool') { pending.push({ ...t, index: i }); return; }
+    if (t.kind === 'timmy') { out.push(savedTurn(t, i, pending, session)); pending = []; return; }
+    pending.forEach((m) => out.push(savedTurn(m, m.index, [], session)));
+    pending = [];
+    out.push(savedTurn(t, i, [], session));
+  });
+  pending.forEach((m) => out.push(savedTurn(m, m.index, [], session)));
+  return out;
+}
+
+function savedTurn(t, i, tools, session) {
   if (t.kind === 'tool') {
     const lines = String(t.text || '').split('\n').length;
-    const key = `${(cx.view && cx.view.conversation && cx.view.conversation.session) || ''}:${i}`;
+    const key = `${session || ''}:${i}`;
     const box = h('details', { class: 'cx-tool', 'data-tool-key': key, open: openTools.has(key) }, h('summary', null, 'Tool result · ', h('strong', null, t.tool || 'a tool'), ` · ${lines} line${lines === 1 ? '' : 's'}${t.cut ? ' (cut)' : ''}`), h('pre', null, t.text));
     box.addEventListener('toggle', () => { if (box.open) openTools.add(key); else openTools.delete(key); });
     return h('li', { class: 'cx-turn is-tool' }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '⚒'), box);
@@ -271,12 +341,13 @@ function savedTurn(t, i) {
   const li = h('li', { class: `cx-turn ${you ? 'is-you' : 'is-timmy'}${stop ? ' is-stopped' : ''}` }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, you ? '›' : '>_'), who, body);
   if (!you) {
     const meta = h('div', { class: 'cx-meta' });
-    const ended = stop ? `■ stopped by you${stop.by ? ` (asked from ${SURFACE_SAID[stop.by] || 'another surface'})` : ''}` : t.receipt ? (t.receipt.status === 'ok' ? 'answered' : t.receipt.status) : '';
-    if (t.receipt) {
-      meta.append(h('span', null, `${ended} · sent from ${SURFACE_SAID[t.receipt.surface] || 'another surface'} · sealed in receipt ${t.receipt.id} (not checked here)`));
-    } else meta.append(h('span', null, `${stop ? `${ended} · ` : ''}no sealed receipt of this project matches this ${stop ? 'turn' : 'answer'}`));
+    if (stop) meta.append(h('span', { class: 'cx-end' }, `■ stopped by you${stop.by ? ` (asked from ${SURFACE_SAID[stop.by] || 'another surface'})` : ''}`));
+    else if (t.receipt && t.receipt.status !== 'ok') meta.append(h('span', { class: 'cx-end' }, t.receipt.status));
     if (t.cut) meta.append(h('span', null, 'cut: the answer is longer than this page shows'));
-    li.append(meta);
+    if (meta.childElementCount) li.append(meta);
+    // R11 step 2: the evidence line and its activity
+    const key = `${session || ''}:${i}`;
+    li.append(...evidence(key, t.model, t.receipt || null, tools, null));
     if (stop) li.append(h('details', { class: 'cx-tool cx-stop-record' }, h('summary', null, 'Timmy’s record of the stop · kept in the conversation for the next turn'), h('pre', null, stop.record)));
     if (t.text) li.append(h('div', { class: 'cx-actions' }, h('button', { type: 'button', class: 'cx-link', 'data-cx-copy-text': '1' }, 'Copy text')));
   }
@@ -289,11 +360,16 @@ function ownTurn(t, i) {
     h('div', { class: 'cx-who' }, h('strong', null, 'YOU'), h('span', { class: 'cx-when', title: t.at }, clock(t.at))), textBlock(t.you)));
   const who = h('div', { class: 'cx-who' }, h('strong', null, 'TIMMY'), t.model ? h('span', { class: 'cx-model' }, t.model) : h('span', { class: 'cx-model is-unknown' }, 'no model asked'));
   if (t.model && fakeModel(t.model)) who.append(h('span', { class: 'cx-chip' }, 'FAKE model'));
-  const end = t.state === 'streaming' ? 'answering…' : t.state === 'answered' ? 'answered' : t.state === 'stopped' ? '✕ stopped by you: the answer so far is kept here' : `✕ failed: ${t.words || 'no answer'}`;
-  const meta = h('div', { class: 'cx-meta' }, h('span', { class: 'cx-chip' }, 'this page’s own chat'), h('span', { class: 'cx-end' }, end));
-  if (t.cost) meta.append(h('span', null, t.cost));
+  const where = t.where || 'not known';
+  const elapsed = (t.ended || Date.now()) - (t.started || Date.now());
+  const meta = h('div', { class: 'cx-meta' }, h('span', { class: 'cx-chip' }, 'this page’s own chat'));
+  // R11 step 2: a running turn always shows an indicator with its words (the playbook §17); this page's chat runs no tool
+  if (t.state === 'streaming') meta.append(h('span', { class: 'cx-end cx-running' }, spinner(), ` Answering · ${t.model || 'the model'} · ${where} · ${Math.max(0, Math.round(elapsed / 1000))} s · no tools`));
+  else if (t.state === 'stopped') meta.append(h('span', { class: 'cx-end' }, '✕ stopped by you: the answer so far is kept here'));
+  else if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, `✕ failed: ${t.words || 'no answer'}`));
   if (t.notice) meta.append(h('span', null, t.notice));
-  const li = h('li', { class: `cx-turn is-timmy is-${t.state}`, 'data-own': String(i) }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '>_'), who, textBlock(t.answer || (t.state === 'streaming' ? '' : '')), meta);
+  const li = h('li', { class: `cx-turn is-timmy is-${t.state}`, 'data-own': String(i) }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '>_'), who, textBlock(t.answer || ''), meta);
+  if (t.state !== 'streaming') li.append(...evidence(`own:${i}`, t.model, null, [], { own: true, where, seconds: seconds(elapsed), cost: t.cost || '' }));
   if (t.answer) li.append(h('div', { class: 'cx-actions' }, h('button', { type: 'button', class: 'cx-link', 'data-cx-copy-text': '1' }, 'Copy text')));
   frag.append(li);
   return frag;
@@ -337,8 +413,9 @@ function drawChat() {
   const convKey = JSON.stringify(conv ? [conv.session, conv.total, conv.turns] : null);
   if (convKey !== cx.convKey) {
     cx.convKey = convKey;
-    turns.replaceChildren(...((conv && conv.turns) || []).map((t, i) => savedTurn(t, i)));
+    turns.replaceChildren(...savedTurns((conv && conv.turns) || [], conv && conv.session));
   }
+  drawRunning();
   drawOwn();
   drawEmpty();
   drawRoute();
@@ -355,9 +432,10 @@ function drawChat() {
   // a panel (the first run, a provider's setup) opens at its top; the conversation follows its end while the person is there,
   // and comes back to its end when a panel closes
   const st = document.body.dataset.chatState || '';
-  const panel = st === 'first-run' || st === 'setup';
+  // (R11 step 2: the welcome opens at its top too, as the first run's panel does)
+  const panel = st === 'first-run' || st === 'setup' || st === 'empty';
   const shownKey = `${st}:${cx.setup || ''}`;
-  const wasPanel = /^(first-run|setup):/.test(cx.shownKey || '');
+  const wasPanel = /^(first-run|setup|empty):/.test(cx.shownKey || '');
   if (scroll) {
     if (panel) { if (cx.shownKey !== shownKey) scroll.scrollTop = 0; }
     else if ((cx.follow && atEnd) || wasPanel) scroll.scrollTop = scroll.scrollHeight;
@@ -432,6 +510,17 @@ function setupBody(id) {
     h('p', null, 'Timmy never checks Cloudflare from here: a first request can create a gateway and bill. Its setup: ', link('cloudflare', 0), '.')]];
 }
 
+/** R11 step 2: a turn of this project being answered by another surface now: an indicator while it runs (its receipt comes when it ends). */
+function drawRunning() {
+  const box = $('cx-running');
+  if (!box) return;
+  const conv = cx.view && cx.view.conversation;
+  const run = conv && Array.isArray(conv.running) ? conv.running : [];
+  box.hidden = run.length === 0;
+  if (!run.length) { box.replaceChildren(); return; }
+  box.replaceChildren(...run.map((r) => h('p', { class: 'cx-running-line' }, spinner(), ` A turn of this project is being answered in ${SURFACE_SAID[r.surface] || 'another surface'} since ${clock(r.since) || r.since}; its receipt comes when it ends.`)));
+}
+
 /** This page's own turns, said apart from the project's conversation. */
 function drawOwn() {
   const own = $('cx-own');
@@ -489,10 +578,37 @@ function drawEmpty() {
       h('dl', { class: 'cx-avail' }, h('dt', null, 'Project files'), h('dd', null, 'available on this computer'), h('dt', null, 'Logs & records'), h('dd', null, 'kept on this computer'), h('dt', null, 'The saved conversation'), h('dd', null, n ? `${n} message${n === 1 ? '' : 's'} above` : 'none yet'), h('dt', null, 'AI answers'), h('dd', null, 'not connected'))]);
     return;
   }
-  // a route and no conversation yet: one useful next action
-  redraw(box, [h('h3', null, 'Start the conversation.'),
-    h('p', null, `Your first message goes to ${r.model} (${routeWhere(r)}). This page’s own chat is not saved to the project; the Workbench’s is.`),
-    h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'focus-composer' }, 'Write a message'))]);
+  // R11 step 2 (H171; the plan's section 2): a route and no conversation yet: the welcome (three lines) and four starter actions
+  // that work today, drawn as the first run's choices. (The welcome's words are the plan's and H167's brief's; the terminal's
+  // step 2 words were not posted when this was written.)
+  redraw(box, [h('p', { class: 'cx-kicker' }, 'Welcome'), h('h2', { class: 'cx-title' }, 'TIMMY runs tools and workflows on your machine and keeps a receipt for every step.'),
+    h('p', { class: 'cx-welcome-line' }, `Type below and press Enter to send: your first message goes to ${r.model} (${routeWhere(r)}).`),
+    h('p', { class: 'cx-welcome-line' }, 'Logs and receipts stay on this computer, in this project’s .timmy folder (Logs & records shows them). Cloud sync is off.'),
+    h('div', { class: 'cx-ways cx-starters' }, ...STARTERS.map((a) => h('button', { type: 'button', class: 'cx-way', 'data-cx-start': a.id },
+      h('span', { class: 'cx-way-k' }, a.kicker), h('span', { class: 'cx-way-title' }, a.title), h('span', { class: 'cx-way-words' }, a.words), h('span', { class: 'cx-way-act' }, `${a.act} →`))))]);
+}
+
+/** The four starter actions (the plan's section 2): each a real action this page has today, never a tour. */
+const STARTERS = [
+  { id: 'ask', kicker: 'Chat', title: 'Ask about this project', words: 'A sample question goes into the composer as a draft; change it as you like, then Enter sends it.', act: 'Write the draft' },
+  { id: 'image', kicker: 'Vision', title: 'Inspect an image', words: 'Opens VoxVision, this page’s vision workspace: describe an image with the vision tools this computer has.', act: 'Open VoxVision' },
+  { id: 'workflow', kicker: 'Work', title: 'Run a workflow', words: 'Opens Workflows: the repeatable runs this project keeps, each run with its receipt.', act: 'Open Workflows' },
+  { id: 'canvas', kicker: 'Canvas', title: 'Open the canvas', words: 'Opens Studio, the project’s canvas in this browser.', act: 'Open Studio' },
+];
+const SAMPLE_QUESTION = 'What is in this project, and what would you do first?';
+
+/** A starter action: the draft and the composer, or one of this page's tabs. */
+function startWith(id) {
+  if (id === 'ask') {
+    const input = $('cx-input');
+    if (!input) return;
+    if (!input.value.trim()) { input.value = SAMPLE_QUESTION; saveDraft(); drawComposer(); }
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return;
+  }
+  const dest = id === 'image' ? 'voxvision' : id === 'workflow' ? 'workflows' : id === 'canvas' ? 'studio' : '';
+  if (dest) { document.body.classList.remove('rail-open'); showWorkspaceTab(dest); }
 }
 
 /** The page's choice of model, as the companion read it (GET /api/chat/view's `choice`; see src/companion/chat-view.ts pageChoice). */
@@ -566,8 +682,9 @@ function drawChip() {
   if (!c || !c.chosen) { set('unknown', 'no model · choose one', (c && c.words) || (r && r.words) || ''); return; }
   const where = c.source === 'ollama-local' ? 'this computer' : r && r.kind === 'openrouter' && r.price ? `OpenRouter · ${r.price}` : 'OpenRouter';
   const k = c.check || { state: 'unknown', words: '' };
+  // (H168's pass 4a R40: the dot's state in a word with its time, as the terminal's chip says it: "· ready HH:MM")
   if (k.state === 'failed') set('failed', `${c.model} · ${c.source === 'ollama-local' ? (/did not answer/.test(k.words) ? 'Ollama did not answer' : 'not listed') : (r && !r.ready ? 'Send is off' : 'key not usable')}`, k.words);
-  else set(k.state === 'ready' ? 'ready' : 'unknown', `${c.model} · ${where}${k.state === 'ready' && k.at ? ` · ${clock(k.at)}` : k.state === 'unknown' ? ' · not checked' : ''}`, k.words);
+  else set(k.state === 'ready' ? 'ready' : 'unknown', `${c.model} · ${where}${k.state === 'ready' ? ` · ready${k.at ? ` ${clock(k.at)}` : ''}` : k.state === 'unknown' ? ' · not checked' : ''}`, k.words);
   chip.setAttribute('aria-expanded', modelsShown() ? 'true' : 'false');
 }
 
@@ -596,7 +713,7 @@ async function sendNow() {
   input.value = '';
   saveDraft();
   // the route snapshotted as the turn starts: a later change applies to the next turn, never this one
-  const turn = { you: text, answer: '', model: r.model, label: r.label, state: 'streaming', words: '', at: new Date().toISOString() };
+  const turn = { you: text, answer: '', model: r.model, label: r.label, state: 'streaming', words: '', at: new Date().toISOString(), started: Date.now(), ended: 0, where: routeWhere(r) };
   const history = [];
   for (const t of cx.own) { if (t.state === 'answered' && t.answer) history.push({ role: 'user', content: t.you }, { role: 'assistant', content: t.answer }); }
   history.push({ role: 'user', content: text });
@@ -621,6 +738,7 @@ async function sendNow() {
     if (controller.signal.aborted) turn.state = 'stopped';
     else { turn.state = 'failed'; turn.words = 'the companion did not answer the request'; }
   } finally {
+    turn.ended = Date.now();
     cx.running = null;
     drawChat();
   }
@@ -1074,6 +1192,10 @@ document.addEventListener('click', (event) => {
   if (row && row.classList.contains('cm-row')) { cx.models.selected = row.dataset.model; drawModelsRail(); document.querySelector(`.cm-row[data-model="${CSS.escape(row.dataset.model)}"]`)?.focus(); return; }
   const way = at.closest('[data-cx-way]');
   if (way) { chooseWay(way.dataset.cxWay); return; }
+  const start = at.closest('[data-cx-start]');
+  if (start) { startWith(start.dataset.cxStart); return; }
+  const ev = at.closest('[data-activity]');
+  if (ev) { const k = ev.dataset.activity; if (openActivity.has(k)) openActivity.delete(k); else openActivity.add(k); cx.convKey = ''; drawChat(); document.querySelector(`[data-activity="${CSS.escape(k)}"]`)?.focus({ preventScroll: true }); return; }
   const act = at.closest('[data-cx]');
   if (!act) return;
   const what = act.dataset.cx;
@@ -1233,6 +1355,16 @@ $('cx-scroll')?.addEventListener('scroll', () => {
   restoreDraft();
   onDest(workspace.tab);
   setInterval(() => { if (!document.hidden && cx.dest === 'chat') readView(); }, CX_VIEW_EVERY_MS);
+  // R11 step 2: the indicators of what runs (the playbook §17: a braille spinner at 80 ms, still under reduced motion) and the
+  // elapsed seconds of this page's turn being answered
+  let spin = 0;
+  setInterval(() => {
+    const spins = document.querySelectorAll('.cx-spin');
+    if (!spins.length || reducedMotion()) return;
+    spin = (spin + 1) % SPIN.length;
+    spins.forEach((el) => { el.textContent = SPIN[spin]; });
+  }, 80);
+  setInterval(() => { if (cx.running) drawStreaming(); }, 1000);
   // the frame (tab labels, waiting counts, the project's commands, a turn running elsewhere) is read by companion.js; the
   // rail and the controls follow it
   setInterval(() => { drawRail(); if (cx.dest === 'chat') { drawControls(); railProject(); } }, 3000);
