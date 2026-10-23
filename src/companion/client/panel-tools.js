@@ -32,6 +32,8 @@
     tool: null, args: {}, raw: {}, check: null, checkBusy: false, checkTimer: 0, checkSeq: 0,
     callBusy: false, result: null,
     calls: [], more: 0, callsAt: 0, el: {},
+    /** R11 Phase 2: the inventory (GET inventory), its read in flight, and why it could not be read */
+    inventory: null, inventoryBusy: false, inventoryError: null,
   };
 
   const routeName = (id) => (id === 'sdk' ? 'the SDK route' : 'the mcporter route');
@@ -95,7 +97,11 @@
     const result = box('tools-resultbox', 'Result, record & receipt', e.result);
     e.calls = h('div', { class: 'tools-calls' });
     const calls = box('tools-callsbox', 'This project\'s newest calls · from their records', e.calls);
+    // R11 Phase 2 (H171): the capabilities first, one card each, in the three words every surface keeps apart
+    e.caps = h('div', { class: 'tools-caps', 'data-tools-caps': '' });
+    const caps = box('tools-capsbox', 'Capabilities · what Timmy can do here, each in the three words of its state', e.caps);
     const root = h('div', { class: 'tools-panel', 'data-tools-panel': '' },
+      caps.box,
       e.steps,
       h('div', { class: 'tools-grid' }, ingest.box, request.box, wire.box, result.box),
       calls.box);
@@ -110,6 +116,61 @@
     if (r.status !== 200) { P.state = null; P.stateError = r.body.error || `HTTP ${r.status}`; }
     else { P.state = r.body; P.stateError = null; P.calls = r.body.calls || []; P.more = r.body.more || 0; P.callsAt = Date.now(); }
     renderAll();
+  }
+
+  /** R11 Phase 2: the inventory read (the companion keeps one reading for 30 s; Check again asks for a fresh one). */
+  async function loadInventory(refresh) {
+    if (P.inventoryBusy) return;
+    P.inventoryBusy = true;
+    P.inventoryError = null;
+    renderInventory();
+    const r = await api(refresh ? 'inventory?refresh=1' : 'inventory');
+    P.inventoryBusy = false;
+    if (r.status !== 200 || !r.body.ok) { P.inventoryError = r.body.error || `HTTP ${r.status}`; }
+    else P.inventory = r.body;
+    renderInventory();
+  }
+
+
+  /**
+   * One capability as a card: its name, the chip, the row's own three sentences (available · configured · exercised, each
+   * its own fact, in the words the terminal shows for the same row), and the one next step. A next step that names a key,
+   * a token or an address is set in the terminal: the card says so and holds no field.
+   */
+  function capCard(r) {
+    // the chip is the standing word (the terminal's: no chip when none holds, the found words say it; never a fourth word);
+    // green (.is-verified) only for exercised: a verified sealed receipt; available and configured are in the text colour
+    const chip = r.standing === 'none' ? null : h('span', { class: `tl-chip is-${r.standing}${r.standing === 'exercised' ? ' is-verified' : ''}`, 'data-tl-word': r.standing }, `● ${r.standing}`);
+    const fact = (k, f) => h('li', { class: 'tl-fact', 'data-tl-fact': k, 'data-tl-ok': f.ok ? '1' : '0' },
+      h('span', { class: `tl-mark ${f.ok ? (k === 'exercised' ? 'is-ok is-verified' : 'is-ok') : 'is-no'}`, 'aria-hidden': 'true' }, f.ok ? '✓' : '–'), h('span', { class: 'tl-fact-w' }, f.words));
+    const facts = h('ul', { class: 'tl-facts' }, fact('available', r.available), fact('configured', r.configured), fact('exercised', r.exercised));
+    const next = r.next
+      ? h('p', { class: 'tl-next', 'data-tl-next': r.nextIsCredential ? 'terminal' : 'step' }, h('span', { class: 'tl-next-k' }, 'Next'), ` ${r.next}`,
+        r.nextIsCredential ? h('span', { class: 'tl-next-where' }, ' Set in Models & accounts, the environment or the .env file: nothing is set from this card.') : null)
+      : h('p', { class: 'tl-next is-none', 'data-tl-next': 'none' }, h('span', { class: 'tl-next-k' }, 'Next'), ' nothing: it is exercised here.');
+    // data-inventory-row and data-state: what H172's capability-words check reads (one element per row, its standing word)
+    return h('article', { class: 'tl-card', 'data-inventory-row': r.id, 'data-state': r.standing },
+      h('div', { class: 'tl-card-head' }, h('h4', { class: 'tl-name' }, r.name), chip), facts, next);
+  }
+
+  function renderInventory() {
+    const el = P.el.caps;
+    if (!el) return;
+    const inv = P.inventory;
+    const head = h('div', { class: 'tl-head' },
+      h('p', { class: 'tl-words' }, P.inventoryBusy && !inv ? 'Reading this computer: files, settings and this project’s receipts (no model runs)…' : inv ? inv.words : P.inventoryError ? `The inventory could not be read: ${P.inventoryError}` : 'Not read yet.'),
+      h('div', { class: 'tl-ctl' },
+        h('button', { type: 'button', class: 'btn-action tiny', 'data-tl-refresh': '', disabled: P.inventoryBusy ? true : null }, P.inventoryBusy ? 'Reading…' : 'Check again'),
+        inv ? h('span', { class: 'tl-at' }, `read ${clock(inv.inventory.readAt)}`) : null));
+    const legend = inv ? h('p', { class: 'tl-legend' }, ...Object.entries(inv.inventory.means).flatMap(([w, m], i) => [i ? ' · ' : '', h('strong', null, w), `: ${m}`])) : null;
+    // the rows verbatim (inv.inventory.rows, the capability inventory's shape) with the page's card facts beside each (inv.cards)
+    const byId = inv ? new Map(inv.inventory.rows.map((r) => [r.id, r])) : new Map();
+    const groups = inv ? inv.inventory.groups.map((g) => {
+      const cards = inv.cards.filter((c) => c.group === g && byId.has(c.id));
+      if (!cards.length) return null;
+      return h('section', { class: 'tl-group', 'data-tl-group': g }, h('h3', { class: 'tl-group-k' }, g), h('div', { class: 'tl-cards' }, ...cards.map((c) => capCard({ ...byId.get(c.id), standing: c.standing, nextIsCredential: c.nextIsCredential }))));
+    }) : [];
+    put(el, head, legend, inv ? h('p', { class: 'tl-note' }, `Read: ${inv.read}. ${inv.note}`) : null, ...groups);
   }
 
   async function loadServers() {
@@ -759,6 +820,11 @@
     renderAll();
   }
 
+  document.addEventListener('click', (ev) => {
+    const b = ev.target instanceof Element ? ev.target.closest('[data-tl-refresh]') : null;
+    if (b && P.built && P.el.caps && P.el.caps.contains(b)) loadInventory(true);
+  });
+
   function renderAll() {
     if (!P.built) return;
     if (P.stateError) { put(P.el.modes, h('p', { class: 'empty tools-attn' }, `The inspector could not read its state: ${P.stateError}`)); return; }
@@ -791,7 +857,8 @@
         Object.assign(P, { listing: null, tool: null, check: null, result: null, observed: new Map(), server: { kind: 'fixture' }, mode: 'stdio', servers: null });
         build(host);
         renderAll();
-        return Promise.all([loadState(), loadServers()]);
+        renderInventory();
+        return Promise.all([loadState(), loadServers(), loadInventory(false)]);
       }
       return refreshCalls();
     },
