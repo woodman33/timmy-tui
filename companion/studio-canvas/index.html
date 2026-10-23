@@ -250,8 +250,13 @@
   /* R5 (H137; QA defect 13): one amber next step on screen, the strip's primary (B10): New board's Open and a box's first button
      are outlined, never filled (their weight says which comes first) */
   #side #board-open, #side .primary { font-weight: var(--timmy-weight-strong, 600); }
-  /* R5 (H133): the save line: one state at a time, in words and a glyph (src/save-state.js); amber when it needs you, never green */
-  #save { flex: none; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
+  /* R5 (H133): the save line: one state at a time, in words and a glyph (src/save-state.js); amber when it needs you, never green.
+     R10 (H172): two lines' room whatever it says. Its words take one line or two by state (at 320 px: saved one, "Not saved yet …
+     (saving in a moment)" two; at 280 px: saved two, "Saving …" one), so each save moved the list region below it, and everything
+     in it, 18.8 px down and back: a press begun on a button there (Read again, a row's Place) was let go of beside it, and lost.
+     Every routine state fits two lines at both widths; one that needs you (failed, a newer version on disk) may take more */
+  #save { flex: none; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93);
+    min-height: calc(2em * 1.45); min-height: 2lh; }
   #save #save-glyph { flex: none; width: 1.2em; text-align: center; color: var(--timmy-text-secondary, #8E8E93); }
   #save #save-words { flex: 1 1 12em; min-width: 0; }
   #save[data-state="saved"] { color: var(--timmy-text, #F2EFE9); }

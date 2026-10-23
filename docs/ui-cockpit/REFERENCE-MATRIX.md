@@ -31,6 +31,29 @@ structure and secondary controls `#333333` / `#444444` with text `#F2EFE9` / `#8
 `#28FE14` / `#00D700` only for an observed live connection, a passed check or a verified sealed receipt. Imported images,
 video, reference artwork and measured data keep their own colors.
 
+## R10 status (the tested candidate `fa45040`, 2026-10-22)
+
+R10 was one UI pass over one connected journey: the terminal Workbench's Home and Chat, the browser companion's Home preview,
+run view and own chat, and Studio. The R10 independent review (H168: pass 2a, the terminal at `5f0e1d4`; pass 2b, the
+companion and Studio at `dd351c0`; pass 2c, the terminal again at `fa45040`) judged the six references whose screens R10
+changed, with captures at 122×37, 160×45, 100×30 and 80×24 and at 1376×768, 1280×720, 1600×900 and 390×844; the other twelve
+are as R9 left them (R10 did not change their screens). Functional correctness, visual fidelity and ease of use are reported
+apart in the review's reports; the words below are the visual status only.
+
+**0 complete, 18 partial, 0 absent** (as in R9). No reference became complete in R10.
+
+| Ref | R10 status | Judged by | What R10 changed |
+|---|---|---|---|
+| 01, 13 | partial, closer | H168 2a and 2c (terminal), 2b (companion) | Home is the journey's first screen on both surfaces: the project's recent work in words (the conversation one row, a mesh in several formats one row), one amber next step, the route the next turn takes; the companion's preview draws the selected image or run (progress, result, verified receipt) beside its facts. Close in structure at 1376×768 and 1600×900, cramped at 1280×720. Still absent: the connection cards' full layout and a 3D or tldraw preview pane (a mesh opens on tab 6). Open at `fa45040`: Home's Selected column says an answered turn's answer is missing (2c's R1); Ollama's row stays live right after a refused send (2c's R2). |
+| 02, 11 | partial, closer | H168 2a and 2c, 2b | Chat: the route before sending, a boxed composer at the column's foot, the pipeline as state words, each turn's receipt state, one price wording ("no charge · local"), a failed turn in words with its detail under [i]; the companion's own chat says it has no tools and no receipt. Still absent: model chips and preview panes. At `fa45040` the composer's foot is cut at 122×37 and 100×30, and the state chips at 100×30 and 80×24. |
+| 12 | partial, closer | H168 2b | The run detail in words (intent, prediction, run, receipt), ids behind Details; some ids, home paths, a code path and the OS still on its face (2b's H4); its amber step is another workflow (H6). |
+| 06 | partial | H168 2b | Studio in words: the board's state and save, the project's files, nodes and cards, draft review (Show, Accept, Discard, Move it to free space); ids, places and commands under Details. Not 06's layout: a full-page canvas and a 320 px panel; no Hero Stage, node-graph pane, engine shelf or timeline. From the Workbench a draft cannot be proposed (2b's H1). |
+| 03, 04, 05, 07, 08, 09, 10, 14, 15, 16, 17, 18 | as R9 | R9 and R6 reviews | — (R10 did not change their screens; 09 and 18's decisions are still absent on the companion) |
+
+Next, not in `fa45040`: the operator's order of 2026-10-22, 16:01 PT, makes onboarding and ONE main Chat screen the next UI
+checkpoint, with a permanent left menu, the conversation in the center, model choice on the right and the conversation's
+controls at the bottom. For that screen it replaces the horizontal tabs above; the 18-reference scope stays.
+
 ## R9 status (the frozen R9 candidate `1fa4020`, 2026-10-20)
 
 `complete`: the reference's layout, hierarchy and interactions are followed on its tab, with a capture that shows it.

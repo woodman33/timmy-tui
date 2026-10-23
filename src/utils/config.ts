@@ -38,6 +38,8 @@ export interface TuiConfig {
   };
   /** R5: refuse a chat message to a model not known to be free (src/agent/model-price.ts); TIMMY_CHAT_FREE_ONLY wins */
   freeOnly?: boolean;
+  /** R10 (H169): refuse any model call off this computer (src/agent/route-policy.ts); TIMMY_CHAT_LOCAL_ONLY wins */
+  localOnly?: boolean;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
