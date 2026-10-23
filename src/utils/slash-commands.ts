@@ -52,6 +52,35 @@ import { ensureProjectTree, appendChatThread, syncLaneLogs, exportTraining, rend
 import { shareFile, demoTerminal } from './share.js';
 import { fetchWx, wxSheetLine, wxLightLine } from './weather.js';
 import { providerStatusWords } from '../tui/provider-status.js';
+import { readCatalogCache } from '../models/catalog.js';
+import { modelPrice } from '../agent/model-price.js';
+
+/** R11 (H169; the operator's order of 2026-10-23): `/model fallback` switches to nothing. */
+export const NO_FALLBACK_MODEL_WORDS = 'No fallback model: a model nobody chose is never asked in place of the one you chose. /model use <model_id> chooses one; /models lists the catalog this computer keeps.';
+
+/**
+ * R11 Phase 2 (H169, item b): the words of `/models`: the OpenRouter catalog this computer keeps (never a list typed into the
+ * code), free models first (up to ten, with their context), then how many more, the chosen model (none until one is), and
+ * how to refresh. With no catalog at all it says so. No key is needed to read the kept catalog; a refresh fetches it (free).
+ */
+export function modelsCommandWords(agent: { getModel?: () => string } | null | undefined, env: Record<string, string | undefined> = process.env): string {
+  const chosen = String(agent?.getModel?.() ?? '').trim();
+  const chosenLine = chosen ? `Chosen for the next turn: ${chosen}.` : 'No model is chosen: nothing is sent until one is (/model use <model_id>).';
+  const kept = (() => { try { return readCatalogCache(env); } catch { return null; } })();
+  if (!kept) return `No model list: this computer keeps no OpenRouter catalog. \`timmy models --refresh\` fetches it (free, no key needed).\n${chosenLine}`;
+  const date = kept.cache.fetchedAt.slice(0, 10);
+  const ids = kept.cache.models.map((m) => m.id);
+  const free = ids.filter((id) => modelPrice(id, kept.cache).free === true).sort();
+  const shown = free.slice(0, 10);
+  const lines = [
+    `OpenRouter catalog this computer keeps (${kept.kind === 'fetched' ? 'fetched' : 'shipped with Timmy'}, of ${date}): ${ids.length} models, ${free.length} free.`,
+    ...(shown.length ? ['Free (the catalog says $0):', ...shown.map((id) => `• ${id}`)] : ['No free model is listed.']),
+    ...(free.length > shown.length ? [`… and ${free.length - shown.length} more free; \`timmy models\` lists them all, with prices.`] : ['`timmy models` lists every model with its price.']),
+    chosenLine,
+    'Use `/model use <model_id>` to choose; `timmy models --refresh` fetches the current catalog (free).',
+  ];
+  return lines.join('\n');
+}
 
 
 export interface SlashCommand {
@@ -85,16 +114,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     command: '/models',
     description: 'List all configured/catalog models',
-    execute: (_, agent) => {
-      const catalogList = [
-        'anthropic/claude-opus-4.7',
-        'google/gemini-3.5-flash',
-        'openai/gpt-5.5',
-        'minimax/minimax-m3',
-        'qwen/qwen3.7-max'
-      ];
-      return `Configured/Catalog Models:\n` + catalogList.map(m => `• ${m}`).join('\n') + `\n\nUse \`/model use <model_id>\` to switch active model.`;
-    }
+    // R11 Phase 2 (H169, item b): the list was five paid names typed into the code; now it reads the OpenRouter catalog this
+    // computer keeps (src/models/catalog.ts readCatalogCache: fetched by `timmy models --refresh`, else the one shipped with
+    // Timmy), free models first, and says which model is chosen (none until one is)
+    execute: (_, agent) => modelsCommandWords(agent)
   },
   {
     command: '/workspace',
@@ -170,11 +193,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
           return `Successfully set model to: ${modelId}`;
         }
       } else if (sub === 'fallback') {
-        const fallback = 'google/gemini-3.5-flash';
-        if (state && state.switchModel) {
-          state.switchModel(fallback);
-          return `Selected fallback model: ${fallback}`;
-        }
+        // R11 (H169; the operator's order of 2026-10-23): there is no fallback model: a model nobody chose is never asked.
+        // Nothing is switched.
+        return NO_FALLBACK_MODEL_WORDS;
       } else {
         return 'Usage: /model [current|test|use <model_id>|fallback]';
       }
@@ -245,14 +266,16 @@ export const SLASH_COMMANDS: SlashCommand[] = [
         }
       } else if (sub === 'list') {
         if (agent && agent.tmuxSessions) {
-          return `CLI sessions (memory and cost are not measured):\n` + agent.tmuxSessions.map((s: any) => `[${s.id}] ${s.name} (${s.model})`).join('\n');
+          // R11 Phase 2 (H169, item b): a lane's model is a label; a lane without one says so (nothing here runs a model)
+          return `CLI sessions (memory and cost are not measured):\n` + agent.tmuxSessions.map((s: any) => `[${s.id}] ${s.name} (${s.model ? `label: ${s.model}` : 'no model named'})`).join('\n');
         }
       } else if (sub === 'add') {
         const name = parts[1] || 'AgentPane';
-        const model = parts[2] || 'claude-opus-4.7';
+        // R11 Phase 2 (H169, item b): no model is named for a lane unless the command names one (a label; nothing runs it)
+        const model = parts[2] || '';
         if (agent && agent.addTmuxSession) {
           agent.addTmuxSession(name, model);
-          return `Successfully spawned background TMUX session: "${name}" running model ${model}`;
+          return `Successfully spawned background TMUX session: "${name}"${model ? ` with the model label ${model}` : ' (no model named)'}`;
         }
       } else if (sub === 'kill') {
         const id = parts[1];
@@ -1684,9 +1707,10 @@ async function runAgentProofTask(prompt: string, agent: any) {
   let provider = 'local-mock';
   
   const apiKey = agent.config?.apiKey || process.env.OPENROUTER_API_KEY;
-  const model = agent.config?.model || 'google/gemini-2.5-flash';
+  // R11 (H169): the chosen model, or none: with none chosen nothing is sent to OpenRouter (a model nobody chose is never asked)
+  const model = String(agent.config?.model || '');
   
-  if (apiKey && !apiKey.startsWith('paste_your') && process.env.TIMMY_TESTING !== 'true') {
+  if (apiKey && model && !apiKey.startsWith('paste_your') && process.env.TIMMY_TESTING !== 'true') {
     provider = 'openrouter';
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
