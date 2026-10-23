@@ -32,7 +32,8 @@ import { copyWords } from './clipboard.js';
 import { KEY_PAGE } from '../setup/provider-keys.js';
 import { describeCheck } from '../setup/providers-state.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, noModelChosen, type FileRow, type JobRow } from './state.js';
-import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
+import { mcpCallInspector, toolsItemName, toolsItemOperation, type ToolsSearch } from './tools-tab.js';
+import { inventoryInspector, inventoryView } from './inventory-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
 import { blockKey, runDetailRows, selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, fit, lineCells, spread, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
@@ -485,7 +486,8 @@ function pageView(c: ViewCtx): View {
     case 'templates': return templatesView(c);
     // R5 (H134): tab 5 and tab 9, references 04, 05, 15, 16 and 08, 17 (src/workbench/voxvision-tab.ts, tools-tab.ts)
     case 'voxvision': return voxView(c, c.data.caps, c.data.voxTab);
-    case 'tools': return toolsTabView(c, c.data.caps, c.data.toolsTab, toolsSearch(c.ui), c.data.caps.state === 'ready' ? c.data.caps.at : undefined);
+    // R11 phase 2 (H167): the Tools & integrations screen: the honest inventory (src/workbench/inventory-tab.ts)
+    case 'tools': return inventoryView(c, c.data.caps, c.data.toolsTab, toolsSearch(c.ui), c.data.caps.state === 'ready' ? c.data.caps.at : undefined);
     // R10 (H167): Home's left column, the project's recent work (src/workbench/home-journey.ts); the connection cards (R5,
     // H131: src/workbench/hub.ts homeView) are the inspector's now ([i])
     case 'connections': return homeWorkView(c);
@@ -1518,6 +1520,7 @@ function itemName(item: Item | null): string {
     case 'card': return item.card.title;
     case 'operation': return item.op.id;
     case 'cap': return item.row.name;
+    case 'inventory': return item.row.name;
     case 'record': return item.rec.id;
     case 'starter': return item.name;
     case 'board': return item.board.title;
@@ -1746,6 +1749,9 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     case 'card': { const x = item.card; lines.push(heading(`Studio card · ${x.kind}`)); f('Title', x.title); f('State', x.state); f('Record', x.record ?? 'none'); f('Receipt', x.receipt ?? 'none'); f('Operation', x.operation ?? x.operationFrom); lines.push([S('  '), S(x.command, 'action')]); break; }
     case 'operation': { const o = item.op; lines.push(heading('Operation')); f('Id', o.id); f('Request', o.request ?? 'no record of it here'); f('From', o.via ?? 'unknown'); f('State', o.state); if (o.why) lines.push(...para(o.why, w)); f('Cards', String(o.cards.length)); break; }
     case 'cap': { const r = item.row; lines.push(heading('Tool')); f('Name', r.name); f('Rung', r.rung); lines.push(...para(r.detail, w)); if (r.setup) lines.push(...para(`Set up: ${r.setup}`, w, 'action')); if (r.tools?.length) f('Agent tools', r.tools.join(', ')); if (r.exercised) f('Used', r.exercised); break; }
+    // R11 phase 2 (H167): a capability of the Tools & integrations inventory: its three-word state, what was found, the next
+    // step and where it is set, its receipt, then each rung's own evidence (src/workbench/inventory-tab.ts)
+    case 'inventory': lines.push(...inventoryInspector(item.row, w, c.g)); break;
     case 'record': { const r = item.rec; lines.push(heading('Record')); f('Id', r.id); f('What', r.what); f('State', r.state); f('When', r.at || 'not recorded'); f('Record', r.record); if (r.operation) f('Operation', r.operation); break; }
     case 'starter': lines.push(heading('Project starter')); f('Name', item.name); lines.push(...para(item.about, w)); lines.push(...para('Enter makes a new project from it; it asks a name.', w, 'action')); break;
     case 'board': lines.push(heading('Studio board template')); f('Id', item.board.id); f('Title', item.board.title); f('Domain', item.board.domain); lines.push(...para(`Capabilities: ${item.board.caps.join(', ')}`, w)); break;

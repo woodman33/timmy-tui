@@ -4,6 +4,7 @@
  */
 import type { RailModels } from './chat-shell.js';
 import type { CapabilityRow } from '../capabilities/index.js';
+import type { ScreenRow } from './inventory-tab.js';
 import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import type { TabId, WorkspaceConnection, WorkspaceFrame } from '../contracts/workspace.js';
@@ -219,6 +220,8 @@ export type Item =
   | { kind: 'card'; key: string; card: ProjectCard }
   | { kind: 'operation'; key: string; op: ProjectOperation }
   | { kind: 'cap'; key: string; row: CapabilityRow }
+  /** R11 phase 2 (H167): a row of the Tools & integrations inventory (src/workbench/inventory-tab.ts) */
+  | { kind: 'inventory'; key: string; row: ScreenRow }
   | { kind: 'record'; key: string; rec: RecordRow }
   | { kind: 'starter'; key: string; name: string; about: string }
   | { kind: 'board'; key: string; board: BoardTemplate }

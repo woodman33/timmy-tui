@@ -33,7 +33,8 @@ const FAKE_UPMD = resolve('tests/fixtures/fake-upmd.mjs');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FAKE_OPENER: Opener = { program: null, open: () => ({ ok: false, why: 'FAKE opener: nothing is opened in this test' }) };
 // FAKE: sixty rows in the /tools ladder's shape (no program is run to find them), so All tools scrolls
-const FAKE_ROWS: CapabilityRow[] = Array.from({ length: 60 }, (_, i) => ({ id: `fake-${i}`, kind: i % 2 ? 'tool' : 'adapter', name: i === 1 ? 'FAKE quartz press' : i === 3 ? 'FAKE quartz saw' : `FAKE tool ${String(i + 1).padStart(2, '0')}`, rung: 'installed', detail: 'FAKE row for the interaction test' }));
+// (R11 phase 2: the Tools & integrations screen groups the rows by the rail's groups; one kind keeps these sixty in one list, in order)
+const FAKE_ROWS: CapabilityRow[] = Array.from({ length: 60 }, (_, i) => ({ id: `fake-${i}`, kind: 'adapter', name: i === 1 ? 'FAKE quartz press' : i === 3 ? 'FAKE quartz saw' : `FAKE tool ${String(i + 1).padStart(2, '0')}`, rung: 'installed', detail: 'FAKE row for the interaction test' }));
 // FIXTURE producers: no run detail and no chat session are needed here
 const NO_PRODUCERS: Producers = { runDetail: async () => ({ ok: false, why: 'FIXTURE: none in this test' }), openChat: async () => ({ ok: false, why: 'FIXTURE: none in this test' }) };
 
@@ -290,8 +291,8 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     await until('the tools', () => /FAKE quartz press/.test(f.text()), 5000, f.text);
     await press(f.r, TAB, '/', 'f', 'a');
     expect(c.ui.input).toEqual({ field: 'tools', text: 'fa' });
-    // (R5, H131: the key-hint line's [c], as R4's test clicked the navigation's [p])
-    await click(f.r, cellOf(c, '[c] Companion'));
+    // (R5, H131: a one-letter key's hint, as R4's test clicked the navigation's [p]; R11 phase 2: the inventory's [r] checks again)
+    await click(f.r, cellOf(c, '[r] checks again'));
     expect(c.ui.input).toEqual({ field: 'tools', text: 'fa' });
     expect(c.ui.overlay).toBe(null);
     await press(f.r, ESC);
@@ -329,9 +330,9 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     expect(c.ui.toolsQuery).toBe('quartz');
     expect(f.text()).toMatch(/Matching "quartz"/);
     expect(f.text()).toMatch(/2 tools match "quartz"/);
-    expect(c.selected()).toMatchObject({ kind: 'cap', row: { name: 'FAKE quartz press' } });
+    expect(c.selected()).toMatchObject({ kind: 'inventory', row: { name: 'FAKE quartz press' } });
     await press(f.r, '\u001b[B');
-    expect(c.selected()).toMatchObject({ kind: 'cap', row: { name: 'FAKE quartz saw' } });
+    expect(c.selected()).toMatchObject({ kind: 'inventory', row: { name: 'FAKE quartz saw' } });
     // Esc (in the search): cleared; the list keeps the keyboard and says the way to the finder: g, then /
     await press(f.r, '/', ESC);
     expect(c.ui.toolsQuery).toBe('');
@@ -351,9 +352,11 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     c.selectWorkspace('tools');
     const f = frameOf(c, 80, 24);
     await until('the tools', () => /FAKE quartz press/.test(f.text()), 5000, f.text);
-    // a row far down selected: the list's first rows (where the search is) are scrolled away (Tab: the list has the keyboard)
+    // a row far down selected: the list's first rows are scrolled away (Tab: the list has the keyboard); R11 phase 2 (H167):
+    // the search's row is pinned at the window's top, so it stays in view (the header below it scrolls away)
     await press(f.r, TAB, '\u001b[6~', '\u001b[6~', '\u001b[6~');
-    expect(f.text()).not.toContain('Search the tools');
+    expect(f.text()).toContain('Search the tools');
+    expect(f.text()).not.toContain('what this installation has');
     await press(f.r, '/');
     expect(c.ui.input.field).toBe('tools');
     // the search's own row and its hint are shown (found in tmux: they were scrolled away with the list)

@@ -46,7 +46,8 @@ beforeAll(() => {
   jobsDir = join(box, 'jobs');
   mkdirSync(jobsDir, { recursive: true });
 });
-afterAll(() => { rmSync(box, { recursive: true, force: true }); });
+// (the sandbox's removal under a loaded machine took over the default 10 s once: hold h167-r11-p2c)
+afterAll(() => { rmSync(box, { recursive: true, force: true }); }, 60_000);
 afterEach(async () => {
   for (const c of opened.splice(0)) c.dispose();
   for (const ws of spaces.splice(0)) await ws.close({ by: 'as the test ended' });
