@@ -229,11 +229,12 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
       const said = message(c);
       expect(said).toContain('Saved fake-lab/beta:free as the chat\'s OpenRouter model, in Timmy\'s settings');
       expect(said).toContain('WHAT CHANGED');
-      expect(said).toContain('A chat started after this takes it');
+      // (H168's pass 3c, R24: the open session reads the settings' model at every message: this Workbench's next turn takes it)
+      expect(said).toContain('This Workbench\'s next turn takes it (a turn being answered keeps its own), and so does a REPL (timmy) opened from now on.');
       expect(said).toContain('WHAT DID NOT');
       expect(said).toContain('Free-only is as it was: it is never turned off from here.');
       expect(said).toContain('A REPL already running keeps its model until /model fake-lab/beta:free there.');
-      expect(said).toContain('This Workbench\'s chat keeps the model its session was made with until the Workbench starts again');
+      expect(said).not.toContain('keeps the model its session was made with');
       expect(said).toContain('Nothing was sent to any model.');
       // the route read again: free by its :free name (the FAKE id is in no catalog), so free-only lets it go
       expect(c.data.route.words).toContain('fake-lab/beta:free');

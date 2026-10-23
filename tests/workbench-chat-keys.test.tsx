@@ -428,7 +428,9 @@ describe('H168\'s pass 3b through the Controller (R10 CHAT H167): R16, R17', { t
     expect(mid(t).join(' ')).toMatch(new RegExp(`the REPL and timmy init would take the settings' default, ${DEFAULT}, which is priced`));
     expect(mid(t)).toContain('> [ Check the key ]');
     expect(cols(t[1], 20, 121)).toBe('NEXT / OpenRouter / no model chosen: Models (M)');
-    expect(c.ui).toMatchObject({ modelsProvider: 'openrouter', modelsCost: 'free', modelsCostStart: true });
+    expect(c.ui.modelsProvider).toBe('openrouter');
+    // (H168's pass 3c, R17b: the free start is the route's, no model chosen, every launch: a key sets no Cost)
+    expect(c.ui.modelsCost).toBeUndefined();
     // Check the key: the FAKE check, its answer with its time; no model called
     press(c, '\r', ENTER);
     for (const end = Date.now() + 5_000; Date.now() < end && !mid(shown(c)).join(' ').includes('Checked'); await sleep(20)) { /* the FAKE check */ }
@@ -463,11 +465,11 @@ describe('H168\'s pass 3b through the Controller (R10 CHAT H167): R16, R17', { t
     expect(rail(t)[20]).toBe('> FIXTURE: Default');
     press(c, '\r', ENTER);
     // (the choice is saved, recorded and said once the FAKE writer's answer is back: the notice says when)
-    for (const end = Date.now() + 5_000; Date.now() < end && !/^The next turn goes to/.test(c.ui.flash?.text ?? ''); await sleep(20)) shown(c);
+    for (const end = Date.now() + 5_000; Date.now() < end && !/^Next turn: /.test(c.ui.flash?.text ?? ''); await sleep(20)) shown(c);
     expect(saved).toEqual([DEFAULT]);
     expect(readSettings(process.env).settings.openRouterModel).toBe(DEFAULT);
     expect(c.data.route.unchosen).toBeUndefined();
-    expect(c.ui.flash?.text).toBe(`The next turn goes to ${DEFAULT} on OpenRouter (paid: $5.00 in, $25 out per 1M tokens); a turn being answered keeps its route.`);
+    expect(c.ui.flash?.text).toBe(`Next turn: ${DEFAULT} on OpenRouter (paid: $5.00/$25 per 1M).`);
     t = shown(c);
     expect(cols(t[1], 20, 121)).toBe(`NEXT / OpenRouter / ${DEFAULT}`);
     const r = rail(t);
@@ -679,12 +681,37 @@ describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7
     expect(c.ui.overlay).toBeNull();
   });
 
+  it('the lead\'s guard with R24: when the open session would ask another model than the screen shows as the next turn\'s, nothing is sent and what was typed stays', async () => {
+    let words = 'chat: fake/shown-model · OpenRouter';
+    let sends = 0;
+    // FAKE: a session in the contract's shape whose route changes after it opened (as a model chosen elsewhere would)
+    const session: ChatSession = {
+      route: () => ({ kind: 'openrouter', words, ready: true }),
+      send: async () => { sends++; return { status: 'answered', text: 'FAKE answer (no model behind it).', sent: true, costWords: 'no charge (FAKE)' }; },
+      sendOnce: async (_k, text, hooks) => session.send(text, hooks),
+    };
+    const c = workbench(homeWithModel('guard'), {}, { producers: { runDetail: async () => ({ ok: false, why: 'FIXTURE: none' }), openChat: async () => ({ ok: true, value: async () => session }) } });
+    c.start();
+    for (const end = Date.now() + 5_000; Date.now() < end && !c.can().chat; await sleep(20)) shown(c);
+    expect(c.can().chat).toBe(true);
+    // (the screen shows the session's route as read when it opened: its model is the next turn's on screen)
+    expect(cols(shown(c)[1], 20, 121)).toMatch(/ \/ FAKE fake\/shown-model$/);
+    words = 'chat: fake/other-model · OpenRouter';
+    press(c, '\r', ENTER);
+    press(c, 'FIXTURE: a message');
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 2_000; Date.now() < end && !/^Not sent: the chat would ask/.test(c.ui.flash?.text ?? ''); await sleep(20)) shown(c);
+    expect(c.ui.flash?.text).toBe('Not sent: the chat would ask fake/other-model, not fake/shown-model as shown. What you typed stays.');
+    expect(sends).toBe(0);
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'FIXTURE: a message' });
+  });
+
   it('R9: the composer holds 4,000 characters and says so when it is full', () => {
     const c = workbench(homeWithModel('r9'));
     press(c, '\r', ENTER);
     expect(c.ui.input.field).toBe('composer');
     c.paste('a'.repeat(4005));
     expect(c.ui.input.text).toHaveLength(4000);
-    expect(c.ui.flash?.text).toBe('The message holds 4,000 characters: the rest was not typed in. Enter sends what is there.');
+    expect(c.ui.flash?.text).toBe('The message holds 4,000 characters; the rest was not typed in.');
   });
 });
