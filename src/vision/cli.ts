@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getVisionStatus, runVisionInspection, listVisionEvents, listLearningCandidates } from './runtime.js';
+import { getVisionStatus, runVisionInspection, listVisionEvents, listLearningCandidates, visionBridgeAvailability } from './runtime.js';
 import { loadVisionEnvironment, visionAsset } from './config.js';
 import { getVisionCatalog } from './platform.js';
 import { publicVisionEvent } from './presentation.js';
@@ -33,6 +33,16 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
     console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
   if (sub === 'proof-ladder') { const { runProofLadderCli } = await import('./proof-ladder-cli.js'); await runProofLadderCli(args.slice(1)); return; }
+  // R11 (H170; Phase 0 item 2): run, status, serve and open need the bridge (scripts/vision-bridge.py), which this build does
+  // not include: each says so and exits 2 before anything runs; doctor and stream say the same of their own scripts below
+  if (['run', 'status', 'serve', 'open'].includes(sub)) {
+    const a = visionBridgeAvailability();
+    if (!a.available) {
+      console.error(`timmy vision ${sub} is ${a.words}`);
+      if (sub === 'status' || sub === 'run') print(await getVisionStatus());
+      process.exitCode = 2; return;
+    }
+  }
   if (sub === 'status') { print(await getVisionStatus()); return; }
   if (sub === 'catalog') { print(await getVisionCatalog()); return; }
   if (sub === 'events') { const result = listVisionEvents({ limit: 100 }); print({ ...result, events: result.events.map(publicVisionEvent) }); return; }
@@ -44,7 +54,8 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
     // say that, instead of letting python3 fail on a missing file.
     if (!existsSync(visionAsset(script))) {
       console.error(`timmy vision ${sub} cannot run in this build: its script (${script}) is not included. `
-        + '`timmy vision status` says what this build has; VoxVision\'s /observe, /detect and /measure do not need it.');
+        + 'What would make it available: a Timmy build that ships that script (this tree and its history hold none). '
+        + 'VoxVision\'s /observe, /detect and /measure do not need it.');
       process.exitCode = 2; return;
     }
     const r = spawnSync(process.env.TIMMY_VISION_PYTHON || (existsSync(localPython) ? localPython : 'python3'), [visionAsset(script), ...args.slice(1)], { stdio: 'inherit' });

@@ -5,7 +5,7 @@ import { visionAsset } from './config.js';
 import {
   canonicalJson, imageHash, listLearningCandidates, listVisionEvents, readVisionEvent,
   recordVisionFeedback, saveVisionEvent, saveVisionSync, storeVisionImage, storeVisionManifest, visionHash,
-  visionStorageDir, verifyVisionEvent, type VisionProvenance, type VisionStoreOptions,
+  visionStorageDir, verifyVisionEvent, type VisionEvent, type VisionProvenance, type VisionStoreOptions,
 } from './store.js';
 
 export { listVisionEvents, recordVisionFeedback, listLearningCandidates } from './store.js';
@@ -21,6 +21,31 @@ export type VisionRunner = (request: Record<string, unknown>, context: VisionRun
 export interface VisionRuntimeOptions extends VisionStoreOptions { runner?: VisionRunner; timeoutMs?: number }
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * R11 (H170; Phase 0 item 2): the bridge this runtime spawns, scripts/vision-bridge.py, is in neither this tree nor its git
+ * history (inventory C, note 1), so `timmy vision run/status/serve` and the timmy_vision_* tools cannot do what they say.
+ * Each now says so before anything runs, with the one thing that would make it available, and the MCP tools return it as a
+ * structured refusal (state 'not_available'); nothing is spawned, stored or sent. A caller that injects its own runner (a
+ * test's FAKE) needs no bridge: the check guards the spawn, not the logic.
+ */
+export const VISION_BRIDGE = 'scripts/vision-bridge.py';
+export const VISION_NOT_AVAILABLE = 'not_available' as const;
+export type VisionAvailability = { available: true; bridge: string } | { available: false; bridge: string; state: typeof VISION_NOT_AVAILABLE; words: string };
+
+/** Whether this build can run the vision bridge: the script is here, or it is not (files only; nothing is run). */
+export function visionBridgeAvailability(dir = process.cwd()): VisionAvailability {
+  const bridge = visionAsset(VISION_BRIDGE, dir);
+  if (existsSync(bridge)) return { available: true, bridge };
+  return {
+    available: false, bridge, state: VISION_NOT_AVAILABLE,
+    words: `not available in this build: the vision bridge (${VISION_BRIDGE}) is not included. What would make it available: a Timmy build that ships that script (this tree and its history hold none, so no build does today). VoxVision's /observe, /detect and /measure do not need it.`,
+  };
+}
+
+/** The structured refusal every vision entry point returns while the bridge is absent. */
+export const visionRefusal = (a: Extract<VisionAvailability, { available: false }>, tool?: string): VisionBridgeResult =>
+  ({ ok: false, state: a.state, note: a.words, bridge: VISION_BRIDGE, ...(tool ? { tool } : {}) });
 
 function settings(options: VisionRuntimeOptions) {
   const env = options.env ?? process.env;
@@ -96,6 +121,10 @@ export const runVisionBridge: VisionRunner = (request, context) => new Promise(r
 
 async function bridge(request: Record<string, unknown>, options: VisionRuntimeOptions, probe = false) {
   const cfg = settings(options);
+  if (!options.runner) {
+    const a = visionBridgeAvailability(options.dir ?? process.cwd());
+    if (!a.available) return visionRefusal(a);
+  }
   const timeoutMs = probe ? 5000 : Math.min(300000, Math.max(1000, options.timeoutMs ?? 120000));
   try {
     const value = await (options.runner ?? runVisionBridge)(request, { python: cfg.python, bridge: cfg.bridge, env: cfg.env, timeoutMs });
@@ -114,6 +143,19 @@ function validateServer(raw: string): string | undefined {
 
 export async function getVisionStatus(options: VisionRuntimeOptions = {}) {
   const cfg = settings(options);
+  if (!options.runner) {
+    const a = visionBridgeAvailability(options.dir ?? process.cwd());
+    if (!a.available) {
+      return {
+        ok: false, state: a.state, note: a.words, bridge: VISION_BRIDGE, reasons: [a.words],
+        runtime: cfg.runtime, serverUrl: validateServer(cfg.serverUrl) ?? null,
+        modelId: cfg.modelId || null, workspace: cfg.workspace || null, workflowId: cfg.workflowId || null,
+        useCaseId: cfg.useCaseId || null, keyConfigured: Boolean(cfg.env.ROBOFLOW_API_KEY),
+        storageDir: visionStorageDir(options), dependencies: {}, serverChecked: false,
+        capabilities: { imageInference: false, workflows: false, localEvents: false, feedback: false, cloudEvents: false, streaming: false, automaticTraining: false },
+      };
+    }
+  }
   const probe = await bridge({ action: 'probe' }, options, true);
   const dependencies = (probe.dependencies ?? {}) as Record<string, { installed?: boolean; version?: string }>;
   const reasons: string[] = [];
@@ -174,6 +216,11 @@ function confidences(value: unknown): number[] {
 
 export async function runVisionInspection(req: VisionInspectionRequest, options: VisionRuntimeOptions = {}) {
   const cfg = settings(options);
+  if (!options.runner) {
+    const a = visionBridgeAvailability(options.dir ?? process.cwd());
+    // before the image is read or stored: nothing runs (`event: undefined` keeps the callers' `'event' in result` narrowing exact)
+    if (!a.available) return { ...visionRefusal(a), event: undefined as VisionEvent | undefined, receipt: undefined as string | undefined };
+  }
   const runtime = cfg.runtime;
   if (runtime !== 'http' && runtime !== 'library') return { ok: false, state: 'not_configured', note: 'Choose http or library as TIMMY_VISION_RUNTIME.' };
   const workflowId = req.workflowId ?? (req.modelId !== undefined || req.specification ? '' : cfg.workflowId);
@@ -229,6 +276,10 @@ export async function runVisionInspection(req: VisionInspectionRequest, options:
 
 export async function syncVisionEvent(req: { eventId: string; includeImage?: boolean }, options: VisionRuntimeOptions = {}) {
   const cfg = settings(options);
+  if (!options.runner) {
+    const a = visionBridgeAvailability(options.dir ?? process.cwd());
+    if (!a.available) return visionRefusal(a);
+  }
   if (!cfg.env.ROBOFLOW_API_KEY || !cfg.workspace || !cfg.useCaseId) return { ok: false, state: 'not_configured', note: 'Cloud sync requires ROBOFLOW_API_KEY, ROBOFLOW_WORKSPACE, and TIMMY_VISION_USE_CASE_ID.' };
   const event = readVisionEvent(req.eventId, options);
   if (!event) return { ok: false, state: 'not_found', note: 'Vision event not found.' };
@@ -248,6 +299,10 @@ export async function syncVisionEvent(req: { eventId: string; includeImage?: boo
 
 export async function queryCloudVisionEvents(req: { limit?: number; cursor?: string } = {}, options: VisionRuntimeOptions = {}) {
   const cfg = settings(options);
+  if (!options.runner) {
+    const a = visionBridgeAvailability(options.dir ?? process.cwd());
+    if (!a.available) return visionRefusal(a);
+  }
   if (!cfg.env.ROBOFLOW_API_KEY || !cfg.workspace || !cfg.useCaseId) return { ok: false, state: 'not_configured', note: 'Cloud queries require ROBOFLOW_API_KEY, ROBOFLOW_WORKSPACE, and TIMMY_VISION_USE_CASE_ID.' };
   return bridge({ action: 'query_events', workspace: cfg.workspace, useCaseId: cfg.useCaseId,
     limit: Math.min(100, Math.max(1, req.limit ?? 25)), cursor: req.cursor }, options);
