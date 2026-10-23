@@ -13,9 +13,9 @@
  *   session           the REPL's /model on the local route             ctx.sessionModel
  *   surface           the surface that sends                           ctx.surface (default: the Workbench)
  *
- * The companion page's own Send (POST /chat, src/companion/chat-route.ts pageRoute) is another route: its own OpenRouter model
- * (OPENROUTER_MODEL) and no tools, and it seals no receipt; `surface: 'companion'` gives that one, so a page never shows the
- * session's model for what its Send would ask. R10 (H164; the lead's call (b)): it is this page's own chat, not the project's
+ * The companion page's own Send (POST /chat, src/companion/chat-route.ts pageRoute) is another route: the OpenRouter model chosen
+ * in the settings (R11 H169: the same the Workbench's Models chose; none chosen, Send is off) and no tools, and it seals no
+ * receipt; `surface: 'companion'` gives that one, so a page never shows the session's model for what its Send would ask. R10 (H164; the lead's call (b)): it is this page's own chat, not the project's
  * conversation, and says so: `conversation: 'this page'`, `receipt: false`, and its words are the page's own label (pageRoute).
  *
  * What a turn took is read back from its sealed receipt (routeTaken): the provider that answered, the model asked and the one
@@ -28,7 +28,7 @@
  */
 import { chatRouteNow, type ChatRoute, type ModelFrom } from '../agent/chat-route.js';
 import { modelPrice, type ModelPrice } from '../agent/model-price.js';
-import { OPENROUTER_MODEL, pageRoute } from '../companion/chat-route.js';
+import { pageModel, pageRoute } from '../companion/chat-route.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import { chatTurnOf } from '../repl/seal.js';
 import { cloudModelTag } from '../setup/ollama-models.js';
@@ -88,7 +88,7 @@ export interface JourneyRoute {
   receipt: boolean;
   /** for an inspector only (never a key): the Ollama address as recorded, where the model came from, where the key was found,
    *  the free-only policy, the context window set, a variable set and not used */
-  details: { host?: string; modelFrom?: ModelFrom | 'the settings' | 'the companion page'; keyFrom: KeySource | null; freeOnly: boolean; numCtx?: number; note?: string };
+  details: { host?: string; modelFrom?: ModelFrom | 'the settings'; keyFrom: KeySource | null; freeOnly: boolean; numCtx?: number; note?: string };
 }
 
 /** What routeNow needs of the agent a surface holds (src/agent/core.ts Agent has both). */
@@ -167,9 +167,10 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
       fake: true, fakeWhy: ctx.fake.why, ready: true, words: `chat: ${ctx.fake.model} · FAKE`, surface, tools, conversation, receipt, details: { keyFrom, freeOnly: false },
     };
   }
-  // the companion page's own Send asks its own model (src/companion/chat-route.ts pageRoute); every other surface's turn, the
-  // agent's (the session's own agent is made with the settings' model)
-  const openRouterModel = surface === 'companion' ? OPENROUTER_MODEL : ctx.agent ? ctx.agent.openRouterModel() : settingsModel();
+  // the companion page's own Send asks the model chosen in the settings, read by path as the page reads it (R11 H169, Phase 0
+  // item 2: src/companion/chat-route.ts pageModel; no model of the page's own any more); every other surface's turn, the agent's
+  // (the session's own agent is made with the settings' model)
+  const openRouterModel = surface === 'companion' ? pageModel(env, cwd) || null : ctx.agent ? ctx.agent.openRouterModel() : settingsModel();
   const key = ctx.agent ? ctx.agent.hasModelKey() || keyFrom !== null : keyFrom !== null;
   const now = chatRouteNow({ env, cwd, session: ctx.sessionModel ?? null, key, openRouterModel, surface, ...(ctx.price ? { price: ctx.price } : {}) });
   const s = now.state;
@@ -200,7 +201,7 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
       provider: 'openrouter', model, where: 'cloud', price, fake: !!fakeWhy, ...(fakeWhy ? { fakeWhy } : {}),
       ready: s.ready, ...(s.ready ? {} : notReady(refusal, freeOnly ? 'free-model' : 'other')),
       words, surface, tools, conversation, receipt,
-      details: { modelFrom: surface === 'companion' ? 'the companion page' : 'the settings', keyFrom, freeOnly },
+      details: { modelFrom: 'the settings', keyFrom, freeOnly },
     };
   }
   return {

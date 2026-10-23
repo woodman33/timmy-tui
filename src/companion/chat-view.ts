@@ -34,7 +34,6 @@
  */
 import type express from 'express';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConversationManager } from '../agent/conversation.js';
 import { modelPrice } from '../agent/model-price.js';
@@ -48,11 +47,9 @@ import { installSteps, ollamaInstalled, STARTER_MODELS } from '../setup/ollama-l
 import { providerStates, type ProviderState as SetupState } from '../setup/providers-state.js';
 import { readSetupState } from '../setup/questions.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
-import { chosenModel, LEGACY_DEFAULT_MODEL } from '../utils/model-choice.js';
-import { settingsFile } from '../utils/model-key.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
 import { readSettings, saveSettings } from '../workbench/settings.js';
-import { OPENROUTER_MODEL, PAGE_SCOPE, pageRoute, type PageRoute } from './chat-route.js';
+import { PAGE_SCOPE, pageRoute, type PageRoute } from './chat-route.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -216,13 +213,12 @@ export const SETUP_LINKS: Readonly<Record<ProviderState['id'], ReadonlyArray<{ l
 // ── the page's model: chosen or not, and how ready (R11 step 1; the operator's order: explicit model selection on every surface) ──
 
 /**
- * What the next turn of this page would ask, and whether anyone CHOSE it. The contract proposed to H169 in the R11 handoff
- * (H169 owns src/companion/chat-route.ts pageRoute): until it lands, the choice is read here, behind this one function, by the
- * rule the terminal Workbench applies (src/workbench/state.ts unchosenOpenRouterModel, H167's): on the OpenRouter route the
- * settings' model counts as chosen only with OPENROUTER_MODEL, the setup's recorded OpenRouter answer, a settings model that
- * is not the shipped default, or a choice recorded in Models (workbench.json openRouterModel). A key alone chooses nothing,
- * so the shipped priced default is NO model for this page: its Send is off ("No model chosen: choose one in Models").
- * On the local route the setup's model (or TIMMY_CHAT_MODEL) is the choice, as pageRoute reads it.
+ * What the next turn of this page would ask, whether anyone CHOSE it, and how ready it is as this page observed it. The route
+ * is H169's pageRoute (src/companion/chat-route.ts, Phase 0 item 2): on OpenRouter it names the model chosen in the settings
+ * (src/utils/model-choice.ts chosenModel, the same choice the Workbench's Models makes), or it is none with reason
+ * 'no-model-chosen' (a key, and no model chosen: Send is off, "No model chosen: choose one in Models"); on the local route the
+ * setup's model (or TIMMY_CHAT_MODEL) is the choice. This page adds its own observation: for a local model, its read of
+ * Ollama's /api/tags + /api/show; for OpenRouter, the key's state (H170's providerStates: checked, saved not checked, refused).
  */
 export interface PageChoice {
   chosen: boolean;
@@ -242,37 +238,9 @@ export interface PageChoice {
 
 const NO_MODEL_WORDS = 'No model chosen: choose one in Models.';
 
-/** The settings file's fields a choice is read from (model, modelChosen), by path from `env`'s settings folder; none when absent. */
-function settingsFields(env: Env): { model?: unknown; modelChosen?: unknown } | null {
-  try { return JSON.parse(readFileSync(settingsFile(env), 'utf8')) as { model?: unknown; modelChosen?: unknown }; } catch { return null; }
-}
-
 /**
- * The OpenRouter model chosen for the next turn, by H169's one rule (src/utils/model-choice.ts chosenModel: OPENROUTER_MODEL
- * for this process; else the settings' model, unless it is the default an older version wrote there and nobody chose; the
- * Workbench's own record counts). `chosen` false: no model is chosen, and `model` is ''. (Until H169's pageRoute says it.)
- */
-export function openRouterChoice(env: Env): { chosen: boolean; model: string; from: string; legacy?: boolean } {
-  const fromEnv = env.OPENROUTER_MODEL?.trim();
-  if (fromEnv) return { chosen: true, model: fromEnv, from: 'OPENROUTER_MODEL in this companion\'s environment' };
-  const settings = settingsFields(env);
-  let workbench: { openRouterModel?: unknown } | null = null;
-  try { workbench = readSettings(env).settings; } catch { workbench = null; }
-  const model = chosenModel({ settings, workbench, env: {} });
-  if (model) {
-    const from = typeof settings?.modelChosen === 'string' && settings.modelChosen.trim() === model ? 'the settings (chosen in Models, /model or timmy init --chat openrouter --model)'
-      : typeof workbench?.openRouterModel === 'string' && workbench.openRouterModel.trim() === model ? 'Models (recorded by the Workbench)' : 'the settings';
-    return { chosen: true, model, from };
-  }
-  const legacy = typeof settings?.model === 'string' && settings.model.trim() === LEGACY_DEFAULT_MODEL;
-  return { chosen: false, model: '', from: 'nobody: no model is chosen', ...(legacy ? { legacy: true } : {}) };
-}
-
-/**
- * The page's choice and the route its Send takes, read together: an unchosen OpenRouter default makes the route NOT ready
- * (Send is off with NO_MODEL_WORDS); a chosen OpenRouter model replaces the route's own (pageRoute still names OPENROUTER_MODEL
- * until H169's change), with its price and the route policy's own refusal when the policy refuses it. `local` is this page's
- * read of Ollama's list (its rows passed /api/show), `openrouter` H170's state of the key.
+ * The page's choice beside its route: `local` is this page's read of Ollama's list (its rows passed /api/show), `states`
+ * H170's state of the key. The route is returned as pageRoute gave it (nothing of the page's own is read into it).
  */
 export function pageChoice(env: Env, route: PageRoute, local: { rows: CatalogRow[]; observed?: LocalAnswer }, states: ProviderState[]): { choice: PageChoice; route: PageRoute } {
   if (route.kind === 'local') {
@@ -286,32 +254,19 @@ export function pageChoice(env: Env, route: PageRoute, local: { rows: CatalogRow
     return { route, choice: { chosen: true, source: 'ollama-local', model: route.model, from: route.words.includes('TIMMY_CHAT_MODEL') ? 'TIMMY_CHAT_MODEL' : 'the setup', check, words: `Next turn: ${route.model} on this computer.` } };
   }
   if (route.kind === 'none') {
-    const noModel = route.chat === 'local' && /no model chosen/.test(route.label);
+    // no model chosen (H169's reason on the OpenRouter route; the local route's own label says it): Send is off with the words
+    const noModel = route.reason === 'no-model-chosen' || /no model chosen/i.test(route.label);
     return { route, choice: { chosen: false, check: { state: 'failed', words: route.words }, words: noModel ? NO_MODEL_WORDS : route.words } };
   }
-  const c = openRouterChoice(env);
-  if (!c.chosen) {
-    const words = `${NO_MODEL_WORDS} An OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.${c.legacy ? ` (The settings file names ${LEGACY_DEFAULT_MODEL}, the default an older version wrote there, which nobody chose: it is not sent to.)` : ''}`;
-    return { route: { kind: 'none', ready: false, chat: 'openrouter', refusal: [], label: 'no model chosen · Send is off', words }, choice: { chosen: false, check: { state: 'failed', words }, words: NO_MODEL_WORDS } };
-  }
-  // the chosen model in the route's place, with its own price; the route policy's word on it (free-only: unknown is not free)
-  const price = modelPrice(c.model);
-  const check = permits({ source: 'openrouter', id: c.model, price: { free: price.free === null ? 'unknown' : price.free, ...(price.inPerM !== undefined ? { inPerM: price.inPerM } : {}), ...(price.outPerM !== undefined ? { outPerM: price.outPerM } : {}) } }, routePolicyNow(env));
-
-  if (!check.ok) {
-    const lines = policyRefusalLines(check);
-    const words = `Send is off: ${lines.map((l) => l.trim()).filter(Boolean).join(' ')} Nothing is sent from this page until then.`;
-    return { route: { kind: 'none', ready: false, chat: 'openrouter', refusal: lines, label: `${check.reason === 'cloud-under-local-only' ? 'local-only' : 'free-only'} · Send is off`, words },
-      choice: { chosen: true, source: 'openrouter', model: c.model, from: c.from, check: { state: 'failed', words }, words: `Next turn: none (${check.reason === 'cloud-under-local-only' ? 'local-only' : 'free-only'} refuses ${c.model}).` } };
-  }
+  // the chosen OpenRouter model, as the route names it; the key's state is this page's readiness (saved is not checked)
   const key = states.find((p) => p.id === 'openrouter');
   const keyCheck: PageChoice['check'] = !key || key.state === 'not set up' ? { state: 'failed', words: 'No OpenRouter key is set up.' }
     : key.state === 'checked' ? { state: 'ready', ...(key.at ? { at: key.at } : {}), words: key.words }
       : key.state === 'refused' || key.state === 'unreachable' ? { state: 'failed', ...(key.at ? { at: key.at } : {}), words: key.words }
         : { state: 'unknown', words: `${key.words}${key.next ? ` ${key.next}` : ''}` };
-  const swap = (t: string): string => t.split(OPENROUTER_MODEL).join(c.model);
-  const r: PageRoute = { ...route, model: c.model, price: price.words, label: swap(route.label), words: `${swap(route.words)} Its price: ${price.words}.` };
-  return { route: r, choice: { chosen: true, source: 'openrouter', model: c.model, from: c.from, check: keyCheck, words: `Next turn: ${c.model} on OpenRouter (${price.free === true ? 'free' : price.free === false ? `paid: ${price.words}` : 'price unknown'}).` } };
+  const price = modelPrice(route.model);
+  const from = env.OPENROUTER_MODEL?.trim() === route.model ? 'OPENROUTER_MODEL in this companion\'s environment' : 'the settings (the model chosen in Models, /model or timmy init --chat openrouter --model)';
+  return { route, choice: { chosen: true, source: 'openrouter', model: route.model, from, check: keyCheck, words: `Next turn: ${route.model} on OpenRouter (${price.free === true ? 'free' : price.free === false ? `paid: ${price.words}` : 'price unknown'}).` } };
 }
 
 /** What a choice wrote, as names under the Timmy home or the project (never a path of this computer). */

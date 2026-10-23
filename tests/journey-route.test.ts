@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openChatSession } from '../src/agent/chat-session.js';
 import { createAgent, type Agent } from '../src/agent/core.js';
 import { modelPrice } from '../src/agent/model-price.js';
-import { OPENROUTER_MODEL, pageRoute } from '../src/companion/chat-route.js';
+import { pageRoute } from '../src/companion/chat-route.js';
 import { routeNow, routeTaken } from '../src/journey/index.js';
 import { loadConfig } from '../src/utils/config.js';
 import { readChain, type Receipt } from '../src/utils/receipts.js';
@@ -246,14 +246,26 @@ describe('the place, the price as declared, FAKE, the companion page\'s own Send
     expect(stand.price).toEqual({ state: 'unknown', words: 'FAKE: no model is asked, so no price applies' });
   });
 
-  it('the companion page\'s own Send: its own model, no tools, no receipt, not the project\'s conversation, in the page\'s own words', () => {
+  it('the companion page\'s own Send: the model chosen in the settings (R11 H169: the Workbench\'s choice, no model of its own), no tools, no receipt, not the project\'s conversation, in the page\'s own words', () => {
     setUp({ chat: 'openrouter', key: true });
+    // R11 (H169, Phase 0 item 2): no model chosen anywhere: the page's Send is off, saying so in its own words, and names none
+    const none = routeNow({ surface: 'companion', price });
+    expect(none).toMatchObject({ provider: 'openrouter', model: null, ready: false, tools: 'none', surface: 'companion', conversation: 'this page', receipt: false, words: 'No model chosen: choose one in Models · Send is off' });
+    expect(none.why).toBe('No model chosen. /model <id> chooses one (/model free lists free ones)');
+    expect(JSON.stringify(none)).not.toMatch(/qwen3\.8-max|claude-opus/);
+    // the model chosen in the settings file (as Models (M) in the Workbench, /model in the REPL and timmy init --model keep it)
+    mkdirSync(process.env.TIMMY_SETTINGS_DIR!, { recursive: true });
+    writeFileSync(join(process.env.TIMMY_SETTINGS_DIR!, 'config.json'), JSON.stringify({ model: 'vendor/chosen-model', modelChosen: 'vendor/chosen-model' }));
+    const chosen = routeNow({ surface: 'companion', price });
+    expect(chosen).toMatchObject({ provider: 'openrouter', model: 'vendor/chosen-model', ready: true, tools: 'none', surface: 'companion', conversation: 'this page', receipt: false });
+    expect(chosen.details.modelFrom).toBe('the settings');
+    // OPENROUTER_MODEL in the environment wins for one process, on the page as on every surface
     process.env.OPENROUTER_MODEL = 'vendor/session-model';
     const page = routeNow({ surface: 'companion', price });
-    expect(page).toMatchObject({ provider: 'openrouter', model: OPENROUTER_MODEL, tools: 'none', surface: 'companion', conversation: 'this page', receipt: false });
+    expect(page).toMatchObject({ provider: 'openrouter', model: 'vendor/session-model', tools: 'none', surface: 'companion', conversation: 'this page', receipt: false });
     // its words are the page's own chip (src/companion/chat-route.ts pageRoute's label): one source for both
     expect(page.words).toBe(pageRoute(process.env, process.cwd()).label);
-    expect(page.words).toBe(`${OPENROUTER_MODEL} · OpenRouter · this page's own chat · each message spends credits`);
+    expect(page.words).toBe('vendor/session-model · OpenRouter · this page\'s own chat · each message spends credits');
     // the project's chat (the Workbench's, the REPL's): the session's model, its gated tools, the project's conversation, sealed
     expect(routeNow({ surface: 'workbench', price })).toMatchObject({ model: 'vendor/session-model', tools: 'gated', conversation: 'project', receipt: true });
     expect(routeNow({ surface: 'repl', price })).toMatchObject({ conversation: 'project', receipt: true });

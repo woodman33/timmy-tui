@@ -15,9 +15,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { companionCatalog, companionProviders, catalogQueryOf, openRouterChoice, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
+import { companionCatalog, companionProviders, catalogQueryOf, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import { LEGACY_DEFAULT_MODEL } from '../src/utils/model-choice.js';
 import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const FIXTURE = join(__dirname, 'fixtures', 'openrouter-public-catalog-2026-10-22.json');
@@ -265,36 +264,6 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
   });
 });
 
-describe('the page\'s choice of model (R11 step 1): nothing is sent to a model nobody chose; a choice made on the page is kept where the Workbench keeps it', () => {
-  it('the OpenRouter choice by H169\'s one rule (src/utils/model-choice.ts): a key alone chooses nothing; OPENROUTER_MODEL, a model saved as a choice, Models\' record choose; an older file\'s shipped default, which nobody chose, is no model', () => {
-    const box = mkdtempSync(join(tmpdir(), 'h171-choice-'));
-    try {
-      const settings = join(box, 'settings');
-      mkdirSync(settings, { recursive: true });
-      const env = { TIMMY_HOME: join(box, 'home'), TIMMY_SETTINGS_DIR: settings };
-      expect(openRouterChoice(env)).toEqual({ chosen: false, model: '', from: 'nobody: no model is chosen' });
-      expect(openRouterChoice({ ...env, OPENROUTER_MODEL: 'fake/chosen:free' })).toMatchObject({ chosen: true, model: 'fake/chosen:free' });
-      // a model the settings name that is not the legacy default: a person's entry (as timmy-tui.config.json's model is)
-      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: 'anthropic/claude-haiku-5.5' }));
-      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-haiku-5.5', from: 'the settings' });
-      // the legacy default an older version wrote into the file, nobody chose: no model (said)
-      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: LEGACY_DEFAULT_MODEL }));
-      expect(openRouterChoice(env)).toEqual({ chosen: false, model: '', from: 'nobody: no model is chosen', legacy: true });
-      // ... unless saved as a choice (saveConfig records modelChosen), or recorded by the Workbench's Models
-      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: LEGACY_DEFAULT_MODEL, modelChosen: LEGACY_DEFAULT_MODEL }));
-      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: LEGACY_DEFAULT_MODEL, from: 'the settings (chosen in Models, /model or timmy init --chat openrouter --model)' });
-      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: LEGACY_DEFAULT_MODEL }));
-      writeFileSync(join(settings, 'workbench.json'), JSON.stringify({ schema: 'timmy.workbench-settings/1', openRouterModel: LEGACY_DEFAULT_MODEL }));
-      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: LEGACY_DEFAULT_MODEL, from: 'Models (recorded by the Workbench)' });
-      rmSync(join(settings, 'workbench.json'));
-      // the setup's OpenRouter answer alone chooses no model either (timmy init --chat openrouter without --model says so)
-      mkdirSync(join(box, 'home'), { recursive: true });
-      writeFileSync(join(box, 'home', 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'openrouter' } }));
-      expect(openRouterChoice(env).chosen).toBe(false);
-    } finally { rmSync(box, { recursive: true, force: true }); }
-  });
-});
-
 describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the companion with its token', () => {
   // this file's own Timmy home and settings folder (tests/isolation-setup.ts), so what the choice writes through the
   // Workbench's paths (the process's settings store, the setup's files) is what the companion reads back, as in production
@@ -420,12 +389,13 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
     writeFileSync(join(env.TIMMY_HOME!, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { ollama: ollama.host } }));
     env.OPENROUTER_API_KEY = 'FAKE-key-never-sent';
     let v = await view();
-    expect(v.route).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', label: 'no model chosen · Send is off' });
-    expect(v.choice).toMatchObject({ chosen: false, words: 'No model chosen: choose one in Models.' });
-    expect(v.route.words).toBe('No model chosen: choose one in Models. An OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.');
+    // (H169's pageRoute, Phase 0 item 2: the route itself is none with the reason; the page's choice says it beside Send)
+    expect(v.route).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen', label: 'No model chosen: choose one in Models · Send is off' });
+    expect(v.route.words).toMatch(/^Send is off: No model chosen: choose one in Models \(this page's Chat, or M in timmy workbench: the same choice serves both\), and nothing is sent to a model nobody chose\. Nothing is sent from this page until then\. /);
+    expect(v.choice).toMatchObject({ chosen: false, check: { state: 'failed' }, words: 'No model chosen: choose one in Models.' });
     const refused = await chat('hello');
     expect(refused).toContain('event: error');
-    expect(refused).toContain('No model chosen: choose one in Models.');
+    expect(refused).toContain('No model chosen: choose one in Models');
     expect(upstream).toHaveLength(0);
     // the choice: a free row of the kept catalog
     const r = await post('/api/chat/choose', { source: 'openrouter', model: 'recursive/flint-v1.0:free' });

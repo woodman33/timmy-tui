@@ -75,7 +75,6 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
   let upstream;
   let browser;
   const made = [];
-  // R11 (H171, step 1): the page's chat sends only to a model somebody chose; OPENROUTER_MODEL names the probe's
   const saved = { TIMMY_REPO: process.env.TIMMY_REPO, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, OPENROUTER_MODEL: process.env.OPENROUTER_MODEL, cwd: process.cwd() };
   try {
     // the check's own workspace: the bus the companion tails, a session the log companion's chat mirror reads
@@ -91,7 +90,9 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     ].map((m) => JSON.stringify(m)).join('\n') + '\n');
     process.env.TIMMY_REPO = work;
     process.env.OPENROUTER_API_KEY = 'FAKE-key-for-the-page-probe';
-    process.env.OPENROUTER_MODEL = 'fake/page-probe:free';
+    // R11 (H169, Phase 0 item 2): the page's Send asks the model chosen for this process (it has no fixed model of its own):
+    // a FAKE name, so the FAKE upstream is asked and nothing is sent to a model nobody chose
+    process.env.OPENROUTER_MODEL = 'fake-maker/fake-model-for-the-page-probe';
     process.chdir(work);
     upstream = await fakeUpstream();
     server = await startCompanionServer(0, { upstream: `http://127.0.0.1:${upstream.address().port}/chat/completions` });

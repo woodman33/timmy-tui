@@ -670,21 +670,28 @@ export class Agent extends EventEmitter<AgentEvents> {
       return { ok: false, error };
     }
     // R11 (H169, Phase 0 item 1): the check is a model call (one small request): never to a model nobody chose, and never to
-    // one the route policy refuses (free-only, local-only)
+    // one the route policy refuses. The order is the one route's (src/agent/chat-route.ts): local-only first (it refuses an
+    // OpenRouter call whatever the model, chosen or not, so choosing one would not help), then no model chosen, then free-only
+    // (which needs the chosen model's price)
+    const policy = this.routePolicy();
+    const refusedBy = (c: Exclude<ReturnType<typeof checkRoute>, { ok: true }>): { ok: false; error: string } => {
+      this.lastHealthError = c.words;
+      this.logModelEvent('model.test.failed', { modelId, error: `refused by the route policy (${c.reason}); nothing sent` });
+      return { ok: false, error: c.words };
+    };
+    if (policy.localOnly) {
+      const c = checkRoute({ source: 'openrouter', model: String(modelId ?? '').trim() || 'the chat\'s OpenRouter model', role: 'turn' }, policy);
+      if (!c.ok) return refusedBy(c);
+    }
     if (!String(modelId ?? '').trim()) {
       const error = 'No model chosen, so nothing was sent: choose a model first (/model <id> in the REPL, Models (M) in timmy workbench)';
       this.lastHealthError = error;
       this.logModelEvent('model.test.failed', { modelId, error: 'no model chosen; nothing sent' });
       return { ok: false, error };
     }
-    const policy = this.routePolicy();
-    if (policy.freeOnly || policy.localOnly) {
+    if (policy.freeOnly) {
       const c = checkRoute({ source: 'openrouter', model: modelId, role: 'turn' }, policy);
-      if (!c.ok) {
-        this.lastHealthError = c.words;
-        this.logModelEvent('model.test.failed', { modelId, error: `refused by the route policy (${c.reason}); nothing sent` });
-        return { ok: false, error: c.words };
-      }
+      if (!c.ok) return refusedBy(c);
     }
     const start = Date.now();
     try {
@@ -887,16 +894,26 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.emit('error', refused);
       throw refused;
     }
+    // R10 (H169): the route policy, read once for the turn: the turn's own request first, refused before the conversation
+    // takes the message and before any request (every surface's own check comes first; this one holds for any caller)
+    const policy = this.routePolicy();
+    const guarded = policy.freeOnly || policy.localOnly;
+    // R11 (H169, Phase 0 item 2): local-only refuses an OpenRouter turn whatever the model, chosen or not, so it is said before
+    // "no model chosen" (choosing one would not help); the one route says them in the same order (src/agent/chat-route.ts)
+    if (!this.localChat && policy.localOnly) {
+      const own = checkRoute({ source: 'openrouter', model: String(this.config.model ?? '').trim() || 'the chat\'s OpenRouter model', role: 'turn' }, policy);
+      if (!own.ok) {
+        const refused = new PolicyRefusedError(own.reason, own.words);
+        this.emit('error', refused);
+        throw refused;
+      }
+    }
     // R11 (H169, Phase 0 item 1): a key and no chosen model: refused the same way (no default is ever taken in its place)
     if (!this.localChat && !String(this.config.model ?? '').trim()) {
       const refused = new NoModelChosenError();
       this.emit('error', refused);
       throw refused;
     }
-    // R10 (H169): the route policy, read once for the turn: the turn's own request first, refused before the conversation
-    // takes the message and before any request (every surface's own check comes first; this one holds for any caller)
-    const policy = this.routePolicy();
-    const guarded = policy.freeOnly || policy.localOnly;
     if (guarded) {
       const own = this.localChat
         ? checkRoute({ source: 'ollama-local', model: this.localChat.model, host: this.localChat.host, role: 'turn' }, policy)

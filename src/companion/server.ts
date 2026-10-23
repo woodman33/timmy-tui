@@ -138,11 +138,12 @@ import { mountPanels } from './panels.js';
 // R10 (H164): the journey's read-only routes (src/journey/routes.ts)
 import { mountJourneyRoutes } from '../journey/routes.js';
 // R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
-import { companionCatalog, companionProviders, mountChatView, pageChoice } from './chat-view.js';
+import { mountChatView } from './chat-view.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// (R11 H171: /chat's OpenRouter model is the one chosen for the next turn, never a fixed one: pageChoice above)
+// R11 (H169, Phase 0 item 2): the /chat proxy's OpenRouter model is the route's (pageRoute: the model chosen in the settings,
+// the same the Workbench's Models chose); with none chosen the route is not ready and nothing is sent. No fixed model here.
 /** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -632,7 +633,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   /**
    * POST /chat — TMX P3 streaming chat proxy.
    * Accepts JSON { message: string } or { messages: [{ role, content }] },
-   * proxies a streaming OpenRouter chat completion (model: qwen/qwen3.8-max)
+   * proxies a streaming OpenRouter chat completion (the model chosen in the settings: pageRoute; none chosen, nothing is sent)
    * and relays it to the browser as Server-Sent Events:
    *   event: delta  — JSON-encoded text chunk
    *   event: usage  — token usage object (when OpenRouter reports it)
@@ -647,11 +648,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
    */
   app.post('/chat', withToken, express.json(), async (req, res) => {
     const env = chatEnv();
-    // R11 (H171, step 1; the operator's order: "disable an unsafe Send path rather than using an unchosen model"): the page's
-    // choice decides the route: an unchosen OpenRouter default is no route (nothing is sent), and a chosen OpenRouter model is
-    // the one asked (src/companion/chat-view.ts pageChoice, the Workbench's rule, until H169's pageRoute carries it)
-    const local = await companionCatalog('ollama-local', env);
-    const { route } = pageChoice(env, pageRoute(env, process.cwd()), local, companionProviders(env, process.cwd(), local.observed));
+    // R11 (H169, Phase 0 item 2; the operator's order: "disable an unsafe Send path rather than using an unchosen model"): the
+    // route names the model chosen in the settings, or is none (nothing is sent)
+    const route = pageRoute(env, process.cwd());
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
