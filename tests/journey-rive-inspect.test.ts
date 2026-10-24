@@ -29,6 +29,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { fakeIdentityProvider, fakeUserId, type FakeIdentity } from './fixtures/fake-identity.js';
 import { startFakeOllamaJourney, type FakeOllamaJourney } from './fixtures/fake-ollama-journey.js';
+import { capturer } from './fixtures/journey-caps.js';
+/** Capture points (inert unless TIMMY_JOURNEY_CAPS names a folder): the operator's Inspect-view captures. */
+const caps = capturer('tests/journey-rive-inspect.test.ts', [
+  'REAL: the companion, its launch token and page, the identity verifier (RS256 against CLERK_JWT_KEY), H174\'s Rive bindings (window.TimmyRive) and the Inspect view, the agent turn and its SSE (POST /api/chat/turn), the Stop route.',
+  'FAKE: the identity provider (an RSA pair made by the test, its public key as CLERK_JWT_KEY, the session minted by the test), the Ollama on 127.0.0.1 (one FAKE model; the slow answer is scripted a word every 700 ms).',
+]);
 
 const PORT = 4498;
 const SESSION_HEADER = 'X-Timmy-Session';
@@ -236,6 +242,7 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         // signed in, no route → the connections screen (its cards carry data-provider + data-state, which the bindings read)
         await until(o.page, 'the connections screen', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s));
         const view = await openInspect(o.page);
+        await caps.cap(o.page, size, 'inspect-view', ['The Inspect animation view (#inspect) over the connections screen: every component a card of words (the runtime rows say "words only"; the .riv named as missing, not an error); the derived connection labels follow the cards.']);
         for (const key of COMPONENTS) expect(await o.page.locator(`[data-inspect-component="${key}"]`).count(), `the card of ${key}`).toBe(1);
         // nothing animates in this container: every runtime row says words only; the Inspect view names the missing file, never an error
         for (const key of COMPONENTS) {
@@ -361,6 +368,7 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
       await o.page.getByRole('button', { name: /^Stop/ }).first().click();
       expect(await labelIs(o.page, 'activity', /^stopped$/, 30_000)).toBe('stopped');
       await openInspect(o.page);
+      await caps.cap(o.page, { width: 1440, height: 900 }, 'inspect-fed-events', ['The Inspect view after the REAL turns: the activity card\'s event list — working / idle from the quick turn, working / stopping / stopped from the slow turn ended by Stop — each line naming its source (the backend\'s SSE events and POST /api/chat/stop when the feed spoke; the page\'s drawing otherwise).']);
       const ev = await events(o.page, 'activity');
       const fedNow = await activityFed(o.page);
       const src = fedNow ? new RegExp(`${FED_TURN.source}|${FED_STOP.source}`) : new RegExp(`${DERIVED_TURN.source}|${DERIVED_STOP.source}`);

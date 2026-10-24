@@ -32,10 +32,16 @@ import { startCompanionServer, type CompanionServer } from '../src/companion/ser
 import { readChain, verifyChain, verifyReceiptIn } from '../src/utils/receipts.js';
 import { fakeIdentityProvider, fakeUserId, type FakeIdentity } from './fixtures/fake-identity.js';
 import { startFakeOllamaJourney, type FakeOllamaJourney } from './fixtures/fake-ollama-journey.js';
+import { capturer } from './fixtures/journey-caps.js';
 
 // ── the contract's names (C1-C3; the handoff's posted seams) ──────────────────
 
 const PORTS = { unconfigured: 4495, configured: 4496 };
+/** Capture points (inert unless TIMMY_JOURNEY_CAPS names a folder): the operator's "actual account → provider → agent Chat captures". */
+const caps = capturer('tests/journey-account-connections-chat.test.ts', [
+  'REAL: the companion (startCompanionServer in this process), its launch token, its page and scripts, the identity verifier (RS256 against CLERK_JWT_KEY), the projects/connections/chat routes, the agent turn (openChatSession → runTurn), the sealed receipt and its chain.',
+  'FAKE: the identity provider (an RSA pair made by the test; its public key is CLERK_JWT_KEY; the tokens are minted by the test — no Clerk account, no network), the Ollama on 127.0.0.1 (no model behind it: one tool call, then a fixed answer), the Ollama cloud key\'s value.',
+]);
 const SESSION_HEADER = 'X-Timmy-Session';
 const TOKEN = 'b4'.repeat(32);
 const USER = fakeUserId('journey');
@@ -107,7 +113,7 @@ afterAll(async () => {
 interface Opened { page: Page; errors: string[]; missing: string[]; left: string[]; refused: string[]; frames: string[]; seam: string; close: () => Promise<void> }
 
 /** The page at a size, with the launch token in its address; what leaves 127.0.0.1 and every page error recorded. */
-async function open(server: CompanionServer, size: { width: number; height: number }, o: { session?: string; tab?: string } = {}): Promise<Opened> {
+async function open(server: CompanionServer, size: { width: number; height: number }, o: { session?: string; tab?: string; capture?: boolean } = {}): Promise<Opened> {
   const context = await browser.newContext({ viewport: size });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -147,6 +153,13 @@ async function open(server: CompanionServer, size: { width: number; height: numb
     ws.on('close', () => refused.push('ws closed'));
   });
   await page.goto(server.url);
+  if (o.session && o.capture) {
+    await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: { identity?: () => unknown } }).TimmyShell?.identity?.()), null, { timeout: 15_000 }).catch(() => undefined);
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+    // (the same bounded wait the seam makes next: Clerk's load against the FAKE, unreachable instance has ended or said so)
+    await page.waitForFunction(() => { const a = (window as unknown as { timmyAccount?: { state?: () => { loading?: boolean } } }).timmyAccount; return !a?.state || a.state().loading === false; }, null, { timeout: 15_000 }).catch(() => undefined);
+    await caps.cap(page, size, 'account-signin-configured', ['The account screen of a CONFIGURED companion before any session: the sign-in form; Clerk\'s module loaded from this companion, the FAKE instance unreachable (said on the screen).']);
+  }
   const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined, () => frames.push('--seam--'), () => `refused so far: ${refused.join(' | ') || 'none'}; frames: ${frames.join(',')}`) : '';
   if (!frames.includes('--seam--')) frames.push('--seam--');
   return { page, errors, missing, left, refused, frames, seam, close: () => context.close() };
@@ -244,12 +257,14 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(landed).toMatch(/CLERK_PUBLISHABLE_KEY/);
         expect(landed).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
         expect(landed).toMatch(/This computer.s operator/i);
+        await caps.cap(o.page, size, 'account-block-unconfigured', ['UNCONFIGURED companion (no CLERK_* set): the operator\'s chat with the rail\'s account block naming the dependency.']);
         // the account block opens the account screen (H171): the dependency named again, in the screen's own words
         await o.page.getByText(/no identity provider configured/i).first().click();
         const t = await until(o.page, 'the account screen (opened from the rail\'s account block)', (s) => /Create your Timmy account|Welcome back to Timmy/.test(s), 10_000);
         expect(await screenOf(o.page), 'body[data-screen]').toBe('account');
         expect(t).toMatch(/CLERK_PUBLISHABLE_KEY/);
         expect(t).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
+        await caps.cap(o.page, size, 'account-screen-unconfigured', ['The account screen of an UNCONFIGURED companion: the env names it needs; the social buttons say what they need; nothing signs in.']);
         for (const name of [/Continue with Google/, /Continue with GitHub/]) {
           const button = o.page.getByRole('button', { name });
           expect(await button.count(), `the ${name} button`).toBeGreaterThan(0);
@@ -272,7 +287,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
 
     it(`2. configured at ${at}: the connections screen; four cards with their state words; Ollama · local lists the FAKE model; the pull: size, confirmation, progress, Cancel; Continue → chat`, async () => {
       const session = identity.token(USER);
-      const o = await open(configured!, size, { session });
+      const o = await open(configured!, size, { session, capture: true });
       try {
         const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections, facts(o));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
@@ -285,6 +300,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(beforeSeam.filter((f) => /^(welcome|bus\.tail|event|project|integrations)$/.test(f)), `no project frame before a session (the frames: ${JSON.stringify(beforeSeam).slice(0, 400)})`).toEqual([]);
         expect(o.frames.slice(o.frames.indexOf('--seam--')), 'the user\'s own frames once the session is verified (a welcome)').toContain('welcome');
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
+        await caps.cap(o.page, size, 'connections-four-cards', ['The connections screen after the FAKE session was verified: the four provider cards in their state words (nothing set up yet).']);
         // the state words are H170's provider states: never "free", never "connected" for a selection
         expect(t).not.toMatch(/\bfree\b/i);
         expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
@@ -292,6 +308,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // no ollama program here); its model is then listed
         await o.page.getByRole('button', { name: /^Check$/ }).first().click();
         await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000, undefined, facts(o));
+        await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check: the FAKE Ollama on 127.0.0.1 answered its model list (one FAKE model, no model ran).']);
         // Download a local model (H170's words, 19:47): the box, the model's name, "Show the size" → the confirmation sentence
         // "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." before anything
         // is pulled; "Confirm the download" → progress "<x> MB of <y> MB · <status> (<n>%)"; Cancel → "Cancelled…", the FAKE
@@ -308,8 +325,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(ollama.pulls().length - pullsBefore, 'nothing is pulled before the confirmation').toBe(0);
         expect(asked).toMatch(new RegExp(`${PULL.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[:\\s(]`));
         expect(asked).toMatch(/size unknown|\d+(\.\d+)? ?[GM]B/);
+        await caps.cap(o.page, size, 'pull-confirmation', ['The download box: the confirmation sentence before any /api/pull (nothing pulled yet).']);
         await o.page.getByRole('button', { name: /Confirm the download/ }).first().click();
         await until(o.page, 'the download\'s progress', (s) => /MB of .*\(\d+%\)|\d+ ?%/i.test(s), 20_000);
+        await caps.cap(o.page, size, 'pull-progress', ['The download\'s progress as the FAKE /api/pull streams it (FAKE bytes; the Cancel that follows is seen by the FAKE as an abort).']);
         expect(ollama.pulls().length - pullsBefore, 'one /api/pull after the confirmation').toBe(1);
         await o.page.getByRole('button', { name: /^Cancel/ }).first().click();
         const end = Date.now() + 10_000;
@@ -325,6 +344,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
+        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.']);
         if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
@@ -376,6 +396,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         });
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
+        await caps.cap(o.page, size, 'model-chosen', ['The Models panel: the FAKE model chosen for the next turn ("Next turn: … on this computer"); the FAKE Ollama was asked /api/show for the exact name, no model ran.']);
         // a turn: the REAL agent through H169's SSE; the FAKE model calls one tool, then answers
         const composer = o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i));
         // the conversation is the USER's project's and persists across this file's sizes: the answer counted is a NEW one, and the
@@ -424,13 +445,16 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const line = evidenceLine;
         expect(sealed, `the receipt ${evidence![1]} is on the project's runs chain (${root!.replace(box, '<box>')}: ${chain.length} receipts: ${chain.map((r) => `${String(r.kind)} ${String(r.hash).slice(0, 15)}`).join(', ')}); the evidence line: "${line}"; files holding the hash: ${holders.join(', ') || 'none'}; receipts files: ${files().map((f) => f.replace(box, '<box>')).join(', ')}`).toBeTruthy();
         expect(verifyReceiptIn(chain, String(sealed!.hash)).ok).toBe(true);
+        await caps.cap(o.page, size, 'evidence-receipt', ['The REAL turn answered by the FAKE model through the real agent (one tool call, get_current_time): the evidence line with its receipt, sealed on the USER\'s project chain and verified by the test.']);
         // Stop: a second, slow turn ended by Stop with its stage
         await composer.first().fill('FAKE: answer slowly please');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         await until(o.page, 'the slow turn running (Stop shown)', (s) => /Stop/.test(s), 20_000);
+        await caps.cap(o.page, size, 'turn-streaming', ['The REAL turn streaming: the FAKE model answers a word every 700 ms; Stop offered.']);
         await o.page.getByRole('button', { name: /^Stop/ }).first().click();
         const stopped = await until(o.page, 'the turn stopped with its stage', (s) => /stopped|cancelled|ended/i.test(s), 20_000);
         expect(stopped).toMatch(/stopped|cancelled|ended/i);
+        await caps.cap(o.page, size, 'stopped', ['After Stop: the turn ended with its stage said (POST /api/chat/stop by the turn\'s id; the FAKE saw the request cut).']);
         const slow = ollama.chats().at(-1)!;
         const end = Date.now() + 10_000;
         while (!slow.aborted && Date.now() < end) await o.page.waitForTimeout(100);
@@ -449,6 +473,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(again).toContain('FAKE: what time is it?');
         const draft = await o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i)).first().inputValue();
         expect(draft).toBe(DRAFT);
+        await caps.cap(o.page, size, 'reopen-restored', ['The page reopened (the address with its token, the session given again): the same project, the chosen model, the draft typed before, the conversation.']);
         expect(await html(o.page)).not.toContain(FAKE_CLOUD_KEY);
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
