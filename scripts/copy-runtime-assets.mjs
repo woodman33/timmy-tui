@@ -60,6 +60,20 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/client/account.js',
   'src/companion/client/account.css',
   'src/companion/client/account-callback.js',
+  // R11 round 5 (H174): the Rive components' bindings, their sheet, the Inspect animation view, and each component's editable
+  // source (src/companion/assets/rive/<component>/: scene.rml, rive.yaml, README.md; a .riv beside them only when received)
+  'src/companion/client/rive-bindings.js',
+  'src/companion/client/rive-components.css',
+  'src/companion/client/screen-inspect-animation.js',
+  'src/companion/assets/rive/welcome/scene.rml',
+  'src/companion/assets/rive/welcome/rive.yaml',
+  'src/companion/assets/rive/welcome/README.md',
+  'src/companion/assets/rive/connection/scene.rml',
+  'src/companion/assets/rive/connection/rive.yaml',
+  'src/companion/assets/rive/connection/README.md',
+  'src/companion/assets/rive/activity/scene.rml',
+  'src/companion/assets/rive/activity/rive.yaml',
+  'src/companion/assets/rive/activity/README.md',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).
