@@ -95,7 +95,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-foot')).toContain('selected');
       await page.evaluate((sid) => { const W = window as unknown as Win; const s = W.timmyCanvas.editor.getShape(sid)!; W.timmyCanvas.editor.updateShape({ id: sid, type: 'timmy-rive', props: { ...s.props, w: 420 } }); }, id);
       await page.waitForSelector('[data-timmy-rive-shape].is-expanded', { timeout: 10_000 });
-      expect(await text(page, '[data-timmy-rive-shape] .tr-shape-more')).toContain('Connection · inputs: connection, selected, expanded');
+      expect(await text(page, '[data-timmy-rive-shape] .tr-shape-more')).toContain('ProviderCard · TimmyUI: State, Hover, Pressed, ReducedMotion');
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected · selected · expanded');
       await page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.selectNone());
       await page.waitForSelector('[data-timmy-rive-shape]:not(.is-selected)', { timeout: 10_000 });

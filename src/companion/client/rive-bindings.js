@@ -276,7 +276,7 @@
       if (handle.root) handle.root.dataset.rive = 'words';
       absentWords(handle).then((words) => { if (handle.note) handle.note.textContent = words; });
     };
-    if (!canvas || typeof assetPath !== 'string' || !assetPath) { toWords('no canvas or no asset path'); return handle; }
+    if (!canvas || typeof assetPath !== 'string' || !assetPath) { toWords(assetPath ? 'no canvas' : 'the companion says the file is not here (nothing asked for)'); return handle; }
     canvas.dataset.riveState = 'loading';
     runtime().then((rv) => {
       if (!rv) { toWords(runtimeWhy || 'the companion serves no Rive runtime'); return; }

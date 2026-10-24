@@ -70,7 +70,7 @@
     const riv = c.riv;
     const base = c.base || `/assets/rive/${c.folder}/`;
     const rows = [];
-    rows.push(['Asset', riv ? h('span', null, h('code', null, riv.name), typeof riv.bytes === 'number' ? ` · ${riv.bytes} bytes · sha256 ${riv.sha256}` : ` · served at ${c.asset}`, c.artboard ? ` · artboard ${c.artboard}` : '') : h('span', { class: 'sh-note' }, c.folder === 'mark' ? 'timmy-mark.riv is not in this installation' : `${c.folder}.riv is not in this installation (the source beside it is; the .riv is compiled by the Rive tooling, not here)`)]);
+    rows.push(['Asset', riv ? h('span', null, h('code', null, riv.name), typeof riv.bytes === 'number' ? ` · ${riv.bytes} bytes · sha256 ${riv.sha256}` : ` · served at ${c.asset || c.path}`, c.artboard ? ` · artboard ${c.artboard}` : '') : h('span', { class: 'sh-note' }, c.folder === 'mark' ? 'timmy-mark.riv is not in this installation' : `${c.folder}.riv is not in this installation (the source beside it is; the .riv is compiled by the Rive tooling, not here)`)]);
     rows.push(['Runtime', h('span', { 'data-inspect-runtime': handle.component }, info ? (info.state === 'drawn' ? 'drawn by @rive-app/canvas (this origin, /vendor/rive/)' : info.state === 'loading' ? 'loading…' : `words only — ${info.why || 'no file or no runtime'}`) : '—')]);
     rows.push(['Artboards (runtime)', rt ? (rt.artboardNames.length ? rt.artboardNames.join(', ') : '(the runtime reports none)') : h('span', { class: 'sh-note' }, `not reported (no file loaded); the source names ${c.artboard || '—'}`)]);
     rows.push(['State machines (runtime)', rt ? (rt.stateMachineNames.length ? rt.stateMachineNames.join(', ') : '(none)') : h('span', { class: 'sh-note' }, `not reported; the source names ${c.stateMachine || '—'}`)]);
@@ -120,7 +120,8 @@
 
   /** The components to list: the T mark, then each folder of GET /api/rive/assets (connection ×4 from its one source). */
   function components() {
-    const out = [{ key: 'mark', kind: 'mark', folder: 'mark', asset: MARK.asset, artboard: MARK.artboard, stateMachine: MARK.stateMachine, sources: MARK.sources, base: MARK.base, riv: mark && mark.mark ? { name: 'timmy-mark.riv' } : null }];
+    // (the mark's file is asked for only when GET /assets/mark.json says it is there: no 404 on every open of this view)
+    const out = [{ key: 'mark', kind: 'mark', folder: 'mark', asset: mark && mark.mark ? MARK.asset : null, artboard: MARK.artboard, stateMachine: MARK.stateMachine, sources: MARK.sources, base: MARK.base, riv: mark && mark.mark ? { name: 'timmy-mark.riv' } : null, path: MARK.asset }];
     const rows = listing && Array.isArray(listing.components) ? listing.components : [];
     // the operator's native asset, when it is here with its .riv: every component takes its artboard on it
     const native = rows.find((r) => r.component === NATIVE && r.riv);
