@@ -393,7 +393,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const fold = newest.locator('.cx-evidence[aria-expanded="false"]').first();
         if (await fold.count()) await fold.click();
         await o.page.waitForFunction((a) => { const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)); const last = lis[lis.length - 1]; return Boolean(last && /get_current_time/.test(last.textContent || '')); }, FAKE_ANSWER, { timeout: 15_000 })
-          .catch(async () => { throw new Error(`the newest turn carries no tool line get_current_time (its activity opened); the turn read:\n${(await newest.innerText().catch(() => '')).slice(0, 800)}`); });
+          .catch(async () => {
+            const asked = ollama.chats().slice(-3).map((r) => { const b = r.body as { messages?: Array<{ role?: string; content?: string }> } | undefined; return `[${(b?.messages ?? []).map((m) => `${m.role}${m.content ? `:${String(m.content).slice(0, 24).replace(/\n/g, ' ')}` : ''}`).join(' > ')}]`; });
+            throw new Error(`the newest turn carries no tool line get_current_time (its activity opened); the FAKE's last requests: ${asked.join(' ; ')}; the turn read:\n${(await newest.innerText().catch(() => '')).slice(0, 600)}`);
+          });
         // the newest turn's evidence line, once its receipt is sealed and read back ("<model> · this computer · <s> · receipt <8 hex> ✓")
         const evidenceLine = await o.page.waitForFunction((a) => {
           const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a));
