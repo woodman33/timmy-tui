@@ -388,22 +388,24 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const answered = await text(o.page);
         expect(answered).toContain(FAKE_ANSWER);
         // the tool line sits in the turn's activity, folded under its evidence line (▸, a button with aria-expanded) once the turn is
-        // saved and read back: the fold is opened as a person would, then the line is read from the newest turn's node
-        const newest = o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last();
-        const fold = newest.locator('.cx-evidence[aria-expanded="false"]').first();
-        if (await fold.count()) await fold.click();
-        await o.page.waitForFunction((a) => { const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)); const last = lis[lis.length - 1]; return Boolean(last && /get_current_time/.test(last.textContent || '')); }, FAKE_ANSWER, { timeout: 15_000 })
+        // saved and read back; while the turn runs the page draws its OWN turn (#cx-own) and, as the conversation is read back, the
+        // SAVED one (#cx-turns) — both carry the answer, so every fold of a turn with this answer is opened and the tool line is read
+        // from whichever of them has it (gate 24: the saved li, "not sealed yet", was the last in document order while the own li
+        // held the route, the tool and the receipt)
+        const withAnswer = () => o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER });
+        for (const fold of await withAnswer().locator('.cx-evidence[aria-expanded="false"]').all()) await fold.click().catch(() => undefined);
+        await o.page.waitForFunction((a) => [...document.querySelectorAll('#cx-own li, #cx-turns li')].some((li) => (li.textContent || '').includes(a) && /get_current_time/.test(li.textContent || '')), FAKE_ANSWER, { timeout: 15_000 })
           .catch(async () => {
             const asked = ollama.chats().slice(-3).map((r) => { const b = r.body as { messages?: Array<{ role?: string; content?: string }> } | undefined; return `[${(b?.messages ?? []).map((m) => `${m.role}${m.content ? `:${String(m.content).slice(0, 24).replace(/\n/g, ' ')}` : ''}`).join(' > ')}]`; });
-            throw new Error(`the newest turn carries no tool line get_current_time (its activity opened); the FAKE's last requests: ${asked.join(' ; ')}; the turn read:\n${(await newest.innerText().catch(() => '')).slice(0, 600)}`);
+            throw new Error(`no turn with this answer carries the tool line get_current_time (their activity opened); the FAKE's last requests: ${asked.join(' ; ')}; the turns read:\n${(await withAnswer().allInnerTexts().catch(() => [])).join('\n---\n').slice(0, 900)}`);
           });
-        // the newest turn's evidence line, once its receipt is sealed and read back ("<model> · this computer · <s> · receipt <8 hex> ✓")
+        // the newest turn's evidence line, once its receipt is sealed and read back ("<model> · this computer · <s> · receipt <8 hex> ✓"):
+        // from whichever turn with this answer carries a receipt (the own turn once `done` came, the saved one once read back)
         const evidenceLine = await o.page.waitForFunction((a) => {
           const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a));
-          const last = lis[lis.length - 1];
-          const line = last ? (last.textContent || '').split('\n').map((l) => l.trim()).find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l)) : undefined;
-          return line || false;
-        }, FAKE_ANSWER, { timeout: 20_000 }).then((h) => h.jsonValue() as Promise<string>).catch(async () => `(no receipt line on the newest turn; the page read: ${(await text(o.page)).slice(0, 800)})`);
+          for (const li of lis.reverse()) { const line = (li.textContent || '').split('\n').map((l) => l.trim()).find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l)); if (line) return line; }
+          return false;
+        }, FAKE_ANSWER, { timeout: 20_000 }).then((h) => h.jsonValue() as Promise<string>).catch(async () => `(no receipt line on a turn with this answer; the turns read: ${(await withAnswer().allInnerTexts().catch(() => [])).join(' --- ').slice(0, 800)})`);
         const evidence = /receipt\W{0,3}(?:sha256_)?([0-9a-f]{8})/i.exec(evidenceLine);
         expect(evidence, `the evidence line with its receipt (the lines: ${answered.split('\n').filter((l) => /receipt/i.test(l)).join(' | ').slice(0, 400)})`).toBeTruthy();
         expect(ollama.chats().length).toBeGreaterThanOrEqual(2);
