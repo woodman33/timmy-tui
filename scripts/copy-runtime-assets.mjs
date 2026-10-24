@@ -85,15 +85,22 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/assets/rive/activity/scene.rml',
   'src/companion/assets/rive/activity/rive.yaml',
   'src/companion/assets/rive/activity/README.md',
-  // R11 round 5 (H174): the operator's native Rive UI asset (one state machine TimmyUI on three artboards) and its editable
-  // source beside it, the font with its license (OFL)
+  // R11 round 5 (H174): the operator's native Rive UI asset (one state machine TimmyUI) and its editable source beside it;
+  // round 7 (RIVE CONTRACT v2, H174): seven artboards, the served contract (CONTRACT.json, read by rive-assets.ts), Outfit
+  // embedded with its licence and the script that derives it from the served woff2, the Rive CLI's build records
   'src/companion/assets/rive/timmy-ui/timmy-ui.riv',
   'src/companion/assets/rive/timmy-ui/scene.rml',
   'src/companion/assets/rive/timmy-ui/rive.yaml',
   'src/companion/assets/rive/timmy-ui/create-controls.py',
   'src/companion/assets/rive/timmy-ui/README.md',
-  'src/companion/assets/rive/timmy-ui/Montserrat.ttf',
-  'src/companion/assets/rive/timmy-ui/OFL.txt',
+  'src/companion/assets/rive/timmy-ui/CONTRACT.json',
+  'src/companion/assets/rive/timmy-ui/Outfit.ttf',
+  'src/companion/assets/rive/timmy-ui/Outfit-OFL.txt',
+  'src/companion/assets/rive/timmy-ui/make-font.py',
+  'src/companion/assets/rive/timmy-ui/BUILD.txt',
+  'src/companion/assets/rive/timmy-ui/INSPECT-summary.txt',
+  'src/companion/assets/rive/timmy-ui/rive-build-log.txt',
+  'src/companion/assets/rive/timmy-ui/rive-build-problems.txt',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).
