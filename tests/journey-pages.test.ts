@@ -1,6 +1,6 @@
 /**
  * R11 round 7 (H172; the operator's order of 13:40 PT 2026-10-24, "Timmy — finish the product experience"): every major page of the
- * browser companion on H175's shell, reached as a person reaches it (the rail; on a phone the top navigation and its sheet), in a real
+ * browser companion on H175's shell, reached as a person reaches it (the rail; on a phone the rail sheet; Settings through Help & find), in a real
  * headless Chromium at 1440x900 and 390x844, FROM THE RUNNING COMPANION AND STUDIO — never a mock, never the study's HTML.
  *
  * What is read on every page (D4, the scaffold): the kicker "NN / VERB PHRASE" · the title · the one-line description · the PRIMARY
@@ -70,54 +70,57 @@ function installedWords(): string[] {
   return out;
 }
 
-// ── THE CONTRACT (one place to adjust to H175's posted SHELL CONTRACT v1) ──────────────────────────────────────────────────────
+// ── THE CONTRACT: H175's SHELL CONTRACT v1 (review/SHELL-CONTRACT-v1.md, 14:23 PT; accepted by the lead 14:24) ───────────────
 const SHELL = {
-  /** the ONE rail (D3), its grouped destinations; on a phone the top navigation (and its sheet) carries the same names */
-  rail: '#shell-rail, nav[aria-label="Destinations"], [data-shell-rail]',
+  /** §3.1 the ONE rail (D3): aside#shell-rail.nav-rail; nav#rail-menu .rail-item[data-page][data-dest] with .rail-label; aria-current="page" on the shown */
+  rail: '#shell-rail',
+  railItem: (id: string): string => `#rail-menu .rail-item[data-page="${id}"]`,
   groups: ['WORK', 'CREATE', 'CONNECT'],
-  /** the shown page: one section.page per destination, the others hidden */
-  shown: 'section.page:not([hidden]), [data-page]:not([hidden]), .sh-screen:not([hidden]) .ws-page:not([hidden])',
-  /** the scaffold's regions and lines inside the shown page */
-  head: '.page-head, [data-page-region="head"]',
-  kicker: '.page-kicker, [data-page-kicker]',
-  title: '.page-head h1, .page-title, [data-page-title]',
-  description: '.page-description, [data-page-description]',
-  primary: '.page-primary, [data-page-primary]',
-  summary: '.page-summary, [data-page-region="summary"]',
-  work: '.page-work, [data-page-region="work"]',
-  context: '.page-context, [data-page-region="context"]',
-  dock: '.page-dock, [data-page-region="dock"]',
-  records: '.page-records, [data-page-region="records"]',
-  /** the theme attribute, per viewer: data-theme="amber" | "glacier" on the root (or the body) */
-  themeOf: (): string => '',
-  /** a phone (D5): the top navigation's "more" opens the destinations sheet; the context opens as a sheet; a sheet is a dialog */
-  menuButton: /^(Menu|More|Destinations|More destinations)$/,
-  sheet: '[role="dialog"]:not([hidden]), dialog[open], [data-sheet]:not([hidden]), .sheet.is-open',
-  contextButton: /Models|Context|Details/,
-  /** Help & find (the rail's foot) */
-  helpButton: /Help & find|Help/,
-  /** the account block (the rail's foot): the signed-in user's name and Sign out */
-  account: '#rail-account, [data-shell-account]',
-  /** the rail's project (the summary band's Workspace / project names the same) */
-  projectButton: '#rail-project, [data-shell-project]',
-  projectMenu: '#rail-project-menu, [data-shell-project-menu]',
-  projectRow: (name: string): string => `[data-cx-project] >> text="${name}"`,
+  /** §2.1 the shown page: ONE section.page[data-page] per destination inside main#ws-main; body[data-page] is the attribute to wait on (§6) */
+  shown: 'section.page[data-page]:not([hidden])',
+  /** §2.2 the regions, in order */
+  head: 'header.page-head',
+  kicker: '.page-kicker',
+  title: 'h1.page-title',
+  description: 'p.page-intro',
+  primary: '.page-primary',
+  summary: '.page-band',
+  work: '.page-work',
+  context: 'aside.page-context',
+  dock: '.page-dock',
+  records: '.page-records',
+  /** §3.2 the topbar: the theme switch (two buttons [data-theme], aria-pressed) sets html[data-theme]; amber is also the default without the attribute (§1.2) */
+  themeSwitch: '.theme-switch [data-theme]',
+  topbar: '#shell-top',
+  /** §4 a phone (≤ 720 px): #shell-menu opens the rail sheet (.nav-rail.is-open, role=dialog aria-modal); the context is a sheet (.page-context.is-open) opened by .page-context-btn */
+  menuButton: '#shell-menu',
+  railSheet: '.nav-rail.is-open, #shell-rail[role="dialog"]',
+  contextButton: '.page-context-btn',
+  contextSheet: '.page-context.is-open',
+  /** §5 Help & find: the rail's button #shell-help, the <dialog> #shell-help-dialog (⌘K / ?); Settings is reached from it or the account block (D3 amended) */
+  helpButton: '#shell-help',
+  helpDialog: '#shell-help-dialog',
+  /** the account block (the rail's foot): ids unchanged (chat-shell.js writes them) */
+  account: '#rail-account',
+  /** the rail's project (ids unchanged) */
+  projectButton: '#rail-project',
+  projectMenu: '#rail-project-menu',
 };
-/** D3's destinations by their names (the names stay as they are); the page each opens is read from the shell, not assumed. */
-const PAGES: Array<{ name: string; group: string; phaseA: boolean }> = [
-  { name: 'Chat', group: '', phaseA: true },
-  { name: 'Files', group: 'WORK', phaseA: false },
-  { name: 'Workflows', group: 'WORK', phaseA: false },
-  { name: 'Runs & receipts', group: 'WORK', phaseA: false },
-  { name: 'Canvas', group: 'CREATE', phaseA: true },
-  { name: 'VoxVision', group: 'CREATE', phaseA: false },
-  { name: 'Motion & 3D', group: 'CREATE', phaseA: false },
-  { name: 'Models & accounts', group: 'CONNECT', phaseA: true },
-  { name: 'Tools & integrations', group: 'CONNECT', phaseA: false },
-  { name: 'Control Room', group: '', phaseA: false },
-  { name: 'Settings', group: 'foot', phaseA: false },
-  { name: 'Help', group: 'foot', phaseA: false },
+/** D3's destinations (the names as they are; the page ids of §2.1); Settings is reached from Help & find (not a rail item). */
+const PAGES: Array<{ id: string; name: string; group: string; phaseA: boolean; via: 'rail' | 'help' }> = [
+  { id: 'chat', name: 'Chat', group: '', phaseA: true, via: 'rail' },
+  { id: 'files', name: 'Files', group: 'WORK', phaseA: false, via: 'rail' },
+  { id: 'workflows', name: 'Workflows', group: 'WORK', phaseA: false, via: 'rail' },
+  { id: 'runs', name: 'Runs & receipts', group: 'WORK', phaseA: false, via: 'rail' },
+  { id: 'canvas', name: 'Canvas', group: 'CREATE', phaseA: true, via: 'rail' },
+  { id: 'voxvision', name: 'VoxVision', group: 'CREATE', phaseA: false, via: 'rail' },
+  { id: 'motion', name: 'Motion & 3D', group: 'CREATE', phaseA: false, via: 'rail' },
+  { id: 'connections', name: 'Models & accounts', group: 'CONNECT', phaseA: true, via: 'rail' },
+  { id: 'tools', name: 'Tools & integrations', group: 'CONNECT', phaseA: false, via: 'rail' },
+  { id: 'control', name: 'Control Room', group: '', phaseA: false, via: 'rail' },
+  { id: 'settings', name: 'Settings', group: 'foot', phaseA: false, via: 'help' },
 ];
+const RAIL_PAGES = PAGES.filter((p) => p.via === 'rail');
 const ONLY = (process.env.TIMMY_JOURNEY_PAGES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const RUN = ONLY.length ? PAGES.filter((p) => ONLY.includes(p.name)) : PAGES;
 const SIZES = [{ width: 1440, height: 900 }, { width: 390, height: 844 }];
@@ -283,8 +286,8 @@ async function open(size: { width: number; height: number }, o: { reducedMotion?
 const landed = (page: Page): Promise<string> => until(page, 'the landing (a page with a composer, or the connections)', (s) => COMPOSER.test(s) || /Connect with OpenRouter/.test(s));
 /** The Chat with the FAKE model chosen for the next turn (H171's Models context; on a phone the context opens from its button). */
 async function chooseModel(o: Opened): Promise<Locator> {
-  const phone = o.size.width < 600;
-  if (phone) await o.page.getByRole('button', { name: SHELL.contextButton }).first().click();
+  const phone = o.size.width <= 720;
+  if (phone) { await o.page.locator(SHELL.contextButton).first().click(); await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }); }
   await o.page.getByRole('tab', { name: 'Ollama local' }).first().click();
   await until(o.page, 'the FAKE model in the list', (s) => s.includes(MODEL), 20_000);
   await o.page.locator('#cm-list').getByText(MODEL, { exact: false }).first().click();
@@ -296,6 +299,8 @@ async function chooseModel(o: Opened): Promise<Locator> {
 }
 /** The theme switched to Glacier through the product's own control when it has one (a Glacier button / radio), else the attribute set (said which). */
 async function toGlacier(page: Page): Promise<string> {
+  const sw = page.locator(`${SHELL.themeSwitch.replace('[data-theme]', '[data-theme="glacier"]')}`).first();
+  if (await sw.isVisible().catch(() => false)) { await sw.click(); await page.waitForTimeout(300); return 'through the topbar\'s theme switch (§3.2; persisted per viewer)'; }
   const control = page.getByRole('radio', { name: /Glacier/i }).or(page.getByRole('button', { name: /Glacier/i })).or(page.getByRole('option', { name: /Glacier/i })).first();
   if (await control.isVisible().catch(() => false)) { await control.click(); await page.waitForTimeout(300); return 'through the product\'s own control'; }
   const select = page.getByRole('combobox', { name: /Theme/i }).first();
@@ -364,39 +369,54 @@ async function expectScaffold(page: Page, name: string): Promise<Scaffold> {
   return s;
 }
 
-/** The theme attribute per viewer (D1: amber | glacier on one semantic token set), read from the root or the body. */
-const themeOf = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.getAttribute('data-theme') || document.body.getAttribute('data-theme') || '');
+/**
+ * The theme family per viewer (D1; §1.2 / §3.2): html[data-theme], else the pressed switch's family, else "amber" — the default
+ * without the attribute (said as such).
+ */
+const themeOf = (page: Page): Promise<string> => page.evaluate((sw) => document.documentElement.getAttribute('data-theme') || document.querySelector<HTMLElement>(`${sw}[aria-pressed="true"]`)?.getAttribute('data-theme') || 'amber (the default: no data-theme attribute set)', SHELL.themeSwitch);
 
-/** The rail (or, on a phone, the top navigation and its sheet): a destination clicked by its exact name, and the page reached. */
+/** The page id shown, as the shell says it (TimmyShell.current(), §2.3) and marks it (body[data-page], §2.4). */
+const currentPage = (page: Page): Promise<string> => page.evaluate(() => { const w = window as unknown as { TimmyShell?: { current?: () => string } }; return `${document.body.getAttribute('data-page') || ''}|${w.TimmyShell?.current?.() || ''}`; });
+
+/** The rail sheet on a phone (§4): #shell-menu opens .nav-rail.is-open; the items are the same. */
+async function openRailSheet(o: Opened): Promise<Locator> {
+  const menu = o.page.locator(SHELL.menuButton).first();
+  expect(await menu.isVisible().catch(() => false), 'the phone\'s menu button #shell-menu (§4)').toBe(true);
+  if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click();
+  const sheet = o.page.locator(SHELL.railSheet).first();
+  await sheet.waitFor({ state: 'visible', timeout: 5_000 });
+  return sheet;
+}
+
+/** A destination reached as a person reaches it: the rail's item (on a phone through the rail sheet); Settings through Help & find (D3 amended). */
 async function goTo(o: Opened, name: string, seen?: string[]): Promise<void> {
-  const phone = o.size.width < 600;
-  const byName = (scope: Locator | Page): Locator => scope.getByRole('link', { name, exact: true }).or(scope.getByRole('button', { name, exact: true })).or(scope.getByRole('tab', { name, exact: true }));
-  const rail = o.page.locator(SHELL.rail).first();
-  let item = byName(rail).first();
-  if (!(await item.isVisible().catch(() => false))) {
-    // a phone: the destination may sit behind the navigation's menu (the sheet); the menu opened, the sheet's item clicked
-    if (phone) {
-      const menu = o.page.getByRole('button', { name: SHELL.menuButton }).first();
-      if (await menu.isVisible().catch(() => false)) {
-        await menu.click();
-        const sheet = o.page.locator(SHELL.sheet).first();
-        await sheet.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
-        item = byName(sheet).first();
-        if (!(await item.isVisible().catch(() => false))) item = byName(o.page).first();
-      }
-    } else item = byName(o.page).first();
+  const phone = o.size.width <= 720;
+  const p = PAGES.find((x) => x.name === name)!;
+  if (p.via === 'help') {
+    // §5: ⌘K / the rail's button opens Help & find; the search filters the destinations; Enter runs the first ("Open Settings")
+    const help = o.page.locator(SHELL.helpButton).first();
+    if (!(await help.isVisible().catch(() => false)) && phone) await openRailSheet(o);
+    await help.click();
+    const dialog = o.page.locator(SHELL.helpDialog).first();
+    await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+    const search = dialog.getByRole('searchbox').or(dialog.getByRole('textbox')).or(dialog.locator('input')).first();
+    await search.fill(name);
+    await o.page.waitForTimeout(200);
+    const item = dialog.getByRole('button', { name: new RegExp(`\\b${name}\\b`) }).or(dialog.getByRole('option', { name: new RegExp(`\\b${name}\\b`) })).or(dialog.getByRole('link', { name: new RegExp(`\\b${name}\\b`) })).first();
+    if (await item.isVisible().catch(() => false)) await item.click(); else await search.press('Enter');
+  } else {
+    let item = o.page.locator(SHELL.railItem(p.id)).first();
+    if (!(await item.isVisible().catch(() => false)) && phone) { await openRailSheet(o); item = o.page.locator(SHELL.railItem(p.id)).first(); }
+    expect(await item.isVisible().catch(() => false), `the rail's item for "${name}" (${SHELL.railItem(p.id)}; on a phone inside the rail sheet — §3.1 / §4)`).toBe(true);
+    await item.click();
   }
-  expect(await item.isVisible().catch(() => false), `the destination "${name}" is reachable at ${o.size.width}x${o.size.height} (the rail; on a phone the top navigation or its sheet — H175's SHELL CONTRACT v1)`).toBe(true);
-  await item.click();
-  // the destination reached: the item marked current, or the shown page's title / aria-label carrying the name
-  const reached = await o.page.waitForFunction(([n, shownSel]) => {
-    const cur = [...document.querySelectorAll('[aria-current="page"], [aria-selected="true"]')].some((e) => (e.textContent || '').trim() === n);
-    const shown = [...document.querySelectorAll<HTMLElement>(shownSel)].find((el) => el.offsetParent !== null);
-    const label = shown ? `${shown.getAttribute('aria-label') || ''} ${shown.getAttribute('data-page') || ''} ${shown.querySelector('h1')?.textContent || ''}` : '';
-    return cur || label.toLowerCase().includes(n.toLowerCase());
-  }, [name, SHELL.shown] as const, { timeout: 10_000 }).then(() => true, () => false);
-  expect(reached, `"${name}" clicked: the shell marks it current (aria-current="page") or shows its page (${SHELL.shown}) — H175's SHELL CONTRACT v1; the page read: ${(await text(o.page)).slice(0, 600)}`).toBe(true);
-  seen?.push(`${name} opened by the ${phone ? 'top navigation' : 'rail'}`);
+  // §2.4: body[data-page] is the attribute to wait on; the rail's item is marked aria-current="page"
+  const reached = await o.page.waitForFunction((id) => document.body.getAttribute('data-page') === id, p.id, { timeout: 10_000 }).then(() => true, () => false);
+  expect(reached, `"${name}" opened: body[data-page="${p.id}"] (§2.4); the shell reads ${await currentPage(o.page)}; the page read: ${(await text(o.page)).slice(0, 500)}`).toBe(true);
+  if (p.via === 'rail') expect(await o.page.locator(SHELL.railItem(p.id)).first().getAttribute('aria-current'), `the rail's item "${name}" marked current (§3.1)`).toBe('page');
+  // the sheet closed by the navigation (§2.4: go() closes any open sheet)
+  if (phone) expect(await o.page.locator(SHELL.railSheet).first().isVisible().catch(() => false), 'the rail sheet closed on the navigation (§2.4)').toBe(false);
+  seen?.push(`${name} opened by ${p.via === 'help' ? 'Help & find' : phone ? 'the rail sheet' : 'the rail'}`);
 }
 
 /** The page's common assertions after a step: nothing cut, no page error, nothing left 127.0.0.1, nothing the companion has not. */
@@ -456,56 +476,77 @@ const switchTo = (name: string, root: string): void => { mkdirSync(join(studioHo
 describe('every major page on the shell, from the running companion and Studio: the rail, the scaffold, each page\'s purpose and states, the phone\'s sheets, the keyboard, 125 % and 200 % zoom, 1280x720, reduced motion, a project switch (R11 round 7, H172)', { timeout: 300_000 }, () => {
   for (const size of SIZES) {
     const at = `${size.width}x${size.height}`;
-    const phone = size.width < 600;
+    const phone = size.width <= 720;
 
-    it.skipIf(!browserPath)(`${at} the shell: ONE rail with the grouped destinations (D3), the theme attribute, Help & find, the account block, the project; no overflow`, async () => {
+    it.skipIf(!browserPath)(`${at} the shell: ONE rail with the grouped destinations (D3), the topbar (crumb · status · theme switch), Help & find, the account block, the project; ${phone ? 'the rail sheet' : 'the old tab row gone'}; no overflow`, async () => {
       const o = await open(size);
       try {
         await landed(o.page);
-        // the theme attribute per viewer (D1)
+        // the theme family per viewer (D1; §1.2 amber is the default without the attribute) and the topbar's switch (§3.2)
         const theme = await themeOf(o.page);
-        expect(theme, 'the theme attribute data-theme="amber" | "glacier" on the root (H175\'s SHELL CONTRACT v1)').toMatch(/^(amber|glacier)$/);
-        if (phone) {
-          // D5: the rail becomes a top navigation + a sheet; the names are the same; the composer / dock reachable
-          const nav = o.page.getByRole('navigation').first();
-          expect(await nav.isVisible().catch(() => false), 'a navigation on the phone (the top navigation; H175\'s SHELL CONTRACT v1)').toBe(true);
-          const menu = o.page.getByRole('button', { name: SHELL.menuButton }).first();
-          if (await menu.isVisible().catch(() => false)) {
-            await menu.click();
-            const sheet = o.page.locator(SHELL.sheet).first();
-            expect(await sheet.isVisible().catch(() => false), 'the destinations sheet opens on the menu (H175\'s SHELL CONTRACT v1: the mobile sheets)').toBe(true);
-            const inSheet = await sheet.innerText();
-            for (const p of PAGES.filter((x) => x.group !== 'foot')) expect(inSheet, `the sheet names ${p.name}`).toContain(p.name);
-            await caps.cap(o.page, size, 'shell-destinations-sheet', { line: line('the shell', 'the destinations sheet open'), facts: ['The phone\'s destinations sheet opened from the top navigation: the same grouped names as the rail.'], full: true });
-            await o.page.keyboard.press('Escape');
-            expect(await sheet.isVisible().catch(() => false), 'Escape closes the sheet').toBe(false);
-          } else {
-            const names = await nav.innerText();
-            for (const p of PAGES.filter((x) => x.group !== 'foot')) expect(names, `the top navigation names ${p.name}`).toContain(p.name);
-          }
-        } else {
-          const rail = o.page.locator(SHELL.rail).first();
-          expect(await rail.count(), 'the rail (H175\'s SHELL CONTRACT v1)').toBeGreaterThan(0);
-          const words = await rail.innerText();
-          for (const p of PAGES.filter((x) => x.group !== 'foot')) expect(words, `the rail names ${p.name}`).toContain(p.name);
-          for (const g of SHELL.groups) expect(words.toUpperCase(), `the rail groups ${g}`).toContain(g);
-          // ONE rail: the old workspace tabs row is gone (D3)
-          expect(await o.page.locator('#ws-tabs, .ws-tablist').count(), 'the old ws-tabs row is gone (D3: ONE rail)').toBe(0);
-          expect(words, 'the foot: Help & find').toMatch(/Help/);
-          // the account block: the FAKE session's user (never the token's value)
-          const account = o.page.locator(SHELL.account).first();
-          expect(await account.count(), 'the rail\'s account block').toBeGreaterThan(0);
-          expect(await account.innerText()).toMatch(/Sign out|Signed in|FAKE|pages/i);
-          // the project (the rail's project; the summary band's Workspace / project)
-          expect(await o.page.locator(SHELL.projectButton).first().count(), 'the rail\'s project').toBeGreaterThan(0);
+        expect(theme, 'the theme family (html[data-theme], or the pressed switch, or amber by default)').toMatch(/^(amber|glacier)/);
+        const switches = await o.page.locator(SHELL.themeSwitch).allTextContents().catch(() => [] as string[]);
+        expect(switches.map((x) => x.trim().toLowerCase()).join(' '), 'the theme switch\'s two families (§3.2 .theme-switch [data-theme])').toMatch(/glacier/);
+        expect(switches.map((x) => x.trim().toLowerCase()).join(' ')).toMatch(/amber/);
+        // the topbar: the crumb "Workspace / <page>", the status in words (never green but on an observed open socket)
+        const top = o.page.locator(SHELL.topbar).first();
+        expect(await top.count(), 'the topbar header#shell-top (§3.2)').toBeGreaterThan(0);
+        const crumb = await top.locator('.crumb').first().innerText().catch(() => '');
+        expect(crumb, 'the crumb reads "Workspace / <page name>"').toMatch(/Workspace/i);
+        const status = await top.locator('#shell-status').first().innerText().catch(() => '');
+        expect(status.length, 'the status word in the topbar (#shell-status)').toBeGreaterThan(0);
+        const sheet = phone ? await openRailSheet(o) : null;
+        const rail = o.page.locator(SHELL.rail).first();
+        expect(await rail.count(), 'the rail aside#shell-rail (§3.1)').toBeGreaterThan(0);
+        // §3.1: every destination as a .rail-item[data-page][data-dest] with its label; the groups WORK · CREATE · CONNECT; one marked current
+        for (const p of RAIL_PAGES) {
+          const item = o.page.locator(SHELL.railItem(p.id)).first();
+          expect(await item.count(), `the rail's item for ${p.name} (${SHELL.railItem(p.id)})`).toBeGreaterThan(0);
+          expect((await item.innerText()).trim(), `the item's label reads "${p.name}"`).toContain(p.name);
+          expect(await item.getAttribute('data-dest'), `${p.name}: data-dest (the legacy id) set`).toBeTruthy();
         }
-        await caps.cap(o.page, size, 'shell-landing', { line: line('the shell', 'the landing of the signed-in product'), facts: [`The landing at ${at}: ${phone ? 'the top navigation' : 'the ONE grouped rail'}, theme "${theme}".`], full: true });
+        const words = await rail.innerText();
+        for (const g of SHELL.groups) expect(words.toUpperCase(), `the rail groups ${g}`).toContain(g);
+        expect(await o.page.locator('#rail-menu .rail-item[aria-current="page"]').count(), 'one rail item marked current (the shown page)').toBe(1);
+        // Settings is NOT a rail item (D3 amended: the account block's menu and Help & find reach it)
+        expect(await o.page.locator(SHELL.railItem('settings')).count(), 'Settings is not a rail item (D3 amended)').toBe(0);
+        // the foot: Help & find, the account block (the FAKE session's user, never the token's value), the project
+        expect(await o.page.locator(SHELL.helpButton).first().count(), 'the rail\'s foot: #shell-help "Help & find" (§5)').toBeGreaterThan(0);
+        expect(await o.page.locator(SHELL.helpButton).first().innerText()).toMatch(/Help/);
+        const account = o.page.locator(SHELL.account).first();
+        expect(await account.count(), 'the rail\'s account block (#rail-account)').toBeGreaterThan(0);
+        expect(await o.page.locator(SHELL.projectButton).first().count(), 'the rail\'s project (#rail-project)').toBeGreaterThan(0);
+        // ONE rail: the old workspace tab row is never visible again (§2.1: it stays in the DOM hidden for the keys)
+        expect(await o.page.locator('#ws-tabs').first().isVisible().catch(() => false), 'the old ws-tabs row is not visible (D3: ONE rail)').toBe(false);
+        if (phone && sheet) {
+          // §4: the rail sheet is a modal dialog; Escape closes it and the focus returns to #shell-menu
+          expect(await sheet.getAttribute('role'), 'the rail sheet is role=dialog').toBe('dialog');
+          expect(await sheet.getAttribute('aria-modal'), 'the rail sheet is aria-modal').toBe('true');
+          await caps.cap(o.page, size, 'shell-rail-sheet', { line: line('the shell', 'the rail sheet open on the phone'), facts: ['The phone\'s rail sheet opened from #shell-menu (§4): the same grouped destinations as the rail, a modal dialog over the page.'], full: true });
+          await o.page.keyboard.press('Escape');
+          await o.page.waitForTimeout(200);
+          expect(await sheet.isVisible().catch(() => false), 'Escape closes the rail sheet').toBe(false);
+          expect(await activeOf(o.page), 'the focus returns to #shell-menu on close (§4)').toContain('#shell-menu');
+        }
+        // §5 Help & find: the overlay opens from the rail's button, searches, closes on Escape with the focus back
+        const help = o.page.locator(SHELL.helpButton).first();
+        if (!(await help.isVisible().catch(() => false)) && phone) await openRailSheet(o);
+        await help.click();
+        const dialog = o.page.locator(SHELL.helpDialog).first();
+        expect(await dialog.isVisible().catch(() => false), 'Help & find opens (#shell-help-dialog, §5)').toBe(true);
+        const helpWords = await dialog.innerText();
+        for (const p of RAIL_PAGES.slice(0, 3)) expect(helpWords, `Help & find lists the destination ${p.name}`).toContain(p.name);
+        await caps.cap(o.page, size, 'shell-help-find', { line: line('the shell', 'Help & find open'), facts: ['Help & find (§5): the destinations, the page\'s actions and the keyboard hints in one overlay, one search field.'], full: true });
+        await o.page.keyboard.press('Escape');
+        await o.page.waitForTimeout(200);
+        expect(await dialog.isVisible().catch(() => false), 'Escape closes Help & find').toBe(false);
+        await caps.cap(o.page, size, 'shell-landing', { line: line('the shell', 'the landing of the signed-in product'), facts: [`The landing at ${at}: ${phone ? 'the rail as a top strip (§4)' : 'the ONE grouped rail (§3.1)'}, the topbar (crumb "${crumb.replace(/\s+/g, ' ').trim()}", status "${status.replace(/\s+/g, ' ').trim()}"), theme ${theme}.`], full: true });
         await clean(o, 'the shell');
       } finally { await o.close(); }
     });
 
     for (const p of RUN) {
-      it.skipIf(!browserPath)(`${at} ${p.name}: reached by the ${phone ? 'top navigation' : 'rail'}; the scaffold (kicker · title · description · primary next action · summary band · work · context · dock · records); its purpose and states; captures`, async () => {
+      it.skipIf(!browserPath)(`${at} ${p.name}: reached by ${p.via === 'help' ? 'Help & find' : phone ? 'the rail sheet' : 'the rail'}; the scaffold (kicker · title · description · primary next action · summary band · work · context · dock · records); its purpose and states; captures`, async () => {
         const o = await open(size);
         try {
           await landed(o.page);
@@ -519,7 +560,7 @@ describe('every major page on the shell, from the running companion and Studio: 
       });
     }
 
-    it.skipIf(!browserPath)(`${at} the keyboard: Tab from the ${phone ? 'top navigation' : 'rail'} reaches the page's primary next action and the composer (captured at each); Escape closes the ${phone ? 'sheet' : 'project menu'} and gives the focus back; no trap`, async () => {
+    it.skipIf(!browserPath)(`${at} the keyboard: Tab from the start reaches the page's primary next action and the composer (captured at each); Escape closes the ${phone ? 'rail sheet' : 'project menu'} and gives the focus back; no trap`, async () => {
       const o = await open(size);
       try {
         await landed(o.page);
@@ -540,23 +581,25 @@ describe('every major page on the shell, from the running companion and Studio: 
         expect(primary, `the primary next action "${s.primary}" is reached by Tab (the focus order: ${seenFocus.join(' → ').slice(0, 900)})`).toBeGreaterThanOrEqual(0);
         expect(composer, `the composer is reached by Tab (the focus order: ${seenFocus.join(' → ').slice(0, 900)})`).toBeGreaterThanOrEqual(0);
         expect(canvas, 'no canvas takes the focus').toBe(-1);
-        // Escape: a menu or a sheet opened by a button closes on Escape and the focus returns to its button (no trap)
-        const opener = phone ? o.page.getByRole('button', { name: SHELL.menuButton }).first() : o.page.locator(SHELL.projectButton).first();
-        if (await opener.isVisible().catch(() => false)) {
-          await opener.focus();
-          await o.page.keyboard.press('Enter');
-          await o.page.waitForTimeout(300);
-          const opened = phone ? o.page.locator(SHELL.sheet).first() : o.page.locator(SHELL.projectMenu).first();
-          expect(await opened.isVisible().catch(() => false), `${phone ? 'the sheet' : 'the project menu'} opens on Enter`).toBe(true);
-          await o.page.keyboard.press('Tab');
-          expect(await activeOf(o.page), 'Tab moves inside the opened menu / sheet').not.toBe('none');
-          await o.page.keyboard.press('Escape');
-          await o.page.waitForTimeout(200);
-          expect(await opened.isVisible().catch(() => false), 'Escape closes it').toBe(false);
-          const back = await activeOf(o.page);
-          const openerWords = await opener.evaluate((el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}`);
-          expect(back, `the focus returns to the opener (${openerWords})`).toContain(openerWords.split(' ')[0]);
-        } else console.warn(`journey-pages ${at}: no ${phone ? 'menu button' : 'project button'} to open with the keyboard — said, not asserted`);
+        // Escape (§4 / §5): the rail sheet (a phone) or Help & find (⌘K) opened from the keyboard closes on Escape and the focus returns to the opener (no trap)
+        const opener = phone ? o.page.locator(SHELL.menuButton).first() : o.page.locator(SHELL.helpButton).first();
+        expect(await opener.isVisible().catch(() => false), `${phone ? '#shell-menu' : '#shell-help'} visible for the keyboard`).toBe(true);
+        await opener.focus();
+        await o.page.keyboard.press('Enter');
+        const opened = phone ? o.page.locator(SHELL.railSheet).first() : o.page.locator(SHELL.helpDialog).first();
+        await opened.waitFor({ state: 'visible', timeout: 5_000 });
+        await o.page.keyboard.press('Tab');
+        const inside = await activeOf(o.page);
+        expect(inside, 'Tab moves inside the opened sheet / overlay').not.toBe('none');
+        await o.page.keyboard.press('Escape');
+        await o.page.waitForTimeout(200);
+        expect(await opened.isVisible().catch(() => false), 'Escape closes it').toBe(false);
+        expect(await activeOf(o.page), `the focus returns to the opener (${phone ? '#shell-menu' : '#shell-help'})`).toContain(phone ? '#shell-menu' : '#shell-help');
+        // ⌘K / Ctrl+K opens Help & find from anywhere (§5)
+        await o.page.keyboard.press('Control+KeyK');
+        const byKey = await o.page.locator(SHELL.helpDialog).first().waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false);
+        if (byKey) await o.page.keyboard.press('Escape');
+        else console.warn(`journey-pages ${at}: Ctrl+K did not open Help & find within 3 s (⌘K is the Mac's; said, not failed on)`);
         await clean(o, 'the keyboard');
       } finally { await o.close(); }
     });
@@ -566,17 +609,16 @@ describe('every major page on the shell, from the running companion and Studio: 
       try {
         await landed(o.page);
         await goTo(o, 'Chat');
-        const motion = await o.page.evaluate(() => ({ media: matchMedia('(prefers-reduced-motion: reduce)').matches, token: getComputedStyle(document.documentElement).getPropertyValue('--timmy-motion-duration').trim() || getComputedStyle(document.documentElement).getPropertyValue('--timmy-motion').trim(), attr: document.documentElement.getAttribute('data-motion') || document.body.getAttribute('data-motion') || '' }));
+        const motion = await o.page.evaluate(() => { const cs = getComputedStyle(document.documentElement); return { media: matchMedia('(prefers-reduced-motion: reduce)').matches, token: ['--timmy-ui-motion-feedback', '--timmy-ui-motion-state', '--timmy-ui-motion-panel'].map((n) => `${n}=${cs.getPropertyValue(n).trim() || '(unset)'}`).join(' '), attr: '' }; });
         expect(motion.media, 'the page sees prefers-reduced-motion: reduce').toBe(true);
-        // the shell's motion token (H175's contract: the motion tokens collapse to 0 under reduced motion) when defined; said when not
-        if (motion.token) expect(motion.token, 'the motion token under reduced motion (0s / 0ms)').toMatch(/^0(\.0+)?(s|ms)$|^0$/);
-        else console.warn(`journey-pages ${at}: no --timmy-motion-duration / --timmy-motion token read on the root (H175's contract names the motion tokens) — said, not asserted`);
+        // §1.5: under prefers-reduced-motion the theme sheet sets the three motion variables to 0ms
+        for (const n of ['--timmy-ui-motion-feedback', '--timmy-ui-motion-state', '--timmy-ui-motion-panel']) expect(motion.token, `${n} is 0ms under reduced motion (§1.5)`).toMatch(new RegExp(`${n}=0(\\.0+)?(s|ms)\\b`));
         // a mounted native face (the chat's console, when H171 mounts it): the asset's own ReducedMotion input true
         const faces = await o.page.evaluate(() => { const R = (window as unknown as { TimmyRive?: { inspect?: () => Array<{ component?: string; state: string; runtime: { inputs: Array<{ name: string; value: unknown }> } | null }> } }).TimmyRive; return (R?.inspect?.() ?? []).map((h) => ({ component: h.component, state: h.state, reduced: h.runtime?.inputs.find((i) => i.name === 'ReducedMotion')?.value ?? null })); });
         for (const f of faces.filter((x) => x.state === 'drawn')) expect(f.reduced, `${f.component}: ReducedMotion true`).toBe(true);
         const drawn = faces.filter((x) => x.state === 'drawn').map((x) => `${x.component} ReducedMotion=${String(x.reduced)}`).join(', ') || 'none mounted on this page';
         // two frames 1 s apart (H168's rubric §9: pixel-identical in the face under reduced motion)
-        await caps.cap(o.page, size, 'reduced-motion-frame-1', { line: line('Chat', 'reduced motion, frame 1 of 2'), facts: [`prefers-reduced-motion: reduce — the motion token reads "${motion.token || '(not defined)'}", the motion attribute "${motion.attr || '(none)'}"; native faces drawn: ${drawn}. Frame 1; frame 2 follows 1 s later for the pixel comparison.`] });
+        await caps.cap(o.page, size, 'reduced-motion-frame-1', { line: line('Chat', 'reduced motion, frame 1 of 2'), facts: [`prefers-reduced-motion: reduce — the motion variables read ${motion.token}; native faces drawn: ${drawn}. Frame 1; frame 2 follows 1 s later for the pixel comparison.`] });
         await o.page.waitForTimeout(1_000);
         await caps.cap(o.page, size, 'reduced-motion-frame-2', { line: line('Chat', 'reduced motion, frame 2 of 2 (1 s later)'), facts: [`The same page 1 s after frame 1: under reduced motion no pose keeps moving (native faces drawn: ${drawn}).`] });
         await clean(o, 'reduced motion');
@@ -595,16 +637,18 @@ describe('every major page on the shell, from the running companion and Studio: 
       expect(await composer.isVisible().catch(() => false), 'the composer is visible on the phone').toBe(true);
       const box = await composer.boundingBox();
       expect(box && box.y + box.height <= size.height + 1, `the composer is inside the viewport (${JSON.stringify(box)})`).toBe(true);
-      const ctx = o.page.getByRole('button', { name: SHELL.contextButton }).first();
-      expect(await ctx.isVisible().catch(() => false), 'the context opens from a button on the phone (Models; H175\'s SHELL CONTRACT v1: the context as a sheet)').toBe(true);
+      const ctx = o.page.locator(SHELL.contextButton).first();
+      expect(await ctx.isVisible().catch(() => false), 'the context opens from .page-context-btn in the head on the phone (§4: "Models" / "Details")').toBe(true);
       await ctx.focus();
       await ctx.click();
-      const sheet = o.page.locator(SHELL.sheet).first();
+      const sheet = o.page.locator(SHELL.contextSheet).first();
       const sheetShown = await sheet.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false);
-      await caps.cap(o.page, size, 'chat-context-sheet', { line: line('Chat', 'the context (Models) sheet open'), facts: [`The context (Models) opened on the phone: ${sheetShown ? 'a sheet (dialog)' : 'a panel (no dialog role read: H175\'s contract names the sheet)'}.`], full: true });
+      expect(sheetShown, 'the context sheet opens (.page-context.is-open, §4)').toBe(true);
+      await caps.cap(o.page, size, 'chat-context-sheet', { line: line('Chat', 'the context (Models) sheet open'), facts: ['The context (Models) opened as a sheet from the bottom on the phone (§4).'], full: true });
       await o.page.keyboard.press('Escape');
       await o.page.waitForTimeout(200);
-      if (sheetShown) expect(await sheet.isVisible().catch(() => false), 'Escape closes the sheet').toBe(false);
+      expect(await sheet.isVisible().catch(() => false), 'Escape closes the context sheet').toBe(false);
+      expect(await activeOf(o.page), 'the focus returns to .page-context-btn on close (§4)').toMatch(/page-context-btn|Models|Details/);
       expect(await composer.isVisible().catch(() => false), 'the composer is back in view after the sheet').toBe(true);
       // the band (the native console) folded to its word on a phone, opened on a tap (H171's control), nothing overflowing either way
       const fold = o.page.locator('#cx-console button[aria-expanded]').first();
@@ -642,7 +686,7 @@ describe('every major page on the shell, from the running companion and Studio: 
       await goTo(o, 'Chat');
       const composer = o.page.getByRole('textbox', { name: COMPOSER }).or(o.page.getByPlaceholder(COMPOSER)).first();
       expect(await composer.count(), 'the composer at 200 %').toBeGreaterThan(0);
-      await caps.cap(o.page, size, 'chat-zoom-200', { line: line('Chat', '200 % zoom (720x450 CSS px at a device scale of 2)'), facts: ['A 1440x900 window at 200 % zoom: the shell at 720 CSS px wide (its narrow layout), nothing cut.'], full: true });
+      await caps.cap(o.page, size, 'chat-zoom-200', { line: line('Chat', '200 % zoom (720x450 CSS px at a device scale of 2)'), facts: ['A 1440x900 window at 200 % zoom: the shell at 720 CSS px wide = the contract\'s phone breakpoint (the rail as a top strip, §4), nothing cut.'], full: true });
       await clean(o, '200 % zoom');
     } finally { await o.close(); }
   });
@@ -707,7 +751,7 @@ describe('every major page on the shell, from the running companion and Studio: 
   // ── the recorded tours (one per size): every page by the rail, in order ───────────────────────────────────────────────────────
   for (const size of SIZES) {
     const at = `${size.width}x${size.height}`;
-    it.skipIf(!browserPath)(`${at} the tour, recorded: every page reached by the ${size.width < 600 ? 'top navigation' : 'rail'} in D3's order (the steps reached listed in the sidecar)`, async () => {
+    it.skipIf(!browserPath)(`${at} the tour, recorded: every page reached by the ${size.width <= 720 ? 'rail sheet' : 'rail'} in D3's order (the steps reached listed in the sidecar)`, async () => {
       const o = await open(size, { record: `recording-pages-${at}` });
       const seen: string[] = [];
       let passed = false;
@@ -722,7 +766,7 @@ describe('every major page on the shell, from the running companion and Studio: 
       } finally {
         const video = o.page.video();
         await o.close();
-        await keepRecording(video, `recording-pages-${at}`, [`REAL: the companion's pages at ${at}, each reached by the ${size.width < 600 ? 'top navigation / sheet' : 'rail'} (the assertions on each page's scaffold and purpose are the per-page cases'; this recording is the walk).`], passed ? 'the tour reached every page listed without a page error, nothing cut, nothing leaving 127.0.0.1' : 'the tour FAILED before its end (see the vitest log; the steps reached are listed above)', seen);
+        await keepRecording(video, `recording-pages-${at}`, [`REAL: the companion's pages at ${at}, each reached by the ${size.width <= 720 ? 'rail sheet' : 'rail'} (the assertions on each page's scaffold and purpose are the per-page cases'; this recording is the walk).`], passed ? 'the tour reached every page listed without a page error, nothing cut, nothing leaving 127.0.0.1' : 'the tour FAILED before its end (see the vitest log; the steps reached are listed above)', seen);
       }
     });
   }
@@ -734,7 +778,7 @@ const slug = (name: string): string => name.toLowerCase().replace(/&/g, 'and').r
 type Probe = (o: Opened, size: { width: number; height: number }, facts: string[]) => Promise<void>;
 const PROBES: Record<string, Probe> = {
   async 'Chat'(o, size, facts) {
-    const phone = size.width < 600;
+    const phone = size.width <= 720;
     const composer = o.page.getByRole('textbox', { name: COMPOSER }).or(o.page.getByPlaceholder(COMPOSER)).first();
     expect(await composer.count(), 'the composer').toBeGreaterThan(0);
     expect(await composer.isVisible(), 'the composer is visible (the task dock reachable)').toBe(true);
@@ -744,9 +788,9 @@ const PROBES: Record<string, Probe> = {
     if (firstUse) await caps.cap(o.page, size, 'chat-first-use', { line: line('Chat', 'first use (empty): the welcome and its starters'), facts: ['The empty state: the welcome with its verb-led starters; no turn in this project yet; no model chosen yet.'], full: true });
     else facts.push('Not first use at this capture: the conversation as it stands (turns of this run\'s earlier cases, this being the USER\'s one project).');
     // the context at the right (a sheet on a phone): the models, with the catalog's words (H169's CATALOG METADATA; H171's panel)
-    if (phone) await o.page.getByRole('button', { name: SHELL.contextButton }).first().click().catch(() => undefined);
-    const models = await until(o.page, 'the Models context', (s) => /All makers|All capabilities|Newest first|Choose your model|Models/.test(s), 10_000).catch(() => '');
-    facts.push(models ? 'The context at the right: the Models panel (its controls read).' : 'The Models context was not read within 10 s (said).');
+    if (phone) await o.page.locator(SHELL.contextButton).first().click().catch(() => undefined);
+    const models = await until(o.page, 'the Models context', (s) => /All makers|All capabilities|Newest first|Choose your model/.test(s), 10_000).catch(() => '');
+    facts.push(models ? 'The context at the right (aside.page-context, context: models): the Models panel, its controls read.' : 'The Models context was not read within 10 s (said).');
     if (phone) await o.page.keyboard.press('Escape');
     // the native console when mounted (H171 on H174's mount API): present and drawn, its label aria-live
     const face = o.page.locator('#cx-console [data-rive-component], [data-rive-component="activity"], [data-rive-component="console"]').first();
@@ -775,7 +819,7 @@ const PROBES: Record<string, Probe> = {
     facts.push(`A failed turn (the FAKE's 500): said on the page; the console's State ${failState === null ? 'not read (no console)' : String(failState)}.`);
     // Glacier: the other theme family on the same page (D1), through the product's control when it has one
     const how = await toGlacier(o.page);
-    expect(await themeOf(o.page), 'the theme attribute reads glacier').toBe('glacier');
+    expect(await themeOf(o.page), 'the theme family reads glacier (html[data-theme])').toMatch(/^glacier/);
     await caps.cap(o.page, size, 'chat-glacier', { line: line('Chat', 'the Glacier theme family'), facts: [`The same page in Glacier (${how}): the same semantic roles, the accent family changed; a status's meaning unchanged.`], full: true });
     facts.push(`Glacier: ${how}.`);
   },
@@ -809,15 +853,15 @@ const PROBES: Record<string, Probe> = {
     // a native ProviderCard per card when mounted (H170 on H174's mountProviderCard)
     const faces = await o.page.locator('[data-provider] [data-rive-component]').count();
     facts.push(faces ? `${faces} native ProviderCard face(s) mounted in the cards (drawn: ${await o.page.locator('[data-provider] canvas[data-timmy-rive][data-loaded]').count()}).` : 'No native ProviderCard face mounted in the cards on this head (said).');
-    if (size.width < 600) {
+    if (size.width <= 720) {
       // the phone: the page's context as a sheet (H168's §13: "390 with the sheet"), when the page has one
-      const ctx = o.page.getByRole('button', { name: SHELL.contextButton }).first();
+      const ctx = o.page.locator(SHELL.contextButton).first();
       if (await ctx.isVisible().catch(() => false)) {
         await ctx.click();
-        await o.page.waitForTimeout(400);
-        await caps.cap(o.page, size, 'models-accounts-context-sheet', { line: line('Models & accounts', 'the context sheet open on the phone'), facts: ['The page\'s context opened as a sheet on the phone.'], full: true });
+        await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
+        await caps.cap(o.page, size, 'models-accounts-context-sheet', { line: line('Models & accounts', 'the context sheet open on the phone'), facts: ['The page\'s context (the chosen provider\'s card, §6) opened as a sheet on the phone (§4).'], full: true });
         await o.page.keyboard.press('Escape');
-      } else facts.push('No context button on the phone for this page (said).');
+      } else facts.push('No context button on the phone for this page (its context is null: hidden, §2.2 — said).');
     }
   },
   async 'Canvas'(o, size, facts) {
