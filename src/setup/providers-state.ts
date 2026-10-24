@@ -166,6 +166,32 @@ function ollamaLocal(ctx: StatesContext): ProviderState {
   return { id: 'ollama-local', state: 'not installed', words: `Ollama is ${inst.words}. Local models need no account and no key.`, next: `Install it: ${steps.install}; then ${steps.start}`, links };
 }
 
+// ── Cloudflare's optional settings (R11 round 4, H170: the companion's Connections screen writes them) ─────────────────
+
+export const CLOUDFLARE_SETTINGS_SCHEMA = 'timmy.cloudflare-settings/1';
+/** AI Gateway / model routing and cloud logs: two separate optional settings, kept in the Timmy home (state/cloudflare.json). */
+export interface CloudflareSettings { gatewayUrl: string | null; cloudLogs: boolean; at?: string }
+export const cloudflareSettingsFile = (env: Env = process.env): string => join(timmyHome(env), 'state', 'cloudflare.json');
+
+/** The settings, or none (no file, or one that cannot be read). */
+export function readCloudflareSettings(env: Env = process.env): CloudflareSettings {
+  try {
+    const raw = JSON.parse(readFileSync(cloudflareSettingsFile(env), 'utf8')) as Record<string, unknown>;
+    if (raw?.schema !== CLOUDFLARE_SETTINGS_SCHEMA) return { gatewayUrl: null, cloudLogs: false };
+    return { gatewayUrl: typeof raw.gateway_url === 'string' && raw.gateway_url ? raw.gateway_url : null, cloudLogs: raw.cloud_logs === true, ...(typeof raw.at === 'string' ? { at: raw.at } : {}) };
+  } catch { return { gatewayUrl: null, cloudLogs: false }; }
+}
+
+/** The two settings in words: what each does, and that local logs stay local. */
+export function cloudflareSettingsLines(s: CloudflareSettings, env: Env = process.env): string[] {
+  const host = ((): string => { try { return new URL(s.gatewayUrl ?? '').host; } catch { return 'an address'; } })();
+  const telemetry = env.TIMMY_TELEMETRY_URL?.trim() ? '; TIMMY_TELEMETRY_URL is set (the legacy shell\'s telemetry bridge sends run events there)' : '';
+  return [
+    s.gatewayUrl ? `AI Gateway / model routing: set (${host}); used only when a model call is routed through it; not checked here` : 'AI Gateway / model routing: not set (optional)',
+    s.cloudLogs ? `Cloud logs: on (a copy of the run events is to be synced; the local logs stay the record)${telemetry}` : `Cloud logs: off; local logs are already part of the design${telemetry}`,
+  ];
+}
+
 /** Cloudflare's parts, read only: what is configured here; nothing is ever sent to check it. */
 function cloudflare(ctx: StatesContext): ProviderState {
   const env = ctx.env ?? process.env;
@@ -176,7 +202,6 @@ function cloudflare(ctx: StatesContext): ProviderState {
     try { return JSON.parse(readFileSync(join(privateDir(workspaceRoot(env), env), 'config.json'), 'utf8')) as Record<string, unknown>; } catch { return {}; }
   })();
   const ws = typeof overlay.commander_ws === 'string' && overlay.commander_ws.trim() && !/^<[a-z-]+>$/.test(overlay.commander_ws.trim()) ? 'the private overlay' : env.TIMMY_COMMANDER_WS?.trim() ? 'TIMMY_COMMANDER_WS' : null;
-  const sync = env.TIMMY_TELEMETRY_URL?.trim() ? 'on: TIMMY_TELEMETRY_URL is set (the legacy shell\'s telemetry bridge sends run events there)' : 'off: logs and run events stay on this computer';
   // the one Cloudflare model path that exists: the decision model's Workers AI transport (src/decision/config.ts clef.json);
   // src/cloudflare's AI Search, Vectorize and Workers AI adapters are stubs nothing uses
   const clef = (() => { try { return readClefConfig(env); } catch { return null; } })();
@@ -186,12 +211,14 @@ function cloudflare(ctx: StatesContext): ProviderState {
   const worker = !edge ? 'Worker: not set up (no edge host in the private overlay or TIMMY_EDGE_HOST)'
     : o?.answer === 'accepted' ? `Worker: ${edge} answered its /health ${ago(o.at, now)} (timmy workspace check; no inference)`
       : o ? `Worker: ${edge} did not answer its /health ${ago(o.at, now)} (timmy workspace check)` : `Worker: ${edge} configured, not checked here`;
+  const settings = readCloudflareSettings(env);
+  const [gateway, logs] = cloudflareSettingsLines(settings, env);
   const lines = [
     worker,
     `Commander: ${ws ? `an address is configured (${ws}); connected only while a Timmy surface holds its socket` : 'not set up (no commander_ws)'}`,
-    'AI Gateway: not configured (Timmy has no AI Gateway setting yet)',
+    gateway,
     workersAi,
-    `Cloud log sync: ${sync}`,
+    logs,
   ];
   const links = [
     { label: 'AI Gateway: get started', url: 'https://developers.cloudflare.com/ai-gateway/get-started/' },
@@ -199,7 +226,7 @@ function cloudflare(ctx: StatesContext): ProviderState {
     { label: 'Find your account ID', url: 'https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/' },
     { label: 'AI Gateway logging', url: 'https://developers.cloudflare.com/ai-gateway/observability/logging/' },
   ];
-  const none = !edge && !ws && !env.TIMMY_TELEMETRY_URL?.trim() && !workersAi.endsWith('not checked here');
+  const none = !edge && !ws && !env.TIMMY_TELEMETRY_URL?.trim() && !workersAi.endsWith('not checked here') && !settings.gatewayUrl && !settings.cloudLogs;
   const words = 'Optional, and read only here: Timmy never sends Cloudflare a request to check it (a request to an AI Gateway can create one and bill). The local app, its files and its logs need no Cloudflare account.';
   if (none) return { id: 'cloudflare', state: 'not set up', words, lines, links };
   if (o?.answer === 'accepted') return { id: 'cloudflare', state: 'checked', at: o.at, words, lines, links };

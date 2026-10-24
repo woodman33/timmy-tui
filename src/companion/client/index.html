@@ -20,6 +20,8 @@
   <link rel="stylesheet" href="/chat-shell.css">
   <!-- R11 round 4 (H173): the account screen's own layout (src/companion/client/account.css) -->
   <link rel="stylesheet" href="/account.css">
+  <!-- R11 round 4 (H170): the Connections screen's own styles (src/companion/client/screen-connections.css) -->
+  <link rel="stylesheet" href="/screen-connections.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body class="shell" data-dest="chat">
@@ -573,6 +575,8 @@
   <!-- R11 round 4 (H171, step 3): the Rive runtime (@rive-app/canvas, served by the companion from node_modules at /vendor/rive/;
        no CDN) for the T mark; where it is not served, the text mark stays -->
   <script src="/vendor/rive/rive.js"></script>
+  <!-- R11 round 4 (H170): the Connections screen; it mounts into the shell (TimmyShell) once the page has loaded -->
+  <script src="/screen-connections.js"></script>
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
   <!-- R11 round 4 (H173): the account screen (Clerk's flows; the session this companion verifies), drawn into #screen-account -->
