@@ -23,6 +23,8 @@ import { startFakeOllamaJourney, type FakeOllamaJourney } from './fixtures/fake-
 // ── C1-C3's names ─────────────────────────────────────────────────────────────
 
 const PORT = 4494;
+/** a second companion, started without CLERK_* for the operator-principal case */
+const OPERATOR_PORT = 4497;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const SESSION_HEADER = 'X-Timmy-Session';
 const ROUTES = {
@@ -96,8 +98,8 @@ afterAll(async () => {
 // ── the calls ─────────────────────────────────────────────────────────────────
 
 interface Answer { status: number; text: string; json: any }
-async function call(method: string, path: string, o: { session?: string; body?: unknown; query?: Record<string, string>; token?: string | null } = {}): Promise<Answer> {
-  const url = new URL(path, companion.address);
+async function call(method: string, path: string, o: { session?: string; body?: unknown; query?: Record<string, string>; token?: string | null; base?: string } = {}): Promise<Answer> {
+  const url = new URL(path, o.base ?? companion.address);
   for (const [k, v] of Object.entries(o.query ?? {})) url.searchParams.set(k, v);
   const headers: Record<string, string> = {};
   if (o.token !== null) headers.Authorization = `Bearer ${o.token ?? TOKEN}`;
@@ -210,7 +212,7 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(r.text).not.toContain(identity.publicKeyPem.split('\n')[1]);
   });
 
-  it('every route behind withUser answers 401 with words to a request without a session (enumerated from the route table)', async () => {
+  it('configured → no operator fallback: every route behind withUser answers 401 {needs:\'session\'} with words to the launch token alone (no X-Timmy-Session; enumerated from the route table)', async () => {
     const routes = userRoutes();
     expect(routes.length, `routes behind withUser in the router (none: H173's middleware, or an owner's route, is not there); the table: ${routeTable().slice(0, 3000)}`).toBeGreaterThan(0);
     // each route found: 401 with words, the body marked `needs: 'session'` (H171's shell tells it from the launch token's 401)
@@ -247,7 +249,43 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(valid.json?.user?.id).toBe(A);
     const noLaunch = await call('GET', ROUTES.me, { session: identity.token(A), token: null });
     expect(noLaunch.status, 'the session without the launch token').toBe(401);
+    // configured → the launch token alone is nobody (the lead's 21:48 ruling: the OPERATOR principal exists only with NO provider configured)
+    const alone = await call('GET', ROUTES.me);
+    expect(alone.status, `the launch token alone, configured: ${alone.text.slice(0, 160)}`).toBe(401);
+    expect(alone.json?.needs).toBe('session');
+    expect(alone.text, 'never the operator when a provider is configured').not.toMatch(/operator/i);
   });
+
+  it('NO identity provider configured → the launch token\'s holder is the OPERATOR principal (the lead\'s 21:48 ruling, H173): GET /api/identity/me answers the operator (no 401), /api/projects the companion\'s own; nothing under users/ is made; no launch token → 401 still', async () => {
+    // a second companion, its own Timmy home, its env without CLERK_* (identityConfig reads the env it is given, not process.env)
+    const operatorHome = join(box, 'operator-home', 'timmy');
+    mkdirSync(operatorHome, { recursive: true });
+    const plain: NodeJS.ProcessEnv = { ...env, TIMMY_HOME: operatorHome, TIMMY_SETTINGS_DIR: join(box, 'operator-settings') };
+    for (const k of ['CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete plain[k];
+    const other = await startCompanionServer(OPERATOR_PORT, { token: TOKEN, chatEnv: plain, workspace: { env: plain, shareMs: 0 } });
+    try {
+      const base = other.address;
+      const id = await call('GET', ROUTES.identity, { base });
+      expect(id.status).toBe(200);
+      expect(id.json?.configured, `GET ${ROUTES.identity} unconfigured: ${id.text.slice(0, 200)}`).toBe(false);
+      const me = await call('GET', ROUTES.me, { base });
+      expect(me.status, `the launch token alone, unconfigured → the operator: ${me.text.slice(0, 200)} (H173's operator principal)`).toBe(200);
+      expect(me.json?.user?.id, me.text.slice(0, 200)).toBe('operator');
+      const list = await call('GET', ROUTES.projects, { base });
+      expect(list.status, `the operator's GET ${ROUTES.projects}: ${list.text.slice(0, 200)}`).toBe(200);
+      expect(list.text, 'the operator\'s projects are the companion\'s own, never under users/').not.toContain(`${operatorHome}/users/`);
+      expect(existsSync(join(operatorHome, 'users')), 'nothing under <TIMMY_HOME>/users/ is made for the operator').toBe(false);
+      // the launch token stays the trust boundary: without it, 401 (never the operator)
+      const none = await call('GET', ROUTES.me, { base, token: null });
+      expect(none.status, `no launch token, unconfigured: ${none.text.slice(0, 160)}`).toBe(401);
+      expect(none.text).not.toMatch(/"id":"operator"/);
+      // a user's token to an unconfigured companion names no user of its own: the operator, or a refusal — never A's id as a user
+      const withA = await call('GET', ROUTES.me, { base, session: identity.token(A) });
+      expect([200, 401]).toContain(withA.status);
+      if (withA.status === 200) expect(withA.json?.user?.id, 'unconfigured, a session header cannot name a user (no verifier)').toBe('operator');
+      expect(existsSync(join(operatorHome, 'users')), 'still nothing under users/').toBe(false);
+    } finally { await other.shutdown(); }
+  }, 30_000);
 
   it('A connects a FAKE Ollama cloud key: A\'s connections show it as a key present (never its value); B\'s show no key', async () => {
     const put = await call('POST', ROUTES.ollamaCloudKey, { session: identity.token(A), body: { key: FAKE_CLOUD_KEY } });

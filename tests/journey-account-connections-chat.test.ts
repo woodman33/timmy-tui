@@ -175,10 +175,22 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
   for (const size of SIZES) {
     const at = `${size.width}x${size.height}`;
 
-    it(`1. identity not configured at ${at}: the account screen names the env names; the social buttons say what they need; nothing signs in, nothing leaves 127.0.0.1`, async () => {
+    it(`1. identity not configured at ${at}: the page lands on the operator's chat, the rail's account block names the env names and opens the account screen, whose social buttons say what they need; nothing signs in, nothing leaves 127.0.0.1`, async () => {
       const o = await open(unconfigured!, size);
       try {
-        const t = await until(o.page, 'the account screen', (s) => /Create your Timmy account|Welcome back to Timmy/.test(s));
+        // the lead's 21:48 ruling (a)+(b): no provider configured → the companion as it was, the operator's own workspace ('chat'),
+        // the rail's account block saying "This computer's operator · no identity provider configured (CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY)"
+        await until(o.page, 'the operator\'s chat (unconfigured lands on chat)', (s) => /Message Timmy/i.test(s));
+        expect(await screenOf(o.page), 'body[data-screen] (unconfigured lands on chat)').toBe('chat');
+        // on a phone the rail is folded behind Menu (H171's shell: #cx-menu opens it)
+        if (size.width < 600) await o.page.getByRole('button', { name: 'Menu' }).first().click();
+        const landed = await until(o.page, 'the rail\'s account block naming the dependency (the lead\'s 21:48 words; H171)', (s) => /no identity provider configured/i.test(s), 10_000);
+        expect(landed).toMatch(/CLERK_PUBLISHABLE_KEY/);
+        expect(landed).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
+        expect(landed).toMatch(/This computer.s operator/i);
+        // the account block opens the account screen (H171): the dependency named again, in the screen's own words
+        await o.page.getByText(/no identity provider configured/i).first().click();
+        const t = await until(o.page, 'the account screen (opened from the rail\'s account block)', (s) => /Create your Timmy account|Welcome back to Timmy/.test(s), 10_000);
         expect(await screenOf(o.page), 'body[data-screen]').toBe('account');
         expect(t).toMatch(/CLERK_PUBLISHABLE_KEY/);
         expect(t).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
