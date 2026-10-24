@@ -1,0 +1,59 @@
+/* R11 round 7 (H173): the FILES page's own content on the shell's scaffold (SHELL CONTRACT v1 §2: section.page[data-page="files"]
+   with .page-head / .page-band / .page-body (.page-work + .page-context) / .page-dock / .page-records, the shell's) and the
+   B11 tokens (--timmy-ui-*, §1; the study's values stand in as fallbacks). Materials come from the theme sheet's variables:
+   no literal gradient here; the one light focal object of this page is the opened file, drawn on paper. */
+.page[data-page="files"] .fs-note { font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); color: var(--timmy-ui-text-secondary, #BDCADA); margin: 0; }
+.page[data-page="files"] .fs-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+.page[data-page="files"] .fs-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 12px; font-size: var(--timmy-ui-size-label, 13px); }
+.page[data-page="files"] .fs-crumb { font: inherit; font-size: inherit; background: transparent; border: 1px solid transparent; border-radius: var(--timmy-ui-radius-control, 10px); color: var(--timmy-ui-text-secondary, #BDCADA); padding: 4px 8px; cursor: pointer; }
+.page[data-page="files"] .fs-crumb:hover { border-color: var(--timmy-ui-border, #44586B); color: var(--timmy-ui-text, #ECF1F5); }
+.page[data-page="files"] .fs-crumb[aria-current="location"] { color: var(--timmy-ui-text, #ECF1F5); font-weight: var(--timmy-ui-weight-strong, 600); cursor: default; }
+.page[data-page="files"] .fs-crumb-sep { color: var(--timmy-ui-text-muted, #9AAFC3); }
+
+.page[data-page="files"] .fs-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-panel, 16px); background: var(--timmy-ui-elev-surface, var(--timmy-ui-surface, #111A23)); box-shadow: var(--timmy-ui-shadow-panel, none); overflow: hidden; }
+.page[data-page="files"] .fs-list > li + li { border-top: 1px solid var(--timmy-ui-border-quiet, #1E2A36); }
+.page[data-page="files"] .fs-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) minmax(90px, 160px) 72px 96px; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; font: inherit; text-align: left; background: transparent; border: 0; border-left: 3px solid transparent; color: var(--timmy-ui-text, #ECF1F5); cursor: pointer; transition: background var(--timmy-ui-motion-feedback, 120ms) var(--timmy-ui-ease, ease); }
+.page[data-page="files"] .fs-row:hover { background: var(--timmy-ui-raised, #1C2936); }
+.page[data-page="files"] .fs-row:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: -2px; }
+.page[data-page="files"] .fs-row.is-selected { background: var(--timmy-ui-raised, #1C2936); border-left-color: var(--timmy-ui-accent, #D6AA64); }
+.page[data-page="files"] .fs-row:disabled { cursor: default; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.page[data-page="files"] .fs-row-glyph { color: var(--timmy-ui-text-muted, #9AAFC3); text-align: center; }
+.page[data-page="files"] .fs-row-dir .fs-row-glyph { color: var(--timmy-ui-accent, #D6AA64); }
+.page[data-page="files"] .fs-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page[data-page="files"] .fs-row-dir .fs-row-name { font-weight: var(--timmy-ui-weight-strong, 600); }
+.page[data-page="files"] .fs-row-kind, .page[data-page="files"] .fs-row-size, .page[data-page="files"] .fs-row-when { font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page[data-page="files"] .fs-row-size { text-align: right; font-family: var(--timmy-ui-font-mono, var(--timmy-font-mono, monospace)); }
+.page[data-page="files"] .fs-truncated { margin-top: 10px; }
+
+.page[data-page="files"] .fs-state { padding: 28px 20px; border: 1px dashed var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-panel, 16px); text-align: center; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.page[data-page="files"] .fs-state-title { margin: 0 0 6px; font-size: var(--timmy-ui-size-section, 18px); color: var(--timmy-ui-text, #ECF1F5); }
+.page[data-page="files"] .fs-state .fs-actions { justify-content: center; margin-top: 16px; }
+.page[data-page="files"] .fs-error { border-style: solid; border-color: var(--timmy-ui-focus, #FFB000); }
+
+.page[data-page="files"] .fs-ctx-title { margin: 0 0 4px; font-size: var(--timmy-ui-size-section, 18px); overflow-wrap: anywhere; }
+.page[data-page="files"] .fs-ctx-kind { margin: 0 0 14px; }
+.page[data-page="files"] .fs-ctx-empty { padding: 8px 0; }
+/* the opened file is the page's light focal object (B11): paper, ink */
+.page[data-page="files"] .fs-text { margin: 0 0 12px; padding: 12px 14px; max-height: 48vh; overflow: auto; font: 12.5px/1.5 var(--timmy-ui-font-mono, var(--timmy-font-mono, monospace)); font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-ink, #1C3043); background: var(--timmy-ui-elev-paper, var(--timmy-ui-paper, #E8EFF5)); border: 0; border-radius: var(--timmy-ui-radius-control, 10px); box-shadow: var(--timmy-ui-shadow-paper, none); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+.page[data-page="files"] .fs-text:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; box-shadow: 0 0 0 2px var(--timmy-ui-focus-halo, #080B0F); }
+.page[data-page="files"] .fs-figure { margin: 0 0 12px; padding: 10px; background: var(--timmy-ui-elev-paper, var(--timmy-ui-paper, #E8EFF5)); border-radius: var(--timmy-ui-radius-control, 10px); box-shadow: var(--timmy-ui-shadow-paper, none); }
+.page[data-page="files"] .fs-figure figcaption { color: var(--timmy-ui-ink-soft, #3B5168); margin-top: 8px; }
+.page[data-page="files"] .fs-image { display: block; max-width: 100%; max-height: 48vh; border-radius: 6px; margin: 0 auto; }
+.page[data-page="files"] .fs-refused { padding: 10px 12px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-control, 10px); }
+.page[data-page="files"] .fs-ctx-actions { margin: 14px 0 10px; }
+.page[data-page="files"] .fs-ctx-actions .is-wide { width: 100%; box-sizing: border-box; }
+.page[data-page="files"] .fs-ctx-actions .fs-note { margin-top: 8px; }
+.page[data-page="files"] .fs-details summary, .page[data-page="files"] .fs-records summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); }
+.page[data-page="files"] .fs-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 10px 0 0; font-size: var(--timmy-ui-size-label, 13px); }
+.page[data-page="files"] .fs-dl dt { color: var(--timmy-ui-text-secondary, #BDCADA); }
+.page[data-page="files"] .fs-dl dd { margin: 0; overflow-wrap: anywhere; }
+.page[data-page="files"] .fs-mono { font-family: var(--timmy-ui-font-mono, var(--timmy-font-mono, monospace)); }
+.page[data-page="files"] .fs-records .fs-note { margin-top: 10px; }
+
+@media (max-width: 720px) {
+  .page[data-page="files"] .fs-row { grid-template-columns: 18px minmax(0, 1fr) 72px; gap: 8px; padding: 10px 10px; }
+  .page[data-page="files"] .fs-row-kind, .page[data-page="files"] .fs-row-when { display: none; }
+  .page[data-page="files"] .fs-text, .page[data-page="files"] .fs-image { max-height: 40vh; }
+  .page[data-page="files"] .fs-dl { grid-template-columns: 1fr; gap: 2px 0; }
+}
