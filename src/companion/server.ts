@@ -175,7 +175,10 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
 // R11 round 4 (H171): shell.js, the journey's three screens and what they share (window.TimmyShell)
 // R11 round 4 (H170): screen-connections.js and .css, the Connections screen (src/companion/connections.ts serves its data)
 // R11 round 4 (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js', 'rive-bindings.js', 'rive-components.css', 'screen-inspect-animation.js'];
+// R11 round 7 (the lead, UI-OWNERSHIP.md): one writer per file — the page owners' new sheets and scripts are named here once,
+// so no owner edits this file; a name whose file is not shipped answers 404 like any other missing client file.
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js', 'rive-bindings.js', 'rive-components.css', 'screen-inspect-animation.js',
+  'panel-run.css', 'panel-control.css', 'panel-vox.css', 'panel-tools.css', 'panel-studio.css', 'panel-create.css', 'panel-files.js', 'panel-files.css', 'panel-settings.js', 'panel-settings.css'];
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
