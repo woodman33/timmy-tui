@@ -35,7 +35,9 @@ const text = async (page: Page, sel: string): Promise<string> => ((await page.te
 
 /** The test's stand-in for the lead's server.ts mount: my routes placed before the companion's final 404 handler. */
 function spliceRiveAssets(app: CompanionServer['app']): void {
-  const router = (app as unknown as { _router: { stack: Array<{ route?: unknown }> } })._router;
+  const router = (app as unknown as { _router: { stack: Array<{ route?: { path?: string } }> } })._router;
+  // the lead's mount (server.ts, 59d86eca) is there: nothing to splice
+  if (router.stack.some((l) => l.route && l.route.path === '/api/rive/assets')) return;
   const before = router.stack.length;
   mountRiveAssets(app);
   const added = router.stack.splice(before, router.stack.length - before);
@@ -117,8 +119,12 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       // the runtime was NOT loaded (no file to draw; the policy has no WebAssembly keyword without one): window.rive absent
       expect(await o.page.evaluate(() => typeof (window as unknown as { rive?: unknown }).rive)).toBe('undefined');
       expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: { runtimeState: () => string } }).TimmyRive.runtimeState())).toBe('none');
-      const note = await text(o.page, '[data-inspect-component="connection-ollama-local"] [data-rive-note]');
-      expect(note).toBe(words.words);
+      // the words beside each text fallback: the mark's are the companion's; every other component names ITS OWN file
+      expect(await text(o.page, '[data-inspect-component="mark"] [data-rive-note]')).toBe(words.words);
+      expect(await text(o.page, '[data-inspect-component="connection-ollama-local"] [data-rive-note]')).toBe('connection.riv is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.');
+      expect(await text(o.page, '[data-inspect-component="activity"] [data-rive-note]')).toBe('activity.riv is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.');
+      // the glyphs in the text colour (B10: amber is a role, never a mark)
+      expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-face', (e) => getComputedStyle(e).color)).toBe('rgb(242, 239, 233)');
       expect(await text(o.page, '[data-inspect-component="welcome"] .tr-fallback')).toBe('T');
       // the listing: the sources by name, the runtime's names "not reported" with the source's names given instead
       const listing = await text(o.page, '[data-inspect-listing]');

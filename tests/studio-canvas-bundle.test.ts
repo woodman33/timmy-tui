@@ -42,14 +42,15 @@ describe('Timmy Canvas loads nothing from another host', () => {
     // reference images (./references.js), a file beside it that imports nothing; R6 (H145, step 4a): and the node palette
     // (./nodes.js), which (R6 H145, step 4c: its connections) imports only ./operations.js, as the Project panel does.
     // R7 (H151's 04e162d; the lead, at the freeze's CI): and where Timmy places things on the board (./placement.js), a file
-    // beside it that imports nothing.
-    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js', './frame.js', './when.js', './identity.js', './artifacts.js', './references.js', './nodes.js', './placement.js']);
+    // beside it that imports nothing. R11 round 5 (H174): and the Rive component shape (./rive-shape.js), which imports only the
+    // companion page's bindings (../../../src/companion/client/rive-bindings.js: a file of this repository, never an address).
+    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js', './frame.js', './when.js', './identity.js', './artifacts.js', './references.js', './nodes.js', './rive-shape.js', './placement.js']);
     // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing.
     // R5 (H137): the files that say a time import ./when.js too, and nothing else; it imports nothing.
     // R10 (H167): and what the face says of a record (./face.js), a file beside them that imports nothing: the strip, the
     // artifacts, the nodes and the Project panel import it
     const IMPORT_NOTHING = ['operations.js', 'theme.js', 'drafts.js', 'when.js', 'identity.js', 'references.js', 'placement.js', 'face.js'];
-    const OWN_IMPORTS: Record<string, string[]> = { 'project.js': ['./operations.js', './face.js'], 'cards.js': ['./operations.js', './when.js', './face.js'], 'run-detail.js': ['./when.js'], 'save-state.js': ['./when.js'], 'frame.js': ['./when.js', './face.js'], 'artifacts.js': ['./when.js', './face.js'], 'nodes.js': ['./operations.js', './face.js'] };
+    const OWN_IMPORTS: Record<string, string[]> = { 'rive-shape.js': ['../../../src/companion/client/rive-bindings.js'], 'project.js': ['./operations.js', './face.js'], 'cards.js': ['./operations.js', './when.js', './face.js'], 'run-detail.js': ['./when.js'], 'save-state.js': ['./when.js'], 'frame.js': ['./when.js', './face.js'], 'artifacts.js': ['./when.js', './face.js'], 'nodes.js': ['./operations.js', './face.js'] };
     for (const file of [...Object.keys(OWN_IMPORTS), ...IMPORT_NOTHING]) {
       const own = readFileSync(join(page, 'src', file), 'utf8');
       const sources = [...own.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);

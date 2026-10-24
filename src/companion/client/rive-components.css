@@ -3,7 +3,8 @@
    attention, green ONLY for an observed live fact (a connection the backend said is checked). The canvas is never the only carrier
    of a state: the word beside it is. */
 .tr-component { display: inline-grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; }
-.tr-face { position: relative; display: inline-grid; place-items: center; width: 72px; height: 72px; padding: 0; border: 1px solid var(--timmy-line-strong); border-radius: 10px; background: var(--timmy-ground); color: var(--timmy-accent); font: inherit; font-size: 32px; font-weight: var(--timmy-weight-heading, 600); cursor: default; }
+/* the text fallback's glyph in the text colour: B10, amber is a role (focus, the one next step, the selection), never a mark */
+.tr-face { position: relative; display: inline-grid; place-items: center; width: 72px; height: 72px; padding: 0; border: 1px solid var(--timmy-line-strong); border-radius: 10px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 32px; font-weight: var(--timmy-weight-heading, 600); cursor: default; }
 button.tr-face { cursor: pointer; }
 button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
 .tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; }

@@ -1,8 +1,8 @@
 /**
  * R11 round 5 (H174): the `timmy-rive` shape on Timmy Canvas (companion/studio-canvas/src/rive-shape.js) in a real Chromium on the
- * real Studio server and bundle, with NO .riv and no Rive runtime on the Studio's origin (its server does not serve /vendor/rive/
- * or /assets/rive/ until the lead mounts mountRive + mountRiveAssets there): the shape draws its words and the text mark beside
- * the exact state word (HTML, aria-live), never an error; selection and width move the `selected` / `expanded` inputs (tldraw's
+ * real Studio server and bundle, with NO .riv: the Studio serves the runtime (/vendor/rive/, mountRive) and the components' listing
+ * and sources (/assets/rive/, mountRiveAssets — the lead's 59d86eca), but without a .riv the bindings load no runtime (said so) and
+ * the shape draws its words and the text mark beside the exact state word (HTML, aria-live), never an error; selection and width move the `selected` / `expanded` inputs (tldraw's
  * own facts); a FAKE backend event through TimmyRive.fromProviderState (the test's, named FAKE) moves the connection word and
  * the shape keeps it with the board (props.state); the welcome shape's trigger is the person's click only. Nothing animates
  * here, and the shape says why.
@@ -23,7 +23,7 @@ const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '
 
 type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string } };
 
-describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .riv and no runtime on the Studio\'s origin (R11 round 5, H174)', () => {
+describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .riv on the Studio\'s origin (R11 round 5, H174)', () => {
   let root = '';
   let home = '';
   let server: StudioServer | undefined;
@@ -72,12 +72,18 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .ri
       expect(await page.getAttribute('[data-timmy-rive-shape] [data-rive-status]', 'aria-live')).toBe('polite');
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-title')).toBe('Ollama · local');
       expect(await text(page, '[data-timmy-rive-shape] .tr-fallback')).toBe('○');
-      // no runtime on this origin: the component settled on its words, nothing drawn by a runtime, the reason said
+      // no .riv on this origin: the component settled on its words, nothing drawn by a runtime, the reason said
       await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().every((x) => x.state === 'words'), null, { timeout: 20_000 });
       const info = await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect());
       expect(info).toHaveLength(1);
       expect(info[0].component).toBe('connection:ollama-local');
-      expect(info[0].why).toMatch(/serves no Rive runtime|not loaded/);
+      expect(info[0].why).toBe('no .riv is in this installation, so the runtime is not loaded');
+      expect(await text(page, '[data-timmy-rive-shape] [data-rive-note]')).toBe('connection.riv is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.');
+      // the Studio serves the runtime and the listing (available, not exercised: no file to draw)
+      const served = await page.evaluate(async () => ({ rt: (await fetch('/vendor/rive/rive.js')).status, list: await (await fetch('/api/rive/assets')).json() }));
+      expect(served.rt).toBe(200);
+      expect(served.list.runtime).toBe(true);
+      expect(served.list.components.map((c: { component: string; riv: unknown }) => [c.component, c.riv])).toEqual([['activity', null], ['connection', null], ['welcome', null]]);
       expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(0);
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-source')).toContain('as saved with the board; no backend event has set it on this page');
       // tldraw's selection → selected; its width → expanded
