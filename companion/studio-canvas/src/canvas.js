@@ -243,7 +243,13 @@ function showStatus(editor) {
   // R10 (H167; the round's rule: diagnostics in a details control): tldraw's version and its license's verdict are the canvas's
   // Details (#side-about, under the save line), beside the folder Timmy saves the board in; the line says the canvas's state
   const about = document.getElementById('side-about-canvas');
-  if (about) about.textContent = `tldraw ${BUILT_WITH} · ${license.words[state] ?? `license state: ${state}`}`;
+  // R11 round 6: the SDK's verdict as one short line (the panel's Details sit above the one region that scrolls: five wrapped
+  // lines here left the project's cards too little room at 768 px — studio-face-browser), its full meaning in the line's title
+  if (about) {
+    const meaning = license.words[state] ?? `license state: ${state}`;
+    about.textContent = `tldraw ${BUILT_WITH} · ${state === 'unknown' ? meaning : `${state.replace(/-/g, ' ')} (tldraw's own verdict)`}`;
+    about.title = meaning;
+  }
   const text = [
     `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · `,
     bridgeState.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
