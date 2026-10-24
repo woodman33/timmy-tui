@@ -43,7 +43,7 @@
     "text": "#ECF1F5", "secondary": "#BDCADA", "muted": "#9AAFC3",
     "focus": "#FFB000 (the Working ring, Approval, Failed: focus / intent / attention)", "stopped": "#9AAFC3",
     "neverOnAFace": "#28FE14 — no observed-live claim is drawn; the HTML words say connected / passed / sealed",
-    "primaryAction": { "amber": { "start": "#F0E5D4", "soft": "#EAD0A3", "accent": "#D6AA64", "ink": "#5B421D" }, "glacier": { "start": "#E1EEF7", "soft": "#BED9ED", "accent": "#8ABBE3", "ink": "#244761" } }
+    "primaryAction": { "amber": { "start": "#F0E5D4", "soft": "#EAD0A3", "accent": "#D6AA64", "ink": "#402E14 (H175's measured ink: 6.05:1 on the accent)" }, "glacier": { "start": "#E1EEF7", "soft": "#BED9ED", "accent": "#8ABBE3", "ink": "#1D3848 (6.02:1)" } }
   },
   "consumers": {
     "mountApi": "window.TimmyRive.mountConsole(host, { size, label, heading, name, place, identity: { project, session }, caption }) · mountProviderCard(host, providerId, { size, label, name, place, providerName, detail }) · mountActionButton(host, { label, action, disabled, name, place, theme })",

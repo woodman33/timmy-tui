@@ -18,7 +18,7 @@ Named text runs (one name each; the runtime sets them by name): see RUNS below a
 Font: Outfit (variable, OFL) — Outfit.ttf beside this file, made by make-font.py from the font this product serves.
 Materials: the Card Lab direction (DESIGN.md B11, the study's token registry v0.1): canvas #080B0F, surface #111A23,
 raised #1C2936, border #44586B, text #ECF1F5, secondary #BDCADA, muted #9AAFC3; focus/intent #FFB000; the primary action
-= the accent family's gradient (amber #F0E5D4 → #D6AA64 with ink #5B421D; glacier #E1EEF7 → #8ABBE3 with ink #244761).
+= the accent family's gradient (amber #F0E5D4 → #D6AA64 with ink #402E14; glacier #E1EEF7 → #8ABBE3 with ink #1D3848).
 Never #28FE14 on a native face: no observed-live claim is drawn, the HTML words say it.
 """
 from pathlib import Path
@@ -31,9 +31,11 @@ CANVAS, SURFACE, RAISED, BORDER = 'FF080B0F', 'FF111A23', 'FF1C2936', 'FF44586B'
 TEXT, SECONDARY, MUTED = 'FFECF1F5', 'FFBDCADA', 'FF9AAFC3'
 FOCUS = 'FFFFB000'            # focus / intent / attention (B10): the Working ring, Approval, Failed
 STOPPED = 'FF9AAFC3'          # a stopped state is quiet
+# the primary-action family (the study's registry; the inks as H175 measured them for the SHELL CONTRACT v1 — amber #402E14 reads
+# 6.05:1 on #D6AA64 where the study's #5B421D read 4.37, glacier #1D3848 6.02 — the same values the HTML's primary button uses)
 THEMES = {
-    'amber':   {'start': 'FFF0E5D4', 'accent': 'FFD6AA64', 'soft': 'FFEAD0A3', 'ink': 'FF5B421D'},
-    'glacier': {'start': 'FFE1EEF7', 'accent': 'FF8ABBE3', 'soft': 'FFBED9ED', 'ink': 'FF244761'},
+    'amber':   {'start': 'FFF0E5D4', 'accent': 'FFD6AA64', 'soft': 'FFEAD0A3', 'ink': 'FF402E14'},
+    'glacier': {'start': 'FFE1EEF7', 'accent': 'FF8ABBE3', 'soft': 'FFBED9ED', 'ink': 'FF1D3848'},
 }
 PREVIEW_CAPTION = 'PREVIEW  /  NOT A LIVE JOB'
 

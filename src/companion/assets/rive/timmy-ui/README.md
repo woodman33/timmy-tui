@@ -37,7 +37,7 @@ contract v1, sha256 `9fd9ae7c…`, 405,278 bytes) stays the served file until th
   `WorkingStill` state (the ring at rest) — nothing keeps moving; the words carry the state.
 - **Materials.** The Card Lab direction: a raised → surface gradient panel with a 1-px top light and the border; text /
   secondary / muted; the focus amber for the Working ring, Approval and Failed; a quiet grey for Stopped; the primary
-  action's light gradient (amber start → accent with ink text; `ActionButtonGlacier` the Glacier pair). Never `#28FE14` on
+  action's light gradient (amber start → accent with the ink H175 measured for the HTML's primary button, #402E14; `ActionButtonGlacier` the Glacier pair, ink #1D3848). Never `#28FE14` on
   a native face: no observed-live claim is drawn.
 - **Sizes unchanged** (640 × 380 · 400 × 260 · 240 × 72): the consumers' aspect rules stand.
 
