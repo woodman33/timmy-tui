@@ -22,12 +22,13 @@
 // the task."), then WHERE TOOLS WORK first — each inventory group with the pages that use it (a button opens the page) and
 // its rows in the three words (available · configured · exercised, never a fourth), the MCP ↔ CLI routes named with their
 // rungs where they exist — then the inspector (this page's own workflow: list → check → call → record) and, secondary, the
-// DIRECTORY (every capability as a card, collapsible), the project's calls as the records. With the shell's scaffold the panel
-// registers the page (TimmyShell.page / state) and puts its tools in the dock; without it, its own head above the work.
+// DIRECTORY (every capability as a card, collapsible), the project's calls as the records. The page's section is the shell's
+// scaffold (H175's commit 2): the panel registers the page (TimmyShell.page / state — the head is the shell's, the kicker's
+// number the rail's) and puts its tools in the dock's tools.
 (() => {
   if (!document.querySelector('link[href="/panel-tools.css"]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/panel-tools.css'; document.head.append(l); }
   const PAGE_WORDS = Object.freeze({
-    kicker: '09 / FIND THE RIGHT TOOL',
+    kicker: 'FIND THE RIGHT TOOL',
     title: 'Find the right tool for the task.',
     intro: 'Discover capabilities here, and use them in the workflow where they belong.',
     where: 'Where tools work',
@@ -133,9 +134,7 @@
     const where = box('tools-wherebox', PAGE_WORDS.where, h('p', { class: 'tools-where-lead' }, PAGE_WORDS.whereLead), e.where);
     // (open: secondary by its place, after the pages that use the tools, never hidden from a reader who scrolls to it)
     e.directory = h('details', { class: 'tools-directory', 'data-tools-directory': '', open: true }, h('summary', { class: 'tools-directory-summary' }, PAGE_WORDS.directory), e.caps);
-    e.ownHead = h('header', { class: 'tools-own-head page-head', 'data-tools-own-head': '', hidden: true });
     const root = h('div', { class: 'tools-panel', 'data-tools-panel': '' },
-      e.ownHead,
       where.box,
       e.steps,
       h('div', { class: 'tools-grid' }, ingest.box, request.box, wire.box, result.box),
@@ -150,9 +149,14 @@
   const shellOf = () => (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.page === 'function' ? TimmyShell : null);
   function scaffoldOf() {
     const section = P.host ? (P.host.closest('section.page') || P.host.closest('.ws-page')) : null;
-    const head = section ? section.querySelector('.page-head') : null;
-    return head ? { section, head, dock: section.querySelector('.page-dock'), records: section.querySelector('.page-records') } : null;
+    if (!section) return null;
+    const dock = section.querySelector(':scope > .page-dock');
+    let tools = dock ? dock.querySelector(':scope > .dock-tools') : null;
+    if (dock && !tools) { tools = document.createElement('div'); tools.className = 'dock-tools'; dock.append(tools); }
+    return { section, dock: tools, records: section.querySelector(':scope > .page-records') };
   }
+  /** The rail's number for this page (the shell's), before the kicker's verb phrase. */
+  const kickerOf = (sh) => { const p = sh && sh.PAGES && sh.PAGES.find ? sh.PAGES.find((x) => x.id === 'tools') : null; return `${p && p.n ? `${p.n} / ` : ''}${PAGE_WORDS.kicker}`; };
   /** The ONE primary next action: the inspector's next step (a real tools/list on the picked server, then the call). */
   function primaryOf() {
     const listed = Boolean(P.listing && P.listing.ok && P.listing.key === serverKey(P.server));
@@ -165,24 +169,10 @@
     const word = P.stateError ? 'error' : (P.listBusy || P.callBusy) ? 'running' : 'content';
     if (sh) {
       const pr = primaryOf();
-      try { sh.page('tools', { kicker: PAGE_WORDS.kicker, title: PAGE_WORDS.title, intro: PAGE_WORDS.intro, primary: { label: pr.label, run: pr.run }, context: null, dock: 'TOOLS & INTEGRATIONS' }); } catch (e) { /* the shell says */ }
+      try { sh.page('tools', { kicker: kickerOf(sh), title: PAGE_WORDS.title, intro: PAGE_WORDS.intro, primary: { label: pr.label, run: pr.run }, context: null, dock: 'TOOLS & INTEGRATIONS' }); } catch (e) { /* the shell says */ }
       if (typeof sh.state === 'function') { try { sh.state('tools', word, word === 'error' ? { words: `The inspector could not read its state: ${P.stateError}`, next: { label: 'Read again', run: () => void loadState() } } : undefined); } catch (e) { /* as above */ } }
     }
-    drawOwnHead();
     drawDock();
-  }
-  function drawOwnHead() {
-    const el = P.el.ownHead;
-    if (!el) return;
-    const sc = scaffoldOf();
-    el.hidden = Boolean(sc);
-    if (sc) { put(el); return; }
-    const pr = primaryOf();
-    const btn = h('button', { type: 'button', class: 'btn-action tools-primary', 'data-tools-primary': '' }, pr.label);
-    btn.addEventListener('click', () => pr.run());
-    put(el,
-      h('div', { class: 'tools-head-words' }, h('p', { class: 'tools-kicker page-kicker' }, PAGE_WORDS.kicker), h('h2', { class: 'tools-title page-title' }, PAGE_WORDS.title), h('p', { class: 'tools-intro page-intro' }, PAGE_WORDS.intro)),
-      h('div', { class: 'tools-head-actions page-primary' }, btn));
   }
   /** The page's tools in the shell's dock: the inventory read again, the directory, the records (the calls). */
   function drawDock() {

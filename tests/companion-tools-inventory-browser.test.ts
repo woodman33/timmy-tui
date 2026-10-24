@@ -130,15 +130,15 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
     const { page, errors } = await open({ width: 1440, height: 900 });
     try {
       await page.waitForSelector('[data-tools-where] .tools-where-group', { timeout: 30_000 });
-      // the head on a shell without the scaffold (until H175's commit 2): the panel's own; the shell's registration otherwise
-      const scaffold = await page.$eval('#ws-tools', (e) => Boolean(e.querySelector('.page-head')));
-      if (!scaffold) {
-        expect(await text(page, '[data-tools-own-head] .tools-kicker')).toBe('09 / FIND THE RIGHT TOOL');
-        expect(await text(page, '[data-tools-own-head] .tools-title')).toBe('Find the right tool for the task.');
-        expect(await text(page, '[data-tools-own-head] .tools-primary')).toBe('List the tools');
-      }
+      // the head is the shell's (H175's scaffold), from what the panel registers: the kicker with the rail's number, the title,
+      // the intro, the primary (the inspector's next step); the panel's tools in the dock's tools
+      expect(await text(page, '#ws-tools .page-head .page-kicker')).toMatch(/^\d+ \/ FIND THE RIGHT TOOL$/);
+      expect(await text(page, '#ws-tools .page-head .page-title')).toBe('Find the right tool for the task.');
+      expect(await text(page, '#ws-tools .page-head .page-intro')).toBe('Discover capabilities here, and use them in the workflow where they belong.');
+      expect(await text(page, '#ws-tools .page-head .page-primary')).toMatch(/^List the tools/);
+      expect(await page.$$eval('#ws-tools .page-dock .dock-tools [data-tools-dock]', (els) => els.map((e) => e.getAttribute('data-tools-dock')))).toEqual(['check', 'directory', 'records']);
       // the order of the page: where tools work, the inspector's steps, the grid, then the directory, then the calls
-      expect(await page.$$eval('[data-tools-panel] > *', (els) => els.map((e) => e.className.split(' ')[0]))).toEqual(['tools-own-head', 'box', 'tools-steps', 'tools-grid', 'tools-directory', 'box']);
+      expect(await page.$$eval('[data-tools-panel] > *', (els) => els.map((e) => e.className.split(' ')[0]))).toEqual(['box', 'tools-steps', 'tools-grid', 'tools-directory', 'box']);
       expect(await page.$eval('[data-tools-directory]', (d) => (d as HTMLDetailsElement).open)).toBe(true);
       // the groups the FAKE rows fall in, each with its pages and its rows' standing words (the same words as the cards)
       const groups = await page.$$eval('[data-tools-where] .tools-where-group', (els) => els.map((g) => ({
