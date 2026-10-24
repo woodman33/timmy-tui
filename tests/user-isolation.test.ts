@@ -148,7 +148,9 @@ async function sse(path: string, o: { session: string; body: unknown; query?: Re
 function userRoutes(): Array<{ method: string; path: string }> {
   interface Layer { name?: string; route?: { path: string | string[]; methods: Record<string, boolean>; stack: Layer[] }; handle?: { name?: string; stack?: Layer[] }; regexp?: RegExp; path?: string }
   const out: Array<{ method: string; path: string }> = [];
-  const isUser = (l: Layer): boolean => l.name === 'withUser' || l.handle?.name === 'withUser';
+  // the guard's name, `withUser` (middleware.ts names it for this walk); under vitest, esbuild's transform renames the inner
+  // binding `withUser2` where it shadows the exported factory of the same name, so the match allows a trailing number
+  const isUser = (l: Layer): boolean => /^withUser\d*$/.test(l.name ?? '') || /^withUser\d*$/.test(l.handle?.name ?? '');
   const walk = (layers: Layer[], prefix: string): void => {
     for (const layer of layers) {
       const r = layer.route;
@@ -172,6 +174,12 @@ function routeTable(): string {
   interface Layer { name?: string; route?: { path: string | string[]; stack: Array<{ name?: string }> }; handle?: { stack?: unknown[] } }
   const router = (companion.app as unknown as { _router?: { stack: Layer[] } })._router;
   return (router?.stack ?? []).map((l) => (l.route ? `${String(l.route.path)} [${l.route.stack.map((h) => h.name ?? '?').join(',')}]` : `${l.name ?? '?'}${l.handle?.stack ? ' (nested)' : ''}`)).join('; ');
+}
+
+/** The ollama-cloud card of a GET /api/connections answer (H170: { cards: [{ id, state, words, key? }] }); {} when absent. */
+function cloudCard(a: Answer): { id?: string; state?: string; words?: string; key?: { fingerprint: string; from: string } } {
+  const cards = (a.json?.cards ?? []) as Array<{ id?: string }>;
+  return (cards.find((c) => c.id === 'ollama-cloud') ?? {}) as ReturnType<typeof cloudCard>;
 }
 
 const userHome = (id: string): string => join(timmyHome, 'users', id);
@@ -205,15 +213,19 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
   it('every route behind withUser answers 401 with words to a request without a session (enumerated from the route table)', async () => {
     const routes = userRoutes();
     expect(routes.length, `routes behind withUser in the router (none: H173's middleware, or an owner's route, is not there); the table: ${routeTable().slice(0, 3000)}`).toBeGreaterThan(0);
-    for (const name of ['me', 'projects', 'connections', 'chatView', 'chatTurn'] as const) expect(routes.map((r) => r.path), `${ROUTES[name]} is behind withUser (the routes found: ${routes.map((r) => `${r.method} ${r.path}`).join(', ')})`).toContain(ROUTES[name]);
+    // each route found: 401 with words, the body marked `needs: 'session'` (H171's shell tells it from the launch token's 401)
     for (const r of routes) {
       const path = r.path.replace(/:[^/]+/g, 'x');
       const a = await call(r.method, path, r.method === 'GET' || r.method === 'DELETE' ? {} : { body: {} });
       expect(a.status, `${r.method} ${r.path} without a session: ${a.text.slice(0, 160)}`).toBe(401);
       expect(a.text.trim().length, `${r.method} ${r.path}: 401 with words`).toBeGreaterThan(0);
-      // (H171's shell tells this 401 from the launch token's by its body: { needs: 'session', words })
       expect(a.json?.needs, `${r.method} ${r.path}: the 401's body names what it needs: ${a.text.slice(0, 160)}`).toBe('session');
     }
+    // then the owners' user-data routes (C1-C3) are all among them: the missing ones named together, each with its owner
+    const owner = { me: 'H173 (identity)', projects: 'H173 (identity)', connections: 'H170 (connections; the mount line in server.ts is H171\'s)', chatView: 'H171 (chat-view behind identity.withUser)', chatTurn: 'H169 (chat-run, mounted by H171)' } as const;
+    const found = routes.map((r) => r.path);
+    const missing = (Object.keys(owner) as Array<keyof typeof owner>).filter((name) => !found.includes(ROUTES[name])).map((name) => `${ROUTES[name]} — ${owner[name]}`);
+    expect(missing, `routes not behind withUser on this tree (the routes found: ${routes.map((r) => `${r.method} ${r.path}`).join(', ')})`).toEqual([]);
   });
 
   it('a token signed by another key, without sub, with a sub that is not a user id, or expired: 401 (the launch token alone: 401)', async () => {
@@ -241,15 +253,23 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     const put = await call('POST', ROUTES.ollamaCloudKey, { session: identity.token(A), body: { key: FAKE_CLOUD_KEY } });
     expect(put.status, `POST ${ROUTES.ollamaCloudKey}: ${put.text.slice(0, 200)} (H170's)`).toBe(200);
     expect(put.text).not.toContain(FAKE_CLOUD_KEY);
+    expect(put.json?.fingerprint, 'the answer names the key by its fingerprint').toBeTruthy();
+    // H170's GET /api/connections: { cards: [{ id, state, words, key?: { fingerprint, from } }] } — A's cloud card carries a key
+    // (its fingerprint, never the value) in the state "saved, not checked" (a saved key is never "connected"); B's carries none
     const a = await call('GET', ROUTES.connections, { session: identity.token(A) });
-    expect(a.status).toBe(200);
+    expect(a.status, `A's GET ${ROUTES.connections}: ${a.text.slice(0, 200)} (H170's route; the mount line in server.ts is H171's)`).toBe(200);
     expect(a.text).not.toContain(FAKE_CLOUD_KEY);
-    const aCloud = JSON.stringify(a.json).toLowerCase();
-    expect(aCloud, `A's ollama-cloud card names a key present: ${a.text.slice(0, 400)}`).toMatch(/key (is )?present|key saved|a key is set|fingerprint|key [0-9a-f]{12}/);
+    const aCloud = cloudCard(a);
+    expect(aCloud, `A's ollama-cloud card: ${a.text.slice(0, 400)}`).toBeTruthy();
+    expect(aCloud.key?.fingerprint, `A's card names the key by its fingerprint: ${JSON.stringify(aCloud).slice(0, 300)}`).toBe(put.json?.fingerprint);
+    expect(aCloud.state, 'a saved key is saved, not checked (never "connected")').toBe('saved, not checked');
     const b = await call('GET', ROUTES.connections, { session: identity.token(B) });
     expect(b.status, `B's GET ${ROUTES.connections}: ${b.text.slice(0, 200)}`).toBe(200);
     expect(b.text).not.toContain(FAKE_CLOUD_KEY);
-    expect(JSON.stringify(b.json).toLowerCase(), `B's cards show no key: ${b.text.slice(0, 400)}`).not.toMatch(/key (is )?present|key saved|a key is set/);
+    expect(b.text).not.toContain(String(put.json?.fingerprint));
+    const bCloud = cloudCard(b);
+    expect(bCloud.key, `B's ollama-cloud card carries no key: ${JSON.stringify(bCloud).slice(0, 300)}`).toBeUndefined();
+    expect(bCloud.state, 'B: not set up').toBe('not set up');
     // the key is in A's home only, 0600
     const files = filesUnder(timmyHome).filter((f) => readFileSync(f, 'utf8').includes(FAKE_CLOUD_KEY));
     expect(files.map((f) => f.replace(timmyHome, '<home>'))).toEqual([`<home>/users/${A}/providers.json`]);
@@ -324,17 +344,27 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
   });
 
   it('a clerk_user_id in a body or a query changes nothing: A\'s token with B\'s id reads and writes A\'s data', async () => {
-    const q = await call('GET', ROUTES.connections, { session: identity.token(A), query: { clerk_user_id: B } });
-    expect(q.status).toBe(200);
-    expect(JSON.stringify(q.json).toLowerCase(), 'A\'s cards (the key present), not B\'s').toMatch(/key (is )?present|key saved|a key is set|fingerprint|key [0-9a-f]{12}/);
+    // H173's routes first (on every tree): A's project list with ?clerk_user_id=<B> is A's; a project made with B's id in the body is A's
     const list = await call('GET', ROUTES.projects, { session: identity.token(A), query: { clerk_user_id: B } });
-    expect(list.text, 'A\'s projects, not B\'s').toContain('FAKE-a-project');
+    expect(list.status, `A's GET ${ROUTES.projects}?clerk_user_id=<B>: ${list.text.slice(0, 200)}`).toBe(200);
+    expect(list.text, 'A\'s projects, not B\'s').toMatch(/fake-a-project/i); // (H173 keeps the name lowercase)
+    expect(list.text, 'nothing of B\'s in it').not.toContain(B);
+    const made = await call('POST', ROUTES.projects, { session: identity.token(A), body: { name: 'FAKE-a-second', clerk_user_id: B } });
+    expect(made.status, `A's POST ${ROUTES.projects} with B's id in the body: ${made.text.slice(0, 200)}`).toBe(201);
+    expect(String(made.json?.root ?? ''), 'the project is under A\'s home').toContain(`/users/${A}/`);
+    expect(String(made.json?.root ?? ''), 'never under B\'s').not.toContain(`/users/${B}/`);
+    const bList = await call('GET', ROUTES.projects, { session: identity.token(B) });
+    expect(bList.text, 'B\'s list has nothing of A\'s').not.toMatch(/fake-a-second|fake-a-project/i);
+    // then H170's: A's cards with ?clerk_user_id=<B> are A's (the key present); a key saved with B's id in the body lands in A's home
+    const q = await call('GET', ROUTES.connections, { session: identity.token(A), query: { clerk_user_id: B } });
+    expect(q.status, `A's GET ${ROUTES.connections}?clerk_user_id=<B>: ${q.text.slice(0, 200)} (H170's route; the mount line in server.ts is H171's)`).toBe(200);
+    expect(cloudCard(q).key?.fingerprint, 'A\'s cards (the key present), not B\'s').toBeTruthy();
     const put = await call('POST', ROUTES.ollamaCloudKey, { session: identity.token(A), body: { key: `${FAKE_CLOUD_KEY}-2`, clerk_user_id: B } });
     expect(put.status, put.text.slice(0, 200)).toBe(200);
     const where = filesUnder(timmyHome).filter((f) => readFileSync(f, 'utf8').includes(`${FAKE_CLOUD_KEY}-2`)).map((f) => f.replace(timmyHome, '<home>'));
     expect(where).toEqual([`<home>/users/${A}/providers.json`]);
     const b = await call('GET', ROUTES.connections, { session: identity.token(B) });
-    expect(JSON.stringify(b.json).toLowerCase()).not.toMatch(/key (is )?present|key saved|a key is set/);
+    expect(cloudCard(b).key, 'B\'s cloud card still carries no key').toBeUndefined();
   });
 
   it('no user id, token or key value in any log line the companion writes, nor in a home file but the keys\' own', () => {
