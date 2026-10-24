@@ -784,6 +784,11 @@ const PROBES: Record<string, Probe> = {
     const composer = o.page.getByRole('textbox', { name: COMPOSER }).or(o.page.getByPlaceholder(COMPOSER)).first();
     expect(await composer.count(), 'the composer').toBeGreaterThan(0);
     expect(await composer.isVisible(), 'the composer is visible (the task dock reachable)').toBe(true);
+    // H168's B2 bar: the primary next action AND the composer on screen without scrolling, at both sizes
+    const inView = async (l: Locator): Promise<boolean> => { const b = await l.boundingBox().catch(() => null); return Boolean(b && b.y >= 0 && b.y + b.height <= size.height + 1 && b.x >= 0 && b.x + b.width <= size.width + 1); };
+    expect(await inView(composer), `the composer inside the ${size.width}x${size.height} viewport without scrolling`).toBe(true);
+    const primary = o.page.locator(SHELL.primary).first();
+    expect(await inView(primary), `the primary next action inside the ${size.width}x${size.height} viewport without scrolling`).toBe(true);
     // the first use (empty): the welcome with its verb-led starters — the project's first visit; later (the USER's one project carries the
     // earlier cases' turns) the product's own way to an empty conversation: "+ New conversation" in the rail (POST /api/chat/new, H169)
     const welcome = (s: string): boolean => /What would you like to make|Plan a project/i.test(s);
@@ -889,7 +894,9 @@ const PROBES: Record<string, Probe> = {
       expect(['licensed', 'licensed-with-watermark', 'unlicensed', 'unlicensed-production', 'expired', 'unknown']).toContain(license);
       if (!realKey) expect(license, 'a FAKE key is not licensed in the SDK\'s own words').not.toMatch(/^licensed/);
       expect(await first.page.evaluate(() => document.body.innerText)).not.toContain('FAKE-license-key');
-      // the starters listed (GET /api/canvas/templates: guided, blank first; a Houdini starter when H176 ships one — said which)
+      // the starters listed (GET /api/canvas/templates: guided, blank first; a Houdini starter when H176 ships one — said which);
+      // below 1100 px the Studio's lists start folded behind #side-fold (R7, H151): shown first so New board's controls can be used
+      if ((await first.page.locator('#side').first().getAttribute('data-folded').catch(() => null)) === 'true') await first.page.locator('#side-fold').first().click({ timeout: 3_000 }).catch(() => undefined);
       const options = await first.page.locator('#board-pick option').allTextContents().catch(() => [] as string[]);
       const houdini = options.find((x) => /houdini/i.test(x));
       const pick = houdini ?? options[0];
