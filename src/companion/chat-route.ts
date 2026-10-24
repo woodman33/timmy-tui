@@ -1,29 +1,29 @@
 /**
- * R4 (H104, second part): the route the companion page's own chat (STREAMDOWN CHAT, POST /chat) takes: the one the setup
+ * R4 (H104, second part): the route the companion page's chat (POST /api/chat/turn, src/companion/chat-run.ts) takes: the one the setup
  * chose for Timmy's chat, read at every request as the REPL reads it (src/agent/chat-route.ts resolveChatRoute, H103's). R4
  * (H113): on or off, and why, from the one route every surface reads (src/agent/chat-route.ts chatRouteNow).
  *
  *   the setup's chat answer   the page's Send                                                     its label
- *   local, a model chosen     streams that model's answer from the recorded Ollama's /api/chat   "local <model> · Ollama · this page's own
- *                                                                                                 chat · no tools"
- *                             (src/agent/local-chat.ts runLocalTurn), offering no tools; never
- *                             OpenRouter; a cloud-backed model only when its name says cloud
- *                             (the model was chosen by that name), and the label says so
+ *   local, a model chosen     the real turn on that model at the recorded Ollama (the agent's      "local <model> · Ollama · the project's
+ *                             local route, src/agent/local-chat.ts, with the project's tools        conversation"
+ *                             gated at NEEDS YOU); never OpenRouter; a ":cloud" name is Ollama's
+ *                             cloud route (the model was chosen by that name), and the label says so
  *   local, no model or no     off, saying why and where to fix it (the REPL's /model, /setup chat)
  *   usable Ollama address
- *   OpenRouter (or none),     the model chosen in the settings (the one the Workbench's Models     "<model> · OpenRouter · this page's own
- *   with a key, a model       chose: src/utils/model-choice.ts) through OpenRouter with this      chat · each message spends credits"
- *   chosen                    computer's key (each message spends credits)
+ *   OpenRouter (or none),     the model chosen in the settings (the one the Workbench's Models     "<model> · OpenRouter · the project's
+ *   with a key, a model       chose: src/utils/model-choice.ts) through OpenRouter with this      conversation · each message spends credits"
+ *   chosen                    computer's key (each message spends credits), the real turn
  *   OpenRouter, with a key,   off (R11 H169, Phase 0 item 2: there is no shipped default, and     "No model chosen: choose one in Models ·
  *   no model chosen           this page never asks a model nobody chose): reason 'no-model-chosen' Send is off"
  *   OpenRouter (or none),     off, saying where chat happens (the REPL and the monitor) and how
  *   no key                    to give the chat a route (`timmy init`)
  *
- * R10 (H164; the lead's call (b) of 2026-10-22): the page's Send is this page's own chat, not the project's conversation (the one
- * the Workbench, the REPL and the monitor continue, src/agent/chat-session.ts): its request carries the page's own messages, it
- * offers no tools and it seals no receipt. Its label says "this page's own chat", its words begin with PAGE_SCOPE.words, and the
- * route's `scope` says it as data, so no screen shows it as the project's chat (src/journey/route.ts routeNow({ surface:
- * 'companion' }) takes its words from here).
+ * R11 round 4 (H169; the operator's order of 2026-10-23 19:17, contract C3; it supersedes R10's call (b) of 2026-10-22): the
+ * page's Send is the REAL turn, the project's conversation the Workbench, the REPL and the monitor continue
+ * (src/companion/chat-run.ts, through src/agent/chat-session.ts openChatSession({ surface: 'companion' })): the agent's tools,
+ * gated at NEEDS YOU, and a receipt sealed for every turn. Its label ends in "the project's conversation", its words begin
+ * with PAGE_SCOPE.words, and the route's `scope` says it as data (src/journey/route.ts routeNow({ surface: 'companion' })
+ * takes its words from here).
  *
  * The OpenRouter key is looked for where the REPL looks (src/utils/config.ts loadConfig's order, as src/utils/model-key.ts
  * modelKeySource reads it): the environment (with the .env files the companion always read), a local timmy-tui.config.json,
@@ -35,7 +35,6 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { chatRouteNow, localRouteWords, NO_MODEL_CHOSEN_SENTENCE } from '../agent/chat-route.js';
 import { modelPrice } from '../agent/model-price.js';
-import { LocalChatError, runLocalTurn } from '../agent/local-chat.js';
 import { atWords } from '../setup/ollama-models.js';
 import { knownAnswers, readSetupState } from '../setup/questions.js';
 import { chosenModel } from '../utils/model-choice.js';
@@ -76,13 +75,16 @@ export type PageRoute =
   /** R11 (H169): `reason` 'no-model-chosen': a key, and no OpenRouter model chosen for the next turn (Send is off until one is) */
   | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null; refusal: string[]; reason?: 'no-model-chosen' };
 
-/** R10 (H164): what the page's Send is, as data and in plain words: this page's own chat, not the project's conversation. */
+/**
+ * R11 round 4 (H169; contract C3): what the page's Send is, as data and in plain words: the project's conversation (the real
+ * turn: the agent's tools gated at NEEDS YOU, a receipt sealed for every turn), the same the Workbench and the REPL continue.
+ */
 export const PAGE_SCOPE = Object.freeze({
-  conversation: 'this page' as const, tools: 'none' as const, receipt: false as const,
-  words: 'This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.',
+  conversation: 'project' as const, tools: 'gated' as const, receipt: true as const,
+  words: 'The project\'s conversation, the one the Workbench and the REPL continue: the agent\'s tools, gated at NEEDS YOU; every turn sealed with a receipt.',
 });
-/** R10 (H164): the label's part that says so (beside the model and where it runs). */
-export const PAGE_OWN = 'this page\'s own chat';
+/** The label's part that says so (beside the model and where it runs). */
+export const PAGE_OWN = 'the project\'s conversation';
 
 /** Where chat with Timmy happens, whatever this page can do (the end of every "Send is off" sentence). */
 export const CHAT_HAPPENS = 'Chat with Timmy happens in its terminal: the REPL (timmy) and this monitor (timmy watch); the CHAT MIRROR tab shows it.';
@@ -147,8 +149,8 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
         : 'The chat leaves this computer for that one, and no cost comes back (unknown).';
     return {
       kind: 'local', ready: true, model: r.model, host: r.host, cloud: r.cloud, loopback: r.at.loopback, ...(r.numCtx ? { numCtx: r.numCtx } : {}),
-      label: `${localRouteWords(r).replace(/^chat: /, '')} · ${PAGE_OWN} · no tools`, scope: PAGE_SCOPE,
-      words: `${PAGE_SCOPE.words} Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, offering no tools: it cannot read or change files or run anything from here. Never OpenRouter. ${where}`,
+      label: `${localRouteWords(r).replace(/^chat: /, '')} · ${PAGE_OWN}`, scope: PAGE_SCOPE,
+      words: `${PAGE_SCOPE.words} Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, with the project's tools (each that needs you waits at NEEDS YOU). Never OpenRouter. ${where}`,
     };
   }
   // R11 (H169, Phase 0 item 2): a key and no model chosen: Send is off until one is chosen (in Models, the same choice as the
@@ -191,38 +193,5 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
   };
 }
 
-type Send = (event: string, data: unknown) => void;
-const NOTICE = /^⚙️ \*\*\[SYSTEM\]\*\* /;
-
-/**
- * One answer on the local route, streamed to the page as the REPL's local turn makes it (src/agent/local-chat.ts runLocalTurn,
- * no tools): `delta` (text), `notice` (what the turn says beside its answer: a cloud-backed model, a cut answer), `cost`
- * (none on this computer's Ollama with local weights; otherwise unknown, with why), then `done`, or `error` with the turn's
- * own words (what, Reason, Next). A cancel (the page went away) ends it quietly.
- */
-export async function streamLocalChat(o: { route: Extract<PageRoute, { kind: 'local' }>; messages: Array<{ role: string; content: string }>; signal: AbortSignal; send: Send }): Promise<void> {
-  const { route, send } = o;
-  try {
-    const result = await runLocalTurn({
-      route: { host: route.host, model: route.model }, history: o.messages, tools: [], maxSteps: 1, signal: o.signal,
-      ...(route.numCtx ? { numCtx: route.numCtx } : {}),
-      hooks: {
-        emit: (event: string, ...args: unknown[]) => {
-          if (event === 'stream:delta' && typeof args[0] === 'string') send('delta', args[0]);
-          else if (event === 'message:user') send('notice', { text: String((args[0] as { content?: unknown } | undefined)?.content ?? '').replace(NOTICE, '') });
-          else if (event === 'cost:update') {
-            const info = args[2] as { complete?: boolean; basis?: string } | undefined;
-            send('cost', info?.complete && info.basis === 'local endpoint'
-              ? { usd: 0, measured: true, basis: 'local endpoint', words: 'no charge: Ollama on this computer, the model\'s local weights' }
-              : { usd: null, measured: false, why: route.cloud ? `${OLLAMA_CLOUD_TERMS} (Ollama reports no cost per request)` : 'Ollama reports no cost for another computer\'s model', words: 'cost unknown: Ollama reports none for this route' });
-          }
-        },
-        call: () => undefined, output: () => undefined, text: () => undefined,
-      },
-    });
-    send('done', { ok: true, route: 'local', model: result.actualModel, localEndpoint: result.localEndpoint });
-  } catch (err) {
-    if ((err as { name?: unknown } | null)?.name === 'AbortError' || o.signal.aborted) return;
-    send('error', { route: 'local', error: err instanceof LocalChatError ? err.message : `The local model's answer failed: ${err instanceof Error ? err.message : String(err)}. Nothing else was asked.` });
-  }
-}
+// R11 round 4 (H169): streamLocalChat, the page's raw local stream (no tools, no hold, no receipt), is gone with the legacy
+// POST /chat: the page's chat is the real turn (src/companion/chat-run.ts, through openChatSession({ surface: 'companion' })).

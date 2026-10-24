@@ -192,7 +192,8 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     const running = first.send('a long one', { ...surface().hooks, signal: controller.signal });
     for (let i = 0; i < 100 && ollama.chats().length === 0; i++) await new Promise((r) => setTimeout(r, 20));
     const r = await second.send('hello', surface().hooks);
-    expect(r).toMatchObject({ status: 'refused', sent: false, lines: ['Not sent: another chat turn of this project is running here.', 'Try: send it again when that turn ends. Nothing was sent to any model.'] });
+    // R11 round 4 (H169): the refusal names whose turn runs (the surface that sent it)
+    expect(r).toMatchObject({ status: 'refused', sent: false, lines: ['Not sent: another chat turn of this project is running here, sent from the Workbench.', 'Try: send it again when that turn ends (Stop ends it). Nothing was sent to any model.'] });
     expect(ollama.chats()).toHaveLength(1);
     controller.abort();
     expect(await running).toMatchObject({ status: 'cancelled', sent: true });

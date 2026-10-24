@@ -536,6 +536,13 @@ export interface ProjectTurnInput {
   route?: TurnRouteStart | null;
   /** R10 (H169): the model the provider named in its answer, asked as the turn ends (absent: what the agent tells) */
   returned?: () => string | undefined;
+  /** R11 round 4 (H169): told the turn's id as soon as its hold is taken, before anything is sent (the companion's `turn` event) */
+  onHold?: (hold: { id: string; startedAt: string }) => void;
+  /**
+   * R11 round 4 (H169): the environment this turn runs under (a user's own Timmy home on the companion: its observations are
+   * kept there); absent: this process's
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export type ProjectTurnResult =
@@ -554,9 +561,8 @@ export type ProjectTurnResult =
  * found a note kept later, after a promise, that read the home from the environment as it was by then (a test file's restored
  * one: the account's own ~/timmy). A record that cannot be written changes nothing.
  */
-function noteObserved(o: NonNullable<ReturnType<typeof turnConnection>>, route: TurnRouteStart): void {
+function noteObserved(o: NonNullable<ReturnType<typeof turnConnection>>, route: TurnRouteStart, env: NodeJS.ProcessEnv = process.env): void {
   try {
-    const env = process.env;
     let asked: string | undefined;
     if (o.id === 'ollama') { const at = ollamaAt(route.endpoint); asked = 'error' in at ? undefined : at.origin; }
     else asked = modelKeyFingerprint(env) ?? undefined;
@@ -596,6 +602,8 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
   // (turn_id), so every surface tells this turn's end from another's by identity; and a stop any surface asks of it
   // (requestTurnStop) stops it here as this surface's own Esc or Ctrl+C would, its receipt naming who asked (stopped_by)
   const turnId = taken.hold.id;
+  // R11 round 4 (H169): the surface is told the turn's identity now, before anything is sent (the companion's `turn` event)
+  try { i.onHold?.({ id: turnId, startedAt: new Date().toISOString() }); } catch { /* a surface's own listener: never the turn's */ }
   // R10 (H169): the turn's route, snapshotted now (a model chosen while the turn runs changes only the next turn)
   const route = i.route === undefined ? routeOfAgent(i.agent) : i.route;
   if (route) {
@@ -649,7 +657,7 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
     endRoute();
     const seen = observed as ReturnType<typeof turnConnection>;
     // kept now, once the turn has ended (its answer is already given), never after a promise: the Timmy home is this turn's
-    if (seen && route) noteObserved(seen, route);
+    if (seen && route) noteObserved(seen, route, i.env ?? process.env);
     return { status, continued };
   } finally {
     // a turn that ended without its summary (abandoned, or thrown): its end kept, whether it sent not recorded

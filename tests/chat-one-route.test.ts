@@ -80,9 +80,9 @@ async function surfaces() {
 // model, the Workbench's choice, and with none it is off: "No model chosen: choose one in Models")
 const EXPECTED: Record<Setup, { kind: 'none' | 'local' | 'openrouter'; ready: boolean; repl: (m: string) => string; monitor: (m: string) => string; page: string }> = {
   'no key': { kind: 'none', ready: false, repl: () => 'chat: no model key · /setup', monitor: () => 'chat: no model key · /setup', page: 'no chat route here · Send is off' },
-  'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' },
+  'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · the project\'s conversation' },
   'OpenRouter key': { kind: 'openrouter', ready: false, repl: () => 'chat: OpenRouter · no model chosen', monitor: () => 'chat: OpenRouter · no model chosen', page: 'No model chosen: choose one in Models · Send is off' },
-  both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' },
+  both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · the project\'s conversation' },
 };
 
 describe('one route for every surface (R4 H113, part 4)', () => {

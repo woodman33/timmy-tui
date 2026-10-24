@@ -80,6 +80,13 @@ export interface ChatSessionDeps {
   seal?: TurnSealer | null;
   /** retry 429, 5xx and connection errors (src/agent/core.ts SendOptions.retry); default false (the REPL's turn passes true) */
   retry?: boolean;
+  /**
+   * R11 round 4 (H169; contract C1/C3): the settings this session reads at every message instead of this process's store
+   * (loadConfig): a user's own, under the user's env (the key where the setup keeps it for that user, the model chosen in
+   * that user's settings). The agent it makes takes the first reading; a model chosen since is the next turn's (as the
+   * settings store's is); a key kept since is taken too.
+   */
+  settings?: () => { apiKey?: string; model?: string };
 }
 
 /**
@@ -139,6 +146,8 @@ const agents = new Map<string, Agent>();
 interface AgentContext {
   /** the hooks of the turn running on this agent: its NEEDS YOU asks go to them; with no turn running, a call is denied */
   current: ChatTurnHooks | null;
+  /** R11 round 4 (H169): the surface whose turn runs now (the refusal of a second message names it) */
+  surface?: ChatSurface;
   /** the files the running turn wrote, for its receipt */
   touched: ProjectTurnFiles;
   /** R10 CHAT (H167; H168's pass 3c, R24): the settings' OpenRouter model this agent last took (unset: none read yet) */
@@ -179,7 +188,8 @@ function agentFor(root: string, config: { apiKey?: string; model?: string }, sur
  */
 export async function openChatSession(o: { project: { name: string; root: string }; surface: ChatSurface }, deps: ChatSessionDeps = {}): Promise<ChatSession> {
   const env = deps.env ?? process.env;
-  const config = deps.config ?? (() => { try { return loadConfig(); } catch { return {}; } })();
+  const readSettings = (): { apiKey?: string; model?: string } => { try { return deps.settings ? deps.settings() : loadConfig(); } catch { return {}; } };
+  const config = deps.config ?? readSettings();
   const agent: SessionAgent = deps.agent ?? agentFor(o.project.root, config, o.surface);
   // NEEDS YOU: each call that needs a person is asked through the running turn's own hooks; with no turn running, denied.
   // The gate is the agent's (shared by its sessions), set again before each turn at the project of the session that sends.
@@ -192,14 +202,14 @@ export async function openChatSession(o: { project: { name: string; root: string
   // are: one chosen since this agent last took it (the Workbench's Models writes the settings) is the next turn's, said by
   // route() at once and given to the agent as that turn starts; a turn under way keeps its own. A session given its own config
   // (the monitor's) follows that, not the settings; a model the agent was given otherwise stays until the settings name another.
-  const settingsModel = (): string | null => { try { return loadConfig().model || null; } catch { return null; } };
+  const settingsModel = (): string | null => readSettings().model || null;
   if (ctx.modelSeen === undefined) ctx.modelSeen = deps.config ? null : settingsModel();
   const modelChosen = (): string | null => { if (deps.config) return null; const m = settingsModel(); return m && m !== ctx.modelSeen ? m : null; };
   const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: modelChosen() ?? agent.openRouterModel(), surface: o.surface });
   /** a key the setup stored since the agent started (the route is read at every message, the key with it) */
   const refreshKey = (): void => {
     if (agent.hasModelKey()) return;
-    try { const key = loadConfig().apiKey; if (key) agent.updateApiKey(key); } catch { /* none readable: the route refuses */ }
+    const key = readSettings().apiKey; if (key) agent.updateApiKey(key);
   };
   // R4 (H113): the REPL's own seal (src/repl/seal.ts), the surface named in its subject
   const seal: TurnSealer | null = deps.seal === undefined ? (facts, dir) => sealTurn(facts, dir) : deps.seal;
@@ -218,7 +228,7 @@ export async function openChatSession(o: { project: { name: string; root: string
     refreshKey();
     const now = routeNow();
     if (!now.state.ready) return refused(now.state.refusal?.length ? [...now.state.refusal] : ['Not sent: the chat has no route to a model.', 'Nothing was sent to any model.']);
-    if (agent.isRunning() || ctx.current) return refused(['Not sent: another chat turn of this project is running here.', 'Try: send it again when that turn ends. Nothing was sent to any model.']);
+    if (agent.isRunning() || ctx.current) return refused([`Not sent: another chat turn of this project is running here${ctx.current && ctx.surface ? `, sent from ${surfaceWords(ctx.surface)}` : ''}.`, 'Try: send it again when that turn ends (Stop ends it). Nothing was sent to any model.']);
     // this session's gated tools, rules and route for this turn (another session, or the surface itself, may have set the
     // agent's since: its tools gated again here, never the ones it found)
     gateAgent(agent, ctx, o.project.root, deps.tools);
@@ -247,13 +257,17 @@ export async function openChatSession(o: { project: { name: string; root: string
     let summary: TurnSummary | null = null;
     agent.on('stream:delta', onDelta);
     ctx.current = hooks;
+    ctx.surface = o.surface;
     ctx.touched.close(); // nothing from before this turn
     // R4 (H113): the project's turn (src/agent/chat-turn.ts): one turn at a time across every surface, the project's kept
     // conversation continued from disk, a keyed message never sent twice
     let turn: Awaited<ReturnType<typeof projectTurn>>;
+    let turnId: string | undefined;
     try {
       turn = await projectTurn({
         agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key !== undefined ? { key } : {}), route: snapshot,
+        // R11 round 4 (H169): the turn's identity told to the surface as the hold is taken; the turn runs under this session's env
+        onHold: (h) => { turnId = h.id; hooks.onTurn?.(h); }, env: env as NodeJS.ProcessEnv,
         more: {
           summary: (s) => { summary = s; }, retry: deps.retry ?? false,
           // a failure that never left this computer (no connection, no address) sent nothing
@@ -262,20 +276,21 @@ export async function openChatSession(o: { project: { name: string; root: string
       });
     } finally {
       ctx.current = null;
+      ctx.surface = undefined;
       agent.off('stream:delta', onDelta);
     }
     const files = ctx.touched.close();
     if (turn.status === 'refused') return refused(turn.lines);
     const s = summary as TurnSummary | null;
     if (!s) return { status: 'failed', text: '', lines: ['The turn ended without saying what it did, so whether anything was sent is not known.'], sent: false, costWords: 'cost unknown' };
-    const r = finish(s, { requested, local: Boolean(now.local), files, continued: turn.continued });
+    const r = finish(s, { requested, local: Boolean(now.local), files, continued: turn.continued, ...(turnId ? { turnId } : {}) });
     // the keyed turn's end with its receipt (projectTurn kept its start, and its end before the receipt was sealed)
     if (key !== undefined) noteTurnKey(o.project.root, key, o.surface, { sent: r.sent, status: r.status, ...(r.receipt ? { receipt: r.receipt } : {}) });
     return r;
   };
 
   /** The turn's answer in the contract's words, and its receipt: the REPL's seal, with this surface, into the project's store. */
-  const finish = (s: TurnSummary, t: { requested: string; local: boolean; files: TurnFacts['files']; continued: Continued }): ChatTurnResult => {
+  const finish = (s: TurnSummary, t: { requested: string; local: boolean; files: TurnFacts['files']; continued: Continued; turnId?: string }): ChatTurnResult => {
     const status: ChatTurnResult['status'] = s.result === 'ok' ? 'answered' : s.result;
     const sent = s.sent;
     const fb = agent.lastFallback();
@@ -312,7 +327,9 @@ export async function openChatSession(o: { project: { name: string; root: string
         }, projectStore(o.project.root)).hash;
       } catch (err) { notices.push(`The turn's receipt could not be sealed: ${(err as Error)?.message ?? err}.`); }
     }
-    const base = { sent, ...(receipt ? { receipt } : {}), costWords, ...(sent || status === 'answered' ? { model } : {}) };
+    // R11 round 4 (H169; contract C3): the facts apart from the words, for a surface that draws them (the companion's `done`)
+    const facts = { steps: s.steps, costUsd: sent && s.costReports > 0 ? s.spend : null, costMeasured: measured, fellBack: Boolean(fb), ...(t.turnId ? { turnId: t.turnId } : {}) };
+    const base = { sent, ...(receipt ? { receipt } : {}), costWords, ...(sent || status === 'answered' ? { model } : {}), ...facts };
     if (status === 'answered') return { status, text: s.answer, ...(notices.length ? { lines: notices } : {}), ...base };
     if (status === 'cancelled') {
       // R7 lead (H148's N5: the Workbench's notice read "Stopped: Cancelled after the request went out"): the turn's words

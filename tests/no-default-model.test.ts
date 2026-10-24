@@ -199,13 +199,13 @@ describe('a key with no chosen model: refused on every surface, nothing sent', (
     saveConfig({ model: PAID });
     expect(pageModel(env, project)).toBe(PAID);
     const on = pageRoute(env, project);
-    expect(on).toMatchObject({ kind: 'openrouter', ready: true, model: PAID, keyFrom: 'environment', freeOnly: false, label: `${PAID} · OpenRouter · this page's own chat · each message spends credits` });
+    expect(on).toMatchObject({ kind: 'openrouter', ready: true, model: PAID, keyFrom: 'environment', freeOnly: false, label: `${PAID} · OpenRouter · the project's conversation · each message spends credits` });
     expect(on.kind === 'openrouter' && on.price).toMatch(/^\$0\.15 in \/ \$0\.6 out per 1M tokens \(OpenRouter catalog of 2026-10-22\)/);
     expect(on.kind === 'openrouter' && on.words).toContain(`Send asks ${PAID} (the model chosen in Models) through OpenRouter`);
     // under free-only the chosen paid model is refused in the policy's words (not "no model chosen"); a free one passes
     expect(pageRoute({ ...env, TIMMY_CHAT_FREE_ONLY: '1' }, project)).toMatchObject({ kind: 'none', chat: 'openrouter', label: 'free-only · Send is off' });
     saveConfig({ model: FREE });
-    expect(pageRoute({ ...env, TIMMY_CHAT_FREE_ONLY: '1' }, project)).toMatchObject({ kind: 'openrouter', ready: true, model: FREE, freeOnly: true, label: `${FREE} · OpenRouter · this page's own chat · free-only: free` });
+    expect(pageRoute({ ...env, TIMMY_CHAT_FREE_ONLY: '1' }, project)).toMatchObject({ kind: 'openrouter', ready: true, model: FREE, freeOnly: true, label: `${FREE} · OpenRouter · the project's conversation · free-only: free` });
     // OPENROUTER_MODEL in the environment wins for one process, on the page as everywhere
     expect(pageRoute({ ...env, OPENROUTER_MODEL: 'fake/for-this-process' }, project)).toMatchObject({ kind: 'openrouter', model: 'fake/for-this-process' });
   });
