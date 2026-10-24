@@ -725,7 +725,7 @@ describe('every major page on the shell, from the running companion and Studio: 
       await goTo(o, 'Models & accounts');
       await expectScaffold(o.page, 'Models & accounts (unreachable)');
       const local = o.page.locator('[data-provider="ollama-local"]').first();
-      await local.getByRole('button', { name: /^Check$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check$/ }).first().click(); });
+      await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
       const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer/i.test(s), 20_000);
       const state = await local.getAttribute('data-state');
       expect(state ?? '', 'the card\'s state after a refused connection').toMatch(/unreachable|refused|not set up|failed/i);
@@ -857,7 +857,7 @@ const PROBES: Record<string, Probe> = {
     await caps.cap(o.page, size, 'models-accounts-first-use', { line: line('Models & accounts', 'first use: the four cards unconfigured'), facts: [`The four provider cards on first use, in their state words: ${await states()}; nothing set up, nothing "free", nothing green.`], full: true });
     // Check on Ollama · local against the FAKE Ollama: its model listed (the state word "connected" only after an observed answer)
     const local = o.page.locator('[data-provider="ollama-local"]').first();
-    await local.getByRole('button', { name: /^Check$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check$/ }).first().click(); });
+    await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
     await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000);
     const state = await local.getAttribute('data-state');
     await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1: its model ${MODEL} listed; the card's state "${state ?? '(none)'}" (an observed answer; no model ran).`], full: true });

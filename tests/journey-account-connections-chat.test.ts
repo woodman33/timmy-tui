@@ -308,7 +308,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
         // Ollama · local against the FAKE Ollama: Check asks it (the card's first state is this computer's PATH: "not installed" with
         // no ollama program here); its model is then listed
-        await o.page.getByRole('button', { name: /^Check$/ }).first().click();
+        await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click();
         await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000, undefined, facts(o));
         await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check: the FAKE Ollama on 127.0.0.1 answered its model list (one FAKE model, no model ran).']);
         // Download a local model (H170's words, 19:47): the box, the model's name, "Show the size" → the confirmation sentence
@@ -317,7 +317,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // /api/pull sees the abort
         const pullsBefore = ollama.pulls().length; // (the FAKE keeps every pull across the sizes)
         await o.page.getByRole('button', { name: /Download a local model/ }).first().click();
-        const nameField = o.page.getByRole('textbox', { name: /model|name/i }).or(o.page.getByPlaceholder(/model|name/i));
+        // (the pull box's own name field — #cn-pull-other "Another model name" — not the first textbox named like a model on the page: on the
+        // round-7 shell the rail's New-project field and the Models context's search come first in the DOM, hidden)
+        const nameField = o.page.locator('#cn-pull-other').or(o.page.getByRole('textbox', { name: /Another model name/i }));
         if (await nameField.count()) await nameField.first().fill(PULL.name);
         await o.page.getByRole('button', { name: /Show the size/ }).first().click();
         // (H170's words: "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." for a starter;

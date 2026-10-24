@@ -628,7 +628,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await caps.cap(o.page, size, 'connections-cards', ['The connections screen: a ProviderCard drawn in each of the four cards; the cards\' buttons stay HTML buttons.', `Each card as it stands in this picture — ${cardWords.join(' · ')}.`, `The faces\' captions, read back from the runtime\'s text runs: ${cardCaptions.join(' · ')}.`]);
         const local = o.page.locator(SEL.cardComponent('ollama-local')).first();
         const key = (await local.getAttribute('data-rive-component'))!;
-        await o.page.getByRole('button', { name: /^Check$/ }).first().click();
+        await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click();
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' });
         await inputIs(o.page, key, 'State', 0, 15_000);
         expect(await label(o.page, key)).toBe('connected');
