@@ -151,18 +151,20 @@ async function open(server: CompanionServer, size: { width: number; height: numb
  * then land() runs the landing rule); the server still verifies every request's token. Nothing of the verifier is bypassed.
  */
 async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat', mark?: () => void): Promise<string> {
-  await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }).catch(() => undefined);
+  const guard = async (what: string, p: Promise<unknown>): Promise<void> => { try { await p; } catch (e) { throw new Error(`the seam's guard "${what}" did not hold within its time: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; the page read:\n${(await text(page).catch(() => '')).slice(0, 1200)}`); } };
+  await guard('window.TimmyShell is here', page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }));
   // as a person would: the page's own landing settles first (body[data-screen] chosen, its first requests answered) and the
   // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
   // token set while the page's session-less first requests are still in flight is wiped by their refusals (gate run, 22:10)
-  await page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen')), null, { timeout: 15_000 }).catch(() => undefined);
+  await guard('the landing chose a screen (body[data-screen])', page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen')), null, { timeout: 15_000 }));
   // (and the landing read GET /api/identity with the page's launch token: TimmyShell.identity() is its answer; a page that took
   // the no-token path has none, and a seam then would be refused for the launch token, not the session)
-  await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: { identity?: () => unknown } }).TimmyShell?.identity?.()), null, { timeout: 15_000 }).catch(() => undefined);
-  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+  await guard('the landing read GET /api/identity with the launch token (TimmyShell.identity())', page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: { identity?: () => unknown } }).TimmyShell?.identity?.()), null, { timeout: 15_000 }));
+  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined); // (a page that keeps polling is not a fault of the seam)
   // and the account script's Clerk load has ended (its first state, "no session", fires then — gate 4, 22:24: account.js
   // onClerkState clears the shell's session whenever Clerk reports none, so one adopted before that fire is wiped)
-  await page.waitForFunction(() => { const a = (window as unknown as { timmyAccount?: { state?: () => { loading?: boolean } } }).timmyAccount; return !a?.state || a.state().loading === false; }, null, { timeout: 15_000 }).catch(() => undefined);
+  // (Clerk's load against the FAKE, unreachable instance may never end: this wait is bounded and says so, not a fault of the seam)
+  const clerkLoaded = await page.waitForFunction(() => { const a = (window as unknown as { timmyAccount?: { state?: () => { loading?: boolean } } }).timmyAccount; return !a?.state || a.state().loading === false; }, null, { timeout: 15_000 }).then(() => true, () => false);
   mark?.();
   const ok = await page.evaluate(async ([t, id, target]) => {
     const w = window as unknown as { timmyAccount?: { useSession?: (token: string) => unknown }; TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
@@ -179,7 +181,7 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
     const st = w.timmyAccount?.state ? JSON.stringify(w.timmyAccount.state()) : 'no timmyAccount.state';
     const id = (w.TimmyShell as { identity?: () => unknown } | undefined)?.identity?.();
     return `session ${w.TimmyShell?.session?.get?.() ? 'held' : 'EMPTY'}; user ${JSON.stringify(w.TimmyShell?.session?.user?.() ?? null)}; screen ${w.TimmyShell?.current?.() ?? '?'}; identity ${id ? JSON.stringify(id).slice(0, 120) : 'not read'}; account ${st.slice(0, 300)}`;
-  }).catch(() => 'state unreadable');
+  }).catch(() => 'state unreadable').then((st) => `${st}; Clerk's load ${clerkLoaded ? 'ended' : 'still running when the session was adopted'}`);
 }
 /** Which screen the shell shows (body[data-screen], H171's contract). */
 const screenOf = (page: Page): Promise<string> => page.evaluate(() => document.body.getAttribute('data-screen') ?? '');
@@ -405,7 +407,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.waitForTimeout(600);
         const before = await html(o.page);
         expect(before).not.toContain(FAKE_CLOUD_KEY);
-        await o.page.reload();
+        // a reopen in this product is Timmy opening the address WITH its token again (companion.js takes the launch token from the
+        // fragment and replaceStates it out, so a bare reload has none — H173, 23:20); the page's pin stays in sessionStorage
+        await o.page.goto(configured!.url);
         await useSession(o.page, session, 'chat');
         const again = await until(o.page, 'the chat again', (s) => /Message Timmy/i.test(s) && s.includes(FAKE_ANSWER), 30_000);
         expect(again).toContain(MODEL);
