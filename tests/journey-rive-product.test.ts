@@ -409,8 +409,10 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect((await root.getAttribute('data-artboard')) || h.artboard, 'the console takes the AgentConsole artboard').toBe('AgentConsole');
         const boxOf = await o.page.locator(`canvas[data-timmy-rive="${key}"]`).first().boundingBox();
         expect(boxOf, 'the console\'s canvas has a box').toBeTruthy();
-        if (!phone) expect(boxOf!.width, 'readable: the asset\'s card size (H174: 320 px; the borders inside)').toBeGreaterThanOrEqual(300);
-        else expect(boxOf!.width, 'within the phone\'s width').toBeLessThanOrEqual(size.width);
+        // (the readable-width rule — the lead's ruling: the face ≥ 300 px wide at 1440×900 — is asserted at the END of the case, so a
+        // short face fails the case without cutting the recording and the captures that follow)
+        const consoleWidth = boxOf!.width;
+        if (phone) expect(consoleWidth, 'within the phone\'s width').toBeLessThanOrEqual(size.width);
         expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
         expect(await label(o.page, key)).toBe('idle');
         expect(await inputValue(o.page, key, 'State'), 'State 0 Idle before any turn').toBe(0);
@@ -576,6 +578,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not').toEqual([]);
+        if (!phone) expect(consoleWidth, 'readable: the console face ≥ 300 px wide at 1440×900 (the lead\'s ruling on H174\'s card size, the borders inside)').toBeGreaterThanOrEqual(300);
         chatPassed = true;
       } finally {
         const video = o.page.video();
