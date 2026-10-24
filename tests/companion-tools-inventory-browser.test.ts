@@ -126,6 +126,48 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
     } finally { await page.close(); }
   }, LONG);
 
+  it('R11 round 7: the page\'s words and primary; WHERE TOOLS WORK first — each group with the pages that use it (a button opens the page) and its rows in the three words, the MCP ↔ CLI routes named with their rungs; the directory second, open and collapsible', async () => {
+    const { page, errors } = await open({ width: 1440, height: 900 });
+    try {
+      await page.waitForSelector('[data-tools-where] .tools-where-group', { timeout: 30_000 });
+      // the head on a shell without the scaffold (until H175's commit 2): the panel's own; the shell's registration otherwise
+      const scaffold = await page.$eval('#ws-tools', (e) => Boolean(e.querySelector('.page-head')));
+      if (!scaffold) {
+        expect(await text(page, '[data-tools-own-head] .tools-kicker')).toBe('09 / FIND THE RIGHT TOOL');
+        expect(await text(page, '[data-tools-own-head] .tools-title')).toBe('Find the right tool for the task.');
+        expect(await text(page, '[data-tools-own-head] .tools-primary')).toBe('List the tools');
+      }
+      // the order of the page: where tools work, the inspector's steps, the grid, then the directory, then the calls
+      expect(await page.$$eval('[data-tools-panel] > *', (els) => els.map((e) => e.className.split(' ')[0]))).toEqual(['tools-own-head', 'box', 'tools-steps', 'tools-grid', 'tools-directory', 'box']);
+      expect(await page.$eval('[data-tools-directory]', (d) => (d as HTMLDetailsElement).open)).toBe(true);
+      // the groups the FAKE rows fall in, each with its pages and its rows' standing words (the same words as the cards)
+      const groups = await page.$$eval('[data-tools-where] .tools-where-group', (els) => els.map((g) => ({
+        group: g.getAttribute('data-tools-where-group'),
+        pages: [...g.querySelectorAll('.tools-where-page')].map((b) => [b.textContent, b.getAttribute('data-tools-go'), b.getAttribute('data-dest')]),
+        rows: [...g.querySelectorAll('.tools-where-row')].map((r) => [r.getAttribute('data-tools-where-row'), r.getAttribute('data-state')]),
+      })));
+      expect(groups.map((g) => g.group)).toEqual(['Models', 'Tools', 'Vision', 'Receipts']);
+      expect(groups[0].pages).toEqual([['Chat →', 'chat', 'chat'], ['Models & accounts →', 'connections', 'connections']]);
+      expect(groups[1].pages).toEqual([['VoxVision →', 'voxvision', 'voxvision']]);
+      expect(groups[3].pages).toEqual([['Runs & receipts →', 'runs', 'logs']]);
+      const cards = await page.$$eval('[data-tools-caps] .tl-card', (els) => els.map((e) => [e.getAttribute('data-inventory-row'), e.getAttribute('data-state')]));
+      expect(groups.flatMap((g) => g.rows)).toEqual(cards);
+      // the three words only, green only on exercised
+      const words = await page.$$eval('[data-tools-where] .tl-chip', (els) => els.map((e) => e.getAttribute('data-tl-word')));
+      expect(words.every((w) => ['available', 'configured', 'exercised'].includes(w ?? ''))).toBe(true);
+      const g = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--timmy-live').trim());
+      const green = await page.$$eval('[data-tools-where] .tl-chip', (els) => els.filter((e) => getComputedStyle(e).color !== '').map((e) => [e.getAttribute('data-tl-word'), getComputedStyle(e).color]));
+      const rgb = (hex: string) => { const n = parseInt(hex.replace('#', ''), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+      for (const [w, c] of green) if (c === rgb(g)) expect(w).toBe('exercised');
+      // the MCP ↔ CLI routes named with their rungs under Integrations only when that group has rows (the FAKE rows have none)
+      expect(await page.$$('[data-tools-routes]')).toHaveLength(groups.some((x) => x.group === 'Integrations') ? 1 : 0);
+      // a page button opens the page: the old shell's tab (the shell's go() where it exists)
+      await page.click('[data-tools-where-group="Tools"] .tools-where-page');
+      await page.waitForFunction(() => document.body.dataset.page === 'voxvision' || document.body.dataset.dest === 'voxvision' || !document.getElementById('ws-voxvision')?.hidden, null, { timeout: 10_000 });
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  }, LONG);
+
   it('the routes: GET …/state carries the inventory under its schema with the rows verbatim (what the terminal reads); GET …/inventory the same rows with the page\'s cards; no key\'s value in either', async () => {
     const token = /#t=([0-9a-f]{64})$/.exec(companion.url)![1];
     const get = async (path: string): Promise<Record<string, unknown>> => {

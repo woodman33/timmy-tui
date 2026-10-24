@@ -13,9 +13,35 @@
 //
 // Images come through the panel's own file route with the page's token in a header, and are shown as data: images (the
 // page's policy allows those). Every word drawn is the record's or the preview's; nothing here invents a value.
+//
+// R11 round 7 (H170; the operator's order of 2026-10-24, "VoxVision/Card Lab inspiration must retain honest evidence";
+// H175's SHELL CONTRACT v1): the page's purpose and words (the study's: "04 / OBSERVE & COMPARE · See the detail. Keep the
+// evidence."), the ONE primary next action (the record's own next command for Timmy's terminal, copied; with no record, the
+// command that makes one — nothing runs from this page, and the words say so), the honest EVIDENCE block at the top of the
+// right column: observed facts · candidate matches · model scores · calibrated probabilities · measurement tolerances · price
+// uncertainty as DIFFERENT rows, each read from the record and "Unknown" with why when the record holds none; the raw
+// output and refusals preserved; the receipt row says what a seal proves (integrity and authorship) and what it does not (a
+// conclusion); the model-authored-fields row says what the admission rule (AGENTS.md §4: a handle enum observed in this run
+// and a cite(handle_id) call) finds on the record — today, nothing admitted: every model value is a claim, shown as one.
+// When the page's section holds the shell's scaffold the panel registers the page (TimmyShell.page / state) and puts its
+// tools in the dock; without it (an older shell) it draws its own head above the columns. The sheet /panel-vox.css is
+// linked once by this script when the page has not linked it.
 (() => {
   'use strict';
   if (typeof TimmyPanels === 'undefined') return;
+  if (!document.querySelector('link[href="/panel-vox.css"]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/panel-vox.css'; document.head.append(l); }
+  const PAGE_WORDS = Object.freeze({
+    kicker: '04 / OBSERVE & COMPARE',
+    title: 'See the detail. Keep the evidence.',
+    intro: 'Choose a source, ask a precise question, and inspect what the tools observed.',
+    emptyNext: 'Copy /detect <image> for Timmy’s terminal',
+    nothingRuns: 'A press copies the command for Timmy’s terminal; nothing runs from this page.',
+  });
+  /** The evidence rows' names (the order's six quantities, kept apart), then the receipt and the admission rule. */
+  const EVIDENCE_ROWS = Object.freeze([
+    ['observed', 'Observed facts'], ['candidates', 'Candidate matches'], ['scores', 'Model scores'], ['calibrated', 'Calibrated probabilities'],
+    ['tolerances', 'Measurement tolerances'], ['price', 'Price uncertainty'], ['receipt', 'Receipt'], ['admitted', 'Model-authored fields'],
+  ]);
 
   const SVG = 'http://www.w3.org/2000/svg';
   const PATH_DATA = /^(?:M-?\d+ -?\d+L-?\d+ -?\d+)*$/;
@@ -30,7 +56,7 @@
   const HINT = (() => { try { const m = /[?#&]vox=(v[0-9a-f]{8})(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? m[1] : ''; } catch (e) { return ''; } })();
 
   const S = {
-    project: null, root: null, ctx: null, revision: null, listAt: 0, listSig: '', list: null, asking: null,
+    project: null, root: null, host: null, ctx: null, revision: null, listAt: 0, listSig: '', list: null, asking: null,
     sel: '', preview: null, previewSig: '', image: '', entity: '', frame: -1, imageAsk: 0, urls: new Map(), wanted: null, stageWatch: null,
   };
 
@@ -62,13 +88,80 @@
     if (S.wanted === null) S.wanted = HINT;
   }
 
-  // ── the skeleton: three columns of boxes ──
+  // ── the page (R11 round 7): the shell's scaffold, or the panel's own head ──
+  const shellOf = () => (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.page === 'function' ? TimmyShell : null);
+  /** The page's section and the scaffold's regions in it (SHELL CONTRACT v1 §2.2), when the shell drew them. */
+  function scaffoldOf(host) {
+    const section = host.closest('section.page') || host.closest('.ws-page') || null;
+    const head = section ? section.querySelector('.page-head') : null;
+    if (!head) return null;
+    return { section, head, dock: section.querySelector('.page-dock'), records: section.querySelector('.page-records'), context: section.querySelector('.page-context') };
+  }
+  /** The ONE primary next action: the record's own next command, copied for the terminal; with no record, the command that makes one. */
+  function primaryOf() {
+    const p = S.preview;
+    const a = p ? p.actions.find((x) => x.primary) : null;
+    if (a) return { label: `${a.label}: copy ${a.command}`, run: () => copyText(a.enabled ? a.command : ''), disabled: !a.enabled, why: a.enabled ? '' : (a.why || 'not available now') };
+    return { label: PAGE_WORDS.emptyNext, run: () => copyText('/detect <image>'), disabled: false, why: '' };
+  }
+  function copyText(text) {
+    if (!text) return;
+    try { const b = S.root && S.root.querySelector(`[data-copy="${CSS.escape(text)}"]`); if (b) { b.click(); return; } } catch (e) { /* the clipboard below */ }
+    try { if (navigator.clipboard && navigator.clipboard.writeText) void navigator.clipboard.writeText(text); } catch (e) { /* the words stay on the page */ }
+  }
+  /** The page registered with the shell (its head, primary, state), when the shell has the scaffold; else the panel's own head follows. */
+  function registerPage() {
+    const sh = shellOf();
+    const stateWord = S.list === null ? 'content' : (S.list.records && S.list.records.length ? 'content' : 'empty');
+    if (sh) {
+      const pr = primaryOf();
+      try { sh.page('voxvision', { kicker: PAGE_WORDS.kicker, title: PAGE_WORDS.title, intro: PAGE_WORDS.intro, primary: { label: pr.label, run: pr.run, disabled: pr.disabled, why: pr.why }, context: 'selection', dock: 'VOXVISION TOOLS' }); } catch (e) { /* the shell says */ }
+      if (typeof sh.state === 'function') { try { sh.state('voxvision', stateWord, stateWord === 'empty' ? { words: 'No VoxVision record in this project yet.', next: { label: PAGE_WORDS.emptyNext, run: () => copyText('/detect <image>') } } : undefined); } catch (e) { /* as above */ } }
+    }
+    drawOwnHead();
+    drawDock();
+  }
+  /** The panel's own head (kicker · title · intro · the primary), drawn only when the section has no scaffold head of the shell's. */
+  function drawOwnHead() {
+    const el = q('own-head');
+    if (!el) return;
+    const sc = S.ctx && S.host ? scaffoldOf(S.host) : null;
+    el.hidden = Boolean(sc);
+    if (sc) { put(el); return; }
+    const h = S.ctx.h;
+    const pr = primaryOf();
+    const btn = h('button', { type: 'button', class: 'btn-action vox-primary', 'data-vox-primary': '', 'aria-disabled': pr.disabled ? 'true' : 'false', title: pr.disabled ? pr.why : PAGE_WORDS.nothingRuns }, pr.label);
+    btn.addEventListener('click', () => { if (!pr.disabled) pr.run(); });
+    put(el,
+      h('div', { class: 'vox-head-words' },
+        h('p', { class: 'vox-kicker page-kicker' }, PAGE_WORDS.kicker),
+        h('h2', { class: 'vox-title page-title' }, PAGE_WORDS.title),
+        h('p', { class: 'vox-intro page-intro' }, PAGE_WORDS.intro)),
+      h('div', { class: 'vox-head-actions page-primary' }, btn));
+  }
+  /** The page's tools in the shell's dock (the record's commands, each copied for the terminal; the viewer's command), when the dock is there. */
+  function drawDock() {
+    const sc = S.host ? scaffoldOf(S.host) : null;
+    if (!sc || !sc.dock) return;
+    const h = S.ctx.h;
+    for (const old of sc.dock.querySelectorAll('[data-vox-dock]')) old.remove();
+    const p = S.preview;
+    const acts = p ? p.actions.slice(0, 4) : [];
+    for (const a of acts) {
+      const b = h('button', { type: 'button', class: 'dock-btn vox-dock-btn', 'data-vox-dock': a.label, 'aria-disabled': a.enabled ? 'false' : 'true', title: a.enabled ? `${PAGE_WORDS.nothingRuns} ${a.effect}` : `Not now: ${a.why || 'not available'}` }, a.label);
+      b.addEventListener('click', () => { if (a.enabled) copyText(a.command); });
+      sc.dock.append(b);
+    }
+    if (!acts.length) sc.dock.append(h('span', { class: 'dock-note vox-dock-note', 'data-vox-dock': 'none' }, 'The record’s commands appear here.'));
+  }
+
+  // ── the skeleton: the page's head (when the shell has none), then three columns of boxes ──
   function skeleton(h) {
     const box = (title, name, o = {}) => h('section', { class: `box${o.fit ? ' box-fit' : ''}${o.cls ? ` ${o.cls}` : ''}`, 'data-vox-box': name },
       h('h2', { class: 'box-title', 'data-vox': `${name}-title` }, title), h('div', { class: `box-body${o.body ? ` ${o.body}` : ''}`, 'data-vox': name }, h('p', { class: 'empty' }, 'Reading…')));
     // R7 (H152; the R6 review's defect 16: the viewport squeezed to 48% at 1376x768): the centre column is the viewport's (and
     // a video's timeline); the record's commands sit under its entity tree, so the image has the larger share of the panel
-    const root = h('div', { class: 'vox-cols', 'data-vox': 'root' },
+    const cols = h('div', { class: 'vox-cols', 'data-vox': 'cols' },
       h('div', { class: 'col-stack vox-left' },
         box('Records · results/vox', 'records', { fit: true, cls: 'vox-records-box' }),
         box('Entity tree', 'tree', { cls: 'vox-tree-box' }),
@@ -83,9 +176,14 @@
             h('p', { class: 'vox-caption', 'data-vox': 'caption' }))),
         box('Timeline', 'timeline', { fit: true, cls: 'vox-timeline-box' })),
       h('div', { class: 'col-stack vox-right' },
+        // R11 round 7: the honest evidence block first — the context of the selected record, each quantity its own row
+        box('Evidence · read from the record', 'evidence', { fit: true, cls: 'vox-evidence-box' }),
         box('Pipeline · receipt', 'pipeline', { fit: true, cls: 'vox-pipeline-box' }),
         box('Values', 'values', { cls: 'vox-values-box' }),
         box('Engines on this computer', 'engines', { fit: true, cls: 'vox-engines-box' })));
+    const root = h('div', { class: 'vox-page', 'data-vox': 'root' },
+      h('header', { class: 'vox-own-head page-head', 'data-vox': 'own-head', hidden: true }),
+      cols);
     root.addEventListener('click', onClick);
     root.addEventListener('keydown', onKey);
     return root;
@@ -112,7 +210,7 @@
       const sig = JSON.stringify(body.records.map((r) => [r.id, r.status, r.check.status, r.receipt.short || '', r.receipt.verified, r.counts]));
       const first = S.list === null;
       S.list = body;
-      if (sig !== S.listSig || first) { S.listSig = sig; drawList(); markMore(); }
+      if (sig !== S.listSig || first) { S.listSig = sig; drawList(); markMore(); registerPage(); }
       const ids = body.records.map((r) => r.id);
       let want = S.sel && ids.includes(S.sel) ? S.sel : '';
       if (!want && S.wanted && ids.includes(S.wanted)) want = S.wanted;
@@ -162,12 +260,14 @@
   function drawNone() {
     const h = S.ctx.h;
     S.preview = null;
+    registerPage();
     const say = (name, words) => put(q(name), h('p', { class: 'empty' }, words));
     say('tree', 'No record to show yet: its inputs, what was observed and its values appear here.');
     say('stage', 'No record to show yet. A VoxVision record\'s image and what was measured over it are drawn here.');
     say('pipeline', 'No record yet: .intent → its tools → .receipt, as it ran, appear here.');
     say('values', 'No record yet.');
     say('engines', 'Read with a record.');
+    say('evidence', 'No record yet: with one, each quantity has its own row here — observed facts, candidate matches, model scores, calibrated probabilities, measurement tolerances, price uncertainty — and says Unknown when the record holds none.');
     say('timeline', 'No frames: a video record\'s sampled frames are a timeline here.');
     put(q('actions'));
     const cap = q('caption'); if (cap) cap.textContent = '';
@@ -222,9 +322,11 @@
     drawStage();
     drawTimeline();
     drawActions();
+    drawEvidence();
     drawPipeline();
     drawValues();
     drawEngines();
+    registerPage();
     const p = S.preview;
     const fake = q('fake');
     if (fake) { fake.hidden = !p.fake.is; fake.textContent = p.fake.is ? p.fake.words : ''; }
@@ -617,6 +719,49 @@
   }
 
   // ── the right column ──
+  /**
+   * R11 round 7: the honest evidence rows, each read from the record (the preview's data: inputs, values with their words,
+   * the model's claims, the checks, the receipt, the failures), each "Unknown" with why when the record holds none. The six
+   * quantities are kept apart: an observed fact is not a candidate, a model's score is not a probability, a tolerance is
+   * not a price. Nothing here is computed from a model; nothing is a percentage the page made up.
+   */
+  function evidenceRows(p) {
+    const measured = p.values.filter((v) => !v.claim && v.provenance === 'measured');
+    const claims = p.values.filter((v) => v.claim);
+    const predictions = [];
+    const walk = (list) => { for (const e of list || []) { if (/^\/observations\/roboflow\//.test(e.path)) predictions.push(e); walk(e.children); } };
+    walk(p.entities);
+    const scored = predictions.map((e) => { const m = /^(.*?)\s+(\d+(?:\.\d+)?)$/.exec(e.label); return m ? { what: m[1], score: m[2] } : null; }).filter(Boolean);
+    const inputs = p.inputs.map((i) => `${i.role ? `${i.role}: ` : ''}${i.path} (${i.kindWords}${typeof i.bytes === 'number' ? `, ${i.bytes} B` : ''}${i.sha256 ? `, sha256 ${i.sha256.slice(0, 12)}` : ''}${i.matches === false ? ', changed since' : i.matches === true ? ', bytes as recorded' : ''})`);
+    const tolerance = p.checks.length ? p.checks.map((c) => `${c.agrees ? '✓' : '✕'} ${c.words}`).join(' · ') : (measured.find((v) => v.method) ? `method only: ${measured.filter((v) => v.method).map((v) => `${v.title} by ${v.method}`).join('; ')} — no tolerance recorded` : '');
+    const r = p.receipt;
+    const rows = {
+      observed: inputs.length || measured.length ? { known: true, words: `${inputs.join('; ') || 'no input named'}${measured.length ? ` · ${measured.length} measured value${measured.length === 1 ? '' : 's'} (${measured.map((v) => v.title).join(', ')})` : ' · no measured value'}` } : { known: false, words: 'Unknown — the record names no input and holds no measured value.' },
+      candidates: predictions.length ? { known: true, words: `${predictions.length} candidate${predictions.length === 1 ? '' : 's'} from a model (Roboflow): ${[...new Set(scored.map((x) => x.what))].join(', ') || predictions.map((e) => e.label).join(', ')} — a candidate is a model’s suggestion, not an identification.` } : (claims.length ? { known: true, words: `${claims.length} model claim${claims.length === 1 ? '' : 's'}: ${claims.map((v) => v.title).join(', ')} — claims, not identifications.` } : { known: false, words: 'Unknown — no model returned a candidate for this record.' }),
+      scores: scored.length ? { known: true, words: `${scored.map((x) => `${x.what} ${x.score}`).join(', ')} — a model’s score, not a probability and not a measurement.` } : { known: false, words: 'Unknown — no model score is recorded.' },
+      calibrated: { known: false, words: 'Unknown — no calibration is recorded for a model on this record; a score is never shown as a probability.' },
+      tolerances: tolerance ? { known: p.checks.length > 0, words: tolerance } : { known: false, words: 'Unknown — no tolerance is recorded with these values.' },
+      price: { known: false, words: 'Unknown — VoxVision records no price; a price needs a market source and carries its own uncertainty.' },
+      receipt: r.verified ? { known: true, words: `✓ sealed and verified · receipt ${r.short}. A seal proves the record’s integrity and authorship; it does not prove a model’s conclusion is correct.` } : { known: false, words: `${r.short ? `receipt ${r.short} · not verified` : 'not sealed'}${p.check.reasons.length ? `: ${p.check.reasons.join('; ')}` : ''}. A valid receipt would prove integrity and authorship, not a conclusion.` },
+      admitted: { known: false, words: `${claims.length ? `${claims.length} model-authored value${claims.length === 1 ? '' : 's'} on this record, none admitted` : 'No model-authored value admitted'}: the record carries no observed-handle set of this run and no cite(handle_id) call, so a model value here is a claim (model prediction), shown as one — never evidence.${p.failures.length ? ` Raw output and refusals kept: ${p.failures.map((f) => `${f.tool} ${f.code}: ${f.message}`).join('; ')}.` : ''}` },
+    };
+    return EVIDENCE_ROWS.map(([key, name]) => ({ key, name, ...rows[key] }));
+  }
+  function drawEvidence() {
+    const h = S.ctx.h;
+    const el = q('evidence');
+    if (!el) return;
+    const p = S.preview;
+    const rows = evidenceRows(p);
+    put(el,
+      h('p', { class: 'vox-ev-lead' }, 'Each quantity on its own row, read from the record; Unknown where the record holds none.'),
+      h('dl', { class: 'vox-ev', 'aria-label': `Evidence of record ${p.id}` }, rows.map((r) => h('div', { class: `vox-ev-row${r.known ? '' : ' is-unknown'}${r.key === 'receipt' && r.known ? ' is-verified' : ''}`, 'data-vox-ev': r.key, 'data-known': r.known ? 'true' : 'false' },
+        h('dt', null, r.name), h('dd', null, r.known ? r.words : h('span', null, h('span', { class: 'vox-ev-unknown' }, 'Unknown'), r.words.replace(/^Unknown/, '')))))),
+      p.doctrine ? h('p', { class: 'vox-doctrine' }, p.doctrine) : null);
+    const t = q('evidence-title');
+    if (t) t.textContent = `Evidence · read from record ${p.id}`;
+  }
+
   function drawPipeline() {
     const h = S.ctx.h;
     const el = q('pipeline');
@@ -737,6 +882,7 @@
   TimmyPanels.register('voxvision', {
     draw(host, frame, ctx) {
       S.ctx = ctx;
+      S.host = host;
       if (!ctx.own) {
         S.root = null;
         put(host, ctx.h('p', { class: 'empty' }, 'Not shown: the frame is another project\'s, so its VoxVision records are not read here.'));
@@ -746,6 +892,7 @@
         reset(ctx.project);
         S.root = skeleton(ctx.h);
         put(host, S.root);
+        registerPage();
       }
       const now = Date.now();
       const rev = frame && frame.revision;

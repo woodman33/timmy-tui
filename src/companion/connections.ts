@@ -39,6 +39,7 @@ import { confirmPull, installSteps, ollamaInstalled, ollamaPull, SIZE_NOTE, STAR
 import { checkProvider, CLOUDFLARE_SETTINGS_SCHEMA, cloudflareSettingsFile, cloudflareSettingsLines, describeCheck, ollamaOrigin, providerStates, PROVIDER_LABEL, readCloudflareSettings, writeObservation, type CloudflareSettings, type ProviderId, type ProviderState } from '../setup/providers-state.js';
 import { failRequest } from '../utils/server-failure.js';
 import { HOMEBREW } from '../theme/tokens.js';
+import { pageRoute } from './chat-route.js';
 
 // ── the contract with the identity owner (C1) ──────────────────────────────────
 
@@ -65,18 +66,52 @@ export interface ConnectionsDeps {
 
 export interface ConnectionsEvent { type: 'connections'; provider: ProviderId; state: ProviderState['state']; words: string }
 
-// ── the screen's words (the operator's preview, exactly) ───────────────────────
+// ── the screen's words (R11 round 7: the operator's order of 2026-10-24 and its rendered study, Models & accounts) ──────
 
 export const SCREEN_WORDS = Object.freeze({
-  kicker: 'CONNECT YOUR MODELS & TOOLS',
-  title: 'Choose how you want to run.',
-  lead: 'Pick one, connect all three, or explore first. You can change this later.',
-  footerStrong: 'Local logs are already part of the design.',
+  /** the page's kicker; the shell prefixes the destination's number (SHELL CONTRACT v1) */
+  kicker: 'CONNECT A PROVIDER',
+  title: 'One model is enough to begin.',
+  lead: 'Use a local model or connect a cloud account. Add the others when you need them.',
+  footerStrong: 'Local records are already part of the design.',
   footer: 'A Cloudflare account is optional. Provider selections are not connections.',
   back: 'Back',
   explore: 'Explore without a model',
   continue: 'Continue to the workspace',
-  note: 'No model installed? The local setup will guide you through installing Ollama and downloading a suitable model. Downloads require your explicit confirmation.',
+  /** the primary next action while no route is ready */
+  setUp: 'Set up a model',
+  note: 'No model installed? The local setup guides you through installing Ollama and downloading a suitable model, with its size, what it needs and what it costs, first. Nothing is downloaded until you confirm.',
+  /** the context column's heading and line (the study's) */
+  contextTitle: 'Choose your model',
+  contextLead: 'Start local, or connect your preferred provider. Your Timmy account and your model accounts are separate.',
+  together: 'Your work stays together: project files, conversations and receipts have one home. Cloud sync is optional.',
+  /** the records line the order asks for: local records go on when cloud sync is unavailable */
+  records: 'Local records continue when cloud sync is unavailable.',
+});
+
+/**
+ * R11 round 7: which of the situations the order names a card is in — an existing setup, no account, an unreachable service,
+ * no downloaded model — plus the two a card passes through (a sign-in or a download under way; a key the provider refused),
+ * each with its verb-led action. The provider-state word stays the card's state; this is the card's reading of it.
+ */
+export type Situation = 'existing' | 'no-account' | 'unreachable' | 'no-model' | 'pending' | 'refused';
+export const SITUATION_WORDS: Readonly<Record<Situation, string>> = Object.freeze({
+  existing: 'Existing setup', 'no-account': 'No account', unreachable: 'Unreachable', 'no-model': 'No downloaded model', pending: 'Under way', refused: 'Refused',
+});
+
+/** What a provider costs to use, in words this computer can stand behind (never a price it does not know). */
+export const COST_WORDS: Readonly<Record<ProviderId, string>> = Object.freeze({
+  openrouter: 'Billed by OpenRouter per token at each model’s listed price (shown beside the model in Chat); a check asks the key endpoint and runs no model, so it charges nothing.',
+  'ollama-local': 'No charge: models run on this computer. A download comes from ollama.com and takes disk space.',
+  'ollama-cloud': 'Under your Ollama account’s terms; a check lists its models and runs none.',
+  cloudflare: 'Optional, under your Cloudflare account’s terms; nothing here sends anything to Cloudflare.',
+});
+
+/** The local download offer's words (the order: size, hardware and cost, said before anything is downloaded). */
+export const OFFER_WORDS = Object.freeze({
+  lead: 'A suitable model, downloaded only when you confirm: its size first, then your confirmation, then its progress with Cancel.',
+  hardware: 'Disk: the download’s size. Memory: roughly the model’s size while it runs — a rule of thumb from Ollama’s library, not a measurement of this computer.',
+  cost: COST_WORDS['ollama-local'],
 });
 
 export interface CardWords {
@@ -110,9 +145,49 @@ export interface ConnectionCard extends CardWords {
   /** a key is kept for this provider (its fingerprint, never the key) */
   key?: { fingerprint: string; from: string };
   /** Ollama · local: the program here or not, the install steps for this computer, the starter models with their sizes */
-  local?: { installed: boolean; how?: 'program' | 'app'; install: string; start: string; link: string; address: string; starters: Array<{ model: string; size: string; bytes: number; use: string; default: boolean }>; sizeNote: string };
+  local?: { installed: boolean; how?: 'program' | 'app'; install: string; start: string; link: string; address: string; starters: Array<{ model: string; size: string; bytes: number; use: string; default: boolean }>; sizeNote: string; offer: typeof OFFER_WORDS };
   /** Cloudflare: the optional settings kept in the user's home */
   cloudflare?: CloudflareSettings & { file: string };
+  /** R11 round 7: the card's situation (the order's four and the two in between), its words, and its verb-led action */
+  situation: Situation;
+  situationWords: string;
+  verb: string;
+  /** what using this provider costs, in words this computer can stand behind */
+  cost: string;
+  /** whether this provider can carry the chat's route (Cloudflare cannot: it is a gateway and sync, not a model) */
+  model: boolean;
+}
+
+/** R11 round 7: the summary band's cells, from what this computer holds of the user (never a guess). */
+export interface ConnectionsSummary {
+  /** the chat's route under the user's own home (src/companion/chat-route.ts pageRoute): ready or not, its label, and the first sentence of why */
+  route: { ready: boolean; kind: string; label: string; note: string; model?: string };
+  /** the records: local always; cloud logs only when Cloudflare's optional setting is on */
+  records: { local: true; cloudLogs: boolean; words: string; line: string };
+  /** how many of the three model providers hold a usable setup (checked, or saved and not yet checked), and which */
+  usable: ProviderId[];
+}
+
+/** The card's situation and its verb-led action from the provider state (one reading, used by every card). */
+export function situationOf(s: ProviderState, local?: { installed: boolean }): { situation: Situation; verb: string } {
+  const st = s.state;
+  if (st === 'pending') return { situation: 'pending', verb: s.id === 'ollama-local' ? 'Cancel the download' : 'Waiting for the sign-in' };
+  if (s.id === 'ollama-local') {
+    if (st === 'not installed') return { situation: 'no-model', verb: 'Install Ollama' };
+    if (st === 'installed, stopped') return { situation: 'unreachable', verb: 'Start Ollama, then Check' };
+    if (st === 'installed, not checked') return { situation: 'existing', verb: 'Check' };
+    if (st === 'checked' && /holds no local model/.test(s.words)) return { situation: 'no-model', verb: 'Download a model' };
+    if (st === 'checked') return { situation: 'existing', verb: 'Check again' };
+    return { situation: local?.installed ? 'unreachable' : 'no-model', verb: local?.installed ? 'Check' : 'Install Ollama' };
+  }
+  if (s.id === 'cloudflare') {
+    if (st === 'not set up') return { situation: 'no-account', verb: 'Set up Cloudflare' };
+    return { situation: 'existing', verb: 'Change the settings' };
+  }
+  if (st === 'not set up') return { situation: 'no-account', verb: s.id === 'openrouter' ? 'Connect with OpenRouter' : 'Save an Ollama key' };
+  if (st === 'refused') return { situation: 'refused', verb: s.id === 'openrouter' ? 'Sign in again' : 'Save a new key' };
+  if (st === 'unreachable') return { situation: 'unreachable', verb: 'Check again' };
+  return { situation: 'existing', verb: st === 'checked' ? 'Check again' : 'Check the key' };
 }
 
 // ── the user's environment, isolated ──────────────────────────────────────────
@@ -149,19 +224,44 @@ function cards(deps: ConnectionsDeps, env: Env, pending: ProviderId[]): Connecti
   const platform = deps.platform ?? process.platform;
   const states = providerStates({ env, cwd: cwdOf(env), platform, pending });
   return states.map((s): ConnectionCard => {
-    const base: ConnectionCard = { ...CARD_WORDS[s.id], state: s.state, words: s.words, ...(s.next ? { next: s.next } : {}), ...(s.at ? { at: s.at } : {}), ...(s.lines ? { lines: s.lines } : {}), ...(s.links ? { links: s.links } : {}) };
+    const inst = s.id === 'ollama-local' ? ollamaInstalled({ env, platform }) : null;
+    const sit = situationOf(s, inst ?? undefined);
+    const base: ConnectionCard = {
+      ...CARD_WORDS[s.id], state: s.state, words: s.words, ...(s.next ? { next: s.next } : {}), ...(s.at ? { at: s.at } : {}), ...(s.lines ? { lines: s.lines } : {}), ...(s.links ? { links: s.links } : {}),
+      situation: sit.situation, situationWords: SITUATION_WORDS[sit.situation], verb: sit.verb, cost: COST_WORDS[s.id], model: s.id !== 'cloudflare',
+    };
     if (s.id === 'openrouter' || s.id === 'ollama-cloud') {
       const k = keyInUse(s.id, env, cwdOf(env));
       if (k) base.key = { fingerprint: keyFingerprint(k.key), from: k.from };
     }
-    if (s.id === 'ollama-local') {
-      const inst = ollamaInstalled({ env, platform });
+    if (s.id === 'ollama-local' && inst) {
       const steps = installSteps(platform);
-      base.local = { installed: inst.installed, ...(inst.how ? { how: inst.how } : {}), install: steps.install, start: steps.start, link: steps.link, address: ollamaOrigin(env), starters: STARTER_MODELS.map((m) => ({ model: m.model, size: m.size, bytes: m.bytes, use: m.use, default: m.default })), sizeNote: SIZE_NOTE };
+      base.local = { installed: inst.installed, ...(inst.how ? { how: inst.how } : {}), install: steps.install, start: steps.start, link: steps.link, address: ollamaOrigin(env), starters: STARTER_MODELS.map((m) => ({ model: m.model, size: m.size, bytes: m.bytes, use: m.use, default: m.default })), sizeNote: SIZE_NOTE, offer: OFFER_WORDS };
     }
     if (s.id === 'cloudflare') base.cloudflare = { ...readCloudflareSettings(env), file: 'state/cloudflare.json' };
     return base;
   });
+}
+
+/** R11 round 7: the summary band from the cards and the user's own route (nothing asked of any provider). */
+function summaryOf(env: Env, list: ConnectionCard[]): ConnectionsSummary {
+  let route: ConnectionsSummary['route'];
+  try {
+    const r = pageRoute(env, cwdOf(env));
+    // the band's note is the first sentence of the route's words (the Chat screen says the whole)
+    const first = (r.words.match(/^[^.]*\./) ?? [r.words])[0].trim();
+    route = { ready: r.ready, kind: r.kind, label: r.label, note: first, ...(r.ready ? { model: r.model } : {}) };
+  } catch (e) {
+    route = { ready: false, kind: 'none', label: 'Route not read', note: `The chat's route could not be read: ${e instanceof Error ? e.message : 'an error'}.` };
+  }
+  const cf = readCloudflareSettings(env);
+  const cloudLogs = cf.cloudLogs === true;
+  const usable = list.filter((c) => c.model && (c.state === 'checked' || c.state === 'saved, not checked') && c.situation === 'existing').map((c) => c.id);
+  return {
+    route,
+    records: { local: true, cloudLogs, words: cloudLogs ? 'Local, and cloud logs through Cloudflare (optional)' : 'Local by default', line: SCREEN_WORDS.records },
+    usable,
+  };
 }
 
 // ── pages (the sign-in's callback answers a browser, not the page's script) ───
@@ -232,7 +332,8 @@ export function mountConnections(app: express.Express, deps: ConnectionsDeps): {
     const env = envOf(deps, user);
     const pending: ProviderId[] = [...(signIns.has(user.id) ? ['openrouter' as const] : []), ...([...pulls.values()].some((p) => p.user.id === user.id) ? ['ollama-local' as const] : [])];
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ok: true, schema: 'timmy.connections-screen/1', screen: SCREEN_WORDS, cards: cards(deps, env, pending), checks: Object.fromEntries((['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'] as const).map((id) => [id, describeCheck(id)])), readAt: new Date(now()).toISOString() });
+    const list = cards(deps, env, pending);
+    res.json({ ok: true, schema: 'timmy.connections-screen/2', screen: SCREEN_WORDS, cards: list, summary: summaryOf(env, list), checks: Object.fromEntries((['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'] as const).map((id) => [id, describeCheck(id)])), readAt: new Date(now()).toISOString() });
   });
 
   // POST /api/connections/openrouter/start { callback }: the verifier stays here; the page gets the address to open
