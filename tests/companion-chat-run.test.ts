@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TURN_ID } from '../src/agent/chat-turn.js';
 import { mountChatRun, NEEDS_YOU_TIMEOUT_MS, userSettings, whereOf, type ChatUser } from '../src/companion/chat-run.js';
+import { savedConversation } from '../src/companion/chat-view.js';
 import { readChain, verifyChain, verifyReceiptIn } from '../src/utils/receipts.js';
 import { startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 import { onlyPorts, recordFetch } from './fixtures/recording-fetch.js';
@@ -304,5 +305,57 @@ describe('the real turn behind POST /api/chat/turn (R11 round 4, contract C3)', 
     const next = await turn({ message: 'and now?', key: 'page-message-0002', project: { root } });
     expect(next.events.at(-1)!.data.status).toBe('answered');
     expect(answer(next.events)).toBe('A second answer.');
+  });
+
+  it('R11 round 6: POST /api/chat/new starts a conversation of its own on the project\'s one agent (the REPL\'s /new): 200 with its id, the view\'s newest conversation empty, the next turn without the old messages; another user\'s project 400; a running turn 409', async () => {
+    setUp('alice', { model: MODEL });
+    setUp('bob', { model: MODEL });
+    const root = project('alice');
+    // the project has a conversation: one answered turn (the FAKE's tool call and its answer), two messages in .sessions
+    const first = await turn({ message: 'what files are here?', project: { root } });
+    expect(first.events.at(-1)!.data).toMatchObject({ status: 'answered' });
+    const before = savedConversation(root);
+    expect(before.total).toBeGreaterThan(0);
+    // another user cannot start a conversation on alice's project: the boundary's refusal, as /turn's
+    const bob = await post('/api/chat/new', { project: { root } }, 'bob');
+    expect(bob.status).toBe(400);
+    expect(bob.json.error).toBe('Not started: that project is not one of this account\'s projects, so no conversation of it is yours to start.');
+    expect((await post('/api/chat/new', {})).status).toBe(400);
+    // alice: a new conversation, its id the agent's (startSession); the saved one stays on disk
+    const made = await post('/api/chat/new', { project: { root } });
+    expect(made.status).toBe(200);
+    expect(made.json).toMatchObject({ ok: true, words: 'New conversation: the project\'s next turn starts a conversation of its own (the saved one is kept in .sessions).' });
+    expect(made.json.session).toMatch(/^session-\d+-[a-z0-9]+$/);
+    expect(existsSync(join(root, '.sessions', `${before.session}.jsonl`))).toBe(true);
+    // what the page re-reads (GET /api/chat/view → savedConversation): the newest conversation is the new one, empty
+    const after = savedConversation(root);
+    expect(after).toMatchObject({ session: made.json.session, total: 0, turns: [] });
+    // the next turn continues the NEW conversation: the FAKE is sent the new message only, none of the old ones
+    const next = await turn({ message: 'and now?', project: { root } });
+    expect(next.events.at(-1)!.data).toMatchObject({ status: 'answered' });
+    expect(answer(next.events)).toBe('A second answer.');
+    const sent = ollama.chats().at(-1)!.messages as Array<{ role: string; content: string }>;
+    expect(sent.filter((m) => m.role === 'user').map((m) => m.content)).toEqual(['and now?']);
+    expect(savedConversation(root)).toMatchObject({ session: made.json.session, total: 2 });
+  });
+
+  it('R11 round 6: POST /api/chat/new while a turn of the project runs is refused (409) naming the surface; after Stop it starts', async () => {
+    await ollama.close();
+    ollama = await startFakeOllama({ models: [{ name: MODEL, capabilities: ['completion'] }], chat: [() => ({ hang: true })] });
+    setUp('alice', { model: MODEL });
+    const root = project('alice');
+    let turnId = '';
+    let finished: Event[] | null = null;
+    const started = new Promise<void>((resolve) => { void turn({ message: 'a long one', project: { root } }, { onEvent: (e) => { if (e.event === 'turn') { turnId = e.data.id; resolve(); } } }).then((r) => { finished = r.events; }); });
+    await started;
+    const busy = await post('/api/chat/new', { project: { root } });
+    expect(busy.status).toBe(409);
+    expect(busy.json.error).toBe('Not started: another chat turn of this project is running here, sent from the companion: it ends first (Stop ends it), then a new conversation can start.');
+    expect((await post('/api/chat/stop', { id: turnId })).status).toBe(200);
+    for (let i = 0; i < 200 && !finished; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(finished!.at(-1)!.data.status).toBe('cancelled');
+    const made = await post('/api/chat/new', { project: { root } });
+    expect(made.status).toBe(200);
+    expect(savedConversation(root)).toMatchObject({ session: made.json.session, total: 0 });
   });
 });

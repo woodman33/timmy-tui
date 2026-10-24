@@ -83,6 +83,12 @@ export interface ChatSession {
    * A refusal's `lines` say which, and that nothing was sent; it is `sent: false` with no receipt.
    */
   sendOnce(key: string, text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult>;
+  /**
+   * R11 round 6 (H169; the companion's "New conversation", the REPL's /new): the project's next turn starts a conversation of
+   * its own on the project's one agent (src/agent/core.ts startSession); the saved one stays on disk. Refused, with why,
+   * while a turn of the project runs. Optional: a surface's own session (the Workbench's fakes) need not offer it.
+   */
+  newConversation?(): { ok: true; session: string } | { ok: false; why: string };
 }
 
 export type ChatSurface = 'repl' | 'monitor' | 'workbench' | 'companion';
