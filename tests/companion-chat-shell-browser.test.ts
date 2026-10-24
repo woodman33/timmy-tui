@@ -604,8 +604,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       if (drawn) await page.click('#cx-own .cx-needs .cx-twin:nth-child(1) .cx-rive-host button.tr-face');
       else await page.click('#cx-own .cx-needs [data-cx-answer="once"]');
       const res = await answered;
+      // (the status only: the page reads the answer's body only when it is not ok, and Playwright's response.json() on a body the
+      // page never reads waits for the context's close — round 5's lesson)
       expect(res.status()).toBe(200);
-      expect(await res.json()).toEqual({ ok: true, id: boxId, choice: 'once' });
       expect(answers).toHaveLength(1);
       expect(JSON.parse(answers[0])).toEqual({ id: boxId, choice: 'once' });
       // the real action behind the gate: the tool ran where the turn runs (the project's folder), the model's answer followed, the

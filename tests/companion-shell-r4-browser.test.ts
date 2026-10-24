@@ -142,27 +142,30 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
       // R11 round 5 (H174's ask): the welcome's T mark asks for its FILE only when the companion says it is there (GET
-      // /assets/mark.json: mark) — on H174's tree the runtime IS on the page (the Rive UI components' own file, timmy-ui.riv,
-      // loads window.rive) and the mark's file is not: drawing on the runtime's presence alone asked /assets/timmy-mark.riv and
-      // wrote "Failed to fetch the Rive file: HTTP 404" to the console per canvas. This fixture holds no .riv at all (the
-      // bindings' own loader rightly loads no runtime then), so a runtime OBJECT is put on the page as those components would
-      // leave it — window.rive.Rive, recording every construction — the marks are drawn again, and the mark's file is neither
-      // asked for nor constructed: the page's one read is mark.json
+      // /assets/mark.json: mark) — the runtime IS on the page (R11 round 6: the native UI components' own file, timmy-ui.riv,
+      // served here and drawn in the Chat's console band and the primary starter, loads window.rive) and the mark's file is
+      // not: drawing on the runtime's presence alone asked /assets/timmy-mark.riv and wrote "Failed to fetch the Rive file:
+      // HTTP 404" to the console per canvas. The runtime's Rive is wrapped to record every construction (put on the page when
+      // no runtime is here), the marks are drawn again, and the mark's file is neither asked for nor constructed: of the mark
+      // the page's one read is mark.json; the only .riv asked for is the native UI's
       await page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => new URL(e.name).pathname === '/assets/mark.json'), null, { timeout: 10_000 });
       await page.evaluate(() => {
         const made: unknown[] = [];
-        (window as unknown as { rive: unknown }).rive = { Rive: class { constructor(o: unknown) { made.push(o); } }, made };
+        const w = window as unknown as { rive?: { Rive?: new (o: unknown) => unknown; made?: unknown[] } };
+        if (w.rive && typeof w.rive.Rive === 'function') { const Real = w.rive.Rive; w.rive.Rive = function Recorded(this: unknown, o: unknown) { made.push(o); return new Real(o); } as unknown as new (o: unknown) => unknown; w.rive.made = made; }
+        else w.rive = { Rive: class { constructor(o: unknown) { made.push(o); } }, made };
       });
       // @ts-expect-error -- drawMarks is a function of the page's classic script chat-shell.js
       await page.evaluate(() => { drawMarks(); });
       await page.waitForTimeout(1_000);
       const rive = await page.evaluate(() => ({
         made: (window as unknown as { rive: { made: unknown[] } }).rive.made.length,
-        asked: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => /\.riv$|\/vendor\/rive\/|\/assets\/mark\.json$/.test(p)),
+        asked: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => /\.riv$|\/assets\/mark\.json$/.test(p)),
         started: [...document.querySelectorAll('canvas[data-timmy-mark]')].map((c) => c.getAttribute('data-rive-started')),
       }));
       expect(rive.made).toBe(0);
-      expect(rive.asked.filter((p) => p !== '/assets/mark.json')).toEqual([]);
+      expect(rive.asked.filter((p) => /timmy-mark\.riv$/.test(p))).toEqual([]);
+      expect(rive.asked.filter((p) => /\.riv$/.test(p)).every((p) => p === '/assets/rive/timmy-ui/timmy-ui.riv')).toBe(true);
       expect(rive.asked).toContain('/assets/mark.json');
       expect(rive.started.length).toBeGreaterThan(0);
       expect(rive.started.every((s) => s === null)).toBe(true);

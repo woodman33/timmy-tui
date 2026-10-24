@@ -172,6 +172,9 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
   if (!handle) return wrap;
   wrap.riveHandle = handle; // (unmount() when the wrap is let go: the runtime instance with it)
   if (o.words) host.append(h('span', { class: 'cx-way-words cx-twin-words' }, o.words));
+  // the host is the control's card: a trusted click on it beside the face (its words) is the action too; the face's own click
+  // is the bindings' (their trusted trigger calls the action), never acted on twice here
+  host.addEventListener('click', (ev) => { if (!ev.isTrusted || (ev.target instanceof Element && ev.target.closest('.tr-face'))) return; if (handle.disabled) return; try { action(ev); } catch (e) { /* the action's own */ } });
   wrap.append(host);
   wrap.dataset.rive = 'loading';
   const settle = () => {
@@ -216,7 +219,9 @@ function drawConsole() {
   if (!band || !body) return;
   const st = centerState();
   const away = st === 'first-run' || st === 'setup';
-  if (away || !riveApi()) { band.hidden = true; return; }
+  // (no mount before the companion answered the chat's read for a signed-in page: the runtime's listing is a user-data read,
+  // and a page landing on the account screen asks for nothing of the chat's)
+  if (away || !cx.view || !signedIn() || !riveApi()) { band.hidden = true; return; }
   if (!consoleHandle) {
     consoleHandle = mountConsoleIn(body, 'card');
     if (!consoleHandle) { band.hidden = true; return; }
