@@ -330,7 +330,7 @@
       : h('div', { class: 'tr-face', role: 'img', 'aria-label': o.label || o.component, tabindex: '0', 'data-rive-face': o.component }, canvas, fallback);
     const label = h('span', { class: 'tr-status sh-state', 'aria-live': 'polite', 'data-rive-status': o.component }, o.word || (o.binds && o.binds.some((b) => b.startsWith('connection')) ? 'disconnected' : 'idle'));
     const note = h('span', { class: 'tr-note sh-note', 'data-rive-note': o.component });
-    const root = h('div', { class: `tr-component tr-${o.component}`, 'data-rive-component': o.component, 'data-rive': 'loading' }, face, h('span', { class: 'tr-words' }, o.heading ? h('span', { class: 'tr-heading' }, o.heading) : null, label, note));
+    const root = h('div', { class: `tr-component tr-${o.component}`, 'data-rive-component': o.component, 'data-rive': 'loading', ...(o.artboard ? { 'data-artboard': o.artboard } : {}) }, face, h('span', { class: 'tr-words' }, o.heading ? h('span', { class: 'tr-heading' }, o.heading) : null, label, note));
     if (host) host.append(root);
     const handle = load(canvas, o.asset, { ...o, label, root, fallback, word: label.textContent });
     handle.note = note;

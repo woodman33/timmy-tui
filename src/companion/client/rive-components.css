@@ -8,6 +8,13 @@
 button.tr-face { cursor: pointer; }
 button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
 .tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* the operator's native artboards at their own proportions (AgentConsole 640×380, ProviderCard 400×260, ActionButton 240×72), so the
+   native text reads; a phone width halves them */
+.tr-component[data-artboard="AgentConsole"] .tr-face { width: 320px; height: 190px; border-radius: 8px; }
+.tr-component[data-artboard="ProviderCard"] .tr-face { width: 240px; height: 156px; border-radius: 8px; }
+.tr-component[data-artboard="ActionButton"] .tr-face { width: 240px; height: 72px; border-radius: 8px; }
+.tr-component[data-artboard] { grid-template-columns: 1fr; }
+@media (max-width: 720px) { .tr-component[data-artboard="AgentConsole"] .tr-face { width: 288px; height: 171px; } .tr-component[data-artboard="ProviderCard"] .tr-face { width: 216px; height: 140px; } }
 .tr-face canvas:not([data-loaded]) { visibility: hidden; }
 .tr-fallback { position: relative; z-index: 1; }
 .tr-fallback[hidden] { display: none; }
