@@ -6,7 +6,7 @@
     "file": "timmy-ui.riv",
     "contractOfTheServedFile": 2,
     "builtFrom": "the source of commit 4e8d4905 (scene.rml as create-controls.py wrote it there)",
-    "built": "Rive CLI 1.1.1 on the operator's machine, 2026-10-24 14:43 PT: `rive . --verify` 0 errors 0 warnings, `rive . --once` 0 errors 0 warnings; BUILD.txt, rive.log, problems.log and INSPECT-summary.txt beside this file record it",
+    "built": "Rive CLI 1.1.1 on the operator's machine, 2026-10-24 14:43 PT: `rive . --verify` 0 errors 0 warnings, `rive . --once` 0 errors 0 warnings; BUILD.txt, rive-build-log.txt, rive-build-problems.txt and INSPECT-summary.txt beside this file record it (the CLI writes rive.log / problems.log; renamed: the repo ignores *.log)",
     "sha256": "e97d28dc5efd83a04ddd5e8b04db5a0dada329fe7c165826e7040c8ad3e7dc36",
     "bytes": 93211,
     "artboards": 7,
