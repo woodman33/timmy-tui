@@ -295,8 +295,8 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await o.page.waitForFunction(() => [...document.querySelectorAll('#h174-mounts canvas')].length === 3 && [...document.querySelectorAll('#h174-mounts canvas')].every((c) => c.getAttribute('data-loaded') === 'true'), null, { timeout: 30_000 });
       // what they are: a role=img console at the host's width, a role=img card, a real <button aria-label>
       const faces = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [e.tagName, e.getAttribute('role'), e.getAttribute('aria-label'), e.closest('[data-artboard]')!.getAttribute('data-artboard'), e.closest('[data-size]')?.getAttribute('data-size') ?? null]));
-      expect(faces).toEqual([['DIV', 'img', 'Agent activity', 'AgentConsole', 'wide'], ['DIV', 'img', 'Connection to ollama-local', 'ProviderCard', null], ['BUTTON', null, 'Answer: once', 'ActionButton', null]]);
-      const widths = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [e.clientWidth, e.clientHeight]));
+      expect(faces).toEqual([['DIV', 'img', 'Agent activity', 'AgentConsole', 'wide'], ['DIV', 'img', 'Connection to ollama-local', 'ProviderCard', 'card'], ['BUTTON', null, 'Answer: once', 'ActionButton', 'card']]);
+      const widths = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [(e as HTMLElement).offsetWidth, (e as HTMLElement).offsetHeight]));
       expect(widths[0][0]).toBeGreaterThan(600); // wide: the host's width (the body's), at 640:380
       expect(Math.abs(widths[0][0] / widths[0][1] - 640 / 380)).toBeLessThan(0.05);
       expect(widths[1]).toEqual([240, 156]);

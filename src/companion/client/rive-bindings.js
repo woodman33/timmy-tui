@@ -336,7 +336,7 @@
     handle.note = note;
     handle.face = face;
     if (handle.state === 'words') absentWords(handle).then((words) => { note.textContent = words; });
-    const fire = (ev) => { const did = trigger(handle, o.triggerInput || 'welcome', ev); if (did && typeof o.onTrigger === 'function') o.onTrigger(handle, did); if (did && ev.type === 'keydown') ev.preventDefault(); };
+    const fire = (ev) => { const did = trigger(handle, o.triggerInput || 'welcome', ev); if (did && typeof o.onTrigger === 'function') o.onTrigger(handle, did, ev); if (did && ev.type === 'keydown') ev.preventDefault(); };
     // a <button> fires its own (trusted) click for Enter / Space; a role=img face takes the keys itself
     if (role === 'button') face.addEventListener('click', fire);
     else face.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') fire(ev); });
@@ -428,7 +428,8 @@
       host, component: o.name || 'action', asset: NATIVE_ASSET, artboard: 'ActionButton', stateMachine: TIMMY_UI.stateMachine, role: 'button',
       label: words, heading: o.heading === undefined ? null : o.heading, text: o.text || words, binds: [], word: words, size: o.size,
       triggerInput: 'welcome',
-      onTrigger: (hd, ev) => { if (hd.disabled) return; if (typeof o.action === 'function') { try { o.action(ev); } catch (e) { /* the screen's own */ } } },
+      // the screen's own action gets the person's DOM event (trusted; the binding event is recorded on the handle)
+      onTrigger: (hd, _did, ev) => { if (hd.disabled) return; if (typeof o.action === 'function') { try { o.action(ev); } catch (e) { /* the screen's own */ } } },
     });
     finishMount(handle, o, o.place || 'chat');
     handle.setDisabled = (on) => {

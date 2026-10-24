@@ -148,7 +148,8 @@ export function createRiveShape(deps) {
   /** Places a shape of `component` at `at` ({ x, y }) on `editor`; returns its id. */
   function place(editor, component, at, o = {}) {
     const id = deps.createShapeId ? deps.createShapeId() : undefined;
-    editor.createShape({ ...(id ? { id } : {}), type: RIVE_SHAPE, x: at.x, y: at.y, props: riveProps(component, o) });
+    const { at: _at, ...props } = o;
+    editor.createShape({ ...(id ? { id } : {}), type: RIVE_SHAPE, x: at.x, y: at.y, props: riveProps(component, props) });
     return id;
   }
   return { util: RiveShapeUtil, place, RIVE_SHAPE, RIVE_COMPONENTS };
