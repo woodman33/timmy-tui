@@ -141,7 +141,7 @@ async function open(server: CompanionServer, size: { width: number; height: numb
     ws.on('close', () => refused.push('ws closed'));
   });
   await page.goto(server.url);
-  const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined, () => frames.push('--seam--')) : '';
+  const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined, () => frames.push('--seam--'), () => `refused so far: ${refused.join(' | ') || 'none'}; frames: ${frames.join(',')}`) : '';
   if (!frames.includes('--seam--')) frames.push('--seam--');
   return { page, errors, left, refused, frames, seam, close: () => context.close() };
 }
@@ -150,8 +150,8 @@ async function open(server: CompanionServer, size: { width: number; height: numb
  * The session given to the page as H173's account screen gives it after a Clerk sign-in (H171's shell: session.set(token, user),
  * then land() runs the landing rule); the server still verifies every request's token. Nothing of the verifier is bypassed.
  */
-async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat', mark?: () => void): Promise<string> {
-  const guard = async (what: string, p: Promise<unknown>): Promise<void> => { try { await p; } catch (e) { throw new Error(`the seam's guard "${what}" did not hold within its time: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; the page read:\n${(await text(page).catch(() => '')).slice(0, 1200)}`); } };
+async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat', mark?: () => void, seen?: () => string): Promise<string> {
+  const guard = async (what: string, p: Promise<unknown>): Promise<void> => { try { await p; } catch (e) { throw new Error(`the seam's guard "${what}" did not hold within its time: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; ${seen?.() ?? ''}; the page read:\n${(await text(page).catch(() => '')).slice(0, 1200)}`); } };
   await guard('window.TimmyShell is here', page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }));
   // as a person would: the page's own landing settles first (body[data-screen] chosen, its first requests answered) and the
   // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
