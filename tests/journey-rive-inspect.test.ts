@@ -174,7 +174,7 @@ async function labelIs(page: Page, key: string, word: RegExp, ms = 15_000): Prom
  * spoke (TimmyRive.activityFed()), its words are the ones asserted — the operator's "real backend events drive operational states".
  */
 const FED_TURN = /POST \/api\/chat\/turn · SSE (route|turn|delta|tool|needs-you|done|error)/;
-const FED_STOP = /POST \/api\/chat\/stop \{ id: |POST \/api\/chat\/turn: this page stops reading/;
+const FED_STOP = /POST \/api\/chat\/stop \{ id: |POST \/api\/chat\/turn: this page stop(?:s|ped) reading/; // ("stopping" by the Stop's POST; "stopped" by this page's own end of the stream, in H171's words)
 const DERIVED_TURN = /derived from the page.s drawing of the turn/;
 const DERIVED_STOP = /derived from the page.s Stop button/;
 const activityFed = (page: Page): Promise<boolean> => page.evaluate(() => Boolean((window as unknown as { TimmyRive?: { activityFed?: () => boolean } }).TimmyRive?.activityFed?.()));
