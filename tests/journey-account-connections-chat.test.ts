@@ -78,10 +78,11 @@ beforeAll(async () => {
   const userHome = join(timmyHome, 'users', USER);
   mkdirSync(userHome, { recursive: true, mode: 0o700 });
   writeFileSync(join(userHome, 'providers.json'), JSON.stringify({ ollama_host: ollama.url }), { mode: 0o600 });
-  const base: NodeJS.ProcessEnv = { ...process.env, HOME: join(box, 'home'), TIMMY_HOME: timmyHome, TIMMY_SETTINGS_DIR: join(box, 'settings'), OPENROUTER_API_KEY: '' };
-  for (const k of ['TIMMY_STORE', 'OLLAMA_HOST', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete base[k];
+  // the Ollama address the cards and the chat ask is OLLAMA_HOST unless the chat setup recorded one (ollamaAddress): the FAKE on 127.0.0.1
+  const base: NodeJS.ProcessEnv = { ...process.env, HOME: join(box, 'home'), TIMMY_HOME: timmyHome, TIMMY_SETTINGS_DIR: join(box, 'settings'), OPENROUTER_API_KEY: '', OLLAMA_HOST: ollama.url };
+  for (const k of ['TIMMY_STORE', 'OLLAMA_BASE_URL', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete base[k];
   Object.assign(process.env, base);
-  for (const k of ['TIMMY_STORE', 'OLLAMA_HOST', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete process.env[k];
+  for (const k of ['TIMMY_STORE', 'OLLAMA_BASE_URL', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete process.env[k];
   // no name but 127.0.0.1 resolves; and no proxy: a container's HTTPS_PROXY in the environment would carry the browser's
   // requests out (Chromium reads it, --no-proxy-server notwithstanding — H173's finding, 21:22), so the variables are not handed down
   const browserEnv = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && !/proxy/i.test(k))) as Record<string, string>;
@@ -125,6 +126,11 @@ async function open(server: CompanionServer, size: { width: number; height: numb
  */
 async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat'): Promise<void> {
   await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }).catch(() => undefined);
+  // as a person would: the page's own landing settles first (body[data-screen] chosen, its first requests answered) and the
+  // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
+  // token set while the page's session-less first requests are still in flight is wiped by their refusals (gate run, 22:10)
+  await page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen')), null, { timeout: 15_000 }).catch(() => undefined);
+  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
   const ok = await page.evaluate(async ([t, id, target]) => {
     const w = window as unknown as { timmyAccount?: { useSession?: (token: string) => unknown }; TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
     if (w.timmyAccount?.useSession) await w.timmyAccount.useSession(t);

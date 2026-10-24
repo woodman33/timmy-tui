@@ -54,7 +54,7 @@ let ollama: FakeOllamaJourney;
 let companion: CompanionServer;
 let env: NodeJS.ProcessEnv;
 const kept: Record<string, string | undefined> = {};
-const ENV_KEYS = ['HOME', 'TIMMY_HOME', 'TIMMY_SETTINGS_DIR', 'TIMMY_MCP_HOME', 'TIMMY_STORE', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY', 'OPENROUTER_API_KEY', 'OLLAMA_HOST', 'TIMMY_REPO'];
+const ENV_KEYS = ['HOME', 'TIMMY_HOME', 'OLLAMA_BASE_URL', 'TIMMY_SETTINGS_DIR', 'TIMMY_MCP_HOME', 'TIMMY_STORE', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY', 'OPENROUTER_API_KEY', 'OLLAMA_HOST', 'TIMMY_REPO'];
 /** every line the companion wrote to this process's stdout/stderr while it ran (the logger's) */
 const written: string[] = [];
 const restore: Array<() => void> = [];
@@ -70,13 +70,15 @@ beforeAll(async () => {
     answer: 'FAKE answer: the time was read by a tool (no model behind this).',
   });
   identity = fakeIdentityProvider({ azp: ORIGIN });
+  // the Ollama address the cards and the chat ask is OLLAMA_HOST unless the chat setup recorded one (src/capabilities/ollama-route.ts
+  // ollamaAddress; the same rule for every user, whose env passes the base through): the FAKE on 127.0.0.1, for A and B alike
   env = identity.env({
     ...process.env, HOME: join(box, 'home'), TIMMY_HOME: timmyHome, TIMMY_SETTINGS_DIR: join(box, 'settings'), TIMMY_STORE: '',
-    OPENROUTER_API_KEY: '', OLLAMA_HOST: '',
+    OPENROUTER_API_KEY: '', OLLAMA_HOST: ollama.url,
   });
-  for (const k of ['TIMMY_STORE', 'OPENROUTER_API_KEY', 'OLLAMA_HOST', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_SECRET_KEY']) delete env[k];
+  for (const k of ['TIMMY_STORE', 'OPENROUTER_API_KEY', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_SECRET_KEY', 'OLLAMA_BASE_URL']) delete env[k];
   Object.assign(process.env, env);
-  for (const k of ['TIMMY_STORE', 'OPENROUTER_API_KEY', 'OLLAMA_HOST', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_SECRET_KEY']) delete process.env[k];
+  for (const k of ['TIMMY_STORE', 'OPENROUTER_API_KEY', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_SECRET_KEY', 'OLLAMA_BASE_URL']) delete process.env[k];
   // the companion's own log lines (src/utils/logger.js writes to this process's streams): kept to scan
   for (const stream of [process.stdout, process.stderr] as const) {
     const original = stream.write.bind(stream);
@@ -335,7 +337,7 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(typeof id, `the project's id in ${made.text.slice(0, 200)}`).toBe('string');
     expect(String(root).startsWith(join(userHome(A), 'projects')), `A's project root under A's home: ${root}`).toBe(true);
     aProject = { id, root, name: 'FAKE-a-project' };
-    // A's chat asks the FAKE Ollama: its address into A's providers.json (what timmy init --ollama records), then the model chosen
+    // A's chat asks the FAKE Ollama (OLLAMA_HOST in the companion's env; A's providers.json records it too, as a setup would), then the model chosen
     pointAtFakeOllama(A);
     const chosen = await call('POST', ROUTES.chatChoose, { session: identity.token(A), query: { project: id }, body: { source: 'ollama-local', model: MODEL } });
     expect(chosen.status, `POST ${ROUTES.chatChoose}?project=<A's id>: ${chosen.text.slice(0, 300)} (H171's chat-view behind identity.withUser, the user's project resolved by id — H173's userProjectFor)`).toBe(200);
