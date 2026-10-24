@@ -387,8 +387,13 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.waitForFunction(([a, n]) => [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)).length > n, [FAKE_ANSWER, answersBefore] as const, { timeout: 60_000 });
         const answered = await text(o.page);
         expect(answered).toContain(FAKE_ANSWER);
+        // the tool line sits in the turn's activity, folded under its evidence line (▸, a button with aria-expanded) once the turn is
+        // saved and read back: the fold is opened as a person would, then the line is read from the newest turn's node
+        const newest = o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last();
+        const fold = newest.locator('.cx-evidence[aria-expanded="false"]').first();
+        if (await fold.count()) await fold.click();
         await o.page.waitForFunction((a) => { const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)); const last = lis[lis.length - 1]; return Boolean(last && /get_current_time/.test(last.textContent || '')); }, FAKE_ANSWER, { timeout: 15_000 })
-          .catch(async () => { throw new Error(`the newest turn carries no tool line get_current_time; the page read:\n${(await text(o.page)).slice(0, 1500)}`); });
+          .catch(async () => { throw new Error(`the newest turn carries no tool line get_current_time (its activity opened); the turn read:\n${(await newest.innerText().catch(() => '')).slice(0, 800)}`); });
         // the newest turn's evidence line, once its receipt is sealed and read back ("<model> · this computer · <s> · receipt <8 hex> ✓")
         const evidenceLine = await o.page.waitForFunction((a) => {
           const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a));
