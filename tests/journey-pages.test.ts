@@ -523,9 +523,11 @@ describe('every major page on the shell, from the running companion and Studio: 
         // ONE rail: the old workspace tab row is never visible again (§2.1: it stays in the DOM hidden for the keys)
         expect(await o.page.locator('#ws-tabs').first().isVisible().catch(() => false), 'the old ws-tabs row is not visible (D3: ONE rail)').toBe(false);
         if (phone && sheet) {
-          // §4: the rail sheet is a modal dialog; Escape closes it and the focus returns to #shell-menu
-          expect(await sheet.getAttribute('role'), 'the rail sheet is role=dialog').toBe('dialog');
-          expect(await sheet.getAttribute('aria-modal'), 'the rail sheet is aria-modal').toBe('true');
+          // §4: the rail sheet is a modal dialog (H175's shell.js: the role and aria-modal sit on #rail-sheet inside the opened rail); Escape
+          // closes it and the focus returns to #shell-menu
+          const dialog = sheet.locator('#rail-sheet, [role="dialog"]').first();
+          expect(await dialog.getAttribute('role'), 'the rail sheet is role=dialog').toBe('dialog');
+          expect(await dialog.getAttribute('aria-modal'), 'the rail sheet is aria-modal').toBe('true');
           await caps.cap(o.page, size, 'shell-rail-sheet', { line: line('the shell', 'the rail sheet open on the phone'), facts: ['The phone\'s rail sheet opened from #shell-menu (§4): the same grouped destinations as the rail, a modal dialog over the page.'], full: true });
           await o.page.keyboard.press('Escape');
           await o.page.waitForTimeout(200);
