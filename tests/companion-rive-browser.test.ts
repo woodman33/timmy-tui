@@ -276,7 +276,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
   it('the mounts the screens call (R11 round 6): mountConsole follows the activity feed, mountProviderCard its provider, mountActionButton is a real button whose REAL action runs on a trusted click / Enter only, never when disabled; each drawn by the runtime, unmount cleans up', async () => {
     const o = await open({ width: 1440, height: 900 });
     try {
-      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string }>; runs: Record<string, { reads?: string; note?: string }> | null; restored: number; fedState: number | undefined }>; handles: () => unknown[] };
+      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string }>; runs: Record<string, { reads?: string; note?: string; hidden?: boolean }> | null; restored: number; fedState: number | undefined }>; handles: () => unknown[] };
       // the test's own host on the page (the screens' calls are H171's and H170's; the API is what is tested here)
       await o.page.evaluate(() => {
         const W = window as unknown as { TimmyRive: R; __acted: string[] };
@@ -308,6 +308,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       type RR = { component: string; rive: { getTextRunValue: (n: string) => string | undefined } | null };
       const runsOf = (name: string) => o.page.evaluate((n) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === n)!; const g = (k: string) => hd.rive!.getTextRunValue(k); return { caption: g('PREVIEW  /  NOT A LIVE JOB'), inspect: g('Inspect interaction'), actionIdle: g('Connect provider'), provider: g('OpenRouter  ·  Ollama  ·  Cloudflare') }; }, name);
       expect(await runsOf('test:console')).toMatchObject({ caption: 'LIVE  /  THE TURN’S EVENTS', inspect: '' });
+      // the amber pill under that blanked text (the Shape "Primary action") is scaled to nothing through the runtime's node API
+      expect(await o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; rive: { artboard: { node: (n: string) => { scaleX: number; scaleY: number } | null } } | null }>).find((x) => x.component === 'test:console')!; const n = hd.rive!.artboard.node('Primary action'); return n ? [n.scaleX, n.scaleY] : null; })).toEqual([0, 0]);
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:console')!.runs!.pill)).toMatchObject({ hidden: true });
       expect(await runsOf('test:provider:ollama-local')).toMatchObject({ caption: 'LIVE  /  GET /api/connections', inspect: '' });
       expect(await runsOf('test:action')).toMatchObject({ actionIdle: 'Answer: once' });
       // the ProviderCard's subtitle: five runs under one name (one per state group) — the runtime cannot tell them apart, so it is
@@ -320,8 +323,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:console')!.runtime!.inputs.find((i) => i.name === 'State')!.value)).toBe(2);
       // the asset's baked click listener ("Inspect click": the hit area → State = 1) cannot fabricate a state on a live face:
       // (i) a real pointer click on the face reaches no canvas (pointer-events: none) — State and the word stay the backend's;
-      // (ii) mouse events dispatched straight at the canvas (past the CSS) do reach the runtime's listener: the next frame's guard
-      // puts the fed State back (counted on restored); the HTML word never follows
+      // (ii) mouse events dispatched straight at the canvas (past the CSS) reach the runtime, whose listener's hit area (the
+      // pill "Primary action") is scaled to nothing — nothing moves; (iii) a State written behind the bindings' back (what a
+      // listener does) is put back by the next frame's guard (counted on restored); the HTML word never follows
       const faceBox = (await o.page.locator('#m-console .tr-face').boundingBox())!;
       await o.page.mouse.click(faceBox.x + faceBox.width * 0.78, faceBox.y + faceBox.height * 0.9); // the baked button's spot
       await o.page.waitForTimeout(120);
@@ -345,7 +349,21 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(afterDispatch.word).toBe('awaiting approval');
       expect(afterDispatch.label).toBe('awaiting approval');
       expect(afterDispatch.seen.slice(-3)).toEqual([2, 2, 2]);
-      expect(afterDispatch.restored).toBeGreaterThanOrEqual(1); // the listener did fire (past the CSS) and was put back
+      expect(afterDispatch.restored).toBe(0); // the listener's hit area is gone: nothing to put back
+      const behindTheBack = await o.page.evaluate(async () => {
+        const R = (window as unknown as { TimmyRive: R }).TimmyRive;
+        const hd = (R.handles() as unknown as Array<{ component: string; stateMachine: string; rive: { stateMachineInputs: (sm: string) => Array<{ name: string; value: number }> } | null }>).find((x) => x.component === 'test:console')!;
+        hd.rive!.stateMachineInputs(hd.stateMachine).find((i) => i.name === 'State')!.value = 1; // as the baked listener would
+        const seen: number[] = [];
+        for (let i = 0; i < 6; i++) { await new Promise((r) => requestAnimationFrame(r)); seen.push(R.inspect().find((x) => x.component === 'test:console')!.runtime!.inputs.find((i) => i.name === 'State')!.value as number); }
+        const h = R.inspect().find((x) => x.component === 'test:console')!;
+        return { seen, state: h.runtime!.inputs.find((i) => i.name === 'State')!.value, word: h.word, restored: h.restored, label: document.querySelector('#m-console [data-rive-status]')!.textContent };
+      });
+      expect(behindTheBack.state).toBe(2);
+      expect(behindTheBack.seen.slice(-3)).toEqual([2, 2, 2]);
+      expect(behindTheBack.restored).toBeGreaterThanOrEqual(1); // put back by the guard on the next frame
+      expect(behindTheBack.word).toBe('awaiting approval');
+      expect(behindTheBack.label).toBe('awaiting approval');
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('done', { status: 'answered' }, 'FAKE (the test): SSE done'));
       expect(await text(o.page, '#m-console [data-rive-status]')).toBe('idle');
       // the provider card follows its provider only

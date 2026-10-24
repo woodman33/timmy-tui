@@ -45,6 +45,11 @@ them with the backend source that set each state. The three drafted folders besi
 | `Connect provider` | ActionButton (its Idle label) | the button's own label (a mount's `label`; a Canvas welcome's label). |
 | `OpenRouter  ·  Ollama  ·  Cloudflare` | ProviderCard, **five runs under this one name** (one per state group) | **left as baked**: the runtime addresses a run by name and reaches one of the five, so it cannot put the card's own provider on every state. The source must give the five distinct names (e.g. `Provider · Idle` … `Provider · Failed`) — then the page sets each to the card's provider (`OpenRouter`, `Ollama · local`, `Ollama · cloud`, `Cloudflare`). The Inspect view's "Face words" row says so per card. |
 
+The amber pill under "Inspect interaction" (the Shape `Primary action`, the listener's hit area) is a control that means
+nothing in the product: the runtime has no opacity on a node, so the page scales it to nothing (`artboard.node('Primary
+action').scaleX = scaleY = 0`; said per card in the Inspect view's "Face words" row as `pill … hidden`). The Checking pose's
+bars are drawn through where that pill was authored (the asset's own drawing order); with the pill gone they stand alone.
+
 The state machine also bakes a listener `Inspect click` (the hit area → `State = 1`) that would put a live face in
 Working/Checking with no backend event. The page keeps that from happening twice over: the face's canvas takes no pointer
 events (`rive-components.css`; the host's own button or img keeps the click, the keyboard and the focus), and every frame the
