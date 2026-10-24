@@ -1002,7 +1002,7 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['C  S', 'stop serving the Companion  ·  Studio (only what this Workbench started)'],
   [',', 'Quick settings (saved in Timmy\'s settings folder): open the Companion or Studio at start, and more'],
   ['x', 'Stop current: what row 2 names, a job of this project, else the chat turn being answered (this Workbench\'s stops here; another surface\'s is asked to stop there, as its own key would)'],
-  ['i  g', 'Context (Tools, Inspector, Files) as a drawer  ·  the navigation (CREATE, OPERATE, LIBRARY) as a drawer'],
+  ['i  g', 'Context (Tools, Inspector, Files) as a drawer  ·  the navigation (Chat, WORK, CREATE, CONNECT: every workspace) as a drawer'],
   ['z', 'focus mode: the body\'s list alone, with the tabs, the actions and the log; z or Esc leaves it'],
   ['a  A', 'Activity & log: expand or collapse  ·  all operations or the selected one'],
   ['f', 'Files tab: related files only, or all of them'],

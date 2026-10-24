@@ -124,6 +124,9 @@ describe('the header (R10 H167; R11 round 7 H177): two rows, exactly the width, 
     // (no room for the legend beside TIMMY and the project: the shown destination's name ends the row)
     expect(plain(one.line)).toMatch(/^TIMMY · tray +2 +│ +0 ◌ +▸3 +4 +│ +5 +6 ◌ +│ +1 +9 +7 ◌ +Workflows$/);
     expect(one.form).toBe('keys');
+    // (the 0 cell stands for two destinations: a click opens Runs & receipts, the page's first, unless Files is the one shown)
+    expect(one.hits.find((h) => h.page === 'logs')?.dest).toBe('logs');
+    expect(destinationsRow({ page: 'logs', workspace: 'files', width: 80, g }).hits.find((h) => h.page === 'logs')?.dest).toBe('files');
   });
 
   it('every destination keeps its cells whichever is shown and whatever waits; what waits is ⚠ on its page\'s destinations (Models & accounts, Control Room) and the count on row 1', () => {

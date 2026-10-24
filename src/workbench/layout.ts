@@ -12,7 +12,7 @@
  *             takes the whole width at every size, Context a drawer ([i])
  *   bottom    Activity & log: its newest lines (3 to 5), [a] expands it; then the key-hint line
  *
- * The navigation (CREATE, OPERATE, LIBRARY) is a drawer at every size ([g], and [/] to find a workspace): the tabs are the
+ * The navigation (Chat, WORK, CREATE, CONNECT: every workspace) is a drawer at every size ([g], and [/] to find a workspace): the tabs are the
  * stable way around. Cells are counted from 0 at the top left. Pure arithmetic: the app draws what this returns, and a mouse
  * report is read against it.
  */

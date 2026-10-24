@@ -227,9 +227,9 @@ export function destinationsRow(a: DestRowAsk): { line: Line; hits: DestHit[]; f
     const m: CellMark = marks.includes('waiting') ? 'waiting' : marks.includes('unfinished') ? 'unfinished' : null;
     if (e.mark) segs.push(S(' '), S(m === 'waiting' ? g.warn : m === 'unfinished' ? unfinishedMark(g) : ' ', m === 'waiting' ? 'attention' : 'secondary'));
     const w = lineCells(segs);
-    // (a cell of two destinations (0) opens the one shown, else the page's first: the click says the page; the page's key
-    // again shows the other)
-    hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: e.r.page, dest: (shown ?? e.dests[0]).id });
+    // (a cell of two destinations (0) opens the one shown, else the page's first workspace's (Runs & receipts), as its key
+    // does; the key again shows the other)
+    hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: e.r.page, dest: (shown ?? e.dests.find((d) => !d.ws) ?? e.dests[0]).id });
     line.push(...segs);
     x += w;
   });

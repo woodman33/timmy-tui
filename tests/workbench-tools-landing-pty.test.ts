@@ -173,7 +173,7 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
       expect(body.some((r) => HEAD.test(r)), 'the header').toBe(true);
       expect(body.some((r) => /^nothing here was run to make this list · \d+ tools · checked \d+ (s|min) ago( · \[r\] checks again)?$/.test(r)), 'the honesty row').toBe(true);
       // the tabbed page's own title and the finder's way stay (existing names)
-      expect(screen).toMatch(/All tools · capabilities/);
+      expect(screen).toMatch(/Tools & integrations · capabilities/);
       const inv = inventoryRows(screen, w);
       expect(inv.length).toBeGreaterThanOrEqual(w === 80 ? 2 : 4);
       for (const { row, chip } of inv) expect(chip === '' || CHIP.test(chip), `${w}: "${row}"`).toBe(true);
@@ -231,7 +231,7 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
       // End: the list scrolls to its last capability (the keyboard is on the list): CHAT's rows are above the view now; the
       // chip whole on every row shown
       await sendKeys(pane, ['End']);
-      const end = await waitScreen(pane, { what: 'the end of the inventory', re: /TOOLS & INTEGRATIONS|All tools · capabilities/, test: (s) => !/CHAT · \d+ capabilit/.test(s) && inventoryRows(s, w).length >= 2, ms: 20_000 });
+      const end = await waitScreen(pane, { what: 'the end of the inventory', re: /TOOLS & INTEGRATIONS|Tools & integrations · capabilities/, test: (s) => !/CHAT · \d+ capabilit/.test(s) && inventoryRows(s, w).length >= 2, ms: 20_000 });
       keepScreen(pane, CAPTURES, `tools-landing-${w}x${h}-04-FAKE-populated-end`, { foot: 'drawn' });
       const tail = inventoryRows(end, w);
       for (const { row, chip } of tail) expect(chip === '' || CHIP.test(chip), `${w}: "${row}"`).toBe(true);
