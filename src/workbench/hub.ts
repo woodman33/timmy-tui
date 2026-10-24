@@ -3,9 +3,8 @@
  * src/ops/workspace-frame.ts buildWorkspaceFrame, the frame the browser companion and Studio draw too), laid out as the
  * operator's references lay them out (codex-ui-references 01, 02, 11, 12, 13 and 14):
  *
- *   row 1        TIMMY, the project, the ten tabs as boxed labels; the active one amber (a heavy box), a waiting count in
- *                its box's top edge (⚠ and the number); full labels where they fit, else their first words, else the keys
- *                with the active tab's name at the end; every cell keeps its place whichever tab is active
+ *   row 1        TIMMY, the project, the route and what runs and waits; then the destinations in the rail's groups (R11 round
+ *                7, H177: src/workbench/destinations.ts), the shown one amber; every cell keeps its place whichever is shown
  *   row 2        the tab's workflow actions as numbered boxes: the one primary next step amber (filled, ▶), one not available
  *                now quiet, its `why` said when it is selected; Enter runs it through a path the Workbench has, else shows
  *                the command to copy (src/workbench/controller.ts runAction)
@@ -16,8 +15,8 @@
  *                log, newest at the top
  *   the log      Activity & log's newest lines, from the frame's log
  *
- * The tabs, the actions' labels and commands, and the connections' words are the frame's, never made here; the short labels
- * are the frame's labels' first words. Pure: the same frame and state always draw the same rows.
+ * The tabs, the actions' labels and commands, and the connections' words are the frame's, never made here. Pure: the same
+ * frame and state always draw the same rows.
  */
 import type { ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
@@ -71,138 +70,15 @@ export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs']
  *  R11 round 7 (H177): defined with the destinations (src/workbench/destinations.ts), which draw it on the header. */
 export { unfinishedMark };
 
-/** A tab's short label: the first word of the frame's label ("Chat & Intent": Chat). */
-export const shortLabel = (label: string): string => label.split(/\s+/)[0] ?? label;
-
-// ── row 1: TIMMY, the project, the tabs ────────────────────────────────────────
+// ── row 1: TIMMY, the project, the destinations ────────────────────────────────
 
 /** Where a page's cell is on the header (a click opens it); R11 round 7 (H177): `dest` names the destination of that cell
  *  (src/workbench/destinations.ts), which the click opens where a page has two (Files and Runs & receipts). */
 export interface PageHit { x0: number; x1: number; y0: number; y1: number; page: TabId; dest?: string }
 
-/**
- * How the tabs' labels are said: their full labels, their first words, or their keys (with the active tab's name in a slot of
- * its own at the row's end). R5 (H131; the QA round's defect 4): the form is chosen by the width and the project's name alone,
- * never by which tab is active or which carries a badge, so the tabs keep their place and their width whichever is active.
- */
-export type TabForm = 'full' | 'short' | 'keys';
-const FORMS: readonly TabForm[] = ['full', 'short', 'keys'];
-
-function labelIn(t: WorkspaceFrame['tabs'][number], form: TabForm): string {
-  switch (form) {
-    case 'full': return `${t.key} ${t.label}`;
-    case 'short': return `${t.key} ${shortLabel(t.label)}`;
-    default: return t.key;
-  }
-}
-
-/**
- * Row 1 as `rows` rows (3: boxed labels; 1: a short terminal), exactly `width` cells each, and where each tab is (for a
- * click). The project's name is cut before a form is given up, but never below its first few letters.
- * R11 round 7 (H177): the frame draws the grouped destinations instead (src/workbench/destinations.ts destinationsRow, at
- * every height); the ten tabs' bar stays as the frame's own form, drawn by nothing in the Workbench now.
- *
- * R5 (H131; defect 4, "a stable tab header"): every tab's cell has the same width in a form whichever tab is active; what
- * waits on you is drawn without moving anything: on a boxed tab, in its box's top edge (⚠ and the count); on a one-row bar,
- * in a cell every tab keeps for it (⚠ alone). The keys form says the active tab's name in a slot of its own at the end,
- * as wide as the longest name it may hold.
- */
-export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: string, width: number, rows: 1 | 3, g: Glyphs): { lines: Line[]; hits: PageHit[]; form: TabForm } {
-  const brand = 'TIMMY';
-  const sep = ` ${g.sep} `;
-  // a one-row bar keeps one cell in every tab for ⚠, and its brackets mark the active tab
-  const cellW = (t: WorkspaceFrame['tabs'][number], form: TabForm): number => lineCells([S(labelIn(t, form))]) + 2 + (rows === 1 ? 1 : 0);
-  // the keys form's slot for the active tab's name: as wide as the longest (a name that does not fit is cut)
-  const slotW = Math.max(...tabs.map((t) => lineCells([S(t.label)])));
-  const fits = (form: TabForm, name: string): { gap: number; slot: number } | null => {
-    const prefix = lineCells([S(`${brand}${name ? `${sep}${name}` : ''} `)]);
-    const cells = tabs.reduce((n, t) => n + cellW(t, form), 0);
-    const slot = form === 'keys' ? Math.min(slotW, Math.max(0, width - prefix - cells - tabs.length - 1)) : 0;
-    const extra = form === 'keys' ? (slot ? slot + 1 : 0) : 0;
-    if (prefix + cells + (tabs.length - 1) + extra <= width) return { gap: 1, slot };
-    if (prefix + cells + extra <= width) return { gap: 0, slot };
-    return null;
-  };
-  // the fullest form that fits with the whole name, then with the name cut (to 12, then 6 letters), then without it
-  const names = [project, cut(project, 12, g.ellipsis), cut(project, 6, g.ellipsis), ''];
-  let form: TabForm = 'keys';
-  let name = '';
-  let gap = 0;
-  let slot = 0;
-  outer: for (const n of names) {
-    for (const f of FORMS) {
-      const ok = fits(f, n);
-      if (ok) { form = f; name = n; gap = ok.gap; slot = ok.slot; break outer; }
-    }
-  }
-  // the tabs reach the row's end, as the references' do: what is left is shared out evenly inside the cells, around their
-  // labels, and the rest goes between TIMMY's name and the first tab (the same whichever tab is active)
-  const slotRoom = slot ? slot + 1 : 0;
-  const used = lineCells([S(`${brand}${name ? `${sep}${name}` : ''} `)]) + tabs.reduce((n, t) => n + cellW(t, form), 0) + gap * (tabs.length - 1) + slotRoom;
-  const spare = Math.max(0, width - used);
-  const per = 2 * Math.floor(spare / (2 * tabs.length));
-  const lead = spare - per * tabs.length;
-  const prefixSegs: Seg[] = [S(brand, 'strong'), ...(name ? [S(sep, 'secondary'), S(name, 'strong')] : []), S(' '.repeat(1 + lead))];
-  const prefixW = lineCells(prefixSegs);
-  const half = ' '.repeat(per / 2);
-  const hits: PageHit[] = [];
-  const activeName = tabs.find((t) => t.id === active)?.label ?? '';
-  const slotSegs: Seg[] = slot ? [S(' '), S(cut(activeName, slot, g.ellipsis).padStart(slot), 'focus')] : [];
-  if (rows === 1) {
-    const line: Line = [...prefixSegs];
-    let x = prefixW;
-    tabs.forEach((t, i) => {
-      const on = t.id === active;
-      const label = labelIn(t, form);
-      // (R7 H150: an unfinished tab's ◌ in the cell every tab keeps, where nothing waits there: what waits on you comes first)
-      const mark = t.waiting > 0 ? g.warn : t.unfinished ? unfinishedMark(g) : ' ';
-      const segs: Seg[] = [S(`${on ? '[' : ' '}${half}${label}${half}${on ? ']' : ' '}`, on ? 'focus' : 'text'), S(mark, t.waiting > 0 ? 'attention' : 'secondary')];
-      const w = lineCells(segs);
-      hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: t.id });
-      line.push(...segs);
-      x += w;
-      if (i < tabs.length - 1 && gap) { line.push(S(' ')); x += 1; }
-    });
-    line.push(...slotSegs);
-    return { lines: [line], hits, form };
-  }
-  const top: Line = [S(' '.repeat(prefixW))];
-  const mid: Line = [...prefixSegs];
-  // R7 (H150; the operator's order of 2026-10-16): the unfinished tabs' mark, said in words once under TIMMY where it fits
-  // (each such tab's box carries the mark in its bottom edge, and the word too where its box has room)
-  const legend = `${unfinishedMark(g)} unfinished`;
-  const legendFits = tabs.some((t) => t.unfinished) && prefixW >= lineCells([S(legend)]) + 1;
-  const bot: Line = [legendFits ? S(legend.padEnd(prefixW), 'secondary') : S(' '.repeat(prefixW))];
-  let x = prefixW;
-  tabs.forEach((t, i) => {
-    const on = t.id === active;
-    const b = boxOf(g, on);
-    const edge: Role = on ? 'focus' : 'border';
-    const label = labelIn(t, form);
-    const inner = lineCells([S(label)]) + per;
-    // what waits on you there, in the top edge (one edge cell first where the box has room for it, then ⚠ and the count; ⚠
-    // alone where the count does not fit: a cut number would say another count)
-    const before = inner >= 2 ? 1 : 0;
-    const room = Math.max(0, inner - before);
-    const counted = `${g.warn}${t.waiting}`;
-    const badge = t.waiting <= 0 ? '' : lineCells([S(counted)]) <= room ? counted : lineCells([S(g.warn)]) <= room ? g.warn : '';
-    const badgeW = lineCells([S(badge)]);
-    top.push(...(badge
-      ? [S(`${b.tl}${b.h.repeat(before)}`, edge), S(badge, 'attention'), S(`${b.h.repeat(Math.max(0, inner - before - badgeW))}${b.tr}`, edge)]
-      : [S(`${b.tl}${b.h.repeat(inner)}${b.tr}`, edge)]));
-    mid.push(S(b.v, edge), S(`${half}${label}${half}`, on ? 'focus' : 'text'), S(b.v, edge));
-    if (t.unfinished && inner >= 3) {
-      const word = inner >= lineCells([S(legend)]) + 2 ? legend : unfinishedMark(g);
-      const w = lineCells([S(word)]);
-      bot.push(S(`${b.bl}${b.h}`, edge), S(word, 'secondary'), S(`${b.h.repeat(Math.max(0, inner - 1 - w))}${b.br}`, edge));
-    } else bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
-    hits.push({ x0: x, x1: x + inner + 1, y0: 0, y1: 2, page: t.id });
-    x += inner + 2;
-    if (i < tabs.length - 1 && gap) { for (const l of [top, mid, bot]) l.push(S(' ')); x += 1; }
-  });
-  if (slot) { mid.push(...slotSegs); top.push(S(' '.repeat(slot + 1))); bot.push(S(' '.repeat(slot + 1))); }
-  return { lines: [top, mid, bot], hits, form };
-}
+// (R11 round 7, H177: row 1 is the grouped destinations, drawn by src/workbench/destinations.ts destinationsRow for
+// src/workbench/home-journey.ts headerRows and src/workbench/screen.ts; the ten-tab bar that stood here since R5 is gone with
+// the lead's ruling of 2026-10-24: it was drawn by nothing.)
 
 // ── row 2: the workflow actions ────────────────────────────────────────────────
 

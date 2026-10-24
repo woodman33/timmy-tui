@@ -12,13 +12,15 @@
  * destinations of one page (0): 0 opens the one shown last, 0 again the other.
  *
  * destinationsRow: the header's row in the fullest form that fits the width: the plan's names with their keys and the group
- * labels; the rail's wide names with keys; the rail's short names with keys; the short names alone; the short names with a rule
- * between the groups; the keys alone (one cell a page), grouped by rules, with the shown destination's name in a slot at the
- * row's end. In every form the shown destination is marked "> " and amber (as the rail marks it: one amber active tab), ⚠
- * marks a page where the frame says something waits on you (with its count on the status row), ◌ an unfinished page (the
- * frame's word for it; said in words where the row has room); the brackets stay the buttons'. Every cell keeps its place
- * whichever destination is shown and whatever waits: a form is chosen by the width alone, and a mark's cell is kept on every
- * destination that can carry one.
+ * labels; the rail's wide names with keys and the labels; the rail's short names with keys and the labels; the short names
+ * with keys and a rule between the groups (the lead's ruling of 2026-10-24: the operator works at 122 columns and navigates by
+ * key, so the keys outlast the group labels, which show only where both fit); the short names alone with the rules; the keys
+ * alone (one cell a page), grouped by rules, with the shown destination's name in a slot at the row's end. In every form the
+ * shown destination is marked with the cursor in amber (as the rail marks it: one amber active tab), ⚠ marks a page where
+ * the frame says something waits on you (with its count on the status row), ◌ an unfinished page (the frame's word for it;
+ * said in words where the row has room); the brackets stay the buttons'. Every cell keeps its place whichever destination is
+ * shown and whatever waits: a form is chosen by the width alone, and a mark's cell is kept on every destination that can
+ * carry one.
  */
 import { tabOf, TABS, type TabId, type WorkspaceFrame } from '../contracts/workspace.js';
 import type { Glyphs } from './frame.js';
@@ -122,9 +124,10 @@ export function markOf(r: RailItem, tabs?: WorkspaceFrame['tabs']): CellMark {
 /** The mark of a page that is unfinished (its word beside it where the row has room). */
 export const unfinishedMark = (g: Pick<Glyphs, 'unicode'>): string => (g.unicode ? '◌' : '~');
 
-/** How the destinations are said: the plan's names, the rail's wide or short names, with or without keys, or the keys alone. */
-export type DestForm = 'full' | 'wide' | 'short' | 'words' | 'rules' | 'keys';
-const FORMS: readonly DestForm[] = ['full', 'wide', 'short', 'words', 'rules', 'keys'];
+/** How the destinations are said: the plan's names, the rail's wide or short names with keys and the group labels; the short
+ *  names with keys and rules between the groups (`compact`); the short names alone with the rules; or the keys alone. */
+export type DestForm = 'full' | 'wide' | 'short' | 'compact' | 'rules' | 'keys';
+const FORMS: readonly DestForm[] = ['full', 'wide', 'short', 'compact', 'rules', 'keys'];
 
 /** A destination's cell in a form: a key cell and a name, or the key alone. */
 function cellText(r: RailItem, form: DestForm): string {
@@ -132,8 +135,8 @@ function cellText(r: RailItem, form: DestForm): string {
   switch (form) {
     case 'full': return `${key} ${r.label}`;
     case 'wide': return `${key} ${r.wide}`;
-    case 'short': return `${key} ${r.short}`;
-    case 'words':
+    case 'short':
+    case 'compact': return `${key} ${r.short}`;
     case 'rules': return r.short;
     default: return key;
   }
@@ -190,7 +193,7 @@ export function destinationsRow(a: DestRowAsk): { line: Line; hits: DestHit[]; f
       return out;
     }
     RAIL_GROUPS.forEach((gr, k) => {
-      if (k) out.push(form === 'rules' ? { kind: 'rule' } : { kind: 'label', text: gr.label ?? '' });
+      if (k) out.push(form === 'rules' || form === 'compact' ? { kind: 'rule' } : { kind: 'label', text: gr.label ?? '' });
       for (const r of gr.items) out.push({ kind: 'cell', text: cellText(r, form), r, mark: canMark(r, a.tabs), dests: [r] });
     });
     return out;

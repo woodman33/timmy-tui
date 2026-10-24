@@ -92,6 +92,9 @@ describe('the header (R10 H167; R11 round 7 H177): two rows, exactly the width, 
       // rail's order; the keys stay the pages' (where the form has room for them); no brackets (those are the buttons')
       expect(dests.match(/▸/g) ?? [], `one shown destination at ${width}`).toHaveLength(1);
       expect(dests).toMatch(/▸(?:1 )?Models/);
+      // (the keys with the names down to 120 columns; the group labels only from 134, where both fit)
+      if (width >= 120) expect(dests).toMatch(/▸1 Models/);
+      if (width >= 134) expect(dests).toContain('WORK'); else expect(dests).not.toContain('WORK');
       expect(dests).not.toMatch(/\[|Home|Fleet/);
       const order = ['Chat', 'Files', 'Workflows', 'Runs', 'Canvas', 'Vision', 'Motion & 3D', 'Models', 'Tools', 'Control'];
       let at = -1;
@@ -107,18 +110,18 @@ describe('the header (R10 H167; R11 round 7 H177): two rows, exactly the width, 
       }
       expect(dests.trimEnd().length, `the row reaches its edge at ${width}`).toBe(width);
     }
-    // the plan's names with the group labels and the keys from 176 columns; the rail's short names with keys at 160; the
-    // short names alone at 122 (the operator's size), with the group labels; rules between the groups at 100; the legend
-    // where the row has room for it
+    // the plan's names with the group labels and the keys from 176 columns; the rail's short names with keys and the labels at
+    // 160; the short names with keys and a rule between the groups at 122 (the operator's size: the keys outlast the group
+    // labels, the lead's ruling); the short names alone with the rules at 100; the legend where the row has room for it
     expect(plain(headerRows(data(), 'home', 180, g).lines[1])).toMatch(/^ {2}2 Chat +WORK +0 Files +3 Workflows +0 Runs & receipts ◌ +4 Canvas +CREATE +5 Vision +6 Motion & 3D ◌ +CONNECT ▸1 Models & accounts {4}9 Tools & integrations +7 Control Room ◌$/);
     expect(plain(headerRows(data(), 'home', 160, g).lines[1])).toMatch(/^ {2}2 Chat +WORK +0 Files +3 Workflows +0 Runs ◌ +4 Canvas +CREATE +5 Vision +6 Motion & 3D ◌ +CONNECT ▸1 Models {4}9 Tools +7 Control ◌ +◌ unfinished$/);
-    expect(plain(headerRows(data(), 'home', 122, g).lines[1])).toMatch(/^ {2}Chat +WORK +Files +Workflows +Runs ◌ +Canvas +CREATE +Vision +Motion & 3D ◌ +CONNECT ▸Models {4}Tools +Control ◌$/);
+    expect(plain(headerRows(data(), 'home', 122, g).lines[1])).toMatch(/^ {2}2 Chat +│ +0 Files +3 Workflows +0 Runs ◌ +4 Canvas +│ +5 Vision +6 Motion & 3D ◌ +│ +▸1 Models {4}9 Tools +7 Control ◌$/);
     expect(plain(headerRows(data(), 'home', 100, g).lines[1])).toMatch(/^ {2}Chat +│ +Files +Workflows +Runs ◌ +Canvas +│ +Vision +Motion & 3D ◌ +│ +▸Models {4}Tools +Control ◌$/);
     // Chat shown; a page's second destination (Files, 0 again) shown by its workspace; Fleet & Clef (8) folds under Control Room
     expect(plain(headerRows(data(), 'chat', 180, g).lines[1])).toMatch(/^ ▸2 Chat /);
-    expect(plain(headerRows(data(), 'logs', 122, g, 'files').lines[1])).toMatch(/▸Files +Workflows +Runs ◌/);
-    expect(plain(headerRows(data(), 'logs', 122, g, 'logs').lines[1])).toMatch(/Files +Workflows +▸Runs ◌/);
-    expect(plain(headerRows(data(), 'fleet', 122, g, 'fleet').lines[1])).toMatch(/Tools +▸Control ◌$/);
+    expect(plain(headerRows(data(), 'logs', 122, g, 'files').lines[1])).toMatch(/▸0 Files +3 Workflows +0 Runs ◌/);
+    expect(plain(headerRows(data(), 'logs', 122, g, 'logs').lines[1])).toMatch(/0 Files +3 Workflows +▸0 Runs ◌/);
+    expect(plain(headerRows(data(), 'fleet', 122, g, 'fleet').lines[1])).toMatch(/9 Tools +▸7 Control ◌$/);
     // a short terminal's one row: TIMMY and the project before the grouped keys and the shown destination's name
     const one = destinationsRow({ page: 'workflows', workspace: 'workflows', width: 80, g, prefix: [{ text: 'TIMMY', role: 'strong' }, { text: ' · ', role: 'secondary' }, { text: 'tray', role: 'strong' }] });
     // (no room for the legend beside TIMMY and the project: the shown destination's name ends the row)

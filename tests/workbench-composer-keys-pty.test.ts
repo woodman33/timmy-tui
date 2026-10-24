@@ -119,8 +119,8 @@ describe('keys meant for the Workbench are never sent as a message (R10 H167, H1
     keep('h167-f1-122x37-03-esc', left, 'Tab, x, then Esc: the turn stopped and the composer left');
     expect(left).not.toMatch(/› x/);
     await sendKeys(wb, ['1']);
-    // (R11 round 7, H177: the header's shown destination ▸Models at 122 columns; the body's crumb)
-    await seen(/▸Models[\s\S]*tray \/ Models & accounts/, 10_000);
+    // (R11 round 7, H177: the header's shown destination ▸1 Models at 122 columns; the body's crumb)
+    await seen(/▸1 Models[\s\S]*tray \/ Models & accounts/, 10_000);
     await sendKeys(wb, ['Enter']);
     // Home's next step opens the composer again, empty: nothing typed before is in it
     const again = await seen(/Message[\s\S]*› /, 20_000);

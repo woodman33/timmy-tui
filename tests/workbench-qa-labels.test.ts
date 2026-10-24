@@ -2,7 +2,7 @@
 // them. Pure: no terminal, no network, no file written.
 // - defect 20: Home's OpenRouter card says free-only first, on or off, as the workspace frame's detail has it;
 // - defect 21: `timmy workbench --help` says a disabled action is grey (#8E8E93), never "dim", and the widths at which the tabs
-//   change form are the ones tabBar draws (measured here with a short project name);
+//   change form are the ones destinationsRow draws;
 // - defect 24: the run detail's durations are labelled: the job's or the turn's own, and the operation's, with the time
 //   between them said for what it holds (never said to be a wait on you, which no record keeps apart).
 // FAKE here: the connections and run times are made in this test (no check ran; no job or operation ran).
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { TABS, type WorkspaceConnection } from '../src/contracts/workspace.js';
 import { workbenchHelp } from '../src/workbench/cli.js';
 import { glyphsFor } from '../src/workbench/frame.js';
-import { connectionCard, freeOnlyOf, tabBar, tookWords } from '../src/workbench/hub.js';
+import { connectionCard, freeOnlyOf, tookWords } from '../src/workbench/hub.js';
 import { destinationsRow } from '../src/workbench/destinations.js';
 import type { ViewCtx } from '../src/workbench/views.js';
 
@@ -43,15 +43,13 @@ describe('the QA of e7f853e: three labels (R5 H131)', () => {
     expect(help).not.toMatch(/Under 120 columns/);
     // R11 round 7 (H177): the grouped destinations' forms, at the widths the help names
     expect(help).toContain('their names with their keys and the group names (from 176 columns)');
-    expect(help).toContain('the rail\'s shorter names with keys (163), the short names with keys (134), the short names alone (114, so at 122)');
-    expect(help).toContain('short names with a rule between the groups (100), or the keys alone with the shown destination\'s name (80)');
+    expect(help).toContain('the rail\'s shorter names with keys (163), the short names with keys (134), the short names with keys and a rule');
+    expect(help).toContain('between the groups instead of their names (120, so at 122), the short names alone with the rules (100), or the keys');
+    expect(help).toContain('alone with the shown destination\'s name (80)');
     const tabs = TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) }));
     const form = (width: number) => destinationsRow({ tabs, page: 'home', workspace: 'connections', width, g }).form;
-    expect([form(180), form(176), form(175), form(163), form(162), form(134), form(133), form(122), form(114), form(113), form(100), form(99), form(80), form(60)])
-      .toEqual(['full', 'full', 'wide', 'wide', 'short', 'short', 'words', 'words', 'words', 'rules', 'rules', 'keys', 'keys', 'keys']);
-    // (the ten tabs' bar keeps its own forms; the frame no longer draws it)
-    const bar = (w: number) => tabBar(tabs, 'home', 'tray1', w, 3, g).form;
-    expect([bar(160), bar(155), bar(108)]).toEqual(['full', 'short', 'keys']);
+    expect([form(180), form(176), form(175), form(163), form(162), form(134), form(133), form(122), form(120), form(119), form(100), form(99), form(80), form(60)])
+      .toEqual(['full', 'full', 'wide', 'wide', 'short', 'short', 'compact', 'compact', 'compact', 'rules', 'rules', 'keys', 'keys', 'keys']);
   });
 
   it('defect 24: the job\'s or the turn\'s own time and the operation\'s, each labelled; what lies between is not said to be a wait on you', () => {
