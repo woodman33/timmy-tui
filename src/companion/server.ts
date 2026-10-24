@@ -713,8 +713,14 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       else noteAnswered('companion', what === 'started' ? 'it started listening' : 'its page asked for its frame', env);
     } catch { /* the record cannot be written: the frame says what the last check saw */ }
   };
-  app.get('/api/workspace', withToken, async (req, res) => {
-    const project = projectFor(req);
+  // R11 round 4 (H171; the lead's journey item b): a signed-in page's frame is the USER's project's, read and written under
+  // the user's env (a user's project id is unknown to the operator's follower: it answered 404 twice a poll). The user
+  // scope is wired once the identity is mounted (below): until then, and for the operator, the follower's project.
+  let userScope: express.RequestHandler = (_req, _res, next) => next();
+  let shownFor = (req: express.Request): import('./workspace.js').ShownProject | null => projectFor(req);
+  const scopedProject: express.RequestHandler = (req, res, next) => userScope(req, res, next);
+  app.get('/api/workspace', withToken, scopedProject, async (req, res) => {
+    const project = shownFor(req);
     if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
     await noteSelf('asked');
     const answer = await workspace.answerFrame(project);
@@ -740,8 +746,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     if (!r.ok) { res.status(409).json({ ok: false, error: `Not stopped: ${r.why}.` }); return; }
     res.json({ ok: true, words: `Stop asked of the turn being answered in ${surfaceWords(r.surface)}: it stops there at once, and its receipt says it was stopped, asked from this page.` });
   });
-  app.post('/api/workspace/prefs', withToken, express.json({ limit: '4kb' }), async (req, res) => {
-    const project = projectFor(req);
+  app.post('/api/workspace/prefs', withToken, scopedProject, express.json({ limit: '4kb' }), async (req, res) => {
+    const project = shownFor(req);
     if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ error: PROJECT_UNKNOWN }); return; }
     const answer = await workspace.answerPrefs(project, req.body);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
@@ -802,6 +808,14 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     if (!u || u.operator) return null;
     const p = userProjectFor(u, identity.envOf(req), req.query.project);
     return p ? { name: p.name, root: p.root, chosen: true } : null;
+  };
+  // the workspace frame and prefs (above): a user's project under the user's env; the operator's as before
+  userScope = withUserOrOperator;
+  shownFor = (req) => {
+    const u = (req as express.Request & { user?: Principal }).user;
+    if (!u || u.operator) return projectFor(req);
+    const p = userProjectOf(req);
+    return p ? { name: p.name, root: p.root, env: identity.envOf(req) } : null;
   };
   // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models,
   // /choose) — for the user's project under the user's env when the request carries a session

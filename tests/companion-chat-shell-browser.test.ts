@@ -298,13 +298,21 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.focus('#cx-input');
       expect(await page.isDisabled('#cx-send')).toBe(false);
       await page.keyboard.press('Enter');
-      await page.waitForSelector('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', { timeout: 60_000 });
+      // the turn streams as this page's own (YOU, then TIMMY with its indicator), and — its receipt sealed and read back —
+      // folds into the project's saved conversation as its newest turn, drawn once. The page's own copy may be gone by the
+      // time this looks, so the end state is the chain's: one more TIMMY turn with the FAKE's answer and a receipt id
+      await page.waitForFunction(() => document.querySelectorAll('#cx-turns .cx-turn.is-timmy').length >= 5 && document.querySelectorAll('#cx-own .cx-turn').length === 0, null, { timeout: 60_000 });
       expect(await page.inputValue('#cx-input')).toBe('');
-      const ownEnd = await page.$eval('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', (e) => `${e.className} · ${e.querySelector('.cx-end')?.textContent ?? ''}`);
-      expect(ownEnd).toMatch(/is-answered/);
-      await page.waitForFunction(() => document.querySelector('#cx-own .cx-spin') === null, null, { timeout: 20_000 });
-      expect(await text(page, '#cx-own .cx-turn.is-answered .cx-text')).toBe('FAKE streamed answer from the test\'s stand-in.');
-      expect(await text(page, '#cx-own .cx-turn.is-answered .cx-evidence')).toMatch(/^▸ fake-qwen3:8b · Ollama on this computer · \d+(\.\d)? s · (receipt [0-9a-f]{8}|no receipt)/);
+      const last = await page.$eval('#cx-turns .cx-turn.is-timmy:last-of-type', (e) => ({ text: (e.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), line: (e.querySelector('.cx-evidence')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
+      expect(last.text).toBe('FAKE streamed answer from the test\'s stand-in.');
+      // the evidence line is the terminal's: model · where · seconds · receipt <8>, the receipt's short id by the terminal's
+      // rule (src/workbench/hub.ts receiptShort: the FIRST 8 hex after sha256_); the page's own copy folded into this turn
+      // because its own id (the same rule) matched — "receipt <8>" names the same receipt on the page and in the terminal
+      expect(last.line).toMatch(/^▸ fake-qwen3:8b · this computer · \d+(\.\d)? s · receipt [0-9a-f]{8}/);
+      // (the fold above is the pin of that rule: the page drops its own copy only when its id, by receiptShort, equals the
+      // chain's ReceiptFacts.id — hash.slice(7, 15) on the server; the last 8 never matched, and the turn was drawn twice)
+      const chainIds = await page.$$eval('#cx-turns .cx-turn.is-timmy .cx-evidence', (els) => els.map((e) => /receipt ([0-9a-f]{8})/.exec(e.textContent ?? '')?.[1] ?? ''));
+      expect(chainIds.at(-1)).toMatch(/^[0-9a-f]{8}$/);
       expect(ollama.chats().at(-1)?.messages?.at(-1)).toMatchObject({ role: 'user', content: 'Sketch the first screen.' });
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
@@ -325,6 +333,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
       expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
       // (R11 step 3: the status row in sentences, as the terminal's)
+      // (the turn sent above may still be counted by the frame for a moment: the row settles within its next read)
+      await page.waitForFunction(() => document.querySelector('#cx-status .is-logs')?.textContent?.trim() === 'Logs stay on this computer', null, { timeout: 20_000 });
       expect(await text(page, '#cx-status .is-logs')).toBe('Logs stay on this computer');
       expect(await page.$eval('#rail-menu .rail-item[data-dest="tools"] .rail-label', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
       expect(await text(page, '#cx-status .cx-st-sync')).toBe('cloud sync off · spend no charge');
@@ -571,8 +581,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.focus('#cm-list .cm-row[data-model="fake-llama:1b"]');
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.getElementById('cx-route-words')?.textContent?.startsWith('Next turn: fake-llama:1b'), null, { timeout: 20_000 });
+      // (the drawer closes and the composer takes the keyboard once the choice's read-back is drawn)
+      await page.waitForFunction(() => !document.getElementById('cx-body')?.classList.contains('models-open') && document.activeElement?.id === 'cx-input', null, { timeout: 10_000 });
       expect(await page.isVisible('#cx-models')).toBe(false);
-      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
       expect(await page.inputValue('#cx-input')).toBe('phone draft');
       expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
       expect(errors).toEqual([]);
