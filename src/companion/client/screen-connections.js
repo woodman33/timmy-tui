@@ -107,9 +107,13 @@
         live.rive[c.id] = r;
         const tr = rive();
         if (tr && typeof tr.mountProviderCard === 'function') {
-          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
+          // RIVE CONTRACT v2 (H174, 14:42): providerName / detail fill the card's ProviderName and ProviderDetail runs (optional; v1 ignores them)
+          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title, providerName: c.title, detail: c.situationWords || '' }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
         }
+      } else if (r.handle && typeof r.handle.setProvider === 'function' && r.detail !== (c.situationWords || '')) {
+        try { r.handle.setProvider({ name: c.title, detail: c.situationWords || '' }); } catch { /* the HTML chip says it */ }
       }
+      r.detail = c.situationWords || '';
       return r.host;
     }
     /** The feed (R11 round 6): one line per state change, the backend's own event as the source — never the card's drawing. */

@@ -98,7 +98,7 @@ window.__unmounted = 0; window.__mounts = [];
     mountProviderCard(host, providerId, o) {
       const root = document.createElement('div'); root.className = 'tr-component'; root.dataset.artboard = 'ProviderCard'; root.dataset.fakeRive = 'ProviderCard'; root.textContent = 'FAKE ProviderCard ' + providerId;
       host.append(root);
-      const handle = { id: 'fake-' + providerId + '-' + window.__mounts.length, component: 'connection', artboard: 'ProviderCard', binds: ['connection:' + providerId], events: [], word: null, root, unmount() { window.__unmounted += 1; const i = handles.indexOf(handle); if (i >= 0) handles.splice(i, 1); root.remove(); } };
+      const handle = { id: 'fake-' + providerId + '-' + window.__mounts.length, component: 'connection', artboard: 'ProviderCard', binds: ['connection:' + providerId], events: [], word: null, root, provider: { name: o && o.providerName, detail: o && o.detail }, setProvider(p) { handle.provider = Object.assign({}, p); window.__setProvider = (window.__setProvider || []).concat([{ providerId, p }]); }, unmount() { window.__unmounted += 1; const i = handles.indexOf(handle); if (i >= 0) handles.splice(i, 1); root.remove(); } };
       handles.push(handle); window.__mounts.push({ providerId, o: o || null });
       return handle;
     },
@@ -254,10 +254,10 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     // once per card through TimmyRive.mountProviderCard(host, id, { size: 'wide', label }) (the FAKE's marker stands in the host)
     const hosts = await page.locator('.cn-card > .cn-rive').evaluateAll((els) => els.map((e) => ({ id: e.getAttribute('data-rive-host'), card: e.closest('.cn-card')?.getAttribute('data-provider'), next: e.nextElementSibling?.className ?? '', marker: e.querySelector('[data-fake-rive="ProviderCard"]')?.textContent ?? '' })));
     expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, card: id, next: expect.stringContaining('cn-card-state'), marker: `FAKE ProviderCard ${id}` })));
-    type Mount = { providerId: string; o: { size?: string; label?: string } | null };
+    type Mount = { providerId: string; o: { size?: string; label?: string; providerName?: string; detail?: string } | null };
     expect(await page.evaluate(() => (window as unknown as { __mounts: Mount[] }).__mounts)).toEqual([
-      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local' } },
-      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare' } }]);
+      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter', providerName: 'OpenRouter', detail: 'No account' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local', providerName: 'Ollama · local', detail: 'No downloaded model' } },
+      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud', providerName: 'Ollama · cloud', detail: 'No account' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare', providerName: 'Cloudflare', detail: 'No account' } }]);
     // the feed: the first draw fed each card's state ONCE, the backend's event as the source (never the card's drawing)
     type Handle = { id: string; binds: string[]; events: Array<{ input: string; value: string; source: string }>; word: string | null };
     const inspect = () => page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Handle[] } }).TimmyRive.inspect());
@@ -294,6 +294,8 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect([after[0], after[1], after[3]].map((x) => x.events.length)).toEqual([1, 1, 1]);
     expect(await page.locator('.cn-card-ollama-cloud > .cn-rive [data-fake-rive="ProviderCard"]').count()).toBe(1);
     expect(await page.evaluate(() => (window as unknown as { __mounts: unknown[] }).__mounts.length)).toBe(4);
+    // RIVE CONTRACT v2's optional setProvider: the card's detail run follows the situation (No account → Existing setup), once per change
+    expect(await page.evaluate(() => (window as unknown as { __setProvider: Array<{ providerId: string; p: { name: string; detail: string } }> }).__setProvider)).toEqual([{ providerId: 'ollama-cloud', p: { name: 'Ollama · cloud', detail: 'Existing setup' } }]);
     // the cloud card's situation moved: an existing setup now, its verb "Check again"; the band's Model cell follows the route
     // (this FAKE user's route stays not ready: no model chosen), so the head's primary stays "Set up a model"
     expect(await page.locator('.cn-card-ollama-cloud').getAttribute('data-situation')).toBe('existing');
