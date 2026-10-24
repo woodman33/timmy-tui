@@ -106,9 +106,9 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.click('#rail-menu .rail-item[data-shell-go="connections"]');
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('connections');
-      await page.waitForSelector('#screen-connections .cx-card', { timeout: 20_000 });
+      await page.waitForSelector('#screen-connections .cn-card', { timeout: 20_000 });
       expect(await text(page, '#screen-connections h1')).toBe('Choose how you want to run.');
-      expect(await page.$$eval('#screen-connections .cx-card', (els) => els.length)).toBe(4);
+      expect(await page.$$eval('#screen-connections .cn-card', (els) => els.length)).toBe(4);
       await page.click('#screen-connections button:has-text("Explore without a model")');
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       expect(await page.isVisible('#screen-chat')).toBe(true);
