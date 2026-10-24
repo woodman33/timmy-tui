@@ -1,7 +1,8 @@
 /**
  * R11 round 5 (H172): capture points for the journey tests — inert unless the env TIMMY_JOURNEY_CAPS names a folder. Each
  * capture is one viewport screenshot (`<size>-<NN>-<step>.png`, numbered per size) with a sibling `.txt` naming the revision,
- * the size, the step, what is REAL and what is FAKE in the picture, and that nothing animates (no .riv in this installation).
+ * the size, the step, what is REAL and what is FAKE in the picture, and what animates or not (each suite's own line: the
+ * operator's timmy-ui.riv is gitignored, so a checkout draws the Rive components only when the file is beside its source).
  * No assertion lives here: a capture that fails leaves the test's verdict alone.
  */
 import { execFileSync } from 'node:child_process';
@@ -59,7 +60,6 @@ export function capturer(suite: string, common: string[]): Capturer {
           ...common,
           ...facts,
           ...(revealed ? [revealed] : []),
-          'Nothing animates in this picture: no .riv is in this installation (the Rive source files only); every state is the word beside its component.',
           'Scripted test run, not a person: the clicks and the typed words are the test\'s.',
           '',
         ].join('\n'));
