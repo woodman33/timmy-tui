@@ -16,7 +16,7 @@
 import type { Browser, Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { opsKit } from './helpers/ops-sandbox.js';
-import { browserPath, closeProject, launchBrowser, openPage, pageProject, showTab, SIZES, TAB_KEYS, type PageProject } from './helpers/companion-page-kit.js';
+import { browserPath, closeProject, launchBrowser, openPage, pageProject, showTab, SIZES, TAB_KEYS, type PageProject, landWorkspace } from './helpers/companion-page-kit.js';
 
 if (!browserPath) console.warn('companion-amber-fit-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
 
@@ -118,6 +118,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
         const { context, page, errors } = await openPage(browser, p, size);
         try {
           await page.goto(`${p.origin}/?tab=home#t=${p.token}`);
+          await landWorkspace(page);
           await page.waitForSelector('#ws-actions .act', { timeout: 30_000 });
           await page.waitForFunction(() => document.querySelectorAll('#home-preview [data-home-image] img').length === 2, null, { timeout: 30_000 });
           for (const [key, id] of TAB_KEYS) {

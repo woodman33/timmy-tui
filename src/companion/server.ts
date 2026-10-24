@@ -124,7 +124,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
-import { companionHeaders, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountMark, mountRive, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
@@ -164,8 +164,9 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
 // R6 lead: the tab panels' page code (panels.js, the registry; panel-studio.js, panel-vox.js and panel-tools.js, each panel's own drawing)
 // R6 (H144): panel-run.js, the Workflows tab's run detail
 // R10 CHAT (H171): chat-shell.js and chat-shell.css, the shell's left menu and the Chat composition
-// R11 round 4 (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'account.js', 'account.css', 'account-callback.js'] as const;
+// R11 round 4 (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper;
+// (H171): shell.js, the journey's three screens and what they share (window.TimmyShell)
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'account.js', 'account.css', 'account-callback.js', 'shell.js'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -427,6 +428,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files, at /web/fonts/
   // before the built web code's own (src/companion/page.ts)
   mountTheme(app);
+  // R11 round 4 (H171, step 3): the Rive runtime and the T mark's files, from this computer (no CDN)
+  mountRive(app);
+  mountMark(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)

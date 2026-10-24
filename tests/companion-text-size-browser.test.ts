@@ -13,7 +13,7 @@
 import type { Browser } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { opsKit } from './helpers/ops-sandbox.js';
-import { browserPath, closeProject, launchBrowser, openPage, pageProject, showTab, SIZES, smallText, TAB_KEYS, type PageProject, type SmallText } from './helpers/companion-page-kit.js';
+import { browserPath, closeProject, launchBrowser, openPage, pageProject, showTab, SIZES, smallText, TAB_KEYS, type PageProject, type SmallText, landWorkspace } from './helpers/companion-page-kit.js';
 
 if (!browserPath) console.warn('companion-text-size-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
 
@@ -35,6 +35,7 @@ describe.skipIf(!browserPath)('the companion\'s text is 11 px or more on every s
         const { context, page, errors } = await openPage(browser, p, size);
         try {
           await page.goto(`${p.origin}/?tab=home#t=${p.token}`);
+          await landWorkspace(page);
           await page.waitForSelector('#ws-actions .act', { timeout: 30_000 });
           // Home's newest images drawn (the run's and the newest VoxVision record's)
           await page.waitForFunction(() => document.querySelectorAll('#home-preview [data-home-image] img').length === 2, null, { timeout: 30_000 });
@@ -59,6 +60,7 @@ describe.skipIf(!browserPath)('the companion\'s text is 11 px or more on every s
           await page.keyboard.press('Escape');
           // the run detail opened by its address (as a Workbench or Studio link names it), with the page's token
           await page.goto(`${p.origin}/run/${p.op}#t=${p.token}`);
+          await landWorkspace(page);
           await page.waitForSelector(`#run-detail .run-view[data-operation="${p.op}"][data-inspected="true"]`, { timeout: 30_000 });
           small[`${at} the run detail /run/${p.op}`] = await smallText(page);
           expect(errors, at).toEqual([]);

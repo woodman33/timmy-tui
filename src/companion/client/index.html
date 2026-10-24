@@ -32,25 +32,44 @@
        until the frame arrives. -->
   <a class="skip-link" href="#ws-main">Skip to the workspace</a>
 
+  <!-- R11 round 4 (H171): the journey's three screens (src/companion/client/shell.js, window.TimmyShell): the account screen
+       (H173's account.js draws it), the connections screen (H170's screen-connections.js draws it) and the chat screen, which is
+       the shell below (the rail and the page). The shell lands on one by its rule (account when no identity provider is
+       configured or no session; connections when signed in with no route; chat otherwise); the others are hidden. -->
+  <section class="sh-screen" id="screen-account" data-screen="account" aria-label="Account" hidden></section>
+  <section class="sh-screen" id="screen-connections" data-screen="connections" aria-label="Connections" hidden></section>
+  <div class="sh-screen sh-screen-chat" id="screen-chat" data-screen="chat" hidden>
+
   <!-- R10 CHAT CHECKPOINT (H171; the operator's order of 2026-10-22, 16:01 PT: "LEFT: permanent navigation, project
        selector/New project, Chat first"): the shell's left menu, beside every destination. Each item opens one of this page's
        destinations (the workspace's tabs, as their keys do); an item this page does not have says where it opens. The words
        below are what the menu shows until the companion answers (src/companion/client/chat-shell.js draws the rest). -->
   <aside class="rail" id="shell-rail" aria-label="Timmy">
-    <div class="rail-brand"><span class="rail-name">TIMMY</span><span class="rail-sub">browser companion</span></div>
+    <!-- R11 round 4 (H171; the preview's rail, captures 04/05): the mark, WORKSPACE with the project box and New conversation,
+         then Chat, WORK, CREATE, CONNECT, and the account at the bottom -->
+    <div class="rail-brand"><span class="sh-mark" aria-hidden="true"><canvas data-timmy-mark></canvas><span class="sh-mark-text">T</span></span><span class="rail-name">TIMMY</span></div>
     <div class="rail-scroll">
-      <div class="rail-sec" id="rail-project-label">Project</div>
+      <div class="rail-sec" id="rail-project-label">Workspace</div>
       <button type="button" class="rail-project" id="rail-project" aria-haspopup="true" aria-expanded="false" aria-controls="rail-project-menu" aria-describedby="rail-project-label">
-        <span aria-hidden="true">▭</span><span class="rail-project-name" id="rail-project-name">not known yet</span><span aria-hidden="true">▾</span>
+        <span class="rail-project-name" id="rail-project-name">not known yet</span><span aria-hidden="true">⌄</span>
       </button>
       <div class="rail-project-menu" id="rail-project-menu" hidden></div>
-      <button type="button" class="rail-new" id="rail-new" aria-expanded="false" aria-controls="rail-new-note"><span aria-hidden="true">+</span> New project</button>
+      <button type="button" class="rail-new" id="rail-new" aria-expanded="false" aria-controls="rail-new-note" hidden><span aria-hidden="true">+</span> New project</button>
       <p class="rail-note" id="rail-new-note" hidden></p>
+      <button type="button" class="rail-new rail-new-conv" id="rail-new-conv" title="Starts a new conversation on this page: the composer cleared, the page’s own turns put away (the project’s saved conversation stays)"><span aria-hidden="true">+</span> New conversation</button>
       <div class="rail-find-box" id="rail-find-box" hidden><label class="rail-find-label" for="rail-find">Find</label><input class="rail-find" id="rail-find" type="search" autocomplete="off" placeholder="A destination’s name…" aria-describedby="rail-find-hint"><span class="rail-find-hint" id="rail-find-hint">Enter opens the first · Esc clears</span></div>
       <nav class="rail-menu" id="rail-menu" aria-label="Destinations"></nav>
       <p class="rail-away-note" id="rail-away-note" role="status" hidden></p>
     </div>
-    <div class="rail-foot" id="rail-foot"><button type="button" class="rail-foot-btn" id="rail-help" aria-controls="cx-drawer"><kbd>?</kbd> Help</button><button type="button" class="rail-foot-btn" id="rail-find-btn" aria-expanded="false" aria-controls="rail-find-box"><kbd>/</kbd> find</button></div>
+    <div class="rail-foot" id="rail-foot">
+      <div class="rail-foot-keys"><button type="button" class="rail-foot-btn" id="rail-help" aria-controls="cx-drawer"><kbd>?</kbd> Help</button><button type="button" class="rail-foot-btn" id="rail-find-btn" aria-expanded="false" aria-controls="rail-find-box"><kbd>/</kbd> find</button></div>
+      <!-- the account (H173's session: the user's name; sign-out); without one, said so -->
+      <div class="rail-account" id="rail-account" data-signed="no">
+        <span class="rail-avatar" id="rail-avatar" aria-hidden="true">T</span>
+        <span class="rail-account-words"><strong class="rail-account-name" id="rail-account-name">Not signed in</strong><small class="rail-account-sub" id="rail-account-sub">this companion’s own workspace</small></span>
+        <button type="button" class="rail-foot-btn rail-signout" id="rail-signout" hidden>Sign out</button>
+      </div>
+    </div>
   </aside>
 
   <div class="shell-main" id="shell-main">
@@ -158,26 +177,30 @@
            /api/chat/models); BOTTOM the conversation's controls and the status line. chat-shell.js draws it; the words below
            are what it shows until the companion answers. -->
       <div class="cx" id="cx">
+        <!-- R11 round 4 (H171; the preview's chat, captures 04/05/09): the top line "<project> / Chat", Connections, the state
+             words; the conversation with the welcome until the first turn; the line above the composer; the composer; the
+             bottom row; the right panel's Models and Tools -->
         <header class="cx-top">
           <button type="button" class="cx-key cx-menu" id="cx-menu" aria-expanded="false" aria-controls="shell-rail">Menu</button>
-          <div class="cx-crumb"><span aria-hidden="true">▭</span><span class="cx-proj" id="cx-proj">project not known yet</span><span class="cx-sep" aria-hidden="true">/</span><span class="cx-here">Chat</span></div>
-          <span class="cx-saved" id="cx-saved">Local records</span>
+          <div class="cx-crumb"><span class="cx-proj" id="cx-proj">project not known yet</span><span class="cx-sep" aria-hidden="true">/</span><span class="cx-here">Chat</span></div>
+          <span class="cx-saved" id="cx-saved" hidden>Local records</span>
           <div class="cx-top-right">
             <span class="cx-socket" id="cx-socket" role="status">connecting</span>
+            <span class="cx-state-words" id="cx-state-words">Local logs · cloud sync off</span>
+            <button type="button" class="cx-key" id="cx-connections" data-shell-go="connections">Connections</button>
             <button type="button" class="cx-key" id="cx-keys" aria-expanded="false" aria-controls="cx-drawer">Keys <kbd>?</kbd></button>
             <button type="button" class="cx-key" id="cx-models-toggle" aria-pressed="true" aria-controls="cx-models" aria-keyshortcuts="m">Models <kbd>M</kbd></button>
           </div>
         </header>
         <div class="cx-body" id="cx-body">
           <section class="cx-center" aria-label="Conversation">
+            <div class="cx-descriptor" id="cx-descriptor"><span><strong class="cx-descriptor-k">Agent chat</strong> <span id="cx-sub">Think, make and check your work.</span></span><span class="cx-descriptor-right"><span class="cx-tag" id="cx-tag" hidden></span><span class="cx-descriptor-state" id="cx-descriptor-state">Local logs · cloud sync off</span></span></div>
             <div class="cx-scroll" id="cx-scroll" tabindex="-1">
-              <div class="cx-head">
+              <div class="cx-head" id="cx-head" hidden>
                 <div class="cx-head-words">
                   <p class="cx-kicker" id="cx-kicker">Chat</p>
                   <h2 class="cx-title" id="cx-title">The project’s conversation</h2>
-                  <p class="cx-sub" id="cx-sub">Reading the project’s saved conversation…</p>
                 </div>
-                <span class="cx-tag" id="cx-tag" hidden></span>
               </div>
               <ol class="cx-turns" id="cx-turns" aria-label="The project’s saved conversation"></ol>
               <div id="cx-own" class="cx-own" aria-live="polite"></div>
@@ -185,28 +208,27 @@
               <div class="cx-running-box" id="cx-running" role="status" hidden></div>
             </div>
             <p class="cx-note" id="cx-note" role="status" hidden></p>
-            <div class="cx-route" id="cx-route" role="status"><span aria-hidden="true">⚙</span><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span><button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
+            <div class="cx-route" id="cx-route" role="status"><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span><button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
             <form class="cx-composer" id="cx-composer" autocomplete="off">
-              <label for="cx-input" class="cx-input-k">Message</label>
+              <label for="cx-input" class="cx-input-k visually-hidden">Message Timmy</label>
               <div class="cx-field">
-                <span class="cx-prompt" aria-hidden="true">›</span>
-                <textarea id="cx-input" class="cx-input" rows="1" placeholder="Message TIMMY…" aria-describedby="cx-hint-keys cx-send-why"></textarea>
+                <textarea id="cx-input" class="cx-input" rows="1" placeholder="Message Timmy…" aria-describedby="cx-hint-keys cx-send-why"></textarea>
               </div>
               <div class="cx-compose-foot">
-                <button type="button" class="cx-foot-btn" data-cx-ctl="attachments"><span aria-hidden="true">⎘</span> Attach</button>
-                <button type="button" class="cx-foot-btn" data-cx-ctl="tools"><span aria-hidden="true">⚒</span> Tools <span id="cx-tools-n">0</span></button>
+                <button type="button" class="cx-foot-btn" data-cx-ctl="attachments"><span aria-hidden="true">+</span> Attach</button>
+                <button type="button" class="cx-foot-btn" id="cx-tools-btn" data-cx-panel="tools"><span aria-hidden="true">⌘</span> Tools <span id="cx-tools-n" hidden>0</span></button>
                 <span class="cx-send-why" id="cx-send-why" role="status"></span>
-                <button type="button" class="cx-chip" id="cx-chip" aria-controls="cx-models" title="The next turn’s model: opens Models"><span class="cx-dot" id="cx-dot" data-state="unknown" aria-hidden="true">●</span><span class="cx-chip-words" id="cx-chip-words">reading…</span></button>
-                <button type="submit" class="cx-send" id="cx-send" disabled>Send <span aria-hidden="true">↑</span></button>
+                <button type="button" class="cx-chip" id="cx-chip" aria-controls="cx-models" title="The next turn’s model: opens Models" hidden><span class="cx-dot" id="cx-dot" data-state="unknown" aria-hidden="true">●</span><span class="cx-chip-words" id="cx-chip-words">reading…</span></button>
+                <button type="submit" class="cx-send" id="cx-send" aria-label="Send message" disabled><span aria-hidden="true">↑</span></button>
               </div>
             </form>
-            <p class="cx-hint"><span id="cx-hint-draft">Your draft stays on this page until you send it.</span><span id="cx-hint-keys">Enter sends · Ctrl+J newline</span></p>
+            <p class="cx-hint"><span id="cx-hint-draft">Messages and records stay local unless you choose cloud services.</span><span id="cx-hint-keys">Enter to send · Shift + Enter for a new line</span></p>
           </section>
-          <aside class="cx-models" id="cx-models" aria-label="Models"></aside>
+          <aside class="cx-models" id="cx-models" aria-label="Models and tools"></aside>
         </div>
         <div class="cx-controls" id="cx-controls" role="toolbar" aria-label="This conversation’s controls"></div>
         <div class="cx-drawer" id="cx-drawer" role="region" aria-labelledby="cx-drawer-title" hidden></div>
-        <footer class="cx-status" id="cx-status" role="status"></footer>
+        <footer class="cx-status" id="cx-status" role="status" hidden></footer>
       </div>
       <!-- R10 CHAT (H171): the older views of this page, below the composition (the page scrolls to them; Logs › Show the
            turn mirror goes there): the turn mirror of every surface and this page's Streamdown view -->
@@ -531,6 +553,7 @@
     <ol id="ws-activity-list" class="activity-list"><li class="empty">Reading the workspace…</li></ol>
   </section>
   </div>
+  </div><!-- /screen-chat -->
 
   <!-- R11 round 4 (H173): on /account/callback only, the launch token back into the address before companion.js reads it -->
   <script src="/account-callback.js"></script>
@@ -545,6 +568,11 @@
   <!-- R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts) -->
   <script src="/panel-run.js"></script>
   <script src="/companion.js"></script>
+  <!-- R11 round 4 (H171): the shell's screens and what they share (window.TimmyShell), before the screens' own scripts -->
+  <script src="/shell.js"></script>
+  <!-- R11 round 4 (H171, step 3): the Rive runtime (@rive-app/canvas, served by the companion from node_modules at /vendor/rive/;
+       no CDN) for the T mark; where it is not served, the text mark stays -->
+  <script src="/vendor/rive/rive.js"></script>
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
   <!-- R11 round 4 (H173): the account screen (Clerk's flows; the session this companion verifies), drawn into #screen-account -->

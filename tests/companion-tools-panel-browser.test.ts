@@ -19,6 +19,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { fixtureServer } from '../src/mcp/inspector.js';
 import { readChain, verifyReceiptIn } from '../src/utils/receipts.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -55,6 +56,7 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     page = await browser.newPage({ viewport: { width: 1376, height: 768 } });
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(companion.url);
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
   }, LONG);
   // the calls of one test are read back in the next: the project's own store, not the per-test one (tests/isolation-setup.ts)

@@ -1563,3 +1563,69 @@ body.slate-absent p { max-width: 72ch; }
   .control-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; flex: none; }
   .control-pane { min-height: 9em; }
 }
+
+/* ---------- R11 round 4 (H171): the shell's shared classes, for the journey's screens (shell.js TimmyShell.tokens) ----------
+   Black ground, structure greys, amber for focus and the ONE primary next step, green (.is-live) only for an observed fact.
+   The account screen (H173) and the connections screen (H170) draw with these; no screen brings a palette of its own. */
+.sh-screen { height: 100vh; overflow-y: auto; background: var(--timmy-ground); color: var(--timmy-text); }
+.sh-screen-chat { overflow: hidden; }
+.sh-screen[hidden] { display: none !important; }
+.sh-screen:not(.sh-screen-chat) { display: flex; flex-direction: column; }
+/* the onboarding header: the mark, the three steps, words at the right */
+.sh-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 86px; padding: 0 48px; border-bottom: 1px solid var(--timmy-line); }
+.sh-head-brand { display: inline-flex; align-items: center; gap: 12px; font-size: 22px; font-weight: var(--timmy-weight-heading); letter-spacing: 0.02em; color: var(--timmy-text); }
+.sh-steps { display: flex; gap: 28px; font-size: 13px; color: var(--timmy-text-secondary); }
+.sh-step { display: inline-flex; align-items: baseline; gap: 8px; }
+.sh-step b { font-weight: var(--timmy-weight-body); font-size: 11px; letter-spacing: 0.1em; }
+.sh-step.is-current { color: var(--timmy-accent); }
+.sh-head-words { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; white-space: nowrap; }
+.sh-foot { display: flex; justify-content: space-between; gap: 16px; padding: 18px 48px; margin-top: auto; font-size: 13px; color: var(--timmy-text-secondary); }
+.sh-main { flex: 1; width: 100%; max-width: 1240px; margin: 0 auto; padding: 36px 48px; }
+/* a well: the account panel, a provider card; chosen = the amber border (a selection, never a state) */
+.sh-card { padding: 28px; border: 1px solid var(--timmy-line-strong); border-radius: 6px; background: var(--timmy-surface); }
+.sh-card.is-chosen { border-color: var(--timmy-accent); }
+.sh-card h2 { font-size: 22px; font-weight: var(--timmy-weight-heading); color: var(--timmy-text); }
+.sh-sub { margin-top: 6px; font-size: 14px; color: var(--timmy-text-secondary); }
+/* a field: the label over its input */
+.sh-field { display: block; margin-top: 14px; font-size: 14px; color: var(--timmy-text); }
+.sh-field-k { display: block; margin-bottom: 6px; }
+.sh-input, .sh-select { display: block; width: 100%; min-height: 44px; padding: 10px 14px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; background: var(--timmy-raised); color: var(--timmy-text); font-size: 14px; }
+.sh-input::placeholder { color: var(--timmy-text-secondary); }
+.sh-input:focus-visible, .sh-select:focus-visible, .sh-btn:focus-visible, .sh-btn-primary:focus-visible, .sh-btn-text:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+/* the buttons: ONE primary (amber fill) per screen; secondary with the structure border; text (underlined) */
+.sh-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 10px 22px; border: 1px solid var(--timmy-accent); border-radius: 4px; background: var(--timmy-accent); color: var(--timmy-accent-ink); font-size: 14px; font-weight: var(--timmy-weight-strong); cursor: pointer; }
+.sh-btn-primary:disabled { border-color: var(--timmy-line-strong); background: transparent; color: var(--timmy-text-secondary); cursor: not-allowed; }
+.sh-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; background: transparent; color: var(--timmy-text); font-size: 14px; font-weight: var(--timmy-weight-strong); cursor: pointer; }
+.sh-btn:hover { border-color: var(--timmy-text-secondary); }
+.sh-btn:disabled { color: var(--timmy-text-secondary); cursor: not-allowed; }
+.sh-btn.is-small, .sh-btn-primary.is-small { min-height: 32px; padding: 4px 12px; font-size: 13px; }
+.sh-btn.is-wide, .sh-btn-primary.is-wide { width: 100%; }
+.sh-btn-text { padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.sh-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; }
+/* the tiny uppercase label, the state word, the fine print, the divider */
+.sh-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.sh-state { font-size: 13px; color: var(--timmy-text-secondary); }
+.sh-state.is-live { color: var(--timmy-live); }
+.sh-state.is-attn { color: var(--timmy-accent); }
+.sh-note { font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.sh-error { color: var(--timmy-text); }
+.sh-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 6px; font-size: 13px; color: var(--timmy-text-secondary); }
+.sh-divider::before, .sh-divider::after { content: ''; flex: 1; border-top: 1px solid var(--timmy-line); }
+/* the toast: one line at the bottom; green only with .is-live */
+.sh-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 60; max-width: min(640px, calc(100vw - 32px)); padding: 10px 16px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; background: var(--timmy-surface); color: var(--timmy-text); font-size: 13px; }
+.sh-toast.is-live { border-color: var(--timmy-live); }
+/* the T mark: a canvas (the Rive mark, when its runtime and file are here) over the text mark it falls back to */
+.sh-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--timmy-line-strong); border-radius: 6px; background: var(--timmy-ground); color: var(--timmy-accent); font-size: 22px; font-weight: var(--timmy-weight-heading); }
+.sh-mark canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sh-mark canvas:not([data-loaded]) { visibility: hidden; }
+.sh-mark canvas[data-loaded] + .sh-mark-text { visibility: hidden; }
+.sh-mark.is-big { width: 72px; height: 72px; font-size: 40px; border-radius: 10px; }
+.sh-fallback { max-width: 560px; margin: 48px auto; }
+.sh-fallback .sh-note { margin-top: 10px; }
+@media (max-width: 720px) {
+  .sh-head { min-height: 68px; padding: 0 16px; }
+  .sh-steps { display: none; }
+  .sh-main { padding: 20px 16px; }
+  .sh-foot { padding: 14px 16px; flex-wrap: wrap; }
+  .sh-card { padding: 20px; }
+}

@@ -51,6 +51,12 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/client/account.js',
   'src/companion/client/account.css',
   'src/companion/client/account-callback.js',
+  // R11 round 4 (H171): the journey's shell (the three screens, window.TimmyShell)
+  'src/companion/client/shell.js',
+  // R11 round 4 (H171, step 3): the T mark's Rive source (a proposed mark; the .riv is placed beside them when built)
+  'src/companion/assets/mark/scene.rml',
+  'src/companion/assets/mark/rive.yaml',
+  'src/companion/assets/mark/README.md',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).
