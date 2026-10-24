@@ -160,9 +160,11 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
   const cwd = ctx.cwd ?? process.cwd();
   const surface: ChatSurface = ctx.surface ?? 'workbench';
   const page = surface === 'companion';
-  const tools: JourneyRoute['tools'] = page ? 'none' : 'gated';
-  const conversation: JourneyRoute['conversation'] = page ? 'this page' : 'project';
-  const receipt = !page;
+  // R11 round 4 (H169; contract C3): the companion's turn is the real one (src/companion/chat-run.ts): the project's conversation,
+  // the agent's tools gated at NEEDS YOU, a receipt sealed, like every other surface's; its words stay the page's own label
+  const tools: JourneyRoute['tools'] = 'gated';
+  const conversation: JourneyRoute['conversation'] = 'project';
+  const receipt = true;
   const keyFrom = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
   if (ctx.fake) {
     return {

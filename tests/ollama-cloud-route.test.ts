@@ -104,7 +104,7 @@ describe('the route on every surface this owner has', () => {
   it('the companion page: its label names the route, its words say the terms, never free or no charge; local-only turns Send off with the sentence', () => {
     setUp(CLOUD);
     const page = pageRoute(env(), box);
-    expect(page).toMatchObject({ kind: 'local', ready: true, model: CLOUD, cloud: true, label: 'ollama cloud · fake-kimi:cloud · this page\'s own chat · no tools' });
+    expect(page).toMatchObject({ kind: 'local', ready: true, model: CLOUD, cloud: true, label: 'ollama cloud · fake-kimi:cloud · the project\'s conversation' });
     expect(page.words).toContain(`Its name says cloud: it ${OLLAMA_CLOUD_TERMS}. Ollama sends the chat off this computer, and no cost comes back (unknown).`);
     expect(page.words).not.toMatch(/No charge|free/);
     const off = pageRoute({ ...env(), TIMMY_CHAT_LOCAL_ONLY: '1' }, box);

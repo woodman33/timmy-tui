@@ -130,7 +130,7 @@ import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
 import { projectId, type ActiveProject } from '../project/index.js';
 import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
-import { openRouterKey, pageRoute, streamLocalChat } from './chat-route.js';
+import { pageRoute } from './chat-route.js';
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
 // R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
 import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
@@ -145,8 +145,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // R11 (H169, Phase 0 item 2): the /chat proxy's OpenRouter model is the route's (pageRoute: the model chosen in the settings,
 // the same the Workbench's Models chose); with none chosen the route is not ready and nothing is sent. No fixed model here.
-/** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
-const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 
 /** R4 (H84): the subprotocol the server selects (a page offers it beside its token). */
 export const COMPANION_PROTOCOL = 'timmy-companion';
@@ -182,7 +180,11 @@ export interface CompanionOptions {
   lan?: boolean;
   /** R4 (H84): the token (64 hex), a test's or a lane's; made at random when absent. */
   token?: string;
-  /** R4 (H84): the chat completions address /chat sends to (a test's FAKE on 127.0.0.1); OpenRouter's when absent. */
+  /**
+   * R4 (H84): the chat completions address the legacy POST /chat sent to. R11 round 4 (H169): that route is removed and no
+   * route reads this; it stays this round only so the callers that still pass it compile (their chat goes through the real
+   * turn, POST /api/chat/turn, which asks no upstream of its own: the agent's route does). Nothing is sent to it.
+   */
   upstream?: string;
   /** R11 Phase 2 (H171): the inventory the Tools & integrations cards show (a test's FAKE rows, in the capability inventory's
    *  shape) with how it was read; absent: src/capabilities inventory({ env, cwd }) for the project (files, settings and
@@ -289,7 +291,6 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R4 (H84): this computer's own network addresses, answered only with --lan; the token, made now
   const lan = options.lan ? lanAddresses() : [];
   const key = new LocalToken(options.token);
-  const chatUrl = options.upstream ?? OPENROUTER_CHAT;
   const refusedHere = (req: IncomingMessage): { status: 401 | 403; words: string } | null => {
     if (!isLocalRequest(req, lan)) return { status: 403, words: COMPANION_FOREIGN };
     if (key.inAddress(req.url)) return { status: 401, words: TOKEN_IN_ADDRESS };
@@ -635,164 +636,10 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     res.set('Cache-Control', 'no-store').json(pageRoute(chatEnv(), process.cwd()));
   });
 
-  /**
-   * POST /chat — TMX P3 streaming chat proxy.
-   * Accepts JSON { message: string } or { messages: [{ role, content }] },
-   * proxies a streaming OpenRouter chat completion (the model chosen in the settings: pageRoute; none chosen, nothing is sent)
-   * and relays it to the browser as Server-Sent Events:
-   *   event: delta  — JSON-encoded text chunk
-   *   event: usage  — token usage object (when OpenRouter reports it)
-   *   event: error  — { error, details? }
-   *   event: done   — { ok: true }
-   * R4 (H84): it spends the operator's credits, so only with the token (checked before the body is read or a key is
-   * looked for); the completion goes to `chatUrl`: OpenRouter, or a test's FAKE (CompanionOptions.upstream).
-   * R4 (H104, second part): on the route the setup chose, read at each request (src/companion/chat-route.ts), said first
-   * (event: route {kind, label}): the local model streams from the recorded Ollama with no tools (event: notice, what the
-   * turn says beside its answer; event: cost, none on this computer's Ollama or unknown with why), never OpenRouter; OpenRouter
-   * with its key as before (the key where the REPL finds it); with no route, an error in words and nothing is sent anywhere.
-   */
-  app.post('/chat', withToken, express.json(), async (req, res) => {
-    const env = chatEnv();
-    // R11 (H169, Phase 0 item 2; the operator's order: "disable an unsafe Send path rather than using an unchosen model"): the
-    // route names the model chosen in the settings, or is none (nothing is sent)
-    const route = pageRoute(env, process.cwd());
-
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    const sendSse = (event: string, data: unknown): void => {
-      if (res.writableEnded || res.destroyed) return;
-      try {
-        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      } catch {
-        // Client disconnected mid-stream; the res 'close' handler aborts upstream
-      }
-    };
-
-    // R4 (H104, second part): the route first; with none, its words and nothing sent anywhere
-    sendSse('route', { kind: route.kind, label: route.label });
-    if (!route.ready) {
-      sendSse('error', { error: route.words, route: route.kind });
-      res.end();
-      return;
-    }
-
-    // Accept { message } or { messages }
-    const body = (req.body || {}) as { message?: unknown; messages?: unknown };
-    let chatMessages: Array<{ role: string; content: string }> = [];
-    if (Array.isArray(body.messages)) {
-      chatMessages = body.messages
-        .filter((m: any) => m && typeof m.content === 'string' && m.content.trim().length > 0)
-        .map((m: any) => ({
-          role: typeof m.role === 'string' && m.role ? m.role : 'user',
-          content: m.content,
-        }));
-    }
-    if (chatMessages.length === 0 && typeof body.message === 'string' && body.message.trim()) {
-      chatMessages = [{ role: 'user', content: body.message.trim() }];
-    }
-    if (chatMessages.length === 0) {
-      sendSse('error', {
-        error: 'POST /chat expects a JSON body of { message: string } or { messages: [{ role, content }] }.'
-      });
-      res.end();
-      return;
-    }
-
-    // Abort the upstream request if the browser goes away.
-    // (Note: res 'close' is the disconnect signal — req 'close' fires as
-    // soon as the request body has been fully received.)
-    const controller = new AbortController();
-    res.on('close', () => {
-      if (!res.writableEnded) controller.abort();
-    });
-
-    // R4 (H104, second part): the local route: the recorded Ollama, no tools, never OpenRouter
-    if (route.kind === 'local') {
-      await streamLocalChat({ route, messages: chatMessages, signal: controller.signal, send: sendSse });
-      try { if (!res.writableEnded) res.end(); } catch { /* socket already gone */ }
-      return;
-    }
-    // the OpenRouter route: its key where the REPL finds it (pageRoute found one a moment ago)
-    const apiKey = openRouterKey(env, process.cwd())?.key;
-    if (!apiKey) {
-      sendSse('error', { error: 'No OpenRouter key is set any more, so nothing was sent. `timmy init` keeps one.', route: 'openrouter' });
-      res.end();
-      return;
-    }
-
-    try {
-      const upstream = await fetch(chatUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ model: route.model, messages: chatMessages, stream: true }),
-        signal: controller.signal,
-      });
-
-      if (!upstream.ok || !upstream.body) {
-        const details = await upstream.text().catch(() => '');
-        sendSse('error', {
-          error: `OpenRouter responded ${upstream.status} for model ${route.model}`,
-          details: details.slice(0, 2000),
-        });
-        res.end();
-        return;
-      }
-
-      const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // OpenRouter speaks SSE; split on blank lines and forward data lines
-        let sep: number;
-        while ((sep = buffer.indexOf('\n\n')) !== -1) {
-          const rawEvent = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-
-          for (const line of rawEvent.split('\n')) {
-            if (!line.startsWith('data:')) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === '[DONE]') continue;
-            try {
-              const chunk = JSON.parse(payload);
-              const delta = chunk?.choices?.[0]?.delta?.content;
-              if (typeof delta === 'string' && delta.length > 0) {
-                sendSse('delta', delta);
-              }
-              if (chunk?.usage) {
-                sendSse('usage', chunk.usage);
-              }
-            } catch {
-              // Ignore malformed stream chunks
-            }
-          }
-        }
-      }
-
-      sendSse('done', { ok: true });
-      res.end();
-    } catch (err: any) {
-      // AbortError means the client disconnected — nothing left to write.
-      if (err?.name === 'AbortError') return;
-      sendSse('error', { error: err?.message || 'Upstream stream failed' });
-      try {
-        if (!res.writableEnded) res.end();
-      } catch {
-        // Socket already gone
-      }
-    }
-  });
+  // R11 round 4 (H169; the operator's order of 2026-10-23 19:17, contract C3): the page's raw POST /chat stream (a fetch to
+  // OpenRouter's chat/completions, streamLocalChat for Ollama: no tools, no NEEDS YOU gate, no turn hold, no receipt) is
+  // REMOVED, never kept as a fallback. The page's chat is the real turn: POST /api/chat/turn (src/companion/chat-run.ts
+  // mountChatRun, mounted by the page's wiring), through openChatSession({ surface: 'companion' }) under the user's env.
 
   // R4 (H104, second part): one operation's run detail by its id (src/companion/run-detail.ts), from the producer, for the
   // project the page shows (?project=<id>, else the one followed)
