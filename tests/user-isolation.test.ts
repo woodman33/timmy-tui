@@ -150,9 +150,10 @@ async function sse(path: string, o: { session: string; body: unknown; query?: Re
 function userRoutes(): Array<{ method: string; path: string }> {
   interface Layer { name?: string; route?: { path: string | string[]; methods: Record<string, boolean>; stack: Layer[] }; handle?: { name?: string; stack?: Layer[] }; regexp?: RegExp; path?: string }
   const out: Array<{ method: string; path: string }> = [];
-  // the guard's name, `withUser` (middleware.ts names it for this walk); under vitest, esbuild's transform renames the inner
-  // binding `withUser2` where it shadows the exported factory of the same name, so the match allows a trailing number
-  const isUser = (l: Layer): boolean => /^withUser\d*$/.test(l.name ?? '') || /^withUser\d*$/.test(l.handle?.name ?? '');
+  // the guard's name begins with `withUser`: middleware.ts names it `withUser` for this walk (under vitest, esbuild's transform
+  // renames the inner binding `withUser2` where it shadows the exported factory of the same name); server.ts wraps it as
+  // `withUserOrOperator` (H171: the operator principal where no provider is configured, identity.withUser otherwise)
+  const isUser = (l: Layer): boolean => /^withUser/.test(l.name ?? '') || /^withUser/.test(l.handle?.name ?? '');
   const walk = (layers: Layer[], prefix: string): void => {
     for (const layer of layers) {
       const r = layer.route;
