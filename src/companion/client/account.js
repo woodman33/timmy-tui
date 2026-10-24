@@ -49,6 +49,7 @@
   let error = '';               // the last error, drawn in the card (role=alert)
   let pending = null;           // the sign-up or sign-in awaiting a code: { kind: 'signup'|'signin'|'reset', email }
   let verified = null;          // the user as GET /api/identity/me answered, or null
+  let clerkSession = '';        // the id of the session CLERK ITSELF gave this page (adopted from its state), '' when none
   let refreshTimer = 0;
   let hostEl = null;
   const draft = { username: '', email: '', password: '', code: '', newPassword: '' }; // the typed fields across redraws (never a token)
@@ -140,7 +141,13 @@
     refreshTimer = setInterval(refreshToken, REFRESH_MS);
   }
 
-  /** Clerk's session became active (a sign-in here, a restored session, a sign-in in another tab) or ended. */
+  /**
+   * Clerk's session became active (a sign-in here, a restored session, a sign-in in another tab) or ended. The page's
+   * session is cleared ONLY on Clerk's OWN active → none transition (a session Clerk itself gave this page — clerkSession —
+   * now gone: a sign-out or an expiry), never because Clerk's state has no session while the page holds one this companion
+   * verified (GET /api/identity/me 200): a token adopted through useSession, or a reopen while the instance is unreachable
+   * (H172's gate 2, the lead's 22:31 ruling).
+   */
   async function onClerkState(state) {
     const session = state && state.session;
     if (session && session.status === 'active') {
@@ -148,12 +155,15 @@
         const t = await session.getToken();
         if (!t) return;
         await adopt(t, userView(state.user || clerk.user));
+        clerkSession = session.id || 'clerk';
         keepFresh();
         view = 'signedin';
         error = '';
         redraw();
       } catch (e) { error = e && e.message ? e.message : String(e); redraw(); }
-    } else if (!session && S().session.get()) {
+    } else if (!session && clerkSession) {
+      // the session Clerk held is gone: the page forgets the token it got from it
+      clerkSession = '';
       clearInterval(refreshTimer);
       S().session.clear();
       verified = null;
@@ -164,6 +174,7 @@
 
   async function forget() {
     clearInterval(refreshTimer);
+    clerkSession = '';
     try { if (clerk) await clerk.signOut(); } catch (e) { /* the instance could not be reached: the page forgets anyway */ }
     S().session.clear();
     verified = null;
@@ -476,7 +487,10 @@
   window.timmyAccount = {
     useSession: (token) => adopt(token, null).then((u) => { view = 'signedin'; keepFresh(); redraw(); return S().land().then(() => u); }),
     signOut: () => forget(),
-    // module: Clerk's module imported from /vendor/clerk/ (its code ran here); clerk: load() reached the instance
-    state: () => ({ view, configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified }),
+    // Clerk's state as its listener gets it (a test's seam for the active → none rule; what Clerk itself calls)
+    clerkState: (state) => onClerkState(state),
+    // module: Clerk's module imported from /vendor/clerk/ (its code ran here); clerk: load() reached the instance;
+    // clerkSession: the page holds a session CLERK gave it (only that one is let go when Clerk's goes)
+    state: () => ({ view, configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession) }),
   };
 })();
