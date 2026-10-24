@@ -220,6 +220,7 @@
       binds: Array.isArray(o.binds) ? o.binds.slice() : [], word: o.word || 'idle', sources: Array.isArray(o.sources) ? o.sources : [],
     };
     handles.push(handle);
+    if (handle.binds.length) applySeen(handle);
     const toWords = (why) => {
       handle.state = 'words';
       handle.why = why;
@@ -330,6 +331,16 @@
    * with is-streaming / is-answered / is-stopped / is-failed, a needs-you box as .cx-needs. Each event says it is derived.
    */
   let watching = null;
+  /** The last state derived per bind ('connection:<id>' → { word, source }; 'activity' → { word, source }): a handle bound later takes it. */
+  const lastSeen = {};
+  /** A handle made after the page's state was seen takes that state (H172's finding: a card already checked when the view opens). */
+  function applySeen(handle) {
+    for (const b of handle.binds) {
+      const key = b === 'connection' ? null : b;
+      const hit = key ? lastSeen[key] : null;
+      if (hit) set(handle, b.startsWith('connection') ? 'connection' : 'activity', hit.word, hit.source);
+    }
+  }
   function watchPage() {
     if (watching || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return watching;
     const seen = {};
@@ -339,10 +350,15 @@
         const st = card.getAttribute('data-state');
         if (seen[`c:${id}`] === st) continue;
         seen[`c:${id}`] = st;
-        fromProviderState(id, st, `derived from the page's drawing of GET /api/connections: ${id} data-state="${st}"`);
+        const source = `derived from the page's drawing of GET /api/connections: ${id} data-state="${st}"`;
+        lastSeen[`connection:${id}`] = { word: connectionWordOf(st), source };
+        fromProviderState(id, st, source);
       }
-      const turns = document.querySelectorAll('#cx-turns li.cx-turn.is-timmy');
-      const last = turns[turns.length - 1];
+      // the page's own turn in flight (#cx-own: li.cx-turn.is-timmy with its state class) comes first; the saved conversation's
+      // turns (#cx-turns) carry no state class and say nothing of what runs now
+      const own = document.querySelectorAll('#cx-own li.cx-turn.is-timmy');
+      const saved = document.querySelectorAll('#cx-turns li.cx-turn.is-timmy');
+      const last = own[own.length - 1] || saved[saved.length - 1];
       let word = null;
       let why = '';
       if (last) {
@@ -353,12 +369,18 @@
       }
       if (word && seen.activity !== `${word}:${last.dataset.own || ''}`) {
         seen.activity = `${word}:${last.dataset.own || ''}`;
-        for (const x of bound('activity')) set(x, 'activity', word, `derived from the page's drawing of the turn: ${why}`);
+        const source = `derived from the page's drawing of the turn: ${why}`;
+        lastSeen.activity = { word, source };
+        for (const x of bound('activity')) set(x, 'activity', word, source);
       }
     };
     watching = new MutationObserver(() => { try { look(); } catch (e) { /* the next change */ } });
     watching.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state', 'class'] });
-    document.addEventListener('click', (ev) => { const b = ev.target && ev.target.closest && ev.target.closest('#cx-stop, [data-cx="stop"]'); if (b && ev.isTrusted) stopping("derived from the page's Stop button (POST /api/chat/stop)"); }, true);
+    // Stop: the composer's button while it reads Stop (#cx-send.is-stop: the page's own turn, or another surface's), by a trusted
+    // click or the form's submit (Enter in the composer)
+    const stopPressed = (ev) => { if (!ev.isTrusted) return; const t = ev.target && ev.target.closest ? ev.target.closest('#cx-send.is-stop, [data-cx="stop"], [data-cx="stop-other"]') : null; if (t) stopping("derived from the page's Stop button (POST /api/chat/stop)"); };
+    document.addEventListener('click', stopPressed, true);
+    document.addEventListener('submit', (ev) => { if (!ev.isTrusted) return; const f = ev.target; const b = f && f.querySelector ? f.querySelector('#cx-send.is-stop') : null; if (b) stopping("derived from the page's Stop (the composer submitted while it reads Stop; POST /api/chat/stop)"); }, true);
     look();
     return watching;
   }
