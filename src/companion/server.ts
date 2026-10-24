@@ -724,7 +724,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // answered now (it ended, or its process did). The token first, as every content route.
   // R11 round 4 (H171): with a session the request is a user's: it falls through to H169's /api/chat/stop (mountChatRun,
   // below), which stops a turn of the user's own project only; this handler answers the operator's page (no session)
-  app.post('/api/chat/stop', withToken, (req, _res, next) => { if (sessionTokenOf(req.headers)) next('route'); else next(); }, express.json({ limit: '1kb' }), async (req, res) => {
+  // (R11 round 4, the lead after H172's gate: with an identity provider CONFIGURED there is no operator fallback — a session-less
+  // request falls through too, and H169's route answers 401 {needs:'session'})
+  app.post('/api/chat/stop', withToken, (req, _res, next) => { if (sessionTokenOf(req.headers) || identity.cfg.configured) next('route'); else next(); }, express.json({ limit: '1kb' }), async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const project = projectFor(req);
     if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }

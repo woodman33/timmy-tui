@@ -190,7 +190,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(requests.every((u) => u.startsWith(base))).toBe(true);
     // its check: the FAKE ollama.com takes the key; the state is checked (green), the toast is the observed fact
     await page.getByRole('button', { name: 'Check the key', exact: true }).click();
-    await page.locator('.cx-card-ollama-cloud .cx-state-word').filter({ hasText: 'checked' }).waitFor();
+    await page.locator('.cx-card-ollama-cloud .cx-state-word').filter({ hasText: /^checked$/ }).waitFor();
     expect(await page.locator('.cx-card-ollama-cloud .cx-state').getAttribute('class')).toContain('is-live');
     const toasts = await page.evaluate(() => (window as unknown as { __toasts: Array<{ words: string; live: boolean }> }).__toasts);
     expect(toasts.at(-1)).toMatchObject({ live: true });
@@ -212,7 +212,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     await page.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
     const card = page.locator('.cx-card-ollama-local');
     await card.getByRole('button', { name: 'Check', exact: true }).click();
-    await card.locator('.cx-state-word').filter({ hasText: 'checked' }).waitFor();
+    await card.locator('.cx-state-word').filter({ hasText: /^checked$/ }).waitFor();
     expect(await card.locator('.cx-words').textContent()).toMatch(/^Checked just now: Ollama answered at 127\.0\.0\.1:\d+ with local models \(no account, no charge\)\.$/);
     expect((await card.locator('.cx-lines').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
     // the download box: a name typed, the size asked (unknown: not a starter, not held), then the confirmation, then progress

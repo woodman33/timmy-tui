@@ -154,8 +154,12 @@
       o.headers = headers;
       o.credentials = 'omit';
       o.cache = 'no-store';
+      const sent = sessionToken;
       return fetch(url, o).then(async (r) => {
         if (r.status !== 401) return r;
+        // (R11 round 4, the lead after H172's gate: a 401 to a request that went out under an older session, or none, while a
+        // fresher one has since been set must not wipe the fresher session)
+        if (sent !== sessionToken) return r;
         let body = null;
         try { body = await r.clone().json(); } catch (e) { body = null; }
         if (body && body.needs === 'session') {
