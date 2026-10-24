@@ -15,10 +15,10 @@
 //     go(id, why?),                 // shows a page (a page id or a legacy tab id), draws its head, moves the dock, marks the rail
 //     current(),                    // the PAGE id shown (round 4 answered the screen id)
 //     sheet(name, open?),           // 'rail' | 'context' | 'help' (a phone's sheets; the Help overlay everywhere)
-//     theme(name?),                 // 'amber' | 'glacier'; persisted per viewer (localStorage timmy.theme); cosmetic only
+//     theme(name?),                 // 'amber' | 'glacier'; persisted per viewer (localStorage timmy.theme); cosmetic only; 'theme' { name } emitted
 //     mount(screenId, drawFn),      // drawFn(host, shell) draws the screen into its page's work region each time it is shown
 //     fetch(url, init), socketHello(), session, identity(), sessionNeeded(), land(), toast(words, { live? }), h, tokens,
-//     on(event, fn)                 // 'page' { id, legacy, why }, 'screen' { id, why }, 'session' { user }, 'identity', 'sheet' { name, open }
+//     on(event, fn)                 // 'page' { id, legacy, why }, 'screen' { id, why }, 'session' { user }, 'identity', 'sheet' { name, open }, 'theme' { name }
 //   }
 // THE LANDING RULE is round 4's: 'account' when GET /api/identity says configured and there is no session; 'connections'
 // when signed in with no chat route; the workspace (the page companion.js remembered, else Chat) otherwise. Nothing here
@@ -149,8 +149,12 @@
     const r = spec(p);
     const kicker = s.querySelector(':scope > .page-head .page-kicker');
     if (kicker) {
+      // the kicker's NUMBER is the rail's order (contract §2.2: one numbering product-wide, the shell's); the verb phrase is the
+      // page's own — a registration that wrote another number keeps its words and takes the rail's number
       const m = /^(\d+)\s*\/\s*(.+)$/.exec(r.kicker || '');
-      kicker.replaceChildren(...(m ? [h('span', { class: 'page-kicker-n' }, m[1]), h('span', { class: 'page-kicker-sep', 'aria-hidden': 'true' }, ' / '), h('span', { class: 'page-kicker-verb' }, m[2])] : [h('span', { class: 'page-kicker-verb' }, r.kicker || p.label)]));
+      const verb = m ? m[2] : (r.kicker || p.verb || p.label);
+      const n = p.n || (m ? m[1] : '');
+      kicker.replaceChildren(...(n ? [h('span', { class: 'page-kicker-n' }, n), h('span', { class: 'page-kicker-sep', 'aria-hidden': 'true' }, ' / '), h('span', { class: 'page-kicker-verb' }, verb)] : [h('span', { class: 'page-kicker-verb' }, verb)]));
     }
     const title = s.querySelector(':scope > .page-head .page-title');
     if (title) { text(title, r.title); title.id = title.id || `page-title-${p.id}`; s.setAttribute('aria-labelledby', title.id); }
@@ -311,9 +315,12 @@
   function theme(name) {
     if (name === undefined) return document.documentElement.dataset.theme || 'amber';
     const next = THEMES.includes(name) ? name : 'amber';
+    const was = document.documentElement.dataset.theme || '';
     document.documentElement.dataset.theme = next;
     for (const b of document.querySelectorAll('.theme-switch [data-theme]')) b.setAttribute('aria-pressed', b.dataset.theme === next ? 'true' : 'false');
     try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* no storage here */ }
+    // (H174's native artboards pick their family by it: 'theme' { name } on every change, and once at boot)
+    if (was !== next) emit('theme', { name: next });
     return next;
   }
   function restoreTheme() { let kept = ''; try { kept = localStorage.getItem(THEME_KEY) || ''; } catch (e) { kept = ''; } theme(THEMES.includes(kept) ? kept : 'amber'); }
@@ -453,17 +460,20 @@
     return null;
   }
 
-  /** A mounted screen's draw, into the page's WORK region (the scaffold around it is the shell's). */
+  /**
+   * A mounted screen's draw. `host` is the page's SECTION, which holds the shell's scaffold (contract §2.1): a draw that knows
+   * the scaffold writes into its .page-work / .page-context / .page-dock / .page-records and registers the head; a draw that
+   * replaces the section's children (round 4's) is wrapped again by scaffold() — its content moved into the work region — so
+   * the head, band, dock and records are the shell's on every page (the lead's GATE 04 ruling).
+   */
   function draw(p) {
     const s = sectionOf(p);
     if (!s) return;
     scaffold(s, p);
-    const work = region(p, 'page-work');
     const fn = draws[p.id];
-    const host = work || s;
-    const own = host.querySelector(':scope > .page-mount') || (work ? (() => { const m = h('div', { class: 'page-mount' }); host.append(m); return m; })() : host);
-    if (fn) { try { fn(own, shell); } catch (e) { own.replaceChildren(h('p', { class: 'sh-note sh-error', role: 'alert' }, `This screen could not be drawn: ${e && e.message ? e.message : e}`)); } }
-    else if (!own.childElementCount) { const fb = fallback(p); if (fb) own.replaceChildren(fb); }
+    if (fn) { try { fn(s, shell); } catch (e) { const work = region(p, 'page-work') || s; work.append(h('p', { class: 'sh-note sh-error', role: 'alert' }, `This screen could not be drawn: ${e && e.message ? e.message : e}`)); } }
+    else { const work = region(p, 'page-work'); if (work && ![...work.children].some((c) => !c.classList.contains('page-state'))) { const fb = fallback(p); if (fb) work.append(fb); } }
+    scaffold(s, p);
   }
 
   /** The plain switch, used where companion.js's showWorkspaceTab is not on the page (a test page of the shell alone). */
@@ -473,6 +483,7 @@
   }
 
   let finishing = false;
+  let pendingWhy = '';
   /** What finishes a page once companion.js has shown its section: the head, the dock, the rail, the crumb, the focus, the memory. */
   function finish(p, why, o) {
     if (!p || finishing) return;
@@ -510,7 +521,9 @@
       before(id, o);
       if (typeof workspace !== 'undefined' && workspace && workspace.tab !== id) return;
       const p = byLegacy.get(String(id));
-      if (p) finish(p, 'tab', { focus: !o.focus });
+      const why = pendingWhy || 'tab';
+      pendingWhy = '';
+      if (p) finish(p, why, { focus: !o.focus });
     };
   }
   // the frame drawn again (every few seconds, and at once on a turn's end): the rail's counts, the head's default primary, the band
@@ -562,7 +575,8 @@
       const p = pageOf(id);
       if (!p) throw new Error(`TimmyShell.go: unknown page: ${id}`);
       if (typeof showWorkspaceTab === 'function') {
-        showWorkspaceTab(p.legacy);
+        pendingWhy = why || '';
+        try { showWorkspaceTab(p.legacy); } finally { pendingWhy = ''; }
         if (shown !== p.id) finish(p, why, o); // (a tab the switcher did not take: finished here all the same)
       } else { showAlone(p); finish(p, why, o); }
     },

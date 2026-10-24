@@ -687,3 +687,457 @@ document.addEventListener('click', (event) => {
     rvCopy(el.dataset.rvCommand, el);
   }
 });
+
+// ── R11 round 7 (H169): the Workflows page and the Runs & receipts page on the shell's scaffold (SHELL CONTRACT v1) ──
+//
+// Two pages of the rail, drawn through TimmyPanels (companion.js draws a panel when its tab is shown and when a frame of
+// another revision arrives) and registered with the shell (TimmyShell.page / .state) so the head, the band, the dock and the
+// records area are the scaffold's. Their data is the companion's own records, read by src/companion/panels.ts:
+//   Workflows         GET /api/panel/workflows/docs   the documents and their blocks in the board's words, the runs under
+//                     (tab `workflows`)               way, ONE next action (a run starts in the terminal: this page starts none)
+//   Runs & receipts   GET /api/panel/runs/list        every run and sealed receipt, newest first; a receipt's ✓ is drawn only
+//                     (tab `logs`)                    where the companion's server verified it in that reading (never assumed)
+// The run detail (#tab-run, above) stays in the Workflows page (SHELL CONTRACT v1 §2.1; companion.js's showRun() shows that
+// page and opens the detail): a run opened from Runs & receipts goes there. The Runs page's older boxes (the socket log, the
+// structured events, the latest receipt received) are its records (.page-records) once the scaffold is there.
+// Nothing here starts, stops or writes anything; a command is copied, with what it does, for the terminal.
+(() => {
+  'use strict';
+  if (typeof TimmyPanels === 'undefined') return;
+  const shell = () => (typeof TimmyShell !== 'undefined' && TimmyShell ? TimmyShell : null);
+  const page = (id, reg) => { const s = shell(); if (s && typeof s.page === 'function') { try { s.page(id, reg); } catch (e) { /* the shell said why */ } } };
+  const setState = (id, st, extra) => { const s = shell(); if (s && typeof s.state === 'function') { try { s.state(id, st, extra || {}); } catch (e) { /* the shell said why */ } } };
+  const goTo = (legacy) => { const s = shell(); if (s && typeof s.go === 'function') s.go(legacy, 'h169'); else if (typeof showWorkspaceTab === 'function') showWorkspaceTab(legacy); };
+  /** The kicker's number is the rail's order (SHELL CONTRACT v1 §2.3): the shell's own (TimmyShell.PAGES[].n) when it says, else the contract's. */
+  const kickerN = (id, fallback) => { const s = shell(); const p = s && Array.isArray(s.PAGES) ? s.PAGES.find((x) => x && x.id === id) : null; return (p && p.n) || fallback; };
+  /** A run's detail: companion.js's showRun() (the Workflows page, the detail, the picks marked), else the detail alone. */
+  const showDetail = (op) => { if (typeof showRun === 'function') showRun(op); else if (typeof openRun === 'function') { goTo('workflows'); openRun(op); } };
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const clock = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? String(iso || '') : `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`; };
+  const took = (ms) => (typeof ms !== 'number' ? '' : ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
+  const put = (el, ...kids) => { if (el) el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false)); };
+
+  /** The panel's host inside a page's work (the shell's `.page-work`, else the section): the one index.html gives, else made. */
+  function hostFor(tab, sectionId) {
+    let host = document.querySelector(`[data-panel-host="${tab}"]`);
+    if (host) return host;
+    const section = document.getElementById(sectionId);
+    if (!section) return null;
+    const work = section.querySelector('.page-work') || section;
+    host = document.createElement('div');
+    host.className = `${tab}-host h169-host`;
+    host.dataset.panelHost = tab;
+    // after the shell's state slot (.page-state: the empty / error words), before the page's older boxes
+    const slot = work.querySelector(':scope > .page-state');
+    if (slot) slot.after(host); else work.prepend(host);
+    return host;
+  }
+  /** A region of the page the shell draws (its context column, its records area), when the scaffold is there. */
+  const region = (sectionId, cls) => { const s = document.getElementById(sectionId); return s ? s.querySelector(`.${cls}`) : null; };
+  /** The shell draws a page's empty / error words itself (TimmyShell.state → .page-state); without it the page draws its own. */
+  const shellStates = () => { const s = shell(); return Boolean(s && typeof s.state === 'function'); };
+  /** Where a page's own tools go in the dock: the shell's .dock-tools when it made one, else the dock itself. */
+  const dockToolsOf = (dock) => (dock && dock.querySelector(':scope > .dock-tools')) || dock;
+  /** The page's records: a details box of our own inside .page-records (kept across draws), else nothing. */
+  function recordsBox(sectionId, key, summary) {
+    const rec = region(sectionId, 'page-records');
+    if (!rec) return null;
+    let box = rec.querySelector(`details[data-h169-records="${key}"]`);
+    if (!box) {
+      box = document.createElement('details');
+      box.className = 'records h169-records';
+      box.dataset.h169Records = key;
+      const sum = document.createElement('summary');
+      sum.textContent = summary;
+      box.append(sum, document.createElement('div'));
+      rec.append(box);
+    }
+    return box.lastElementChild;
+  }
+  async function copyWords(text, button, saidTo) {
+    try {
+      if (!window.isSecureContext || !navigator.clipboard) throw new Error('no clipboard here');
+      await navigator.clipboard.writeText(text);
+      if (button) { button.dataset.copied = '1'; button.textContent = `Copied: ${text}`; }
+      if (saidTo) saidTo.textContent = `Copied ${text}: paste it in the terminal (the Workbench, or the REPL). Nothing ran from this page.`;
+    } catch (e) {
+      if (saidTo) saidTo.textContent = `Could not copy (${e && e.message ? e.message : e}); the command is ${text}.`;
+    }
+  }
+
+  // ── the Workflows page ──
+  const WF = { project: null, host: null, ctx: null, answer: null, selected: null, timer: 0, asking: null, at: 0 };
+  /** a draw-triggered read is skipped while one is under way, or within 1.5 s of the last (the frame moves often while a run runs) */
+  const SOON_MS = 1500;
+  const WF_SECTION = 'ws-workflows';
+  const wfShown = () => Boolean(WF.host && document.contains(WF.host) && !WF.host.closest('[hidden]') && !document.hidden);
+
+  function wfPrimary(next) {
+    if (!next) return { label: 'Open Runs & receipts', run: () => goTo('logs') };
+    if (next.kind === 'open' && next.operation) return { label: 'Open the run under way', run: () => showDetail(next.operation) };
+    if (next.kind === 'open') return { label: 'Open Runs & receipts', run: () => goTo('logs') };
+    if (next.kind === 'install') return { label: 'Copy: timmy doctor', run: () => copyWords(next.command || 'timmy doctor', null, WF.host && WF.host.querySelector('[data-wf="said"]')) };
+    if (next.kind === 'create') return { label: 'Copy the starter command', run: () => copyWords(next.command, null, WF.host && WF.host.querySelector('[data-wf="said"]')) };
+    return { label: `Copy: ${next.command}`, run: () => copyWords(next.command, null, WF.host && WF.host.querySelector('[data-wf="said"]')) };
+  }
+
+  function wfRegister(a) {
+    const running = a && a.running ? a.running.length : 0;
+    const docs = a ? a.docs.length : 0;
+    page('workflows', {
+      kicker: `${kickerN('workflows', '03')} / RUN A WORKFLOW`, title: docs ? 'Run the work the project describes.' : 'Describe the work as a workflow.',
+      intro: docs ? 'Each document is Markdown with named blocks; a run starts in the terminal, and its receipt lands in Runs & receipts.' : 'A workflow is a Markdown file with named blocks (```bash [name:build]); the tray-workflow starter makes a project with one.',
+      primary: wfPrimary(a && a.next), context: WF.selected ? 'selection' : null, dock: 'WORKFLOW TOOLS',
+      band: a ? [{ k: 'Workflows', v: `${docs} document${docs === 1 ? '' : 's'} · ${running} running` }] : [],
+    });
+    if (!a) return;
+    const errored = a.docs.find((d) => d.error);
+    if (running) setState('workflows', 'running', { words: `${running} run${running === 1 ? '' : 's'} under way.` });
+    else if (errored) setState('workflows', 'error', { words: `${errored.rel} could not be read whole: ${errored.error}.`, next: { label: 'Open Runs & receipts', run: () => goTo('logs') } });
+    else if (!docs) setState('workflows', 'empty', { words: a.next.words, next: { label: 'Copy the starter command', run: () => copyWords(a.next.command, null, null) } });
+    else setState('workflows', 'content');
+  }
+
+  function wfBlockRow(h, d, b) {
+    const failed = /fail/.test(b.word);
+    const ran = /\bran\b|completed|passed/.test(b.word);
+    const row = h('li', { class: `wf-block${failed ? ' is-failed' : ''}${ran ? ' is-ran' : ''}${b.word === 'running' ? ' is-running' : ''}`, 'data-wf-block': b.name, 'data-word': b.word },
+      h('span', { class: 'wf-glyph', 'aria-hidden': 'true' }, b.glyph || '·'),
+      h('span', { class: 'wf-name' }, b.name, b.lang ? h('span', { class: 'wf-lang' }, ` ${b.lang}`) : null),
+      h('span', { class: 'wf-word' }, b.word, b.detail ? ` · ${b.detail}` : ''),
+      b.needs && b.needs.length ? h('span', { class: 'wf-needs' }, `needs ${b.needs.join(', ')}`) : null,
+      h('span', { class: 'wf-acts' },
+        h('button', { type: 'button', class: 'dock-btn wf-copy', 'data-wf-run': `${d.rel} ${b.name}`, title: 'Copies the terminal command that runs this block (its needs first); nothing runs from this page' }, 'Copy run command'),
+        b.run ? h('button', { type: 'button', class: 'dock-btn', 'data-wf-open': b.run, title: 'Runs & receipts: its run' }, 'See its run') : null));
+    return row;
+  }
+
+  function wfDraw() {
+    const a = WF.answer; const h = WF.ctx.h; const host = WF.host;
+    if (!a) return;
+    const saidBefore = (host.querySelector('[data-wf="said"]') || {}).textContent || ''; // the last action's words stay through a redraw
+    const docs = a.docs.map((d) => h('article', { class: `wf-doc${WF.selected === d.rel ? ' is-selected' : ''}${d.error ? ' is-failed' : ''}`, 'data-wf-doc': d.rel },
+      h('header', { class: 'wf-doc-head' },
+        h('button', { type: 'button', class: 'wf-doc-pick', 'data-wf-pick': d.rel, 'aria-pressed': WF.selected === d.rel ? 'true' : 'false' },
+          h('span', { class: 'wf-doc-title' }, d.title || d.rel), h('span', { class: 'wf-doc-rel' }, d.title ? ` ${d.rel}` : '')),
+        h('span', { class: 'wf-doc-count' }, d.error ? '✕ not read whole' : `${d.blocks.length} block${d.blocks.length === 1 ? '' : 's'}`)),
+      d.error ? h('p', { class: 'wf-error' }, `✕ ${d.error}`) : h('ol', { class: 'wf-blocks' }, ...d.blocks.map((b) => wfBlockRow(h, d, b))),
+      d.repeated.length ? h('p', { class: 'wf-note' }, `A name more than one block carries runs none of them: ${d.repeated.join(', ')}.`) : null));
+    const running = a.running.length ? h('section', { class: 'wf-running', 'aria-label': 'Runs under way' },
+      h('h3', { class: 'wf-h' }, 'Under way'),
+      h('ul', null, ...a.running.map((r) => h('li', null, h('span', { class: 'wf-glyph', 'aria-hidden': 'true' }, '▶'), ` ${r.label} · ${r.word} · ${r.elapsed}`,
+        r.operation ? h('button', { type: 'button', class: 'dock-btn', 'data-wf-open-op': r.operation }, 'Open its run detail') : null)))) : null;
+    put(host,
+      h('div', { class: 'wf-page' },
+        running,
+        h('section', { class: 'wf-docs', 'aria-label': 'Workflow documents' },
+          docs.length ? docs : shellStates() ? null : h('p', { class: 'page-empty-words' }, a.next.words)),
+        h('p', { class: 'wf-said', 'data-wf': 'said', 'aria-live': 'polite' }, saidBefore)));
+    // the dock: this page's own tools (the shell moves the frame's actions there; ours follow)
+    const dock = region(WF_SECTION, 'page-dock');
+    if (dock) {
+      let own = dock.querySelector('[data-h169-dock="workflows"]');
+      if (!own) { own = document.createElement('span'); own.className = 'h169-dock dock-group'; own.dataset.h169Dock = 'workflows'; dockToolsOf(dock).append(own); }
+      put(own,
+        h('button', { type: 'button', class: 'dock-btn', 'data-wf-refresh': '1' }, 'Read again'),
+        h('button', { type: 'button', class: 'dock-btn', 'data-wf-go': 'logs' }, 'Runs & receipts'),
+        h('span', { class: 'dock-words' }, a.upmd ? 'Runner: upmd on this computer' : 'Runner: upmd not found on this computer'));
+    }
+    // the records: how this was read, and what could not be
+    const rec = recordsBox(WF_SECTION, 'workflows', 'Records · how Workflows was read');
+    if (rec) put(rec, h('p', null, `Read ${clock(a.at)} from the project's workflow documents, its job store and its receipts chain; nothing ran. The runner (upmd) ${a.upmd ? 'is' : 'is not'} on this computer's PATH.`),
+      a.notes.length ? h('ul', null, ...a.notes.map((n) => h('li', { class: 'tone-failed' }, n))) : null,
+      h('details', { class: 'ui-details' }, h('summary', null, 'Details · the terminal commands'), h('p', null, h('code', null, '/run <document> <block>'), ' runs a block and the blocks it needs first (the Workbench: R on the block). ', h('code', null, '/project new <name> --from tray-workflow'), ' makes a project with a workflow of its own.')));
+    // the context column: the selected document
+    wfContext();
+  }
+
+  function wfContext() {
+    const ctxEl = region(WF_SECTION, 'page-context');
+    if (!ctxEl) return;
+    const a = WF.answer; const h = WF.ctx.h;
+    const d = a && a.docs.find((x) => x.rel === WF.selected);
+    let box = ctxEl.querySelector('[data-h169-context="workflows"]');
+    if (!d) { if (box) box.remove(); return; }
+    if (!box) { box = document.createElement('section'); box.className = 'ctx-box h169-context'; box.dataset.h169Context = 'workflows'; ctxEl.append(box); }
+    const ran = d.blocks.filter((b) => /\bran\b|completed|passed/.test(b.word)).length;
+    const failed = d.blocks.filter((b) => /fail/.test(b.word)).length;
+    put(box,
+      h('h3', { class: 'ctx-title' }, d.title || d.rel),
+      h('dl', { class: 'ctx-facts' },
+        h('dt', null, 'Document'), h('dd', null, h('code', null, d.rel)),
+        h('dt', null, 'Blocks'), h('dd', null, `${d.blocks.length} · ${ran} ran · ${failed} failed · ${d.blocks.length - ran - failed} not run yet`),
+        h('dt', null, 'Order'), h('dd', null, d.blocks.map((b) => b.name).join(' → ') || '—')),
+      h('p', { class: 'ctx-words' }, 'A block runs with the blocks it needs first; its state here is the newest run\'s, from the job store and the receipt it sealed.'));
+  }
+
+  function wfRead(ctx, why) {
+    if (WF.asking) return WF.asking;
+    WF.at = Date.now();
+    WF.asking = wfReadNow(ctx, why).finally(() => { WF.asking = null; });
+    return WF.asking;
+  }
+  async function wfReadNow(ctx, why) {
+    const host = WF.host;
+    try {
+      const r = await ctx.fetch(ctx.api('docs'));
+      const body = await r.json().catch(() => null);
+      if (!WF.host || WF.ctx !== ctx) return;
+      if (!r.ok || !body || !body.ok) {
+        put(host, ctx.h('p', { class: 'empty tone-failed' }, `✕ The workflows could not be read: ${(body && body.error) || `the companion answered HTTP ${r.status}`}.`));
+        setState('workflows', 'error', { words: 'The workflows could not be read from the companion.', next: { label: 'Read again', run: () => wfRead(ctx, 'retry') } });
+        return;
+      }
+      WF.answer = body;
+      wfRegister(body);
+      wfDraw();
+      if (body.running.length && wfShown()) { clearTimeout(WF.timer); WF.timer = setTimeout(() => { if (wfShown()) wfRead(ctx, 'tick'); }, 4000); }
+    } catch (e) {
+      if (!WF.host) return;
+      put(host, ctx.h('p', { class: 'empty tone-failed' }, `✕ The workflows could not be read: ${e && e.message ? e.message : e}.`));
+    }
+  }
+
+  TimmyPanels.register('workflows', {
+    draw(host, frame, ctx) {
+      if (!ctx.own) { put(host, ctx.h('p', { class: 'empty' }, 'Not shown: the frame is another project\'s, so its workflows are not read here.')); return; }
+      WF.host = host; WF.ctx = ctx;
+      if (WF.project !== ctx.project) { WF.project = ctx.project; WF.answer = null; WF.selected = null; put(host, ctx.h('p', { class: 'empty' }, 'Reading this project\'s workflows…')); }
+      wfRegister(WF.answer);
+      if (!host.dataset.h169Bound) {
+        host.dataset.h169Bound = '1';
+        host.addEventListener('click', (event) => {
+          const t = event.target instanceof Element ? event.target : null;
+          if (!t) return;
+          const copy = t.closest('[data-wf-run]');
+          if (copy) { copyWords(`/run ${copy.dataset.wfRun}`, copy, host.querySelector('[data-wf="said"]')); return; }
+          const pick = t.closest('[data-wf-pick]');
+          if (pick) { WF.selected = WF.selected === pick.dataset.wfPick ? null : pick.dataset.wfPick; wfRegister(WF.answer); wfDraw(); return; }
+          const open = t.closest('[data-wf-open-op]');
+          if (open) { showDetail(open.dataset.wfOpenOp); return; }
+          const see = t.closest('[data-wf-open]');
+          if (see) { rlSelectRow(see.dataset.wfOpen); goTo('logs'); return; }
+        });
+      }
+      const dock = region(WF_SECTION, 'page-dock');
+      if (dock && !dock.dataset.h169Bound) {
+        dock.dataset.h169Bound = '1';
+        dock.addEventListener('click', (event) => {
+          const t = event.target instanceof Element ? event.target : null;
+          if (!t) return;
+          if (t.closest('[data-wf-refresh]')) { wfRead(WF.ctx, 'refresh'); return; }
+          const g = t.closest('[data-wf-go]'); if (g) goTo(g.dataset.wfGo);
+        });
+      }
+      if (WF.answer && Date.now() - WF.at < SOON_MS) return WF.asking || undefined;
+      return wfRead(ctx, 'draw');
+    },
+  });
+
+  // ── the Runs & receipts page ──
+  const RL = { project: null, host: null, ctx: null, answer: null, selected: null, timer: 0, want: null, wantRow: null, asking: null, at: 0 };
+  const RL_SECTION = 'ws-logs';
+  const rlShown = () => Boolean(RL.host && document.contains(RL.host) && !RL.host.closest('[hidden]') && !document.hidden);
+
+  /** The receipt a link names: the Chat's a.cx-receipt goes to "#logs?receipt=<id>" (H171, 14:40 PT), id = the hash's first 8. */
+  function rlWantFromHash() {
+    const m = /^#logs\?(?:.*&)?receipt=([^&]+)/.exec(location.hash || '');
+    try { return m ? decodeURIComponent(m[1]) : null; } catch (e) { return null; }
+  }
+  /** That record selected and scrolled to (its facts in the context column); one not in this list is said absent, in words. */
+  function rlSelectReceipt(id) {
+    RL.want = id;
+    if (!RL.answer || !RL.host) return; // applied after the next read
+    const hit = RL.answer.rows.find((r) => r.receipt && (r.receipt.short === id || r.receipt.hash === id || String(r.receipt.hash).slice(7).startsWith(id)));
+    if (hit) {
+      RL.selected = hit.id; RL.want = null;
+      rlRegister(RL.answer); rlDraw();
+      const row = RL.host.querySelector(`[data-rl-row="${CSS.escape(hit.id)}"]`);
+      if (row) { row.scrollIntoView({ block: 'nearest' }); const b = row.querySelector('.rl-pick'); if (b) b.focus({ preventScroll: true }); }
+      return;
+    }
+    RL.want = null;
+    const said = RL.host.querySelector('[data-rl="said"]');
+    if (said) said.textContent = `No record ${id} in this list (${RL.answer.rows.length} shown of ${RL.answer.total}): timmy receipts lists every receipt of the project.`;
+  }
+  /** A row named by its id (a job's id from the Workflows page): selected once the list holds it. */
+  function rlSelectRow(id) {
+    RL.wantRow = id || null;
+    if (!RL.answer || !RL.host || !RL.wantRow) return;
+    const hit = RL.answer.rows.find((r) => r.id === RL.wantRow || (r.job && r.job.id === RL.wantRow));
+    RL.wantRow = null;
+    if (!hit) return;
+    RL.selected = hit.id; rlRegister(RL.answer); rlDraw();
+  }
+  document.addEventListener('timmy:open-receipt', (e) => { const id = e && e.detail ? e.detail.id : null; if (typeof id === 'string' && id) rlSelectReceipt(id); });
+  window.addEventListener('hashchange', () => { const id = rlWantFromHash(); if (id) rlSelectReceipt(id); });
+
+  /** The page's older boxes (the socket log, the events, the latest receipt) find their place at load: the page's records. */
+  function rlArrange() {
+    const section = document.getElementById(RL_SECTION);
+    if (!section) return;
+    const rec = section.querySelector('.page-records');
+    const cols = section.querySelector('.cols-logs');
+    if (rec && cols && !rec.contains(cols)) {
+      const box = document.createElement('details');
+      box.className = 'records h169-records';
+      box.dataset.h169Records = 'logs-boxes';
+      const sum = document.createElement('summary');
+      sum.textContent = 'Records · this page\'s socket log, the structured events, the latest receipt it received';
+      box.append(sum, cols);
+      rec.append(box);
+    }
+  }
+
+  function rlRegister(a) {
+    const newest = a && a.rows.find((r) => r.operation);
+    page('runs', { // the PAGE id (the rail's 'runs'); the panel's tab stays the legacy 'logs'
+      kicker: `${kickerN('runs', '04')} / REVIEW WHAT RAN`, title: 'Every run, and its receipt.',
+      intro: 'Newest first. A receipt\'s mark turns green only once this companion verified it against the project\'s chain; nothing is assumed.',
+      primary: newest ? { label: 'Open the newest run', run: () => showDetail(newest.operation) } : { label: 'Open Workflows', run: () => goTo('workflows') },
+      context: RL.selected ? 'selection' : null, dock: 'RECORD TOOLS',
+      band: a ? [{ k: 'Records', v: `${a.total} run${a.total === 1 ? '' : 's'} · ${a.rows.filter((r) => r.receipt && r.receipt.verified).length} verified` }] : [],
+    });
+    if (!a) return;
+    if (a.running) setState('runs', 'running', { words: `${a.running} run${a.running === 1 ? '' : 's'} under way.` });
+    else if (!a.total) setState('runs', 'empty', { words: 'No run and no receipt in this project yet. A chat turn or a workflow run seals the first one.', next: { label: 'Open Workflows', run: () => goTo('workflows') } });
+    else setState('runs', 'content');
+  }
+
+  function rlRow(h, r) {
+    const v = r.receipt;
+    const rc = !v ? h('span', { class: 'rl-receipt is-none' }, r.state === 'running' ? 'receipt when it ends' : 'no receipt')
+      : v.verified ? h('span', { class: 'rl-receipt is-verified', title: `${v.hash}: verified by this companion in this reading` }, '✓ ', h('code', null, v.short), ' verified')
+        : h('span', { class: 'rl-receipt is-unverified', title: v.why || 'not verified' }, h('code', null, v.short), ` not verified${v.why ? `: ${v.why}` : ''}`);
+    return h('li', { class: `rl-row is-${r.state}${RL.selected === r.id ? ' is-selected' : ''}`, 'data-rl-row': r.id, 'data-kind': r.kind, 'data-state': r.state },
+      h('button', { type: 'button', class: 'rl-pick', 'data-rl-pick': r.id, 'aria-pressed': RL.selected === r.id ? 'true' : 'false' },
+        h('span', { class: `rl-mark${r.state === 'failed' ? ' is-failed' : ''}`, 'aria-hidden': 'true' }, r.mark),
+        h('span', { class: 'rl-line' }, r.line),
+        h('span', { class: 'rl-model' }, r.model || 'no model recorded'),
+        h('span', { class: 'rl-took' }, r.ms === null ? (r.state === 'running' ? 'running' : '') : took(r.ms)),
+        h('time', { class: 'rl-when', datetime: r.at }, clock(r.at))),
+      rc,
+      h('span', { class: 'rl-acts' },
+        r.operation ? h('button', { type: 'button', class: 'dock-btn', 'data-rl-open': r.operation, title: `its run detail (Workflows), operation ${r.operation}` }, 'Open') : null,
+        r.turn ? h('button', { type: 'button', class: 'dock-btn', 'data-rl-chat': r.turn.id || '', title: 'the Chat, where the turn\'s words are' }, 'Chat') : null));
+  }
+
+  function rlDraw() {
+    const a = RL.answer; const h = RL.ctx.h; const host = RL.host;
+    if (!a) return;
+    const saidBefore = (host.querySelector('[data-rl="said"]') || {}).textContent || ''; // the last action's words stay through a redraw
+    put(host,
+      h('div', { class: 'rl-page' },
+        h('ol', { class: 'rl-list', 'aria-label': 'Runs and receipts, newest first' }, ...(a.rows.length ? a.rows.map((r) => rlRow(h, r)) : shellStates() ? [] : [h('li', { class: 'page-empty-words' }, 'No run and no receipt yet.')])),
+        a.total > a.rows.length ? h('p', { class: 'rl-more' }, `${a.total - a.rows.length} older not shown here: timmy receipts lists them all.`) : null,
+        h('p', { class: 'rl-said', 'data-rl': 'said', 'aria-live': 'polite' }, saidBefore)));
+    const dock = region(RL_SECTION, 'page-dock');
+    if (dock) {
+      let own = dock.querySelector('[data-h169-dock="logs"]');
+      if (!own) { own = document.createElement('span'); own.className = 'h169-dock dock-group'; own.dataset.h169Dock = 'logs'; dockToolsOf(dock).append(own); }
+      put(own,
+        h('button', { type: 'button', class: 'dock-btn', 'data-rl-refresh': '1' }, 'Read again'),
+        h('button', { type: 'button', class: 'dock-btn', 'data-rl-copy': 'timmy verify', title: 'Copies the command that checks the whole chain' }, 'Copy: timmy verify'),
+        h('span', { class: 'dock-words' }, `${a.rows.filter((r) => r.receipt && r.receipt.verified).length} of ${a.rows.filter((r) => r.receipt).length} receipts verified in this reading`));
+    }
+    const rec = recordsBox(RL_SECTION, 'runs', 'Records · how Runs & receipts was read');
+    if (rec) put(rec, h('p', null, `Read ${clock(a.at)} from the project's job store and its receipts chain; each receipt shown was checked against the chain in that reading (verifyReceiptIn), and nothing is assumed.`),
+      a.notes.length ? h('ul', null, ...a.notes.map((n) => h('li', { class: 'tone-failed' }, n))) : null);
+    rlContext();
+  }
+
+  function rlContext() {
+    const ctxEl = region(RL_SECTION, 'page-context');
+    if (!ctxEl) return;
+    const a = RL.answer; const h = RL.ctx.h;
+    const r = a && a.rows.find((x) => x.id === RL.selected);
+    let box = ctxEl.querySelector('[data-h169-context="logs"]');
+    if (!r) { if (box) box.remove(); return; }
+    if (!box) { box = document.createElement('section'); box.className = 'ctx-box h169-context'; box.dataset.h169Context = 'logs'; ctxEl.append(box); }
+    put(box,
+      h('h3', { class: 'ctx-title' }, r.line),
+      h('dl', { class: 'ctx-facts' },
+        h('dt', null, 'State'), h('dd', null, `${r.mark} ${r.state}`),
+        h('dt', null, 'Model'), h('dd', null, r.model || 'not recorded'),
+        h('dt', null, 'Took'), h('dd', null, r.ms === null ? 'not recorded' : took(r.ms)),
+        h('dt', null, 'When'), h('dd', null, clock(r.at)),
+        h('dt', null, 'Receipt'), h('dd', null, r.receipt ? `${r.receipt.verified ? '✓ verified in this reading' : `not verified${r.receipt.why ? `: ${r.receipt.why}` : ''}`}` : 'none'),
+        r.turn ? [h('dt', null, 'Sent from'), h('dd', null, r.turn.from)] : null),
+      h('details', { class: 'ui-details' }, h('summary', null, 'Details · ids and hashes'),
+        h('dl', { class: 'ctx-facts' },
+          r.receipt ? [h('dt', null, 'Hash'), h('dd', null, h('code', null, r.receipt.hash))] : null,
+          r.operation ? [h('dt', null, 'Operation'), h('dd', null, h('code', null, r.operation))] : null,
+          r.turn && r.turn.id ? [h('dt', null, 'Turn'), h('dd', null, h('code', null, r.turn.id))] : null,
+          r.job ? [h('dt', null, 'Job'), h('dd', null, h('code', null, r.job.id))] : null)));
+  }
+
+  function rlRead(ctx) {
+    if (RL.asking) return RL.asking;
+    RL.at = Date.now();
+    RL.asking = rlReadNow(ctx).finally(() => { RL.asking = null; });
+    return RL.asking;
+  }
+  async function rlReadNow(ctx) {
+    const host = RL.host;
+    try {
+      const r = await ctx.fetch(`/api/panel/runs/list${ctx.project ? `?project=${encodeURIComponent(ctx.project)}` : ''}`);
+      const body = await r.json().catch(() => null);
+      if (!RL.host || RL.ctx !== ctx) return;
+      if (!r.ok || !body || !body.ok) {
+        put(host, ctx.h('p', { class: 'empty tone-failed' }, `✕ The runs could not be read: ${(body && body.error) || `the companion answered HTTP ${r.status}`}.`));
+        setState('runs', 'error', { words: 'The runs could not be read from the companion.', next: { label: 'Read again', run: () => rlRead(ctx) } });
+        return;
+      }
+      RL.answer = body;
+      rlRegister(body);
+      rlDraw();
+      if (RL.want) rlSelectReceipt(RL.want);
+      if (RL.wantRow) rlSelectRow(RL.wantRow);
+      if (body.running && rlShown()) { clearTimeout(RL.timer); RL.timer = setTimeout(() => { if (rlShown()) rlRead(ctx); }, 4000); }
+    } catch (e) {
+      if (!RL.host) return;
+      put(host, ctx.h('p', { class: 'empty tone-failed' }, `✕ The runs could not be read: ${e && e.message ? e.message : e}.`));
+    }
+  }
+
+  TimmyPanels.register('logs', {
+    draw(host, frame, ctx) {
+      rlArrange();
+      if (!ctx.own) { put(host, ctx.h('p', { class: 'empty' }, 'Not shown: the frame is another project\'s, so its runs are not read here.')); return; }
+      RL.host = host; RL.ctx = ctx;
+      if (RL.project !== ctx.project) { RL.project = ctx.project; RL.answer = null; RL.selected = null; put(host, ctx.h('p', { class: 'empty' }, 'Reading this project\'s runs and receipts…')); }
+      rlRegister(RL.answer);
+      if (!host.dataset.h169Bound) {
+        host.dataset.h169Bound = '1';
+        host.addEventListener('click', (event) => {
+          const t = event.target instanceof Element ? event.target : null;
+          if (!t) return;
+          const open = t.closest('[data-rl-open]');
+          if (open) { showDetail(open.dataset.rlOpen); return; }
+          const chat = t.closest('[data-rl-chat]');
+          // the Chat page, told which turn (a listener may scroll to it; none is required): the turn's words are there
+          if (chat) { try { window.dispatchEvent(new CustomEvent('timmy:chat-show-turn', { detail: { id: chat.dataset.rlChat || null } })); } catch (e) { /* no event here */ } goTo('chat'); return; }
+          const pick = t.closest('[data-rl-pick]');
+          if (pick) { RL.selected = RL.selected === pick.dataset.rlPick ? null : pick.dataset.rlPick; rlRegister(RL.answer); rlDraw(); }
+        });
+      }
+      const dock = region(RL_SECTION, 'page-dock');
+      if (dock && !dock.dataset.h169Bound) {
+        dock.dataset.h169Bound = '1';
+        dock.addEventListener('click', (event) => {
+          const t = event.target instanceof Element ? event.target : null;
+          if (!t) return;
+          if (t.closest('[data-rl-refresh]')) { rlRead(RL.ctx); return; }
+          const c = t.closest('[data-rl-copy]'); if (c) copyWords(c.dataset.rlCopy, c, host.querySelector('[data-rl="said"]'));
+        });
+      }
+      if (RL.answer && Date.now() - RL.at < SOON_MS) return RL.asking || undefined;
+      return rlRead(ctx);
+    },
+  });
+
+  // the hosts and the records' place, as soon as the page's markup is there (this script loads before companion.js; the
+  // pages' sheet, /panel-run.css, is index.html's link)
+  const ready = () => { hostFor('workflows', WF_SECTION); hostFor('logs', RL_SECTION); rlArrange(); RL.want = rlWantFromHash(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true }); else ready();
+})();

@@ -89,9 +89,10 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
     if (box) rmSync(box, { recursive: true, force: true });
   });
 
-  async function open(size: { width: number; height: number }, reduced = false) {
+  async function open(size: { width: number; height: number }, reduced = false, before?: (page: Page) => Promise<void>) {
     const o = await openPage(browser, { origin: origin() }, size);
     if (reduced) await o.page.emulateMedia({ reducedMotion: 'reduce' });
+    if (before) await before(o.page); // (a route installed before the page loads: what the page's own first asks meet)
     const consoleErrors: string[] = [];
     o.page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     await o.page.goto(`${origin()}/#t=${tokenOf()}`);
@@ -154,7 +155,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       const conn = await text(o.page, '[data-inspect-component="connection-ollama-local"] .tr-facts');
       expect(conn).toContain('artboard ProviderCard');
       expect(conn).toContain('connected has NO success pose');
-      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'OFL.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'problems.log', 'rive.log', 'rive.yaml', 'scene.rml']);
+      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'rive-build-log.txt', 'rive-build-problems.txt', 'rive.yaml', 'scene.rml']);
       const rml = await o.page.evaluate(async () => { const r = await fetch('/assets/rive/timmy-ui/scene.rml'); return { status: r.status, body: await r.text() }; });
       expect(rml.status).toBe(200);
       expect(rml.body).toContain('name="AgentConsole"');
@@ -163,8 +164,11 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       const listing = await text(o.page, '[data-inspect-listing]');
       expect(listing).toMatch(/The components with a \.riv are drawn by the runtime/);
       expect(listing).toMatch(/Runtime served by this companion: yes/);
-      // the glyphs in the text colour (B10: amber is a role, never a mark); the text fallback hidden under a drawn canvas
-      expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-face', (e) => getComputedStyle(e).color)).toBe('rgb(242, 239, 233)');
+      // the glyphs in the page's text colour (B10: amber is a role, never a mark; B11: the registry's --timmy-ui-text where the page has it)
+      const textColour = await o.page.evaluate(() => { const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-text, var(--timmy-text))'; document.body.append(probe); const c = getComputedStyle(probe).color; probe.remove(); return c; });
+      expect(textColour).not.toBe('rgb(255, 176, 0)');
+      // the text fallback hidden under a drawn canvas
+      expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-face', (e) => getComputedStyle(e).color)).toBe(textColour);
       expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-fallback', (e) => (e as HTMLElement).hidden)).toBe(true);
       // no page error; the Inspect view asks for no absent file (the mark's is not here: nothing asked). The console carries the
       // runtime's own "Failed to fetch the Rive file: HTTP 404" twice: H171's chat-shell.js drawMarks draws the T mark through
@@ -635,6 +639,79 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
     const moving = await sample(false);
     expect(moving.state).toBe(1);
     expect(new Set(moving.frames).size, 'the Working ring moves without reduced motion').toBeGreaterThan(1);
+  }, LONG);
+
+  /**
+   * The blocker on the merged head (GATE 04, journey-rive-product 3/7): the companion's Chat and Connections drew no face —
+   * a4914820's bindings asked the listing once at page load, before the session existed, and kept the shell's 401 { needs: 'session' }
+   * as "no .riv is in this installation". Now a failed or unauthenticated listing is never kept: a face that waited on it says so
+   * (retryable) and is asked for again at the next mount and when the shell's session arrives.
+   */
+  it('a page that gets its session AFTER load draws every face: the listing refused before the session is never kept — the faces wait in words, say why, and draw at the next mount and when TimmyShell emits the session', async () => {
+    type RH = { component: string; state: string; why: string; retryable: boolean; events: Array<{ did: string; source: string }> };
+    type TR = { inspect: () => RH[]; mountConsole: (h: Element, o: object) => unknown; mountProviderCard: (h: Element, id: string, o?: object) => unknown; mountActionButton: (h: Element, o: object) => unknown; runtimeWhy: () => string };
+    type TS = { session: { set: (t: string, u: unknown) => void } };
+    // (1) a listing that does not answer (a 503 here: the shell passes a non-401 through untouched), installed as a route BEFORE
+    // the page loads so the page's own first asks (the Chat's console at load) meet it too; lifted before the next mount
+    // (2) the pre-session refusal as a page without a session meets it — 401 { needs: 'session' } — on which the shell stops
+    // every later ask until a session is set; then "the session arrives" (TimmyShell.session.set with a FAKE token: this test's
+    // companion has no identity provider, so the route stands in for the provider's gate — it lets the listing through, the
+    // FAKE session header stripped, once that token is sent; the companion answers as itself)
+    const LISTING = '**/api/rive/assets';
+    const FAKE_SESSION = 'FAKE-session-of-this-test.not-a-token';
+    const refuseListing = (page: Page) => page.route(LISTING, (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'FAKE (the test): the listing does not answer' }) }));
+    const gateListing = (page: Page) => page.route(LISTING, async (route) => {
+      const headers = { ...route.request().headers() };
+      if (headers['x-timmy-session'] === FAKE_SESSION) { delete headers['x-timmy-session']; await route.continue({ headers }); return; }
+      await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ ok: false, needs: 'session', error: 'FAKE (the test): a user-data read before a session is set' }) });
+    });
+    const restoreListing = (page: Page) => page.unroute(LISTING);
+    const mount = (which: 'console' | 'card' | 'action') => o.page.evaluate((w) => {
+      const R = (window as unknown as { TimmyRive: TR }).TimmyRive;
+      const host = document.createElement('div'); host.id = `late-${w}`; document.body.append(host);
+      if (w === 'console') R.mountConsole(host, { size: 'card', name: 'late:console' });
+      else if (w === 'card') R.mountProviderCard(host, 'openrouter', { name: 'late:card' });
+      else R.mountActionButton(host, { name: 'late:action', label: 'Late action', action: () => undefined });
+    }, which);
+    const faces = () => o.page.evaluate(() => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:')).map((x) => ({ component: x.component, state: x.state, why: x.why, retryable: x.retryable, again: x.events.filter((e) => /asked again for this face/.test(e.did)).map((e) => e.source) })));
+    const drawnAll = (n: number) => o.page.waitForFunction((k) => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:') && x.state === 'drawn').length === k && [...document.querySelectorAll('[id^="late-"] canvas')].every((c) => c.getAttribute('data-loaded') === 'true'), n, { timeout: 30_000 });
+    // (1) the mount path: refused before any mount → the console waits in words and says why; the listing is asked again at the
+    // next mount (the card), and both draw
+    let o = await open({ width: 1440, height: 900 }, false, refuseListing);
+    try {
+      await mount('console');
+      await o.page.waitForFunction(() => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().some((x) => x.component === 'late:console' && x.state === 'words'), null, { timeout: 20_000 });
+      const waiting = await faces();
+      expect(waiting).toHaveLength(1);
+      expect(waiting[0]).toMatchObject({ component: 'late:console', state: 'words', retryable: true });
+      expect(waiting[0].why).toMatch(/listing has not answered yet .* asked again at the next mount or when the session arrives/);
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: TR }).TimmyRive.runtimeWhy())).toMatch(/listing has not answered yet/);
+      expect(await text(o.page, '#late-console .tr-note')).toMatch(/timmy-ui\.riv is not drawn yet: the components’ listing has not answered yet/);
+      expect(await text(o.page, '#late-console .tr-note')).not.toMatch(/not in this installation/);
+      await restoreListing(o.page);
+      await mount('card');
+      await drawnAll(2);
+      const after = await faces();
+      expect(after.map((x) => [x.component, x.state, x.retryable])).toEqual([['late:console', 'drawn', false], ['late:card', 'drawn', false]]);
+      expect(after[0].again).toEqual(['a new mount: the listing asked again']);
+      expect(o.errors).toEqual([]);
+    } finally { await o.context.close(); }
+    // (2) the session path: refused before the mounts → three faces wait; TimmyShell's 'session' event (a user signed in after
+    // load) asks the listing again and every face draws — no mount needed
+    o = await open({ width: 1440, height: 900 }, false, gateListing);
+    try {
+      await mount('console'); await mount('card'); await mount('action');
+      await o.page.waitForFunction(() => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:') && x.state === 'words').length === 3, null, { timeout: 20_000 });
+      expect((await faces()).every((x) => x.retryable)).toBe(true);
+      expect(await o.page.$$eval('[id^="late-"] canvas[data-loaded]', (els) => els.length)).toBe(0);
+      // (the shell refuses every later ask on its own after that 401 — the session is what lifts it: the route stays, gated)
+      await o.page.evaluate((t) => (window as unknown as { TimmyShell: TS }).TimmyShell.session.set(t, { id: 'FAKE (the test): a user signed in after the page loaded' }), FAKE_SESSION);
+      await drawnAll(3);
+      const after = await faces();
+      expect(after.map((x) => [x.component, x.state, x.retryable])).toEqual([['late:console', 'drawn', false], ['late:card', 'drawn', false], ['late:action', 'drawn', false]]);
+      expect(after.map((x) => x.again)).toEqual([['the session arrived: the listing asked again'], ['the session arrived: the listing asked again'], ['the session arrived: the listing asked again']]);
+      expect(o.errors).toEqual([]);
+    } finally { await o.context.close(); }
   }, LONG);
 
   it('PREVIEW: labelled, moves the word only, records a PREVIEW event; no receipt and no progress number in the view; reduced motion is read; 390x844 fits', async () => {

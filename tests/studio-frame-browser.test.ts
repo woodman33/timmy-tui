@@ -540,7 +540,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
         await page.evaluate(() => { for (const id of ['jobs', 'project']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
         const read = () => page.evaluate(() => {
           const side = document.getElementById('side')!.getBoundingClientRect();
-          const under = [...document.querySelectorAll('.tlui-navigation-panel, .tlui-minimap, .tlui-main-toolbar__inner, .tlui-help-menu')].map((e) => e.getBoundingClientRect())
+          // (R11 round 7, H176: the desk's bar — .timmy-desk-dock, companion/studio-canvas/src/desk.js — is drawn in tldraw's navigation-panel slot and is the bottom part under the panel on a wide window)
+          const under = [...document.querySelectorAll('.tlui-navigation-panel, .tlui-minimap, .timmy-desk-dock, .tlui-main-toolbar__inner, .tlui-help-menu')].map((e) => e.getBoundingClientRect())
             .filter((b) => b.width > 0 && b.height > 0 && b.right > side.left && b.left < side.right);
           const region = document.getElementById('side-scroll')!;
           return {

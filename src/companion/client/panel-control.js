@@ -202,3 +202,253 @@
     },
   });
 })();
+
+// ── R11 round 7 (H169): the Control Room page on the shell's scaffold (SHELL CONTRACT v1) ──
+//
+// The panes above are the page's work. Around them, from GET /api/panel/control/room (src/companion/panels/control.ts, the
+// frame's activity + the capability inventory + the receipts chain, read on the server):
+//   the head      what runs now and what it may cost; ONE primary: Stop the turn (a chat turn being answered: POST
+//                 /api/chat/stop { turn }), else the job's stop command to copy, else Answer in Chat (something waits on you),
+//                 else Open Runs & receipts
+//   the states    approval while anything waits on you (NEEDS YOU first), running while anything runs, else content
+//   the band      Fleet (exercised · configured · available) and Budget (measured dollars from the receipts, the flags in effect)
+//   the context   the fleet, each lane and integration in the three words (available / configured / exercised; never a fourth),
+//                 and Fleet & Clef's connections (cloudroom, clef, cloudflare) with their observed state — folded in here (D3)
+//   the dock      Stop in .dock-stop while a turn runs; Read again; the Runs & receipts shortcut
+//   the records   the budget's facts (no cap in this revision, said), where the logs are, what could not be read
+// Green is drawn only for an observed exercised state; "none" is a word, not a colour.
+(() => {
+  'use strict';
+  if (typeof TimmyPanels === 'undefined' || typeof TimmyPanels.get !== 'function') return;
+  const panes = TimmyPanels.get('control');
+  const shell = () => (typeof TimmyShell !== 'undefined' && TimmyShell ? TimmyShell : null);
+  const page = (reg) => { const s = shell(); if (s && typeof s.page === 'function') { try { s.page('control', reg); } catch (e) { /* the shell said why */ } } };
+  const setState = (st, extra) => { const s = shell(); if (s && typeof s.state === 'function') { try { s.state('control', st, extra || {}); } catch (e) { /* the shell said why */ } } };
+  const goTo = (legacy) => { const s = shell(); if (s && typeof s.go === 'function') s.go(legacy, 'h169'); else if (typeof showWorkspaceTab === 'function') showWorkspaceTab(legacy); };
+  const SECTION = 'ws-control';
+  /** The kicker's number is the rail's order (SHELL CONTRACT v1 §2.3): the shell's own (TimmyShell.PAGES[].n) when it says, else the contract's. */
+  const kickerN = (fallback) => { const s = shell(); const p = s && Array.isArray(s.PAGES) ? s.PAGES.find((x) => x && x.id === 'control') : null; return (p && p.n) || fallback; };
+  const R = { project: null, host: null, ctx: null, room: null, timer: 0, asking: null, stopping: false, at: 0 };
+  const SOON_MS = 1500; // a draw-triggered read is skipped within this of the last (the frame moves often while a run runs)
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const clock = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? String(iso || '') : `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`; };
+  const put = (el, ...kids) => { if (el) el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false)); };
+  const region = (cls) => { const s = document.getElementById(SECTION); return s ? s.querySelector(`.${cls}`) : null; };
+  const shown = () => Boolean(R.host && document.contains(R.host) && !R.host.closest('[hidden]') && !document.hidden);
+  /** dollars as the receipts measured them: cents when there are any, four places under a cent, unknown when not a number */
+  const usd = (n) => (typeof n === 'number' && Number.isFinite(n) ? (n === 0 || n >= 0.01 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`) : 'unknown');
+
+  /** The "now" strip: before the panes' host, inside the page's work (the section when the scaffold is not there yet). */
+  function nowBox() {
+    let box = document.querySelector(`#${SECTION} [data-room="now"]`);
+    if (box) return box;
+    const section = document.getElementById(SECTION);
+    if (!section) return null;
+    box = document.createElement('section');
+    box.className = 'room-now';
+    box.dataset.room = 'now';
+    box.setAttribute('aria-label', 'What runs now');
+    const work = section.querySelector('.page-work') || section;
+    const slot = work.querySelector(':scope > .page-state'); // the shell's state words stay first
+    if (slot) slot.after(box); else work.prepend(box);
+    return box;
+  }
+  function ownBox(regionCls, attr, key, make) {
+    const reg = region(regionCls);
+    if (!reg) return null;
+    let box = reg.querySelector(`[${attr}="${key}"]`);
+    if (!box) { box = make(); box.setAttribute(attr, key); reg.append(box); }
+    return box;
+  }
+  async function copyWords(text, saidTo) {
+    try {
+      if (!window.isSecureContext || !navigator.clipboard) throw new Error('no clipboard here');
+      await navigator.clipboard.writeText(text);
+      if (saidTo) saidTo.textContent = `Copied ${text}: paste it in Timmy's terminal. Nothing ran from this page.`;
+    } catch (e) { if (saidTo) saidTo.textContent = `Could not copy (${e && e.message ? e.message : e}); the command is ${text}.`; }
+  }
+
+  /** Stop the chat turn being answered: POST /api/chat/stop { turn } (the process answering it stops it; its receipt says so). */
+  async function stopTurn(id) {
+    const said = document.querySelector(`#${SECTION} [data-room="said"]`);
+    if (!id || R.stopping || !R.ctx) return;
+    R.stopping = true;
+    for (const b of document.querySelectorAll(`#${SECTION} [data-room-stop-turn]`)) { b.disabled = true; b.setAttribute('aria-busy', 'true'); }
+    try {
+      const r = await R.ctx.fetch(`/api/chat/stop${R.ctx.project ? `?project=${encodeURIComponent(R.ctx.project)}` : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ turn: id }) });
+      const body = await r.json().catch(() => null);
+      if (said) said.textContent = body && typeof (body.words || body.error) === 'string' ? (body.words || body.error) : `The companion answered HTTP ${r.status}.`;
+    } catch (e) {
+      if (said) said.textContent = `Not stopped: the companion could not be reached (${e && e.message ? e.message : e}).`;
+    } finally {
+      R.stopping = false;
+      for (const b of document.querySelectorAll(`#${SECTION} [data-room-stop-turn]`)) { b.disabled = false; b.removeAttribute('aria-busy'); }
+      void read();
+    }
+  }
+
+  function primaryOf(room) {
+    const a = room && room.activity;
+    if (a && a.chatTurn && a.chatTurn.id) return { label: 'Stop the turn', run: () => stopTurn(a.chatTurn.id) };
+    if (a && a.stop && a.stop.command) return { label: 'Copy the stop command', run: () => copyWords(a.stop.command, document.querySelector(`#${SECTION} [data-room="said"]`)) };
+    if (a && a.waitingOnYou > 0) return { label: 'Answer in Chat', run: () => goTo('chat') };
+    return { label: 'Open Runs & receipts', run: () => goTo('logs') };
+  }
+
+  function register(room) {
+    const f = room ? room.fleet : [];
+    const count = (w) => f.filter((x) => x.word === w).length;
+    const b = room && room.budget;
+    const flags = b ? [b.localOnly ? 'local only' : null, b.freeOnly ? 'free only' : null].filter(Boolean).join(' · ') : '';
+    page({
+      kicker: `${kickerN('10')} / KEEP WATCH`, title: 'What runs now, and what it costs.',
+      intro: 'Every run under way in this project, the fleet that can take one, and the budget in effect. A run is stopped from here; nothing else is changed.',
+      primary: primaryOf(room), context: room ? 'selection' : null, dock: 'CONTROL TOOLS', // the column holds the fleet once the room is read
+      band: room ? [
+        { k: 'Fleet', v: f.length ? `${count('exercised')} exercised · ${count('configured')} configured · ${count('available')} available` : 'none listed' },
+        { k: 'Budget', v: b ? `${usd(b.measuredUsd)} measured · ${b.receipts} receipt${b.receipts === 1 ? '' : 's'}${flags ? ` · ${flags}` : ''}` : 'unknown' },
+      ] : [],
+    });
+    if (!room) return;
+    const a = room.activity;
+    if (a.waitingOnYou > 0) setState('approval', { words: `${a.waitingOnYou} waiting on you.`, next: { label: 'Answer in Chat', run: () => goTo('chat') } });
+    else if (a.running > 0) setState('running', { words: `${a.running} running.` });
+    else setState('content');
+  }
+
+  function draw(room) {
+    const h = R.ctx.h;
+    const a = room.activity;
+    // the now strip
+    const now = nowBox();
+    if (now) {
+      // what the last action said stays through a redraw (a read follows a Stop; the frame moves): until the next action
+      const saidBefore = (now.querySelector('[data-room="said"]') || {}).textContent || '';
+      put(now,
+        h('p', { class: 'room-counts' },
+          h('span', { class: `room-count${a.running ? ' is-running' : ''}`, 'data-room-count': 'running' }, `${a.running} running`), ' · ',
+          h('span', { class: `room-count${a.waitingOnYou ? ' needs-you' : ''}`, 'data-room-count': 'waiting' }, a.waitingOnYou ? `NEEDS YOU · ${a.waitingOnYou} waiting on you` : '0 waiting on you')),
+        a.chatTurn ? h('p', { class: 'room-turn', 'data-room': 'chat-turn' }, `▶ ${a.chatTurn.words || 'a chat turn is being answered'}${a.chatTurn.since ? ` · since ${clock(a.chatTurn.since)}` : ''} `,
+          a.chatTurn.id ? h('button', { type: 'button', class: 'dock-btn room-stop', 'data-room-stop-turn': a.chatTurn.id, title: 'Asks the process answering this turn to stop it; its receipt says it was stopped from this page' }, 'Stop the turn') : null) : null,
+        a.stop ? h('p', { class: 'room-stop-words', 'data-room': 'job-stop' }, `${a.stop.words} `, a.stop.command ? h('button', { type: 'button', class: 'dock-btn', 'data-room-copy': a.stop.command, title: `Copies ${a.stop.command} for Timmy's terminal` }, 'Copy the stop command') : null) : null,
+        !a.chatTurn && !a.stop ? h('p', { class: 'room-quiet' }, a.running ? `${a.running} running; the frame names no stop for it here.` : 'Nothing runs now. A run shows here the moment it starts, with how it is stopped.') : null,
+        h('p', { class: 'room-said', 'data-room': 'said', 'aria-live': 'polite' }, saidBefore));
+    }
+    // the dock: Stop in its slot while a turn runs; the page's tools after the frame's
+    const dock = region('page-dock');
+    if (dock) {
+      const slot = dock.querySelector('.dock-stop');
+      if (slot) put(slot, a.chatTurn && a.chatTurn.id ? h('button', { type: 'button', class: 'dock-btn is-stop', 'data-room-stop-turn': a.chatTurn.id }, 'Stop the turn') : a.stop && a.stop.command ? h('button', { type: 'button', class: 'dock-btn', 'data-room-copy': a.stop.command, title: a.stop.words }, 'Copy the stop command') : null);
+      const tools = dock.querySelector(':scope > .dock-tools') || dock; // the shell's tools container when it made one
+      let own = tools.querySelector('[data-dock-owner="control"]');
+      if (!own) { own = document.createElement('span'); own.className = 'dock-group'; own.dataset.dockOwner = 'control'; tools.append(own); }
+      put(own, h('button', { type: 'button', class: 'dock-btn', 'data-room-refresh': '1' }, 'Read again'), h('button', { type: 'button', class: 'dock-btn', 'data-room-go': 'logs' }, 'Runs & receipts'));
+    }
+    // the context: the fleet in the three words, then Fleet & Clef's connections
+    const ctxEl = region('page-context');
+    if (ctxEl) {
+      const section = document.getElementById(SECTION);
+      const gridEl = section ? section.querySelector('.conn-grid[data-conns-for="fleet"]') : null;
+      const grid = gridEl ? { el: gridEl, box: gridEl.closest('section.box') || gridEl } : null;
+      const box = ownBox('page-context', 'data-context-owner', 'control', () => { const s = document.createElement('section'); s.className = 'ctx-box room-fleet'; return s; });
+      const means = 'available: on this computer or reachable · configured: set up for this account · exercised: a receipt of a real run';
+      put(box,
+        h('h3', { class: 'ctx-title' }, 'The fleet'),
+        h('p', { class: 'ctx-words', title: means }, 'Each lane in the three words; a word is drawn only from what was observed.'),
+        room.fleet.length ? h('ul', { class: 'fleet-list', 'aria-label': 'Lanes and integrations' }, ...room.fleet.map((r) => h('li', { class: `fleet-row is-${r.word}`, 'data-fleet': r.id, 'data-word': r.word },
+          h('span', { class: 'fleet-name' }, r.name, h('span', { class: 'fleet-group' }, ` ${r.group}`)),
+          h('span', { class: `fleet-word is-${r.word}` }, r.word),
+          h('details', { class: 'ui-details' }, h('summary', null, 'Details'),
+            h('dl', { class: 'ctx-facts' },
+              h('dt', null, 'Available'), h('dd', null, r.available),
+              h('dt', null, 'Configured'), h('dd', null, r.configured),
+              h('dt', null, 'Exercised'), h('dd', null, r.exercised),
+              r.next ? [h('dt', null, 'Next'), h('dd', null, r.next)] : null))))) : h('p', { class: 'ctx-words' }, 'No lane or integration is listed by the inventory.'),
+        // Fleet & Clef's connections (cloudroom, clef, cloudflare): the page's own grid, drawn by companion.js from the frame
+        // (index.html folds it into this section, D3), MOVED into this column; where the section has none, the room's words
+        grid && grid.box ? null : [h('h3', { class: 'ctx-title' }, 'Fleet & Clef'),
+          room.connections.length ? h('ul', { class: 'fleet-list', 'aria-label': 'Fleet backend, decisions and the edge' }, ...room.connections.map((c) => h('li', { class: `fleet-row is-conn is-${c.state}`, 'data-conn': c.id, 'data-state': c.state },
+            h('span', { class: 'fleet-name' }, c.label),
+            h('span', { class: `fleet-word is-${c.state === 'live' ? 'live' : 'none'}` }, c.state),
+            h('p', { class: 'fleet-words' }, c.words || ''),
+            c.setup || c.observedAt ? h('details', { class: 'ui-details' }, h('summary', null, 'Details'),
+              h('dl', { class: 'ctx-facts' },
+                c.observedAt ? [h('dt', null, 'Observed'), h('dd', null, clock(c.observedAt))] : null,
+                c.setup ? [h('dt', null, 'Setup'), h('dd', null, h('code', null, c.setup))] : null)) : null))) : h('p', { class: 'ctx-words' }, 'The frame lists none of the fleet\'s connections.')]);
+      if (grid && grid.box && !ctxEl.contains(grid.box)) ctxEl.append(grid.box);
+    }
+    // the records: the budget, where the logs are, what could not be read
+    const rec = region('page-records');
+    if (rec) {
+      const box = ownBox('page-records', 'data-records-owner', 'control', () => { const d = document.createElement('details'); d.className = 'records'; const s = document.createElement('summary'); s.textContent = 'Records · the budget, the logs, how this was read'; d.append(s, document.createElement('div')); return d; });
+      const b = room.budget;
+      put(box.lastElementChild,
+        h('dl', { class: 'ctx-facts budget-facts' },
+          h('dt', null, 'Measured'), h('dd', null, `${usd(b.measuredUsd)} across ${b.receipts} receipt${b.receipts === 1 ? '' : 's'}${b.unmeasured ? ` · ${b.unmeasured} unmeasured (no cost on the receipt)` : ''}`),
+          h('dt', null, 'Free only'), h('dd', null, `${b.freeOnly ? 'on' : 'off'} · from ${b.from.freeOnly}`),
+          h('dt', null, 'Local only'), h('dd', null, `${b.localOnly ? 'on' : 'off'} · from ${b.from.localOnly}`),
+          h('dt', null, 'Cap'), h('dd', null, b.cap)),
+        h('p', null, 'Logs: each pane above keeps its run\'s newest lines; the socket log and the structured events are Runs & receipts\' records; the Workbench\'s tab 7 shows every running pane.'),
+        h('p', null, `Read ${clock(room.at)} from the workspace frame, the capability inventory and the receipts chain.`),
+        room.notes.length ? h('ul', null, ...room.notes.map((n) => h('li', { class: 'tone-failed' }, n))) : null);
+    }
+  }
+
+  async function read() {
+    const ctx = R.ctx;
+    if (!ctx || R.asking) return R.asking;
+    clearTimeout(R.timer); R.timer = 0;
+    R.at = Date.now();
+    R.asking = (async () => {
+      let body = null; let status = 0;
+      try { const r = await ctx.fetch(ctx.api('room')); status = r.status; body = await r.json().catch(() => null); } catch (e) { body = null; }
+      if (R.ctx !== ctx || R.project !== ctx.project) return;
+      if (!body || body.ok !== true) {
+        const now = nowBox();
+        if (now) put(now, ctx.h('p', { class: 'room-quiet tone-failed' }, `✕ The room could not be read: ${(body && body.error) || (status ? `the companion answered HTTP ${status}` : 'the companion did not answer')}.`));
+        setState('error', { words: 'The room could not be read from the companion.', next: { label: 'Read again', run: () => read() } });
+        return;
+      }
+      R.room = body;
+      register(body);
+      draw(body);
+    })().finally(() => {
+      R.asking = null;
+      if (R.room && R.room.activity && (R.room.activity.running > 0 || R.room.activity.waitingOnYou > 0) && shown()) R.timer = setTimeout(() => { R.timer = 0; if (shown()) void read(); }, 5000);
+    });
+    return R.asking;
+  }
+
+  function bind() {
+    const section = document.getElementById(SECTION);
+    if (!section || section.dataset.roomBound) return;
+    section.dataset.roomBound = '1';
+    section.addEventListener('click', (event) => {
+      const t = event.target instanceof Element ? event.target : null;
+      if (!t) return;
+      const stop = t.closest('[data-room-stop-turn]');
+      if (stop) { void stopTurn(stop.dataset.roomStopTurn); return; }
+      const copy = t.closest('[data-room-copy]');
+      if (copy) { void copyWords(copy.dataset.roomCopy, document.querySelector(`#${SECTION} [data-room="said"]`)); return; }
+      if (t.closest('[data-room-refresh]')) { void read(); return; }
+      const g = t.closest('[data-room-go]');
+      if (g) goTo(g.dataset.roomGo);
+    });
+  }
+
+  TimmyPanels.register('control', {
+    draw(host, frame, ctx) {
+      const out = panes ? panes.draw(host, frame, ctx) : undefined;
+      R.host = host; R.ctx = ctx;
+      bind();
+      if (!ctx.own) { const now = nowBox(); if (now) put(now, ctx.h('p', { class: 'room-quiet' }, 'Not shown: the frame is another project\'s.')); return out; }
+      if (R.project !== ctx.project) { R.project = ctx.project; R.room = null; }
+      register(R.room);
+      const mine = R.room && Date.now() - R.at < SOON_MS && !R.asking ? Promise.resolve() : read();
+      return out && typeof out.then === 'function' ? Promise.all([out, mine]) : mine;
+    },
+  });
+  // (the page's sheet, /panel-control.css, is index.html's link)
+  const ready = () => { nowBox(); register(null); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true }); else ready();
+})();

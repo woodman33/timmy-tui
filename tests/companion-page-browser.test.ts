@@ -243,8 +243,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
     // the page opens on it
     if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
-    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
-    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
+    // R11 round 7 (the lead, SHELL CONTRACT v1 §2.1): the old tab row stays in the DOM hidden (companion.js's one switcher), so
+    // only a VISIBLE control is clicked — the rail item opened the page above; a panel's own switch is the visible [data-tab]
+    if (await page.locator(`.view-switch [data-tab="${name}"]:visible`).count()) await page.click(`.view-switch [data-tab="${name}"]:visible`);
+    else if (await page.locator(`[data-tab="${name}"]:visible`).count()) await page.click(`[data-tab="${name}"]:visible`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const idle = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'IDLE', null, { timeout: 30_000 });
@@ -621,7 +623,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await still.page.keyboard.press('1');
       await still.page.waitForFunction(() => document.body.dataset.dest === 'home', null, { timeout: 10_000 });
       await record(still.page);
-      await still.page.click('[data-tab="logs"]');
+      // R11 round 7 (the lead): the tab row is hidden under the one rail (SHELL CONTRACT v1 §2.1); Runs & receipts by its rail item
+      await openWorkspaceTab(still.page, 'logs');
       await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active') && !document.getElementById('ws-logs')?.hidden, null, { timeout: 5_000 });
       await tab(still.page, 'streamdown');
       expect(await still.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([]);

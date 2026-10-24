@@ -207,7 +207,9 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     c.key('', { end: true });
     expect(c.selected()).toMatchObject({ kind: 'mcp-call' });
     c.key('', { return: true });
-    f = c.frame(160, 45);
+    // (R11 round 7, H177: a row taller than the rest of this case: the page head's description row above the body puts the
+    // output's heading one row below the drawer's fold at 45 rows)
+    f = c.frame(160, 46);
     const call = flat(f, 'right');
     expect(call).toContain(`CALL ${r.call}`);
     expect(call).toContain('Args {"text":"FAKE"}');

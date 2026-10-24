@@ -285,7 +285,9 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     const { guidedTemplates } = await import('../src/studio/templates.js');
     const { page, context, errors } = await open();
     try {
-      for (const t of guidedTemplates()) {
+      // (R11 round 7, H176: the Houdini starters ride in the same list, marked; tests/studio-starters-browser.test.ts opens those)
+      await page.waitForFunction(() => document.querySelectorAll('#board-pick optgroup').length >= 2, null, { timeout: 15_000 });
+      for (const t of guidedTemplates().filter((x): x is Exclude<typeof x, { kind: 'starter' }> => !('kind' in x))) {
         await page.selectOption('#board-pick', t.id);
         await page.click('#board-open');
         await page.waitForTimeout(300);

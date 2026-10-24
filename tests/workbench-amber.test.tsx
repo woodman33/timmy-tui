@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { takeTurnHold, type TurnHold } from '../src/agent/chat-turn.js';
-import { TABS } from '../src/contracts/workspace.js';
+import { TABS, tabOf } from '../src/contracts/workspace.js';
 import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
 import { copyStarter } from '../src/project/starters.js';
 import { Workspace } from '../src/repl/workspace.js';
@@ -22,7 +22,8 @@ import { glyphSet } from '../src/term/glyphs.js';
 import { HOMEBREW } from '../src/theme/tokens.js';
 import { Controller } from '../src/workbench/controller.js';
 import { glyphsFor } from '../src/workbench/frame.js';
-import { routeOf } from '../src/workbench/hub.js';
+import { routeOf, workspaceOfPage } from '../src/workbench/hub.js';
+import { destinationOf, RAIL } from '../src/workbench/destinations.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
 import type { Line, Seg } from '../src/workbench/text.js';
 import { styleOf } from '../src/workbench/theme.js';
@@ -149,10 +150,12 @@ describe('amber is exact (R7 H150; DESIGN.md §10 B10)', () => {
       const r = readAmber(screen);
       expect(r.wrong, `tab ${t.key} ${t.label}`).toEqual([]);
       expect(primaries(screen).length, `tab ${t.key}: the one primary next step`).toBeLessThanOrEqual(1);
-      // the active tab is amber, and the region with the keyboard (the actions bar, where the Workbench starts)
-      expect(r.amber.some((x) => x.row <= 2 && x.role === 'focus' && x.text.trim().startsWith(`${t.key} ${t.label.split(' ')[0]}`)), `tab ${t.key}: the active tab amber`).toBe(true);
-      // no other tab is
-      for (const o of TABS.filter((x) => x.key !== t.key)) expect(r.amber.some((x) => x.row <= 2 && x.role === 'focus' && x.text.trim().startsWith(`${o.key} `)), `tab ${t.key}: tab ${o.key} not amber`).toBe(false);
+      // the shown destination is amber (R11 round 7, H177: the rail's short name with its page's key at 160 columns; Fleet &
+      // Clef (8) under Control Room's cell), and the region with the keyboard (the actions bar, where the Workbench starts)
+      const shown = destinationOf(workspaceOfPage(t.id), t.id)!;
+      expect(r.amber.some((x) => x.row <= 2 && x.role === 'focus' && x.text.trim() === `${tabOf(shown.page).key} ${shown.short}`), `tab ${t.key}: the shown destination amber`).toBe(true);
+      // no other destination is
+      for (const o of RAIL.filter((x) => x.id !== shown.id)) expect(r.amber.some((x) => x.row <= 2 && x.role === 'focus' && x.text.trim() === `${tabOf(o.page).key} ${o.short}`), `tab ${t.key}: ${o.label} not amber`).toBe(false);
       seen[t.key] = r.amber.length;
       // key hints are drawn, in the text's colour
       const hints = screen.flatMap((l) => l.filter((s) => KEY_HINT.test(s.text.trim())));

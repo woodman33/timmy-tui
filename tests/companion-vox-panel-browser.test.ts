@@ -5,7 +5,7 @@
  * labelled with its provenance and evidence state; the entity tree, a selection highlighting its shapes; a video's frames on a
  * timeline, a frame chosen changing the image and what is drawn; an STL's three views; the pipeline as the record ran it and
  * what this computer has not; the receipt, green only when verified; the verdict line; one next step among the commands; the
- * palette (no blue, purple, cyan or mint; green only where .is-live or .is-verified marks it; text at least 4.5:1); and at
+ * palette (B11: green only where .is-live or .is-verified marks it, an observed state; text at least 4.5:1); and at
  * 390 px nothing scrolls sideways.
  *
  * FAKE, labelled: Look (tests/helpers/vox-fakes.ts, not OpenCV; the page says FAKE), the video record of
@@ -170,21 +170,23 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(await page.$$eval('.vox-proj', (fs) => fs.map((f) => [f.getAttribute('data-view'), f.getAttribute('data-lines'), (f.querySelector('path')?.getAttribute('d') ?? '').length > 10]))).toEqual([['front', '4', true], ['top', '4', true], ['side', '4', true]]);
       expect(await text(page, '.vox-mesh-words')).toBe("12 triangles · box 10 × 10 × 10 · 12 feature edges; a drawing of the file, measuring nothing · in the file's units (an STL declares none) · provenance not recorded · evidence declared");
 
-      // the palette, over the whole tab: no blue, purple, cyan or mint; green only within .is-live or .is-verified; contrast
+      // the palette, over the whole tab (R11 round 7, DESIGN.md B11: the Glacier/Amber families and the blue-black surfaces carry
+      // hue on the browser surfaces, so the old "no blue/purple/cyan" pin goes; what stays: GREEN ONLY within .is-live or
+      // .is-verified — an observed state — and the text contrast floor)
       const seen = await page.evaluate(() => {
         const parse = (v: string): number[] | null => { const m = /^rgba?\(([^)]+)\)$/.exec(v.trim()); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; };
         const hsl = ([r, g, b]: number[]) => { const [R, G, B] = [r / 255, g / 255, b / 255]; const max = Math.max(R, G, B); const min = Math.min(R, G, B); const l = (max + min) / 2; const d = max - min; if (d === 0) return { h: 0, s: 0, l }; const h = max === R ? 60 * (((G - B) / d) % 6) : max === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4); return { h: (h + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
         const lum = (c: number[]) => { const [r, g, b] = c.slice(0, 3).map((x) => { const v = x / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-        const out = { hue: [] as string[], green: [] as string[], greens: 0, contrast: [] as string[] };
-        for (const el of document.querySelectorAll('#ws-voxvision, #ws-voxvision *')) {
+        const out = { green: [] as string[], greens: 0, contrast: [] as string[] };
+        // (the panel's own content; the shell's head, band and dock around it are H175's materials, measured by his tests)
+        for (const el of document.querySelectorAll('[data-panel-host="voxvision"], [data-panel-host="voxvision"] *')) {
           if (el.closest('[hidden]')) continue;
           const cs = getComputedStyle(el);
           if (cs.display === 'none' || el.getBoundingClientRect().width === 0) continue;
           for (const prop of ['color', 'background-color', 'border-top-color', 'border-left-color', 'fill', 'stroke']) {
             const c = parse(cs.getPropertyValue(prop)); if (!c || c[3] === 0) continue;
             const { h, s, l } = hsl(c); if (s < 0.2 || l < 0.08 || l > 0.92) continue;
-            if (h >= 150 && h <= 320) out.hue.push(`${el.tagName} ${prop}`);
-            else if (h >= 75 && h < 150) { if (el.closest('.is-live, .is-verified')) out.greens += 1; else out.green.push(`${el.tagName}.${el.className} ${prop}`); }
+            if (h >= 75 && h < 150) { if (el.closest('.is-live, .is-verified')) out.greens += 1; else out.green.push(`${el.tagName}.${el.className} ${prop}`); }
           }
           if (![...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) || el.closest('svg')) continue;
           const fg = parse(cs.color); if (!fg) continue;
@@ -194,7 +196,6 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
         }
         return out;
       });
-      expect(seen.hue).toEqual([]);
       expect(seen.green).toEqual([]);
       expect(seen.contrast).toEqual([]);
       expect(seen.greens).toBeGreaterThan(0);
@@ -231,17 +232,19 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
     const { page, errors } = await open();
     try {
       await page.waitForSelector('[data-vox="evidence"] .vox-ev-row', { timeout: 15_000 });
-      // the head: on a shell without the scaffold (this page's index.html until H175's commit 2), the panel's own head; the
-      // shell's registration otherwise (TimmyShell.page absent here → nothing registered, nothing thrown)
-      const scaffold = await page.$eval('#ws-voxvision', (e) => Boolean(e.querySelector('.page-head')));
-      if (!scaffold) {
-        expect(await text(page, '[data-vox="own-head"] .vox-kicker')).toBe('04 / OBSERVE & COMPARE');
-        expect(await text(page, '[data-vox="own-head"] .vox-title')).toBe('See the detail. Keep the evidence.');
-        expect(await text(page, '[data-vox="own-head"] .vox-primary')).toMatch(/: copy \/(?:vox|detect|measure|inspect)/);
-        expect(await page.getAttribute('[data-vox="own-head"] .vox-primary', 'title')).toContain('nothing runs from this page');
-      } else {
-        expect(await page.$('[data-vox="own-head"]:not([hidden])')).toBeNull();
-      }
+      // the head is the shell's (H175's scaffold), drawn from what the panel registers: the kicker with the rail's number, the
+      // title, the intro, the primary (the record's next command, copied; its title says nothing runs from this page); the
+      // record's commands in the dock's tools
+      expect(await text(page, '#ws-voxvision .page-head .page-kicker')).toMatch(/^\d+ \/ OBSERVE & COMPARE$/);
+      expect(await text(page, '#ws-voxvision .page-head .page-title')).toBe('See the detail. Keep the evidence.');
+      expect(await text(page, '#ws-voxvision .page-head .page-intro')).toBe('Choose a source, ask a precise question, and inspect what the tools observed.');
+      expect(await text(page, '#ws-voxvision .page-head .page-primary')).toMatch(/: copy \/(?:vox|detect|measure|inspect)/);
+      // the rule said on the page: the commands box's own line, and every dock button's title
+      expect(await text(page, '[data-vox="acts-how"]')).toContain('nothing runs from this page');
+      const dockTitles = await page.$$eval('#ws-voxvision .page-dock .dock-tools [data-vox-dock]', (els) => els.map((e) => e.getAttribute('title') ?? ''));
+      expect(dockTitles.length).toBeGreaterThan(0);
+      expect(dockTitles.every((t) => /nothing runs from this page|Not now/.test(t))).toBe(true);
+      expect(await page.$('[data-vox="own-head"]')).toBeNull();
       // the eight rows, in the order the order names the quantities, then the receipt and the admission rule
       const rows = await page.$$eval('[data-vox="evidence"] .vox-ev-row', (els) => els.map((e) => ({ key: e.getAttribute('data-vox-ev'), known: e.getAttribute('data-known'), name: e.querySelector('dt')?.textContent, words: (e.querySelector('dd')?.textContent ?? '').replace(/\s+/g, ' ').trim() })));
       expect(rows.map((r) => [r.key, r.name])).toEqual([['observed', 'Observed facts'], ['candidates', 'Candidate matches'], ['scores', 'Model scores'], ['calibrated', 'Calibrated probabilities'], ['tolerances', 'Measurement tolerances'], ['price', 'Price uncertainty'], ['receipt', 'Receipt'], ['admitted', 'Model-authored fields']]);

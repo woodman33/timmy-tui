@@ -145,11 +145,12 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
     const t = terminal('wbLocalModel');
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor(/tray1 \/ Home · recent work[\s\S]*Activity & log/, 'Home, at the start', 60_000);
+    await t.waitFor(/tray1 \/ Models & accounts[\s\S]*Activity & log/, 'Home, at the start', 60_000);
     // the one next step, on Home: the local route with no model chosen
     await t.waitFor(/▶ 1 Choose the local model \(from what Ollama lists\)/, 'Home\'s one next step: the local model', 30_000);
     // Enter acts on the zone with the keyboard: the Workflow actions bar, where the fix is the one primary (and selected)
-    expect(await t.focusZone('Workflow actions'), 'the Workflow actions bar given the keyboard').toBe(true);
+    // (R11 round 7, H177: the actions bar is the page head, titled by the page: Models & accounts · connections and recent work)
+    expect(await t.focusZone('Models & accounts · connections'), 'the page head\'s actions bar given the keyboard').toBe(true);
     await t.waitFor(/▸\[▶ 1 Choose the local model/, 'the primary selected on the bar', 10_000);
     t.capture('local-model-160x45-01-home-next-step-FAKE-ollama');
 
@@ -181,7 +182,7 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
     await t.keys('Escape', '2');
     // (R10 H167: Chat's own route row, under its title, as routeNow reads it (the header says the same on every tab); a model
     // whose name says FAKE is named FAKE; the composer's row says where a message goes once its session is open)
-    const chat = await t.waitFor(/tray1 \/ Chat · conversation[\s\S]*next turn: FAKE fake-qwen3:8b · this computer \(Ollama\)[\s\S]*\[Enter\] Type a message +· to FAKE fake-qwen3:8b/, 'Chat\'s route on the model chosen, and its composer ready', 30_000);
+    const chat = await t.waitFor(/tray1 \/ Chat\b[\s\S]*next turn: FAKE fake-qwen3:8b · this computer \(Ollama\)[\s\S]*\[Enter\] Type a message +· to FAKE fake-qwen3:8b/, 'Chat\'s route on the model chosen, and its composer ready', 30_000);
     // (R10 H167: a ready route has no "not ready" words)
     expect(chat).not.toMatch(/not ready/);
     // (R10 CHAT H167: and each listed model's facts, /api/show, which runs no model)

@@ -117,6 +117,54 @@ describe('the 3D & Motion panel\'s routes (R7 H153)', () => {
     for (let i = 0; i < 12 * 9; i += 1) expect(ob.readFloatLE(i * 4)).toBe(tris.triangles[i]);
   });
 
+  // R11 round 7 (H176): the guided flow's sources, read only: the project's parameter files with their values as the live board
+  // reads them, its workflow documents with their blocks and the typed /run that takes each, the three Houdini starters, and the
+  // Houdini lane as src/forge/stubs.ts probes it. Nothing here runs: the answer carries commands and Studio's address, no action.
+  it('the sources: parameter files with their values, workflows with their blocks, the Houdini starters, the Houdini lane as probed; nothing run', async () => {
+    const { scadParamsText } = await import('../src/native/scad-params.js');
+    const { SOURCES_SCHEMA, houdiniWords } = await import('../src/companion/panels/create.js');
+    const a = project('FAKE-create-sources');
+    put(a.root, 'box.scad', 'cube([width, depth, height]);\n');
+    put(a.root, 'box.params.json', scadParamsText('box.scad', { width: 90, depth: 40, height: 30 }));
+    put(a.root, 'BUILD.md', '# FAKE build\n\n```bash [name:build]\necho build\n```\n\n```bash [name:cook]\nhython cook.py\n```\n');
+    const kept = process.env.TIMMY_HOUDINI_MCP;
+    delete process.env.TIMMY_HOUDINI_MCP;
+    try {
+      const res = await get(`/api/panel/create/sources?project=${a.id}`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean; schema: string; project: { id: string; name: string }; params: Array<Record<string, unknown>>; workflows: Array<Record<string, unknown>>; starters: Array<{ id: string; title: string; steps: Array<{ n: string; verb: string }> }>; houdini: { status: string; flag: string; bin: string; words: string }; studio: string };
+      expect(body.ok).toBe(true);
+      expect(body.schema).toBe(SOURCES_SCHEMA);
+      expect(body.project.id).toBe(a.id);
+      // the OpenSCAD model's parameter file: its values, the typed command, and that the live board's save does not take it here (no workflow block names it)
+      expect(body.params.map((pf) => [pf.id, pf.engine, pf.command, pf.values, pf.rebuild])).toEqual([
+        ['params:box.params.json', 'scad', '/scad box.scad', [{ name: 'width', value: '90', unit: null }, { name: 'depth', value: '40', unit: null }, { name: 'height', value: '30', unit: null }], false],
+      ]);
+      expect((body.params[0].save as { offered: boolean; why: string }).offered).toBe(false);
+      expect((body.params[0].save as { offered: boolean; why: string }).why).toMatch(/no workflow block names box\.params\.json/);
+      // the workflow: its blocks with what /run would take; the cook block names hython, so the document says so (named is not configured, let alone run)
+      expect(body.workflows.map((w) => [w.id, w.runnable, w.houdini, (w.blocks as Array<{ name: string; command: string | null; word: string }>).map((b) => [b.name, b.command, b.word])])).toEqual([
+        ['workflow:BUILD.md', true, true, [['build', '/run BUILD.md build', 'not run yet'], ['cook', '/run BUILD.md cook', 'not run yet']]],
+      ]);
+      expect(body.workflows[0].last).toBeNull();
+      // the starters, as src/studio/templates.ts lists them
+      expect(body.starters.map((t) => [t.id, t.title, t.steps.map((st) => st.n)])).toEqual([['H1', 'Houdini handoff', ['01', '02', '03']], ['H2', 'Houdini cookbook', ['01', '02', '03']], ['H3', 'Houdini pipeline atlas', ['01', '02', '03']]]);
+      // the Houdini lane: off without its flag, in words that say nothing here calls it
+      expect(body.houdini.status).toBe('flag_off');
+      expect(body.houdini.flag).toBe('TIMMY_HOUDINI_MCP');
+      expect(body.houdini.words).toBe(houdiniWords({ lane: 'houdini', flag: 'TIMMY_HOUDINI_MCP', enabled: false, via: 'cmcp', server_bin: 'houdini-mcp', status: 'flag_off', note: '' }));
+      expect(body.houdini.words).toMatch(/^No native Houdini operation is configured in Studio/);
+      expect(houdiniWords({ lane: 'houdini', flag: 'TIMMY_HOUDINI_MCP', enabled: true, via: 'cmcp', server_bin: 'houdini-mcp', status: 'ready', note: '' })).toMatch(/available, not exercised from this page/);
+      expect(body.studio).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      // the answer carries no folder of this computer, and no action: every verb in it is a typed command or Studio's
+      expect(JSON.stringify(body)).not.toContain(box);
+      expect((await get(`/api/panel/create/sources?project=${a.id}`, null)).status).toBe(401);
+      expect((await get('/api/panel/create/sources?project=0123456789abcdef')).status).toBe(404);
+    } finally {
+      if (kept === undefined) delete process.env.TIMMY_HOUDINI_MCP; else process.env.TIMMY_HOUDINI_MCP = kept;
+    }
+  });
+
   it('refuses: no token, an unknown project, a path outside the project, another project\'s mesh, a file that is not a listed mesh, changed bytes', async () => {
     const a = project('FAKE-create-d');
     const b = project('FAKE-create-e');

@@ -7,7 +7,8 @@
  */
 import { tabOf } from '../contracts/workspace.js';
 import { compose, innerWidth, panel, type Glyphs, type Placed } from './frame.js';
-import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, tabBar, type PageHit } from './hub.js';
+import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, workspaceOfPage, type PageHit } from './hub.js';
+import { destinationOf, destinationsRow } from './destinations.js';
 import type { WorkspaceConnection } from '../contracts/workspace.js';
 import { headerRows, homeSideView, selectedHome } from './home-journey.js';
 import { bodyKind, chatLayout, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
@@ -53,11 +54,22 @@ export const scrollTo = (at: number | undefined, prev: number, height: number, t
 
 const rangeNote = (scroll: number, height: number, total: number): string | undefined => (total > height ? `${scroll + 1}–${Math.min(total, scroll + height)} of ${total}` : undefined);
 
-/** R5 (H131): the body's title: the project and the workspace (Home: its hub), as the crumb "project / workspace" was. */
+/**
+ * R5 (H131): the body's title, the crumb "project / destination": the project and the destination the header marks (its name
+ * as the rail says it: Files, Workflows, Runs & receipts, Canvas, Vision, Motion & 3D, Models & accounts, Tools & integrations,
+ * Control Room), or the workspace's own name where it is a page's second (Motion, God's Eye View, REA, Templates, Fleet & Clef).
+ * R11 round 7 (H177): the page's title and its one-line description are the page head's (pageHead), above the actions.
+ */
 export function bodyTitle(ui: Ui, data: Data): string {
-  // R10 (H167): Home is the project's recent work now (the connections a row each under it), in the crumb every tab's title has
-  if (ui.page === 'home' && ui.workspace === 'connections') return `${data.project.name} / Home · recent work`;
-  return `${data.project.name} / ${navItem(ui.workspace).title}`;
+  const d = destinationOf(ui.workspace, ui.page);
+  const own = d && (d.ws ?? workspaceOfPage(d.page)) === ui.workspace;
+  return `${data.project.name} / ${own ? d.label : navItem(ui.workspace).label}`;
+}
+
+/** R11 round 7 (H177): the page head's words: the workspace's title and its one-line description (src/workbench/nav.ts). */
+export function pageHead(ui: Pick<Ui, 'workspace'>): { title: string; description: string } {
+  const n = navItem(ui.workspace);
+  return { title: n.title, description: n.purpose };
 }
 
 export function frameOf(a: FrameAsk): Frame {
@@ -78,11 +90,16 @@ export function frameOf(a: FrameAsk): Frame {
   const tabs: Frame['tabs'] = [];
   const actions: Frame['actions'] = [];
 
-  // row 1: TIMMY, the project, the ten tabs (the frame's; the contract's until the frame is first read). R10 (H167): two rows
-  // where there is room, the status row (the project, the route of the next turn, what runs and waits) above the tabs
+  // row 1: TIMMY, the project, and the grouped destinations (R11 round 7, H177: src/workbench/destinations.ts, the Chat
+  // screen's rail groups: Chat · WORK · CREATE · CONNECT; before, the ten tabs). R10 (H167): two rows where there is room, the
+  // status row (the project, the route of the next turn, what runs and waits) above the destinations; on a short terminal one
+  // row, TIMMY and the project before the keys
   const bar = layout.tabRows === 2 && !layout.tooSmall
-    ? headerRows(data, ui.page, a.columns, g)
-    : tabBar(frameTabs(data.frame), ui.page, data.project.name, a.columns, 1, g);
+    ? headerRows(data, ui.page, a.columns, g, ui.workspace)
+    : (() => {
+      const d = destinationsRow({ tabs: data.frame?.tabs, page: ui.page, workspace: ui.workspace, width: a.columns, g, prefix: [{ text: 'TIMMY', role: 'strong', bold: true }, { text: ` ${g.sep} `, role: 'secondary' }, { text: data.project.name, role: 'strong' }] });
+      return { lines: [d.line], hits: d.hits };
+    })();
   placed.push({ rect: layout.tabs, rows: bar.lines.slice(0, layout.tabs.h).map((l) => fit(l, a.columns, g.ellipsis)) });
   const pages: PageHit[] = bar.hits.map((h) => ({ ...h, y0: layout.tabs.y + h.y0, y1: Math.min(layout.tabs.y + layout.tabs.h - 1, layout.tabs.y + h.y1) }));
 
@@ -100,18 +117,25 @@ export function frameOf(a: FrameAsk): Frame {
     return { screen, layout, regions, tabs, pages, actions };
   }
 
-  // row 2: the workflow actions (the region 'top'), the run state and Stop
+  // row 2: the page head (R11 round 7, H177: the hierarchy in cells, current task → primary next action): its title edge the
+  // page's title, its note the key that opens it (and "unfinished" where the frame says so), its first row the one-line
+  // description, then the workflow actions (the region 'top') with the one primary next step amber, the selected step's words,
+  // and the run state and Stop in its foot
   {
     const c = ctx(layout.top);
     const t = topLines(c, layout.topDetail, layout.tabRows === 2);
     const tab = tabOf(ui.page);
     // R7 (H150): an unfinished tab says so beside its name (the frame's tabs[].unfinished), in words, not by colour
     const unfinished = frameTabs(data.frame).find((x) => x.id === ui.page)?.unfinished;
-    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}${unfinished ? ` ${g.sep} unfinished` : ''}`, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
+    const first = workspaceOfPage(ui.page) === ui.workspace;
+    const head = pageHead(ui);
+    // (the key in the text's colour, as every key hint; "again": the key a second time shows this workspace of its page)
+    const note: Line = [{ text: `[${tab.key}]`, role: 'text' }, ...(first ? [] : [{ text: ' again', role: 'secondary' as const }]), ...(unfinished ? [{ text: ` ${g.sep} unfinished`, role: 'secondary' as const }] : [])];
+    placed.push({ rect: layout.top, rows: panel({ title: head.title, lines: [fit([{ text: head.description, role: 'secondary' }], c.width, g.ellipsis), ...t.lines], focused: ui.focus === 'top', note, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
     regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
-    // where each button is drawn: inside the border and its one cell of air
+    // where each button is drawn: inside the border and its one cell of air, on the row under the description
     const x0 = layout.top.x + 1 + (layout.top.w - 2 >= 6 ? 1 : 0);
-    for (const h of t.hits) actions.push({ x0: x0 + h.x0, x1: x0 + h.x1, y: layout.top.y + 1, i: h.i });
+    for (const h of t.hits) actions.push({ x0: x0 + h.x0, x1: x0 + h.x1, y: layout.top.y + 2, i: h.i });
   }
 
   // the Chat tab's pipeline row, above its two columns

@@ -1,1 +1,78 @@
-/* R11 round 7: H176's sheet (UI-OWNERSHIP.md). This stub ships empty until H176's commit replaces it. */
+/* R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): the Canvas page's own sheet (src/companion/client/panel-studio.js).
+   Every colour, face, radius and material is a --timmy-ui-* token (the hex beside it only its fallback); the list's rows are
+   raised cards, the chosen one carries the focus ring's amber edge (the selection is where to look, never green). Served
+   beside companion.css once src/companion/server.ts lists it (the lead's line); until then the page falls back to
+   companion.css's boxes and reads the same, less the materials. */
+
+/* the Canvas page's wide layout on the scaffold (SHELL CONTRACT v1 nests the page's grid under .page-body > .page-work, where
+   companion.css's `#ws-studio > .cols-two` no longer reaches): the board list — the page's work — takes the wide right column,
+   whole height; Timmy Studio's state, the canvas's revision and jobs, and the tab's actions stack on the left (companion.css
+   1500–1503 place them). A narrow screen keeps the page's order. */
+@media (min-width: 861px) {
+  #ws-studio .page-work > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
+  #ws-studio .page-work > .cols-two > .col-stack { display: contents; }
+  #ws-studio .page-work > .cols-two section[aria-labelledby="studio-state-title"] { grid-column: 1; grid-row: 1; max-height: none; }
+  #ws-studio .page-work > .cols-two #tab-canvas { grid-column: 1; grid-row: 2; }
+  #ws-studio .page-work > .cols-two section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 3; }
+  #ws-studio .page-work > .cols-two .studio-host { grid-column: 2; grid-row: 1 / span 3; }
+}
+
+/* the chain companion.css gives the host's direct box (#ws-studio .studio-host > .box.sb-box: flex 1 1 auto, min-height 0), carried
+   through the page's wrappers, so the list scrolls inside its box and never runs under the activity section */
+.sb-page { display: flex; flex-direction: column; gap: var(--timmy-ui-space-3, 12px); flex: 1 1 auto; min-height: 0; min-width: 0; }
+.sb-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--timmy-ui-space-3, 12px); flex: 1 1 auto; min-height: 0; }
+.sb-body > .box.sb-box, .sb-body > .box.sb-context { min-height: 0; margin-top: 8px; }
+.sb-page-head, .sb-dock, .sb-records { flex: 0 0 auto; }
+/* the panel's own context box, drawn only while the shell's context column is not on the page */
+.sb-body:has(.sb-context) { grid-template-columns: minmax(0, 1fr) minmax(0, 320px); }
+@media (max-width: 1100px) { .sb-body:has(.sb-context) { grid-template-columns: minmax(0, 1fr); } }
+
+/* the panel's own head, dock and records, drawn only while the shell is not on the page */
+.sb-page-head { display: grid; gap: 4px; }
+.sb-page-kicker { margin: 0; font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/var(--timmy-ui-leading-label, 1.35) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
+  letter-spacing: var(--timmy-ui-tracking-kicker, .14em); text-transform: uppercase; color: var(--timmy-ui-accent, #D6AA64); }
+.sb-page-title { margin: 0; font: var(--timmy-ui-weight-heading, 600) var(--timmy-ui-size-page, 30px)/var(--timmy-ui-leading-tight, 1.15) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
+  letter-spacing: var(--timmy-ui-tracking-title, -0.02em); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-page-intro { margin: 0; max-width: 64ch; font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-dock { display: flex; flex-wrap: wrap; align-items: center; gap: var(--timmy-ui-space-2, 8px); padding: var(--timmy-ui-space-2, 8px) 0; border-top: 1px solid var(--timmy-ui-border-quiet, #1E2A36); }
+.sb-dock-label { font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); letter-spacing: var(--timmy-ui-tracking-kicker, .14em); text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--timmy-ui-space-2, 8px); }
+.sb-records .sb-rec, .page-records .sb-rec { font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-rec > summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-rec-line { margin: 4px 0 0; overflow-wrap: anywhere; }
+.sb-rec-muted { color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-starter-list { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+
+/* the list: each row a raised card; the chosen one carries the amber edge (the page's context shows it) */
+.sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--timmy-ui-space-2, 8px); }
+.sb-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--timmy-ui-space-3, 12px); padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px);
+  border-radius: var(--timmy-ui-radius-control, 10px); background: var(--timmy-ui-raised, #1C2936); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); cursor: pointer;
+  font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-label, 13px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-item.no-thumb { grid-template-columns: minmax(0, 1fr); }
+.sb-item:hover { border-color: var(--timmy-ui-border, #44586B); }
+.sb-item:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; box-shadow: 0 0 0 2px var(--timmy-ui-focus-halo, #080B0F); }
+.sb-item[aria-current="true"] { border-color: var(--timmy-ui-focus, #FFB000); }
+.sb-item.kind-other-project { border-style: dashed; }
+.sb-kind { margin: 0; font-size: var(--timmy-ui-size-label, 13px); letter-spacing: .04em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-title.sb-ctx-title, .sb-item .sb-title { font: var(--timmy-ui-weight-strong, 600) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-label, 1.35) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); letter-spacing: 0; color: var(--timmy-ui-text, #ECF1F5); overflow-wrap: anywhere; }
+.sb-excerpt { margin: 0; color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.sb-where { margin: 0; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-draft { margin: 0; padding-left: 8px; border-left: 2px dashed var(--timmy-ui-text-secondary, #BDCADA); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-fake { font-size: 11px; letter-spacing: .06em; padding: 0 5px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-pill, 999px); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-acts { margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.sb-link { color: var(--timmy-ui-accent-soft, #EAD0A3); }
+.sb-addr { color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.sb-thumb { padding: 0; border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); border-radius: var(--timmy-ui-radius-control, 10px); background: var(--timmy-ui-canvas, #080B0F); overflow: hidden; cursor: zoom-in; width: 96px; height: 72px; }
+.sb-img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.sb-thumb-failed { color: var(--timmy-ui-text-muted, #9AAFC3); font-size: var(--timmy-ui-size-label, 13px); }
+.sb-summary { margin: 0; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-body, 1.55); }
+.sb-summary.tone-failed { color: var(--timmy-ui-focus, #FFB000); }
+.sb-foot { margin: 0; color: var(--timmy-ui-text-muted, #9AAFC3); font-size: var(--timmy-ui-size-label, 13px); }
+.sb-ctx { display: grid; gap: 4px; }
+.sb-ctx .sb-kind { margin-bottom: 2px; }
+
+/* a phone (D5): one column, the rows whole */
+@media (max-width: 720px) {
+  .sb-item { grid-template-columns: minmax(0, 1fr); }
+  .sb-thumb { width: 100%; height: 120px; }
+}

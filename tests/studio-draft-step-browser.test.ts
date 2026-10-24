@@ -29,7 +29,8 @@ const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '
 if (!browserPath) console.warn('studio-draft-step-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
 
 const AMBER = 'rgb(255, 176, 0)';
-const SILVER = 'rgb(232, 228, 217)';
+// R11 round 7 (H176; B11): what a model made is drawn in the secondary text colour (B11 has no silver; the words say it)
+const SILVER = 'rgb(189, 202, 218)';
 type Answer = { ok: boolean; result?: unknown; error?: string; draft?: { id: string; shapes?: number } };
 type Win = { timmyCanvas: { editor: { selectNone: () => void; getSelectedShapeIds: () => string[]; getShapePageBounds: (id: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToScreen: (p: { x: number; y: number }) => { x: number; y: number }; setCamera: (c: { x: number; y: number; z: number }) => void } } };
 

@@ -351,11 +351,11 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       expect(during).toEqual({
         state: 'switching', switching: 'blank', project: 'tray', readonly: true, root: 'hidden',
         // B10: nothing waits on the person while switching, so no amber: the cover's edge and the drafts' frame are structure grey
-        cover: { hidden: false, title: 'TIMMY · switching to blank…', words: "Switching to blank… tray's board, drafts and canvas jobs are saved and put away, as they are. Nothing of tray is shown here under blank's name.", edge: 'rgb(68, 68, 68)' },
+        cover: { hidden: false, title: 'TIMMY · switching to blank…', words: "Switching to blank… tray's board, drafts and canvas jobs are saved and put away, as they are. Nothing of tray is shown here under blank's name.", edge: 'rgb(68, 88, 107)' },
         header: { project: 'switching to blank…', acts: 0 },
         panel: { name: 'switching to blank…', cards: 0 },
         jobs: ['Switching to blank: its canvas jobs show once its board is loaded.'],
-        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 68, 68)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · from revision \d+$/), project: tray.id, buttons: [off('Move it to free space'), off('Show'), off('Accept'), off('Discard')] }] },
+        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 88, 107)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · from revision \d+$/), project: tray.id, buttons: [off('Move it to free space'), off('Show'), off('Accept'), off('Discard')] }] },
         save: why,
         open: true,
       });

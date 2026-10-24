@@ -1,19 +1,15 @@
 {
   "name": "timmy-ui",
   "version": 2,
-  "status": "served: the v2 build of commit 4e8d4905's source (R11 round 7, H174); the source of this folder is a step ahead (0b6c0e45's inks, the stage positions) and is the next build",
+  "status": "served: the v2 build of commit 44c4605f's source — this folder's source (R11 round 7, H174)",
   "asset": {
     "file": "timmy-ui.riv",
     "contractOfTheServedFile": 2,
-    "builtFrom": "the source of commit 4e8d4905 (scene.rml as create-controls.py wrote it there)",
-    "built": "Rive CLI 1.1.1 on the operator's machine, 2026-10-24 14:43 PT: `rive . --verify` 0 errors 0 warnings, `rive . --once` 0 errors 0 warnings; BUILD.txt, rive.log, problems.log and INSPECT-summary.txt beside this file record it",
-    "sha256": "e97d28dc5efd83a04ddd5e8b04db5a0dada329fe7c165826e7040c8ad3e7dc36",
-    "bytes": 93211,
+    "builtFrom": "the source of commit 44c4605f (scene.rml as create-controls.py writes it: this folder's source)",
+    "built": "Rive CLI 1.1.1 on the operator's machine, 2026-10-24 15:15 PT: `rive . --verify` 0 errors 0 warnings, `rive . --once` 0 errors 0 warnings, `rive inspect` 0 warnings; BUILD.txt, rive-build-log.txt, rive-build-problems.txt and INSPECT-summary.txt beside this file record it (the CLI writes rive.log / problems.log; renamed: the repo ignores *.log)",
+    "sha256": "b493297ab715f0c63159bcba77edbfe232b06567c209d98460590b660bd9fd36",
+    "bytes": 93256,
     "artboards": 7,
-    "knownDifferencesFromThisSource": [
-      "the primary-action inks are the study's (#5B421D amber, #244761 glacier); the source now has the inks H175 measured (#402E14, #1D3848) — the next build",
-      "every artboard sits at the editor stage's origin (21 'artboards-overlap' warnings in rive inspect; nothing of the runtime's) — the source now places them"
-    ],
     "evidenceOfTheStates": "per-state native renders of the PRODUCTION artboards are not possible from the CLI (it drives pointer and key gestures and --data view-model properties, not a state-machine input): the states are what the browser suites show on this file (tests/companion-rive-browser.test.ts, tests/studio-rive-shape-browser.test.ts) and the lead's native renders of the artboards at rest and of the preview variant after a click"
   },
   "source": {

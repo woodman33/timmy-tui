@@ -1,1 +1,102 @@
-/* R11 round 7: H169's sheet (UI-OWNERSHIP.md). This stub ships empty until H169's commit replaces it. */
+/* R11 round 7 (H169): the Control Room page on the shell's scaffold (SHELL CONTRACT v1; DESIGN.md B11): the "now" strip
+   above the panes, the fleet in the context column (each lane in the three words), the budget in the records. Tokens only:
+   the B11 registry (--timmy-ui-*) first, the B10 web name as the fallback. Green is drawn only for an observed exercised or
+   live state; amber for what needs you; "none" and "available" are words in quiet colours. 13 px is the floor. */
+
+#ws-control .room-now, #ws-control .room-fleet, #ws-control .budget-facts { font-family: var(--timmy-ui-font, inherit); color: var(--timmy-ui-text, var(--timmy-text)); }
+#ws-control .room-now code, #ws-control .room-fleet code { font-family: var(--timmy-ui-font-mono, var(--timmy-font-mono)); font-size: var(--timmy-ui-size-label, 13px); }
+
+/* the panes keep their glance (R8 H155: four panes, their newest log lines fitted) on the scaffold's scrolling page: the host
+   is bound to a window's worth of height, so the 2×2 grid never stretches to the tallest sibling column; the phone stacks */
+#ws-control .cols-control > .control-host { max-height: 62vh; }
+
+/* the work is a column beside the context (the fleet) on the one shell, so its width, not the window's, decides the Control
+   Room's columns: the panes span the work with the two boxes under them (companion.css's own 1180 px layout), and the three
+   columns come back only where the work itself is wide (a container query on the page's work region) */
+#ws-control .page-work { container-type: inline-size; }
+#ws-control .page-work .cols-control { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto; }
+#ws-control .page-work .cols-control > .control-host { grid-column: 1 / -1; grid-row: 1; }
+@container (min-width: 1100px) {
+  #ws-control .page-work .cols-control { grid-template-columns: minmax(0, 24fr) minmax(0, 52fr) minmax(0, 24fr); grid-template-rows: none; }
+  #ws-control .page-work .cols-control > .control-host { grid-column: auto; grid-row: auto; }
+}
+@container (max-width: 700px) {
+  #ws-control .page-work .cols-control { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  #ws-control .page-work .cols-control > .control-host { grid-column: auto; grid-row: auto; }
+}
+
+/* ── the now strip ── */
+#ws-control .room-now {
+  display: grid; gap: var(--timmy-ui-space-2, 8px); margin-bottom: var(--timmy-ui-space-4, 16px);
+  padding: var(--timmy-ui-space-3, 12px) var(--timmy-ui-space-4, 16px); border: 1px solid var(--timmy-ui-border-quiet, var(--timmy-line));
+  border-radius: var(--timmy-ui-radius-panel, 16px); background: var(--timmy-ui-elev-surface, var(--timmy-surface));
+}
+#ws-control .room-now:has(.needs-you) { border-color: var(--timmy-ui-focus, var(--timmy-attention)); }
+#ws-control .room-now:has(.room-count.is-running):not(:has(.needs-you)) { border-color: var(--timmy-ui-accent, var(--timmy-accent)); }
+#ws-control .room-counts { margin: 0; font-size: var(--timmy-ui-size-section, 18px); font-weight: var(--timmy-ui-weight-heading, 600); letter-spacing: var(--timmy-ui-tracking-title, -0.02em); line-height: var(--timmy-ui-leading-tight, 1.15); }
+#ws-control .room-count.is-running { color: var(--timmy-ui-accent-soft, var(--timmy-accent)); }
+#ws-control .room-count.needs-you { color: var(--timmy-ui-focus, var(--timmy-attention)); }
+#ws-control .room-turn, #ws-control .room-stop-words, #ws-control .room-quiet, #ws-control .room-said {
+  margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--timmy-ui-space-2, 8px);
+  font-size: var(--timmy-ui-size-body, 14px); line-height: var(--timmy-ui-leading-body, 1.55); color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary));
+}
+#ws-control .room-turn { color: var(--timmy-ui-text, var(--timmy-text)); }
+#ws-control .room-quiet { color: var(--timmy-ui-text-muted, var(--timmy-silver)); }
+#ws-control .room-quiet.tone-failed { color: var(--timmy-ui-diff-remove, var(--timmy-failure)); }
+#ws-control .room-said { font-size: var(--timmy-ui-size-label, 13px); min-height: 1.35em; }
+#ws-control .room-said:empty { display: none; }
+
+/* the strip's small tools: the dock's button shape with a visible border (the dock's own buttons keep the shell's quieter
+   look, companion.css); Stop stands apart by its border, never by green */
+#ws-control .room-now .dock-btn {
+  font: inherit; font-size: var(--timmy-ui-size-label, 13px); font-weight: var(--timmy-ui-weight-medium, 500); line-height: 1.2;
+  padding: 6px 12px; min-height: 32px; border-radius: var(--timmy-ui-radius-control, 10px); border: 1px solid var(--timmy-ui-border, var(--timmy-line-strong));
+  background: var(--timmy-ui-raised, var(--timmy-surface)); color: var(--timmy-ui-text, var(--timmy-text)); cursor: pointer;
+  transition: border-color var(--timmy-ui-motion-feedback, 120ms) var(--timmy-ui-ease, ease);
+}
+#ws-control .room-now .dock-btn:hover { border-color: var(--timmy-ui-accent, var(--timmy-accent)); }
+#ws-control .room-now .dock-btn:focus-visible, #ws-control .page-dock .dock-btn:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-attention)); outline-offset: 2px; box-shadow: 0 0 0 4px var(--timmy-ui-focus-halo, transparent); }
+#ws-control .room-stop, #ws-control .dock-btn.is-stop { border-color: var(--timmy-ui-diff-remove, var(--timmy-failure)); color: var(--timmy-ui-text, var(--timmy-text)); }
+#ws-control .room-stop[aria-busy="true"], #ws-control .dock-btn.is-stop[aria-busy="true"] { opacity: 0.6; cursor: progress; }
+#ws-control .page-dock .dock-group { display: inline-flex; flex-wrap: wrap; gap: var(--timmy-ui-space-2, 8px); align-items: center; }
+
+/* ── the context column: the fleet ── */
+#ws-control .room-fleet {
+  padding: var(--timmy-ui-space-4, 16px); border: 1px solid var(--timmy-ui-border-quiet, var(--timmy-line)); border-radius: var(--timmy-ui-radius-panel, 16px);
+  background: var(--timmy-ui-elev-raised, var(--timmy-surface)); box-shadow: var(--timmy-ui-shadow-raised, none); display: grid; gap: var(--timmy-ui-space-2, 8px);
+}
+#ws-control .room-fleet .ctx-title { margin: var(--timmy-ui-space-2, 8px) 0 0; font-size: var(--timmy-ui-size-section, 18px); font-weight: var(--timmy-ui-weight-heading, 600); letter-spacing: var(--timmy-ui-tracking-title, -0.02em); line-height: var(--timmy-ui-leading-tight, 1.15); }
+#ws-control .room-fleet .ctx-title:first-child { margin-top: 0; }
+#ws-control .room-fleet .ctx-words { margin: 0; color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); }
+#ws-control .fleet-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--timmy-ui-space-2, 8px); }
+#ws-control .fleet-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--timmy-ui-space-1, 4px) var(--timmy-ui-space-3, 12px);
+  padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px); border-radius: var(--timmy-ui-radius-control, 10px); background: var(--timmy-ui-surface, var(--timmy-ground));
+  font-size: var(--timmy-ui-size-body, 14px); line-height: var(--timmy-ui-leading-label, 1.35);
+}
+#ws-control .fleet-name { font-weight: var(--timmy-ui-weight-medium, 500); overflow-wrap: anywhere; }
+#ws-control .fleet-group { color: var(--timmy-ui-text-muted, var(--timmy-silver)); font-weight: var(--timmy-ui-weight-body, 400); font-size: var(--timmy-ui-size-label, 13px); }
+#ws-control .fleet-word { font-size: var(--timmy-ui-size-label, 13px); font-weight: var(--timmy-ui-weight-medium, 500); letter-spacing: 0.04em; color: var(--timmy-ui-text-muted, var(--timmy-silver)); white-space: nowrap; }
+#ws-control .fleet-word.is-exercised, #ws-control .fleet-word.is-live { color: var(--timmy-ui-verified, var(--timmy-live)); }
+#ws-control .fleet-word.is-configured { color: var(--timmy-ui-accent-soft, var(--timmy-accent)); }
+#ws-control .fleet-word.is-available { color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); }
+#ws-control .fleet-words { grid-column: 1 / -1; margin: 0; color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); font-size: var(--timmy-ui-size-label, 13px); overflow-wrap: anywhere; }
+#ws-control .fleet-row .ui-details { grid-column: 1 / -1; font-size: var(--timmy-ui-size-label, 13px); }
+#ws-control .fleet-row .ui-details > summary { cursor: pointer; color: var(--timmy-ui-text-muted, var(--timmy-silver)); }
+#ws-control .fleet-row .ui-details > summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-attention)); outline-offset: 2px; border-radius: 4px; }
+#ws-control .ctx-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--timmy-ui-space-1, 4px) var(--timmy-ui-space-3, 12px); margin: var(--timmy-ui-space-2, 8px) 0 0; font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); }
+#ws-control .ctx-facts dt { color: var(--timmy-ui-text-muted, var(--timmy-silver)); font-weight: var(--timmy-ui-weight-medium, 500); text-transform: uppercase; letter-spacing: var(--timmy-ui-tracking-kicker, 0.14em); }
+#ws-control .ctx-facts dd { margin: 0; color: var(--timmy-ui-text, var(--timmy-text)); overflow-wrap: anywhere; }
+
+/* ── the records: the budget ── */
+#ws-control .page-records .records[data-records-owner="control"] > summary { cursor: pointer; }
+#ws-control .page-records .records[data-records-owner="control"] p { font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); line-height: var(--timmy-ui-leading-label, 1.35); }
+#ws-control .page-records .records[data-records-owner="control"] .tone-failed { color: var(--timmy-ui-diff-remove, var(--timmy-failure)); }
+
+/* ── the phone (D5: ≤ 720 px) ── */
+@media (max-width: 720px) {
+  #ws-control .cols-control > .control-host { max-height: none; }
+  #ws-control .room-counts { font-size: var(--timmy-ui-size-body, 14px); }
+  #ws-control .fleet-row { grid-template-columns: minmax(0, 1fr); }
+  #ws-control .fleet-word { white-space: normal; }
+}

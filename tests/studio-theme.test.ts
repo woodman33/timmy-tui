@@ -65,19 +65,40 @@ describe('the shared look on Timmy Canvas\'s server', () => {
       await new Promise<void>((done) => s.close(() => done()));
     }
   });
-  it('the canvas page takes the shared look: every color a shared variable, its fallback the very value tokens.ts gives it (B10)', () => {
+  // R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): the page's own sheet names the B11 registry (--timmy-ui-*), each with the
+  // fallback the contract gives it (the value tokens.ts emits once H175's registry lands; a page whose theme sheet has no B11 block
+  // gets the same look from the fallbacks). The B10 names are gone from it: a page on the contract uses the B11 names only.
+  const UI_V1: Record<string, string> = {
+    canvas: '#080B0F', surface: '#111A23', raised: '#1C2936', paper: '#E8EFF5', border: '#44586B', 'border-quiet': '#1E2A36',
+    text: '#ECF1F5', 'text-secondary': '#BDCADA', 'text-muted': '#9AAFC3', ink: '#1C3043', 'ink-soft': '#3B5168',
+    focus: '#FFB000', 'focus-halo': '#080B0F', verified: '#28FE14', 'verified-dim': '#00D700',
+    // the amber family (the default without data-theme)
+    accent: '#D6AA64', 'accent-soft': '#EAD0A3', 'accent-ink': '#402E14', 'accent-start': '#F0E5D4',
+    // a material's fallback is its base colour (the gradient is the sheet's)
+    'elev-surface': '#111A23', 'elev-raised': '#1C2936', 'elev-top': '#0E151D', 'elev-canvas': '#080B0F',
+  };
+  it('the canvas page takes the shared look: every color a B11 variable (--timmy-ui-*), its fallback the very value the contract gives it', () => {
     const html = readFileSync('companion/studio-canvas/index.html', 'utf8');
     expect(html).toContain('<link rel="stylesheet" href="/timmy-theme.css" />');
     // Every color in the page's own style is a shared variable (with its fallback), never a color of its own.
     const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-    for (const hex of style.match(/#[0-9a-f]{6}\b/gi) ?? []) expect(style).toMatch(new RegExp(`var\\(--timmy-[a-z-]+, ${hex}\\)`));
-    // R5 (H133): and each fallback is the B10 value of its own token (a stale B9 fallback had stayed: #28fe14 for the accent)
-    const camel = (name: string) => name.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
+    for (const hex of style.match(/#[0-9a-f]{6}\b/gi) ?? []) expect(style).toMatch(new RegExp(`var\\(--timmy-ui-[a-z-]+, ${hex}\\)`));
     const fallbacks = [...style.matchAll(/var\(--timmy-([a-z-]+), (#[0-9a-f]{6})\)/gi)];
     expect(fallbacks.length).toBeGreaterThan(50);
-    for (const [, name, hex] of fallbacks) expect(hex.toUpperCase(), `--timmy-${name}`).toBe((HOMEBREW as Record<string, string>)[camel(name)]?.toUpperCase());
+    for (const [, name, hex] of fallbacks) {
+      expect(name, `--timmy-${name}: a B11 name`).toMatch(/^ui-/);
+      expect(hex.toUpperCase(), `--timmy-${name}`).toBe(UI_V1[name.slice(3)]?.toUpperCase());
+    }
+    // the B10 names are not read by this page any more (the B11 registry is additive: the sheet still emits them for the pages not moved)
+    expect(style).not.toMatch(/var\(--timmy-(?!ui-)[a-z-]+/);
+    // the registry's values the page relies on are the shared ones (the terminal's amber and green, exact in both families)
+    expect(UI_V1.focus).toBe(HOMEBREW.accent);
+    expect(UI_V1.verified).toBe(HOMEBREW.live);
     // no color by name, rgb() or hsl() of its own either (in its rules; its comments may name them)
     expect(style.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/\b(rgba?|hsla?)\(|:\s*(white|red|blue|cyan|green|purple|violet)\b/i);
+    // D2: words in the UI face, ids and commands in the mono face; nothing under the 13 px floor but the desk's caption marks
+    expect(style).toContain('var(--timmy-ui-font, "Outfit", "Monaspace Argon", system-ui, sans-serif)');
+    expect(style).toContain('var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace)');
   });
 
   // R5 (H133), DESIGN.md §10 B10 (the operator's palette of 2026-10-15: "pure black canvas, #070707 panels, off-white text, amber
@@ -100,16 +121,17 @@ describe('the shared look on Timmy Canvas\'s server', () => {
     const block = style.slice(style.indexOf('.tl-container.tl-theme__dark {'), style.indexOf('}', style.indexOf('.tl-container.tl-theme__dark {')));
     expect([...block.matchAll(/--tl-[a-z0-9-]+\s*:/g)].length).toBe(tl.length);
     const value = (n: string) => tl.find(([, k]) => k === n)?.[2].trim();
-    expect(value('--tl-color-background')).toBe('var(--timmy-ground, #000000)');
-    expect(value('--tl-color-panel')).toBe('var(--timmy-surface, #070707)');
-    expect(value('--tl-color-text')).toBe('var(--timmy-text, #F2EFE9)');
-    expect(value('--tl-color-selected')).toBe('var(--timmy-accent, #FFB000)');
-    expect(value('--tl-color-focus')).toBe('var(--timmy-accent, #FFB000)');
-    expect(value('--tl-color-selection-stroke')).toBe('var(--timmy-accent, #FFB000)');
+    // R11 round 7 (H176): on the B11 registry: the dark canvas, the surface for tldraw's panels, exact amber for the selection and focus
+    expect(value('--tl-color-background')).toBe('var(--timmy-ui-canvas, #080B0F)');
+    expect(value('--tl-color-panel')).toBe('var(--timmy-ui-surface, #111A23)');
+    expect(value('--tl-color-text')).toBe('var(--timmy-ui-text, #ECF1F5)');
+    expect(value('--tl-color-selected')).toBe('var(--timmy-ui-focus, #FFB000)');
+    expect(value('--tl-color-focus')).toBe('var(--timmy-ui-focus, #FFB000)');
+    expect(value('--tl-color-selection-stroke')).toBe('var(--timmy-ui-focus, #FFB000)');
     // tldraw's white tooltip and blue info are gone; a toast's success is not green
-    expect(value('--tl-color-tooltip')).toBe('var(--timmy-line, #333333)');
-    expect(value('--tl-color-info')).toBe('var(--timmy-silver, #E8E4D9)');
-    expect(value('--tl-color-success')).not.toMatch(/live/);
+    expect(value('--tl-color-tooltip')).toBe('var(--timmy-ui-raised, #1C2936)');
+    expect(value('--tl-color-info')).toBe('var(--timmy-ui-text-secondary, #BDCADA)');
+    expect(value('--tl-color-success')).not.toMatch(/live|verified/);
     // the page's own style never names a shape's palette or a content color (tldraw's text highlight stays tldraw's)
     expect(style).not.toMatch(/--tl-color-text-highlight|\.tl-rich-text|\.tl-shape\b|\.tl-image/);
   });
@@ -124,19 +146,22 @@ describe("tldraw's canvas colors on B10 (companion/studio-canvas/src/theme.js)",
       dark: { text: 'hsl(210, 17%, 98%)', background: 'hsl(240, 5%, 6.5%)', negativeSpace: 'x', solid: '#010403', cursor: 'white', noteBorder: 'rgb(20, 20, 20)', snap: 'red', laser: 'red', selectionStroke: 'blue', selectionFill: 'blue', selectedContrast: '#ffffff', brushStroke: 'grey', brushFill: 'grey', black: { solid: '#f2f2f2', noteFill: '#2c2c2c' }, blue: { solid: '#4f72fc' }, red: { solid: '#e03131' } },
     },
   };
-  it('reads each chrome color from the page\'s --timmy-* variables (its fallback when the sheet did not load)', async () => {
+  it('reads each chrome color from the page\'s --timmy-ui-* variables, its registry fallback when a sheet has no B11 block or did not load', async () => {
     const { chromeColors, CHROME_KEYS, TOKENS } = await import('../companion/studio-canvas/src/theme.js');
-    const served: Record<string, string> = { '--timmy-ground': HOMEBREW.ground, '--timmy-text': HOMEBREW.text, '--timmy-accent': HOMEBREW.accent, '--timmy-silver': HOMEBREW.silver };
+    // R11 round 7 (H176): the B11 registry's names first (SHELL CONTRACT v1's values)
+    const served: Record<string, string> = { '--timmy-ui-canvas': '#080B0F', '--timmy-ui-text': '#ECF1F5', '--timmy-ui-focus': HOMEBREW.accent, '--timmy-ui-text-secondary': '#BDCADA' };
     const colors = chromeColors((name: string, fallback: string) => served[name] ?? fallback);
     expect(Object.keys(colors).sort()).toEqual([...CHROME_KEYS].sort());
     expect(colors).toEqual({
-      background: '#000000', negativeSpace: '#000000', text: '#F2EFE9', cursor: '#F2EFE9',
-      selectionStroke: '#FFB000', selectionFill: '#FFB00029', selectedContrast: '#F2EFE9',
-      brushStroke: '#FFB0008C', brushFill: '#FFB00014', snap: '#E8E4D9', laser: '#FFB000',
+      background: '#080B0F', negativeSpace: '#080B0F', text: '#ECF1F5', cursor: '#ECF1F5',
+      selectionStroke: '#FFB000', selectionFill: '#FFB00029', selectedContrast: '#ECF1F5',
+      brushStroke: '#FFB0008C', brushFill: '#FFB00014', snap: '#BDCADA', laser: '#FFB000',
     });
-    // the fallbacks are the tokens' own values
-    for (const [variable, fallback] of Object.values(TOKENS) as Array<[string, string]>) expect(fallback.toUpperCase(), variable).toBe(served[variable].toUpperCase());
+    // the fallbacks are the registry's own values; a sheet without the B11 block gives the same chrome (the page's sheet falls back alike)
+    for (const [variables, fallback] of Object.values(TOKENS) as Array<[string[], string]>) expect(fallback.toUpperCase(), variables[0]).toBe(served[variables[0]].toUpperCase());
     expect(chromeColors(() => '')).toEqual(colors);
+    const b10: Record<string, string> = { '--timmy-ground': HOMEBREW.ground, '--timmy-text': HOMEBREW.text, '--timmy-accent': HOMEBREW.accent, '--timmy-silver': HOMEBREW.silver };
+    expect(chromeColors((name: string, fallback: string) => b10[name] ?? fallback)).toEqual(colors);
     // nothing green: a selection is never a verification
     expect(Object.values(colors).join(' ').toUpperCase()).not.toMatch(new RegExp(`${HOMEBREW.live.slice(1)}|${HOMEBREW.liveDim.slice(1)}`));
   });

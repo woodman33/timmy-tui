@@ -393,11 +393,13 @@ describe('tab 6 keeps its words as its meshes become items (R9 H160, step 3)', (
       const said = squash(createDetail(reg.items[0].item as CreateItem, 36, g).map(plain).join(' '));
       expect(said, at).toContain("Measured by Timmy's own OBJ reader (timmy-obj-readback/1), from the whole file");
       expect(said, at).toContain(DOCTRINE_15);
-      // still unfinished: the page's box first, the tab's mark, and row 2's word beside the tab's name
+      // still unfinished: the page's box first, the destination's mark, and the page head's word beside the key (R11 round 7,
+      // H177: the head's edge says the title, "[6] · unfinished" at its right where the width holds the words; the mark alone
+      // on a 60-column terminal)
       const screen = screenText(fr.screen);
       expect(rowAt(fr, reg.rect.y + 1), at).toContain('◌ Unfinished');
       expect(screen.slice(0, fr.layout.tabRows).join('\n'), at).toContain('◌');
-      expect(screen[fr.layout.top.y], at).toContain('6 3D & Motion · unfinished');
+      expect(screen[fr.layout.top.y], at).toMatch(cols >= 80 ? /Motion & 3D · scenes, CAD and compositions ━+ \[6\] · unfinished ┓/ : /\[6\] · unfinished ┓/);
     }
   }, 60_000);
 });

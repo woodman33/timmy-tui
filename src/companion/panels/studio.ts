@@ -9,7 +9,8 @@
  *   GET /api/panel/studio/board              the board's items (timmy.studio-board/1, src/studio/board-items.ts): its artifact
  *                                            cards, reference images, cards and words, each with its page, its draft mark, what
  *                                            it links to (a VoxVision record, an operation's run, a receipt) and its thumbnail's
- *                                            address; another project's card on it is named as kept apart, nothing of it read
+ *                                            address; another project's card on it is named as kept apart, nothing of it read;
+ *                                            R11 round 7 (H176): and the Houdini starters New board offers (id, title, steps)
  *   GET /api/panel/studio/ref?file=<sha256>.<ext>
  *                                            a reference image's copy on this board (refs/<sha256>.<ext>), only when its bytes
  *                                            are what its name says (src/studio/references.ts readBoardRef)
@@ -28,6 +29,7 @@ import { boardDir, boardOfFolder, oldLayoutWords } from '../../studio/boards.js'
 import { studioBaseUrl } from '../../studio/config.js';
 import { canvasDir } from '../../studio/document.js';
 import { readBoardRef, REF_FILE, REF_HEADERS } from '../../studio/references.js';
+import { starterTemplates } from '../../studio/templates.js';
 import { readChain, type Receipt } from '../../utils/receipts.js';
 import { voxPreview, type PreviewInput, type VoxPreview } from '../../vox/preview.js';
 import { VOX_PANEL } from './vox.js';
@@ -107,6 +109,9 @@ export function mountStudioPanel(app: express.Express, ctx: PanelContext): void 
         // where Studio answers (its receipt pages too): a page on this computer links it, a page elsewhere says it
         studio: studioBaseUrl(ctx.env),
         oldLayout: oldLayoutWords(canvasDir(ctx.env), id),
+        // R11 round 7 (H176): the guided blank public starters Studio's New board offers (src/studio/templates.ts), named here so the
+        // page can say where a board starts from; opening one is Studio's (a page of this project's board)
+        starters: starterTemplates().map((t) => ({ id: t.id, title: t.title, intro: t.intro, steps: t.steps.map((st) => `${st.n} ${st.verb}`) })),
       });
     } catch { res.status(500).json({ ok: false, error: FAILED }); }
   });

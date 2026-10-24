@@ -288,8 +288,26 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
     await page.screenshot({ path: join(CAPTURES, `${name}.png`) });
   }
   /** The palette over tab 4 (as H143's check): no blue, purple or cyan; green only within .is-live or .is-verified; text 4.5:1. */
-  const palette = (page: Page) => page.evaluate(() => {
-    const parse = (v: string): number[] | null => { const m = /^rgba?\(([^)]+)\)$/.exec(v.trim()); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; };
+  // R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): the browser surfaces take the B11 registry, whose darks and greys
+  // are slate-blue tinted (#080B0F, #111A23, #1C2936, #44586B, #1E2A36, #9AAFC3, #BDCADA, #1C3043, #3B5168, the glacier family):
+  // a colour OF THE REGISTRY is not a hue of the page's own. What holds: no other hue (no cyan, violet or blue of a page's own), no
+  // green outside a live or verified mark, and every word readable on the opaque ground behind it (a word on a gradient — the
+  // shell's primary action — has no one colour behind it to measure: left out).
+  const REGISTRY = ['8, 11, 15', '17, 26, 35', '28, 41, 54', '232, 239, 245', '68, 88, 107', '30, 42, 54', '236, 241, 245', '189, 202, 218', '154, 175, 195', '28, 48, 67', '59, 81, 104', '255, 176, 0', '40, 254, 20', '0, 215, 0', '255, 95, 86',
+    '214, 170, 100', '234, 208, 163', '64, 46, 20', '240, 229, 212', '138, 187, 227', '190, 217, 237', '29, 56, 72', '225, 238, 247',
+    // the elevation gradients' own stops (tokens.ts UI_ELEVATION)
+    '20, 30, 41', '14, 22, 31', '34, 48, 62', '22, 33, 44', '18, 26, 36', '10, 15, 21', '14, 21, 29', '242, 245, 248', '228, 234, 240', '189, 203, 217'];
+  const palette = (page: Page) => page.evaluate((registry) => {
+    const parse = (v: string): number[] | null => {
+      const t = v.trim();
+      const m = /^rgba?\(([^)]+)\)$/.exec(t);
+      if (m) { const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; }
+      // Chromium gives a colour-mixed value as color(srgb r g b[ / a]) in 0..1
+      const c = /^color\(srgb ([^)]+)\)$/.exec(t);
+      if (c) { const p = c[1].split(/[\s/]+/).filter(Boolean).map(Number); return [Math.round(p[0] * 255), Math.round(p[1] * 255), Math.round(p[2] * 255), p[3] ?? 1]; }
+      return null;
+    };
+    const ofRegistry = (c: number[]): boolean => registry.includes(`${c[0]}, ${c[1]}, ${c[2]}`);
     const hsl = ([r, g, b]: number[]) => { const [R, G, B] = [r / 255, g / 255, b / 255]; const max = Math.max(R, G, B); const min = Math.min(R, G, B); const l = (max + min) / 2; const d = max - min; if (d === 0) return { h: 0, s: 0, l }; const h = max === R ? 60 * (((G - B) / d) % 6) : max === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4); return { h: (h + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
     const lum = (c: number[]) => { const [r, g, b] = c.slice(0, 3).map((x) => { const v = x / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
     const out = { hue: [] as string[], green: [] as string[], contrast: [] as string[] };
@@ -298,19 +316,28 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || el.getBoundingClientRect().width === 0) continue;
       for (const prop of ['color', 'background-color', 'border-top-color', 'border-left-color']) {
-        const c = parse(cs.getPropertyValue(prop)); if (!c || c[3] === 0) continue;
+        const c = parse(cs.getPropertyValue(prop)); if (!c || c[3] === 0 || ofRegistry(c)) continue;
         const { h, s, l } = hsl(c); if (s < 0.2 || l < 0.08 || l > 0.92) continue;
+        // the registry's own slate band (a mix of two of its colours — tldraw's and the shell's muted tones — keeps its hue and its restraint)
+        if (h >= 200 && h <= 222 && s <= 0.45) continue;
         if (h >= 150 && h <= 320) out.hue.push(`${el.tagName} ${prop}`);
         else if (h >= 75 && h < 150 && !el.closest('.is-live, .is-verified')) out.green.push(`${el.tagName}.${el.className} ${prop}`);
       }
       if (![...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim())) continue;
       const fg = parse(cs.color); if (!fg) continue;
-      let bg = [0, 0, 0]; for (let e: Element | null = el; e; e = e.parentElement) { const b = parse(getComputedStyle(e).backgroundColor); if (b && b[3] > 0.5) { bg = b.slice(0, 3); break; } }
+      let bg: number[] | null = [0, 0, 0];
+      for (let e: Element | null = el; e; e = e.parentElement) {
+        const es = getComputedStyle(e);
+        const b = parse(es.backgroundColor);
+        if (b && b[3] > 0.5) { bg = b.slice(0, 3); break; }
+        if (es.backgroundImage && es.backgroundImage !== 'none') { bg = null; break; }
+      }
+      if (!bg) continue;
       const [hi, lo] = [lum(fg), lum(bg)].sort((x, y) => y - x);
       if ((hi + 0.05) / (lo + 0.05) < 4.5) out.contrast.push(`${el.tagName}.${el.className}: ${(el.textContent ?? '').trim().slice(0, 30)}`);
     }
     return out;
-  });
+  }, REGISTRY);
 
   it("Studio places tray's artifacts, a reference image, a draft and a note on tray's board; the companion's routes answer each project's own board, never mixed", async () => {
     const s = await openStudio();

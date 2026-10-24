@@ -22,12 +22,23 @@
   <link rel="stylesheet" href="/companion.css">
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition (src/companion/client/chat-shell.css) -->
   <link rel="stylesheet" href="/chat-shell.css">
+  <!-- R11 round 7 (H169): Workflows / Runs & receipts and the Control Room's own styles (src/companion/client/panel-run.css, panel-control.css) -->
+  <link rel="stylesheet" href="/panel-run.css">
+  <link rel="stylesheet" href="/panel-control.css">
   <!-- R11 round 4 (H170): the Connections screen's own styles (src/companion/client/screen-connections.css) -->
   <link rel="stylesheet" href="/screen-connections.css">
   <!-- R11 round 5 (H174): the Rive components and the Inspect animation view (src/companion/client/rive-components.css) -->
   <link rel="stylesheet" href="/rive-components.css">
   <!-- R11 round 4 (H173): the account screen's own layout (src/companion/client/account.css) -->
   <link rel="stylesheet" href="/account.css">
+  <!-- R11 round 7: the pages' own sheets (one owner each; the lead's 0b068f2e serves them): VoxVision and Tools (H170), Canvas and
+       Motion & 3D (H176), Files and Settings (H173) -->
+  <link rel="stylesheet" href="/panel-vox.css">
+  <link rel="stylesheet" href="/panel-tools.css">
+  <link rel="stylesheet" href="/panel-studio.css">
+  <link rel="stylesheet" href="/panel-create.css">
+  <link rel="stylesheet" href="/panel-files.css">
+  <link rel="stylesheet" href="/panel-settings.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body class="shell" data-dest="chat" data-page="chat" data-screen="chat">
@@ -123,7 +134,7 @@
     <p id="ws-strip-note" class="strip-note" role="status" aria-live="polite">Reading the workspace…</p>
   </section>
 
-  <main id="ws-main" class="ws-main" tabindex="-1">
+  <main id="ws-main" class="ws-main right-col" tabindex="-1">
 
     <!-- 01 · Chat (H171): the composition of R10/R11 rounds 4–6 (#cx, chat-shell.js) sits in the page's work region until H171 moves
          its Models rail into .page-context, its controls into .page-dock and its status into the band (SHELL CONTRACT v1 §6).
@@ -825,6 +836,10 @@
   <script src="/companion.js"></script>
   <!-- R11 round 4 (H171): the shell's screens and what they share (window.TimmyShell), before the screens' own scripts -->
   <script src="/shell.js"></script>
+  <!-- R11 round 7 (H173): the Files and Settings pages (panel-files.js, panel-settings.js: each registers its page with TimmyShell
+       at load and draws into its data-panel-host) -->
+  <script src="/panel-files.js"></script>
+  <script src="/panel-settings.js"></script>
   <!-- R11 round 5 (H174): window.TimmyRive — the Rive components' runtime bindings (the runtime itself is loaded by it only when
        GET /assets/mark.json says the companion serves it; no .riv → the state word, never an error) -->
   <script src="/rive-bindings.js"></script>

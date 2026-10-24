@@ -195,9 +195,11 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(home).toContain('TIMMY · tray1');
     // (R10 H167: the header's tabs on one row; at 160 columns their first words; the column beside Home's recent work is the
     // selected item)
-    for (const label of ['1 Home', '2 Chat', '3 Workflows', '7 Control', '0 Logs']) expect(home).toContain(label);
-    expect(home).toContain('Workflow actions');
-    expect(home).toContain('tray1 / Home · recent work');
+    // (R11 round 7, H177: the destinations in the rail's groups, the rail's short names with their keys at 160 columns; the
+    // page head titled by the page; the body's crumb)
+    for (const label of ['▸1 Models', '2 Chat', 'WORK', '3 Workflows', 'CREATE', 'CONNECT', '7 Control', '0 Runs']) expect(home).toContain(label);
+    expect(home).toMatch(/◆ Models & accounts · connections and recent work ━+ \[1\] ┓/);
+    expect(home).toContain('tray1 / Models & accounts');
     expect(home).toMatch(/Selected/);
     expect(home).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
     expect(widest(capture('wb-160x45-home'))).toBeLessThanOrEqual(160);
@@ -404,7 +406,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(s.schema).toBe('timmy.workbench/1');
     // the project the shared record names (the picker above chose demo)
     expect(s.project.name).toBe(JSON.parse(readFileSync(join(timmyHome, 'state', 'active-project.json'), 'utf8')).name);
-    expect(s.navigation.map((g: { group: string }) => g.group)).toEqual(['CREATE', 'OPERATE', 'LIBRARY', 'FOOT']);
+    // (R11 round 7, H177: the rail's groups)
+    expect(s.navigation.map((g: { group: string }) => g.group)).toEqual(['CHAT', 'WORK', 'CREATE', 'CONNECT']);
     expect(s.activity).toMatchObject({ running: 0, stop_current: { job: null, words: 'Stop current: idle' } });
     expect(s.route.words).toMatch(/^chat: /);
 
