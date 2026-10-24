@@ -75,11 +75,14 @@ async function surfaces() {
   return { repl, workbench, monitor, page, model };
 }
 
+// R11 (H169, Phase 0 items 1 and 2): a key alone chooses no model (there is no shipped default): the route is OpenRouter's, not
+// ready, and its words say so on every surface, the companion page's own Send included (item 2: it asks the settings' chosen
+// model, the Workbench's choice, and with none it is off: "No model chosen: choose one in Models")
 const EXPECTED: Record<Setup, { kind: 'none' | 'local' | 'openrouter'; ready: boolean; repl: (m: string) => string; monitor: (m: string) => string; page: string }> = {
   'no key': { kind: 'none', ready: false, repl: () => 'chat: no model key · /setup', monitor: () => 'chat: no model key · /setup', page: 'no chat route here · Send is off' },
-  'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · no tools here' },
-  'OpenRouter key': { kind: 'openrouter', ready: true, repl: (m) => `chat: ${m} · OpenRouter`, monitor: (m) => `chat: ${m.split('/').pop()} · OpenRouter`, page: 'qwen/qwen3.8-max · OpenRouter · each message spends credits' },
-  both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · no tools here' },
+  'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · the project\'s conversation' },
+  'OpenRouter key': { kind: 'openrouter', ready: false, repl: () => 'chat: OpenRouter · no model chosen', monitor: () => 'chat: OpenRouter · no model chosen', page: 'No model chosen: choose one in Models · Send is off' },
+  both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · the project\'s conversation' },
 };
 
 describe('one route for every surface (R4 H113, part 4)', () => {
@@ -102,7 +105,21 @@ describe('one route for every surface (R4 H113, part 4)', () => {
         const why = (lines: readonly string[] | undefined) => (lines ?? []).filter((l) => !/^Try:/.test(l));
         expect(why(workbench.refusal)).toEqual(why(repl.state.refusal));
         expect(why(monitor.state.refusal)).toEqual(why(repl.state.refusal));
-        expect(page.kind === 'none' && why(page.refusal)).toEqual(why(repl.state.refusal));
+        if (page.kind === 'none') expect(why(page.refusal)).toEqual(why(repl.state.refusal));
+      }
+      if (setup === 'OpenRouter key') {
+        // R11 (H169): the one sentence, and no model named anywhere (the shipped default is none)
+        expect(repl.state.refusal?.[0]).toBe('Error: No model chosen. /model <id> chooses one (/model free lists free ones).');
+        expect(repl.state.refusal?.at(-1)).toBe('Nothing was sent to any model.');
+        expect(workbench.refusal).toContain('Try: Models (M) in timmy workbench, /model <id> in the REPL (timmy), or timmy init --chat openrouter --model <id>');
+        expect(model).toBe('');
+        expect(drawerStatus(monitor, 'not checked')).toMatch(/^Error: No model chosen\. \/model <id> chooses one/);
+        // item 2: the page's Send is off for the same reason, in its own words, and no model is named anywhere on it
+        expect(page).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen' });
+        expect(page.kind === 'none' && page.words).toMatch(/^Send is off: No model chosen: choose one in Models /);
+        expect(JSON.stringify(page)).not.toMatch(/qwen3\.8-max|claude-opus/);
+      }
+      if (setup === 'no key') {
         expect(repl.state.refusal).toContain(REPL_NO_ROUTE_TRY);
         expect(workbench.refusal).toContain('Try: timmy init --chat openrouter (it asks for the key, hidden), or the local model: timmy init --chat local --model <name>');
         // the REPL prints them with its failure glyph first, the rest quiet (src/repl/main.ts prepareChat)

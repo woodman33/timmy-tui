@@ -28,7 +28,7 @@ import { onlyPorts, recordFetch } from './fixtures/recording-fetch.js';
 // the implementation is the contract's OpenChatSession (a call with { project, surface } alone)
 const contract: OpenChatSession = openChatSession;
 
-const VARS = ['TIMMY_HOME', 'TIMMY_SETTINGS_DIR', 'OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'TIMMY_CHAT_NUM_CTX', 'OLLAMA_HOST'] as const;
+const VARS = ['TIMMY_HOME', 'TIMMY_SETTINGS_DIR', 'OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'TIMMY_CHAT_NUM_CTX', 'OLLAMA_HOST', 'TIMMY_CHAT_FREE_ONLY'] as const;
 const kept = Object.fromEntries(VARS.map((v) => [v, process.env[v]]));
 const fakes: FakeOllama[] = [];
 let box = '';
@@ -192,10 +192,39 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     const running = first.send('a long one', { ...surface().hooks, signal: controller.signal });
     for (let i = 0; i < 100 && ollama.chats().length === 0; i++) await new Promise((r) => setTimeout(r, 20));
     const r = await second.send('hello', surface().hooks);
-    expect(r).toMatchObject({ status: 'refused', sent: false, lines: ['Not sent: another chat turn of this project is running here.', 'Try: send it again when that turn ends. Nothing was sent to any model.'] });
+    // R11 round 4 (H169): the refusal names whose turn runs (the surface that sent it)
+    expect(r).toMatchObject({ status: 'refused', sent: false, lines: ['Not sent: another chat turn of this project is running here, sent from the Workbench.', 'Try: send it again when that turn ends (Stop ends it). Nothing was sent to any model.'] });
     expect(ollama.chats()).toHaveLength(1);
     controller.abort();
     expect(await running).toMatchObject({ status: 'cancelled', sent: true });
+  });
+
+  it('R5 lead (the Mac walk at e7f853e: Esc did not stop a real local model\'s answer): a turn stopped while its answer streams, thinking first and then text as qwen3 streams, ends at once: no text after the stop, sealed cancelled', async () => {
+    // FAKE: 20 thinking chunks, then 300 numbers, one chunk each 40 ms (the real model streamed for minutes)
+    const chunks = [
+      ...Array.from({ length: 20 }, (_, i) => ({ model: 'qwen3:8b', message: { role: 'assistant', content: '', thinking: `FAKE thought ${i} ` }, done: false })),
+      ...Array.from({ length: 300 }, (_, i) => ({ model: 'qwen3:8b', message: { role: 'assistant', content: `${i + 1}\n` }, done: false })),
+      { model: 'qwen3:8b', message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+    ];
+    const ollama = await fake({ models: [{ name: 'qwen3:8b' }], chat: [() => ({ chunks, delayMs: 40 })] });
+    setUp({ chat: 'local', model: 'qwen3:8b' }, ollama.url);
+    network(portOf(ollama));
+    const chat = await contract({ project: { name: 'demo', root: project }, surface: 'workbench' });
+    const controller = new AbortController();
+    const s = surface();
+    const running = chat.send('Count from 1 to 300, one number per line.', { ...s.hooks, signal: controller.signal });
+    for (let i = 0; i < 400 && s.texts.length < 5; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(s.texts.length).toBeGreaterThanOrEqual(5);
+    const at = Date.now();
+    controller.abort();
+    const shown = s.texts.length;
+    const r = await running;
+    expect(Date.now() - at).toBeLessThan(2000);
+    expect(r).toMatchObject({ status: 'cancelled', sent: true });
+    // at most the chunk already being handed over arrives after the stop
+    await new Promise((res) => setTimeout(res, 500));
+    expect(s.texts.length - shown).toBeLessThanOrEqual(1);
+    expect(chats().at(-1)).toMatchObject({ status: 'cancelled' });
   });
 
   it('two sessions of one project share the agent: a write asks the session that sends, under its own rules, and its receipt names the file', async () => {
@@ -284,22 +313,24 @@ describe('a turn on the OpenRouter route (FAKE OpenRouter client)', () => {
     expect(net.requests).toEqual([]);
   });
 
-  it('the last-resort fallback: said beside the answer and sealed with OpenRouter\'s failure; never a cloud-backed model', async () => {
+  it('the last-resort fallback (R11 H169: under free-only only, after the chosen free model, never a paid one): said beside the answer and sealed with OpenRouter\'s failure; never a cloud-backed model', async () => {
+    process.env.TIMMY_CHAT_FREE_ONLY = '1';
     const ollama = await fake({
       models: [{ name: 'kimi-k2:cloud', remote_host: 'https://ollama.com:443' }, { name: 'granite4.2:latest' }],
       completions: [() => ({ content: 'FAKE local answer.' })],
     });
     process.env.OLLAMA_HOST = ollama.url;
     network(portOf(ollama));
-    const agent: Agent = createAgent({ apiKey: 'sk-or-FAKE-key', model: 'fake/model', instructions: '', maxSteps: 1, maxCost: 1 }, { multiplexer: 'none' });
+    // a model the catalog knows to be free (its :free name), chosen for the turn
+    const agent: Agent = createAgent({ apiKey: 'sk-or-FAKE-key', model: 'fake/model:free', instructions: '', maxSteps: 1, maxCost: 1 }, { multiplexer: 'none' });
     agent.useSessions(join(box, 'sessions'));
     (agent as unknown as { client: unknown }).client = { callModel: () => { throw new Error('503 Service Unavailable (FAKE)'); } };
     const chat = await openChatSession({ project: { name: 'demo', root: project }, surface: 'monitor' }, { agent });
     const r = await chat.send('hello', surface().hooks);
     expect(r).toMatchObject({ status: 'answered', text: 'FAKE local answer.', sent: true, model: 'ollama/granite4.2:latest', costWords: 'cost unknown' });
-    expect(r.lines).toEqual(['OpenRouter failed: fake/model: 503 Service Unavailable (FAKE); then anthropic/claude-opus-4.7: 503 Service Unavailable (FAKE); answered by local granite4.2:latest on this computer\'s Ollama, the last-resort fallback.']);
+    expect(r.lines).toEqual(['OpenRouter failed: fake/model:free: 503 Service Unavailable (FAKE); answered by local granite4.2:latest on this computer\'s Ollama, the last-resort fallback.']);
     expect(chats().at(-1)).toMatchObject({
-      model_requested: 'fake/model', model_resolved: 'ollama/granite4.2:latest', via: 'ollama',
+      model_requested: 'fake/model:free', model_resolved: 'ollama/granite4.2:latest', via: 'ollama',
       sources: [{ kind: 'ollama', host: ollama.host, endpoint: 'local', tools: 'off', cost_basis: 'local endpoint', role: 'last-resort fallback', openrouter_failed: expect.stringContaining('503 Service Unavailable') }],
       cost_measured: false,
     });

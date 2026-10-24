@@ -204,7 +204,7 @@ describe('the Control Room on the live board: Stop reaches the existing /stop pa
     expect(notes).toContain(`  board  /stop ${job}`);
     expect(ws.jobs.get(job)?.state).toBe('cancelled');
     // The room moves it to the recent runs, stopped; no Stop is offered for it any more.
-    const after = await until(port, token, (x) => !x.html.includes(`data-act="room-stop" data-job="${job}"`) && x.html.includes('<span class="room-state">stopped</span>'));
+    const after = await until(port, token, (x) => !x.html.includes(`data-act="room-stop" data-job="${job}"`) && x.html.includes('<span class="room-state">cancelled</span>')); // R6 (H140): a job's word, as /stop's reply says it
     expect(after.toc).toContain('Control Room <b>idle</b>');
     const again = await post(port, jsonHeaders(token), body);
     expect(again.status).toBe(409);

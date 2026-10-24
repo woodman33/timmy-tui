@@ -5,6 +5,7 @@
  * and it never moves a canvas file it cannot read (it says so instead).
  */
 import { STUDIO_PORT } from '../studio/config.js';
+import { boardOfFolder } from '../studio/boards.js';
 import { CanvasDocuments, canvasDir, type CanvasJob } from '../studio/document.js';
 
 export interface CanvasSummary {
@@ -18,7 +19,12 @@ export interface CanvasSummary {
   open: string;
 }
 
-export function canvasSummary(env: Record<string, string | undefined>): CanvasSummary {
-  const docs = new CanvasDocuments(canvasDir(env));
+/**
+ * R6 lead (after H139's per-project boards): the board of the project the page shows (`projectRoot`), as Studio keeps it
+ * under <TIMMY_HOME>/canvas/projects/<project id>/; without a project, the home-wide canvas of the layout before R6 (which
+ * Studio no longer writes, and copies once into the project it belonged to).
+ */
+export function canvasSummary(env: Record<string, string | undefined>, projectRoot?: string): CanvasSummary {
+  const docs = projectRoot ? boardOfFolder(projectRoot, env) : new CanvasDocuments(canvasDir(env));
   return { ...docs.peek(), jobs: docs.jobs().slice(0, 12), open: `http://127.0.0.1:${env.TIMMY_STUDIO_PORT ?? STUDIO_PORT}/` };
 }

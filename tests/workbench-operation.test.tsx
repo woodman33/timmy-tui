@@ -60,6 +60,9 @@ afterEach(async () => {
 
 function sandbox(): void {
   vi.stubEnv('TIMMY_HOME', home);
+  // R10 CHAT (H167): this file checks the classic Chat tab (row 2's actions, the pipeline, the event log); the Chat screen's
+  // shell that replaces it is tests/workbench-chat-shell.test.ts's
+  vi.stubEnv('TIMMY_WORKBENCH_CHAT', 'classic');
   vi.stubEnv('TIMMY_SETTINGS_DIR', join(box, 'settings'));
   vi.stubEnv('OPENROUTER_API_KEY', '');
 }
@@ -142,13 +145,23 @@ function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'top'
   const rect = fr.regions[region]?.rect;
   if (!rect) return '';
   const out: string[] = [];
-  for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
+  // R5 (H131): row 2 draws the run state and Stop current in its bottom edge, so the top region is read to that edge
+  const last = region === 'top' ? rect.y + rect.h - 1 : rect.y + rect.h - 2;
+  for (let y = rect.y + 1; y <= last; y++) {
     let x = 0;
     let row = '';
     for (const seg of fr.screen[y] ?? []) for (const ch of seg.text) { if (x > rect.x && x < rect.x + rect.w - 1) row += ch; x += visibleWidth(ch); }
-    out.push(row);
+    out.push(y === rect.y + rect.h - 1 ? row.replace(/[─━]/g, ' ') : row);
   }
   return out.join(' ').replace(/\s+/g, ' ');
+}
+
+/** R10 (H167): whether the header's tabs row marks a tab with ⚠ (its one mark cell, after its label), and the status row says
+ *  the count. */
+function waitsOn(rows: readonly string[], label: string, n: number): boolean {
+  const at = rows[1]?.indexOf(label) ?? -1;
+  if (at < 0) return false;
+  return /^[^⚠\[]*?⚠/.test(rows[1].slice(at + label.length, at + label.length + 12)) && rows[0].includes(`⚠ ${n} waiting on you`);
 }
 
 describe('the terminal Workbench, slice B: one connected operation (R4 H110)', () => {
@@ -164,10 +177,12 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.start();
     const f = frameOf(c, 180, 50);
     await sleep(150);
-    // the center has APPROVAL.md's tidy selected first; Enter asks before it runs
-    await press(f.r, TAB);
+    // R5 (H131): 3 opens the Workflows tab; the center has APPROVAL.md's tidy selected first; Enter asks before it runs
+    await press(f.r, '3', TAB);
     expect(f.text()).toMatch(/▸\s+1\s+tidy/);
-    expect(f.text()).toContain('[Enter] Run it here, through the REPL\'s own /run (one job, one operation)');
+    // (R5, H136: the RUN box of tab 3's centre column names the block Enter runs, its words wrapped in the column)
+    expect(f.text()).toContain('RUN APPROVAL.md › tidy');
+    expect(f.text()).toContain('[Enter] Run it here');
     await press(f.r, ENTER);
     expect(f.text()).toContain('Run APPROVAL.md › tidy?');
     expect(f.text()).toMatch(/Needs you\s+tidy: a destructive command; its NEEDS YOU box asks first/);
@@ -182,8 +197,9 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(box).not.toContain('allow for this session'); // a shell command is asked about every time
     expect(box).toContain('[n] / Esc / Enter deny (the default)');
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
-    // what waits on you shows in the navigation's count and the Control Room's
-    expect(box).toMatch(/Control Room ⚠ 1/);
+    // what waits on you shows beside the Control Room's tab and Home's (R5, H131: the workspace frame's counts, read again
+    // within a second of the box)
+    await until('the waiting marks on the tabs and the count', () => waitsOn(f.lines(), '7 Control', 1) && waitsOn(f.lines(), '1 Home', 1), 5000, f.text);
     expect(ws.jobs.list().filter((j) => j.root === p.root)).toEqual([]);
     expect(existsSync(join(p.root, 'scratch'))).toBe(false);
     // Follow selected artifact (Quick settings): the run, once it starts, is what the Inspector and Activity show
@@ -192,7 +208,12 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     await sleep(400);
     await press(f.r, 'y');
     const job = await until('the run\'s job', () => ws.jobs.list().find((j) => j.label === 'APPROVAL.md › tidy'), 10_000, f.text);
+    // (R5, H136: tab 3's body takes the whole width and names the run; its Inspector is Context's drawer, i)
+    // (R10 H167: the run's progress in words; its job's id is the Inspector's, which follows it below)
+    await until('the body to show the run', () => /PROGRESS · /.test(regionText(c, 'center')) && regionText(c, 'center').includes('APPROVAL.md › tidy'), 5000, f.text);
+    await press(f.r, 'i');
     await until('the Inspector to follow the run', () => regionText(c, 'right').includes(`Job ${job.id}`), 5000, f.text);
+    await press(f.r, 'i');
     expect(c.ui.workspace).toBe('workflows'); // the workspace never changes by itself
     expect((await ws.jobs.done(job.id)).state).toBe('completed');
     const op = job.operation!;
@@ -230,16 +251,20 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     // Activity for the selected operation only, then all operations again (A)
     await press(f.r, 'a');
     const mine = regionText(c, 'bottom');
-    expect(mine).toContain(`Operation ${op} [A] all operations`);
+    // (R10 H163; H168's N2: the operation said by what it was; its id is the details', [i])
+    expect(mine).toContain('Only the run APPROVAL.md › tidy [A] all operations');
+    expect(mine).not.toContain(`Operation ${op} [A]`);
     expect(mine).toContain(`Operation ${op} /op ${op} shows the request`);
     // the box's answer is the operation's too (older than the rows shown: read from the events)
     expect(c.data.activity.events.filter((e) => e.operation === op).map((e) => e.words)).toContain('NEEDS YOU: allowed /run APPROVAL.md tidy once');
     await press(f.r, 'A');
-    expect(regionText(c, 'bottom')).toContain(`All operations [A] only ${op}`);
+    expect(regionText(c, 'bottom')).toContain('All operations [A] only the run APPROVAL.md › tidy');
     await press(f.r, 'A', 'a');
     const room = f.text();
-    expect(room).toMatch(new RegExp(`${job.id}\\s+completed\\s+APPROVAL\\.md › tidy[^\\n]*${op}[^\\n]*this Workbench`));
+    // (R5 H137: with nothing running, a quiet pane: its id on the edge, its word and label, who started it with its operation)
+    expect(room).toMatch(new RegExp(`${job.id} [━─][^\\n]*\\n[^\\n]*completed {2}APPROVAL\\.md › tidy[^\\n]*\\n[^\\n]*this Workbench · ${op}`));
     await until('the run detail', () => /RUN DETAIL · o[0-9a-f]{8}/.test(f.text()), 5000, f.text);
+    await press(f.r, 'i'); // (R5 H137: tab 7's Inspector is Context's drawer, i)
     const inspector = regionText(c, 'right');
     expect(inspector).toContain(`RUN DETAIL · ${op}`);
     expect(inspector).toContain('Objective FIXTURE objective of the run');
@@ -260,7 +285,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.start();
     const f = frameOf(c, 180, 50);
     await sleep(150);
-    await press(f.r, TAB, ENTER, ENTER);
+    await press(f.r, '3', TAB, ENTER, ENTER);
     await until('the NEEDS YOU box', () => /⚠ NEEDS YOU/.test(f.text()), 10_000, f.text);
     await sleep(400);
     await press(f.r, ENTER);
@@ -327,8 +352,9 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.start();
     c.selectWorkspace('chat');
     const f = frameOf(c, 180, 50);
-    await until('the session', () => /chat: FIXTURE route/.test(f.text()), 5000, f.text);
-    expect(f.text()).toContain('[Enter] Type a message to Timmy (sent through the chat session, on the route above)');
+    // (R10 H167: the route as the header and the composer say it; a FIXTURE route is named FAKE)
+    await until('the session', () => /next turn: FAKE FIXTURE route/.test(f.text()), 5000, f.text);
+    expect(f.text()).toMatch(/\[Enter\] Type a message +· to FAKE FIXTURE route/);
     await press(f.r, TAB, ENTER);
     for (const ch of 'hi there') f.r.stdin.write(ch);
     await sleep(100);
@@ -337,15 +363,17 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(f.text()).toContain('write_project_file');
     await sleep(400);
     await press(f.r, 'n');
-    await until('the answer', () => /answered · nothing was sent to any model · no charge \(FIXTURE: no model\) · receipt fixture1 · operation o[0-9a-f]{8}/.test(regionText(c, 'center')), 5000, f.text);
+    await until('the answer', () => /answered · nothing was sent to any model · no charge \(FIXTURE: no model\) · receipt sealed/.test(regionText(c, 'center')), 5000, f.text);
     expect(regionText(c, 'center')).toContain('Timmy: Hello from the FIXTURE session; the tool was denied.');
     expect(regionText(c, 'center')).toContain('You: hi there');
     expect(sent).toEqual(['hi there']);
     // R4 lead: through sendOnce, keyed by the operation the turn is recorded under (the one the center names)
-    const op = /operation (o[0-9a-f]{8})/.exec(regionText(c, 'center'))![1];
+    // (R10 H167: the operation's id is the details'; the turn records it)
+    const op = c.data.turn!.operation!;
+    expect(op).toMatch(/^o[0-9a-f]{8}$/);
     expect(keys).toEqual([`wb-${op}`]);
     // R4 lead: one route on every part of the Workbench: the top line and Settings say the session's own words
-    expect(regionText(c, 'top')).toContain('chat: FIXTURE route');
+    expect(f.lines()[0]).toContain('next turn: FAKE FIXTURE route');
   });
 
   it('without the producers: the Inspector and the composer say what they need; nothing is sent', async () => {

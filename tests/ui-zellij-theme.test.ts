@@ -67,18 +67,20 @@ describe('the zellij theme', () => {
   }
 });
 
-// Round R1 (DESIGN.md §10 B9): Timmy Homebrew for zellij. The selected tab is Homebrew green (selection is
-// what green means now), every other part keeps Night's guarantees. The green is interaction, not
-// proof: no part of the theme says an outcome by color, and zellij's exit-code parts stay neutral.
+// Round R1 (DESIGN.md §10 B9), re-pointed by B10 (the operator's palette of 2026-10-15): Timmy Homebrew for
+// zellij. The selected tab, row, cell and frame are amber (focus), every other part keeps Night's
+// guarantees, and nothing is green: a zellij part is never an observed live, passed or sealed state.
 describe('the zellij theme: Timmy Homebrew', () => {
   const theme = 'timmy-homebrew';
   const upper = (h: string) => h.toUpperCase();
   it('sets every component', () => {
     for (const c of COMPONENTS) expect(block(theme), c).toContain(`        ${c} {`);
   });
-  it('paints the selected tab Homebrew green with black text, and every other tab charcoal with off-white text', () => {
+  it('paints the selected tab amber with black text, and every other tab in the structure greys with off-white text', () => {
     const sel = part(theme, 'ribbon_selected');
-    expect(upper(sel.background)).toBe(HOMEBREW_GREEN);
+    expect(upper(sel.background)).toBe(HOMEBREW.accent.toUpperCase());
+    expect(upper(part(theme, 'ribbon_unselected').background)).toBe(HOMEBREW.lineStrong.toUpperCase());
+    expect(upper(part(theme, 'ribbon_unselected').emphasis_1)).toBe(HOMEBREW.line.toUpperCase());
     expect(upper(sel.base)).toBe(HOMEBREW.ground.toUpperCase());
     const un = part(theme, 'ribbon_unselected');
     expect(upper(un.base)).toBe(HOMEBREW.text.toUpperCase());
@@ -106,25 +108,26 @@ describe('the zellij theme: Timmy Homebrew', () => {
     expect(r.emphasis_1).not.toBe(r.background);
     expect(r.emphasis_1).not.toBe(part(theme, 'ribbon_selected').background);
   });
-  it('shows the swap-layout label (BASE) at 7:1 on the selected tab; on an unselected one it is the measured limit, 2.2:1', () => {
-    // The label is the bar's ground on the tab's pill. A green selected tab (2.5:1 from the others) and
-    // off-white text at 7:1 on the others leave the unselected pill too dark for a black label to reach
-    // 7:1: no pill can satisfy all three against #28FE14 (a pill that gives a black label 7:1 is 2.18:1
-    // from the green). This pins the trade so it cannot drift lower unseen.
+  it('shows the swap-layout label (BASE) at 7:1 on the selected tab; on an unselected one it is the measured limit, 2.1:1', () => {
+    // The label is the bar's ground on the tab's pill. The unselected pill is the operator's structure grey
+    // (#444444, B10), which holds the off-white tab text at 8.4:1 but gives a black label only 2.16:1. This
+    // pins the trade so it cannot drift lower unseen.
     const ground = part(theme, 'text_unselected').background;
     expect(contrastRatio(ground, part(theme, 'ribbon_selected').background)).toBeGreaterThanOrEqual(7);
-    expect(contrastRatio(ground, part(theme, 'ribbon_unselected').background)).toBeGreaterThanOrEqual(2.2);
+    expect(contrastRatio(ground, part(theme, 'ribbon_unselected').background)).toBeGreaterThanOrEqual(2.1);
   });
-  it('uses green only for selection: the selected tab, row, cell and frame, never for an exit code or a player count', () => {
-    const green = HOMEBREW_GREEN;
-    for (const c of ['text_unselected', 'ribbon_unselected', 'table_title', 'table_cell_unselected', 'list_unselected', 'frame_unselected', 'frame_highlight', 'exit_code_success', 'exit_code_error']) {
+  it('uses amber for the selection (the selected tab, row, cell and frame) and no green anywhere: not even a player or an exit code', () => {
+    const amber = HOMEBREW.accent.toUpperCase();
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(HOMEBREW_GREEN.slice(i, i + 2), 16));
+    expect(block(theme)).not.toContain(`${r} ${g} ${b}`);
+    for (const c of ['text_unselected', 'ribbon_unselected', 'table_title', 'table_cell_unselected', 'list_unselected', 'frame_unselected', 'exit_code_success']) {
       const body = Object.values(part(theme, c)).map(upper);
-      expect(body, c).not.toContain(green);
+      expect(body, c).not.toContain(amber);
     }
-    for (const c of ['ribbon_selected', 'text_selected', 'table_cell_selected', 'list_selected']) expect(Object.values(part(theme, c)).map(upper), c).toContain(green);
-    expect(upper(part(theme, 'frame_selected').base)).toBe(green);
+    for (const c of ['ribbon_selected', 'text_selected', 'table_cell_selected', 'list_selected']) expect(Object.values(part(theme, c)).map(upper), c).toContain(amber);
+    expect(upper(part(theme, 'frame_selected').base)).toBe(amber);
   });
-  it('uses the shared settings: off-white text, black ground, amber highlight, failure red', () => {
+  it('uses the shared settings: off-white text, black ground, amber highlight, an error exit amber (B10 has no red)', () => {
     expect(upper(part(theme, 'text_unselected').base)).toBe(HOMEBREW.text.toUpperCase());
     expect(upper(part(theme, 'text_unselected').background)).toBe(HOMEBREW.ground.toUpperCase());
     expect(upper(part(theme, 'frame_highlight').base)).toBe(HOMEBREW.attention.toUpperCase());

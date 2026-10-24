@@ -16,8 +16,9 @@ const UNMEASURED = theme({ TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG:
 const ASCII = theme({ TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: 'C' }, false);
 const editor = (text: string) => { const e = new LineEditor(); e.insert(text); return e; };
 const TINT = '\x1b[48;2;31;31;31m';
-// B9 (round R1): the prompt mark is Homebrew green (slot 2 where it reads); the tint behind it stays.
-const MARK = '\x1b[32m›\x1b[39m';
+// B10 (the operator's palette, 2026-10-15): the prompt mark is amber (slot 3 where it reads), never green;
+// the tint behind it stays.
+const MARK = '\x1b[33m›\x1b[39m';
 
 describe('block input', () => {
   it('draws a tinted pad, the prompt row and a tinted pad, then the hint', () => {

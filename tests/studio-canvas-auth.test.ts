@@ -17,6 +17,7 @@ import { WebSocket } from 'ws';
 import { projectId } from '../src/project/index.js';
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { glyphSet } from '../src/term/glyphs.js';
+import { boardDir } from '../src/studio/boards.js';
 import { keepOthers, withholdOthers } from '../src/studio/canvas-auth.js';
 import { CanvasDocuments } from '../src/studio/document.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
@@ -69,7 +70,7 @@ describe('POST /api/canvas/exec: the server token, from the REPL that holds the 
       ['the token in the address', exec(w.port, null, code, {}, `/api/canvas/exec?token=${w.token}`), 401, /^Refused: the token goes in an Authorization header, never in an address/],
       ['the token in the address and the header', exec(w.port, w.token, code, {}, `/api/canvas/exec?token=${w.token}`), 401, /never in an address/],
       ['the token in the body', exec(w.port, null, { ...code, token: w.token }), 401, /^Refused: code runs/],
-      ['the token in the body, and the header', exec(w.port, w.token, { ...code, token: w.token }), 400, /^Unknown field: "token"\. The fields are code, jobId and holder\./],
+      ['the token in the body, and the header', exec(w.port, w.token, { ...code, token: w.token }), 400, /^Unknown field: "token"\. The fields are code, jobId, holder, draft, baseRevision and project\./],
       ['a page (Origin) with the token', exec(w.port, w.token, code, { Origin: `http://127.0.0.1:${w.port}` }), 403, /^Refused: this route is for Timmy's REPL, never a page\./],
       ['the page\'s session as the token', exec(w.port, page.session, code), 401, /^Refused: code runs/],
       ['another site', exec(w.port, w.token, code, { Origin: 'http://evil.example' }), 403, /answers 127\.0\.0\.1 and localhost only|never a page/],
@@ -241,10 +242,14 @@ describe('GET and PUT /api/canvas/document: the token, or a session that counts 
       },
       schema: { schemaVersion: 2, sequences: {} },
     };
-    const saved = await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(w.token), 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, revision: 1, baseRevision: 0 }) });
+    // R6 (H139): alpha's own board (the REPL's token writes any project's board, named in the body), holding a card of beta too,
+    // as a board of the old home-wide canvas could: the withholding rules hold within one board as they did across all of them
+    const saved = await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(w.token), 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, revision: 1, baseRevision: 0, project: a.id }) });
     expect(saved.status).toBe(200);
     return { a, b, snapshot };
   }
+  /** R6 (H139): where alpha's board is saved: its own folder in the canvas folder (src/studio/boards.ts) */
+  const boardOf = (w: World, p: { id: string }): string => boardDir(join(w.home, 'canvas'), p.id);
 
   it('refuses no credential, a wrong one, a session the server never made and an expired one, saying what to do; nothing is read or written', async () => {
     const w = await world();
@@ -252,7 +257,7 @@ describe('GET and PUT /api/canvas/document: the token, or a session that counts 
     await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HX });
     const expiring = await pageSession(w.port, w.token);
     w.clock.now += TWELVE_HOURS;
-    const file = join(w.home, 'canvas', 'canvas.json');
+    const file = join(boardOf(w, a), 'canvas.json');
     const before = readFileSync(file, 'utf8');
     const put = (h: Record<string, string>) => call(w.port, 'PUT', '/api/canvas/document', { headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot: { store: {}, schema: {} }, revision: 2, baseRevision: 1 }) });
     // one after another: an expired session is let go when it is first refused
@@ -313,7 +318,7 @@ describe('GET and PUT /api/canvas/document: the token, or a session that counts 
     const put = await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(sA), 'Content-Type': 'application/json', Origin: `http://127.0.0.1:${w.port}` }, body: JSON.stringify({ snapshot: edited, revision: 2, baseRevision: 1 }) });
     expect(put.status).toBe(200);
     // What is on disk: B's card keeps its kept detail and identity, the page's move and its open Details stand
-    const disk = new CanvasDocuments(join(w.home, 'canvas')).storedSnapshot() as typeof snapshot & { store: Record<string, ReturnType<typeof drawn>> };
+    const disk = new CanvasDocuments(boardOf(w, a)).storedSnapshot() as typeof snapshot & { store: Record<string, ReturnType<typeof drawn>> };
     expect(disk.store['shape:b1'].props.data).toEqual(B_DETAIL);
     expect(disk.store['shape:b1'].props.readAt).toBe('2026-10-11T01:00:00.000Z');
     expect(disk.store['shape:b1'].props.projectId).toBe(b.id);
@@ -360,7 +365,8 @@ describe('the other routes: content only with a credential', () => {
   it('the jobs list, the receipt link, the cards, the highlight, the named project and the license key each need theirs; the page, the look, the templates and health stay open', async () => {
     const w = await world();
     const a = w.project('alpha');
-    new CanvasDocuments(join(w.home, 'canvas')).recordJob('model-named-job', { ok: true, revision: 1, sourceRevision: 'ab'.repeat(32) });
+    // R6 (H139): a job of alpha's board, in alpha's own ledger
+    new CanvasDocuments(boardDir(join(w.home, 'canvas'), a.id)).recordJob('model-named-job', { ok: true, revision: 1, sourceRevision: 'ab'.repeat(32), project: a.id });
     await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HX });
     const sA = await pageSession(w.port, w.token);
     // the jobs list: the token or a session
@@ -377,7 +383,7 @@ describe('the other routes: content only with a credential', () => {
     expect((await link({ ...bearer(w.token), Origin: `http://127.0.0.1:${w.port}` })).status).toBe(403);
     expect((await link(bearer(w.token), `/api/canvas/jobs/model-named-job/receipt?t=${w.token}`)).status).toBe(401);
     expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(w.token) })).body).not.toContain('0f3c9a12');
-    expect((await link(bearer(w.token))).json).toEqual({ ok: true, job: 'model-named-job', receipt: '0f3c9a12' });
+    expect((await link(bearer(w.token))).json).toEqual({ ok: true, job: 'model-named-job', receipt: '0f3c9a12', project: { id: a.id, name: 'alpha' } });
     // the cards and a highlight: the token or a session
     expect((await call(w.port, 'GET', '/api/project')).status).toBe(401);
     expect((await call(w.port, 'GET', '/api/project')).json.error).toBe('Refused: the project\'s cards are read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.');
@@ -398,6 +404,38 @@ describe('the other routes: content only with a credential', () => {
     // open, as nothing of a project is in them: the look, the templates
     expect((await call(w.port, 'GET', '/timmy-theme.css')).status).toBe(200);
     expect((await call(w.port, 'GET', '/api/canvas/templates')).status).toBe(200);
+  });
+
+  it('R5 (H137): a session another REPL paused (its /canvas open, while the page was open): the readings a page makes by itself are a plain 200 that says why, with nothing of the project; its writes stay 401, as do no credential, a forged one and an ended session', async () => {
+    const w = await world();
+    const a = w.project('alpha');
+    new CanvasDocuments(boardDir(join(w.home, 'canvas'), a.id)).recordJob('model-named-job', { ok: true, revision: 1, sourceRevision: 'ab'.repeat(32), project: a.id });
+    await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HX });
+    const sA = await pageSession(w.port, w.token);
+    expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(sA) })).body).toContain('model-named-job');
+    // another REPL takes the canvas for the same project, as its /canvas open does: the page's session is paused now
+    await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HY });
+    for (const path of ['/api/canvas/jobs', '/api/workspace', '/api/project', '/api/project?detail=1', '/api/project/image?p=results/vox/x.png']) {
+      const r = await call(w.port, 'GET', path, { headers: bearer(sA) });
+      expect(r.status, path).toBe(200);
+      expect(r.json, path).toEqual({ ok: false, session: 'holder', error: expect.stringMatching(/given by another Timmy REPL/) });
+      expect(r.body, path).not.toContain('model-named-job');
+      expect(r.body, path).not.toContain(a.root);
+    }
+    // a write and an action of the paused page: refused with 401 as before
+    const json = { 'Content-Type': 'application/json', Origin: `http://127.0.0.1:${w.port}` };
+    expect((await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(sA), ...json }, body: JSON.stringify({ snapshot: { store: {}, schema: {} }, revision: 1, baseRevision: 0 }) })).status).toBe(401);
+    expect((await call(w.port, 'POST', '/api/project/act', { headers: { ...bearer(sA), ...json }, body: JSON.stringify({ project: a.id, card: 'workflow:RUN.md', act: { action: 'run', doc: 'RUN.md', block: 'b' } }) })).status).toBe(401);
+    // no credential and a forged one: 401; the token reads the jobs
+    for (const h of [{}, bearer('f'.repeat(64))]) expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: h })).status).toBe(401);
+    expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(w.token) })).body).toContain('model-named-job');
+    // the first REPL names alpha again: the session counts again and reads its jobs; past its 12 hours, 401 (it ended)
+    await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HX });
+    expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(sA) })).body).toContain('model-named-job');
+    w.clock.now += TWELVE_HOURS;
+    const late = await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(sA) });
+    expect(late.status).toBe(401);
+    expect(late.json.session).toBe('expired');
   });
 
   it("studio-config.json holds no secret for anyone without a credential: the license key only with the token or a session", async () => {

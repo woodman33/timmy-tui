@@ -34,6 +34,9 @@ context/
 id_rsa*
 id_ed25519*
 *.riv
+# R11 round 5 (H174): the operator's RECEIVED native Rive UI assets (compiled by his Rive tooling, never made here; the
+# editable source beside each) are the product's: src/companion/assets/rive/<component>/<name>.riv
+!src/companion/assets/rive/**/*.riv
 *.pdf
 *.docx
 *.png

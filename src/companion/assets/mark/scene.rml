@@ -1,0 +1,11 @@
+<Rive version="1" kind="fragment">
+<Artboard defaultStateMachineId="0:7" styleId="0:5" width="128" height="128" name="TimmyMark" id="0:2">
+<LayoutComponentStyle name="Artboard Style" id="0:5"/>
+<Fill name="Background"><SolidColor colorValue="FF000000" name="Black"/></Fill>
+<Shape x="64" y="40" name="T Bar"><Rectangle width="64" height="12" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FFFFB000"/></Fill></Shape>
+<Shape x="64" y="67" name="T Stem"><Rectangle width="12" height="54" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FFFFB000"/></Fill></Shape>
+<Shape x="98" y="99" opacity="0.6" name="Focus Accent" id="0:20"><Rectangle width="7" height="7" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FFFFB000"/></Fill></Shape>
+<Shape x="64" y="64" name="Frame"><Rectangle width="110" height="110" originX="0.5" originY="0.5" cornerRadiusTL="18"/><Stroke thickness="2" name="Outline"><SolidColor colorValue="FF333333"/></Stroke></Shape>
+<LinearAnimation duration="120" fps="60" loopValue="pingPong" name="Idle" id="0:6"><KeyedObject objectId="0:20"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0.35" interpolationType="linear"/><KeyFrameDouble value="1" interpolationType="linear" frame="120"/></KeyedProperty></KeyedObject></LinearAnimation>
+<StateMachine name="TimmyVisual" id="0:7"><StateMachineLayer name="Visual" id="0:8"><AnyState x="200" y="-120"/><ExitState x="400" y="-120"/><EntryState x="0" y="0"><StateTransition stateToId="0:12"/></EntryState><AnimationState x="200" y="0" animationId="0:6" id="0:12"/></StateMachineLayer></StateMachine>
+</Artboard></Rive>

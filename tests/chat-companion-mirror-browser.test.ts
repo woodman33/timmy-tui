@@ -19,7 +19,7 @@ import { chromium, type Browser } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 import { openChatSession, projectStore } from '../src/agent/chat-session.js';
-import { projectTurn } from '../src/agent/chat-turn.js';
+import { projectTurn, takeTurnHold } from '../src/agent/chat-turn.js';
 import { createAgent } from '../src/agent/core.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { projectId } from '../src/project/index.js';
@@ -27,6 +27,7 @@ import { sealTurn } from '../src/repl/seal.js';
 import { readChain } from '../src/utils/receipts.js';
 import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 import { onlyPorts, recordFetch } from './fixtures/recording-fetch.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -92,7 +93,11 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
     page.on('pageerror', (e) => errors.push(e.message));
     try {
       await page.goto(companion.url);
+      await landWorkspace(page);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      // R5 (H132): the mirror is the Chat tab's (2). R10 CHAT (H171): Chat is the menu's first destination, and the mirror
+      // one of its older views, below the conversation
+      await page.click('#rail-menu .rail-item[data-dest="chat"]');
       await page.waitForSelector('#console-logs [data-mirror="empty"]', { timeout: 15_000 });
       const words = (await page.textContent('#console-logs [data-mirror="empty"]'))!.replace(/\s+/g, ' ');
       expect(words).toContain('In the Workbench (timmy workbench), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor\'s turn is labelled Monitor.');
@@ -131,10 +136,12 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
         ['surface-turn', 'companion', '◇ Companion turn · ended'],
       ]);
       const ids = sealed.map((r) => r.hash.slice(7, 15));
-      expect(rows[0].text).toContain(`A chat turn in the REPL (timmy) ended (0 steps); Timmy sealed it as receipt ${ids[0]}.`);
-      expect(rows[1].text).toContain(`A chat turn in the Workbench (timmy workbench) ended (0 steps); Timmy sealed it as receipt ${ids[1]}, in this project's one conversation. Its words are in the Workbench's Chat: Timmy seals a turn's prompt and answer as hashes only`);
-      expect(rows[2].text).toContain(`A chat turn in the monitor (timmy watch) ended (0 steps); Timmy sealed it as receipt ${ids[2]}`);
-      expect(rows[3].text).toContain(`A chat turn in a companion page ended (0 steps); Timmy sealed it as receipt ${ids[3]}`);
+      // (R10 H167, H168's F3 on the page: each surface by its name, its receipt's id behind the row's Details)
+      expect(rows[0].text).toContain('A chat turn in the REPL ended (0 steps); Timmy sealed its receipt.');
+      expect(rows[1].text).toContain('A chat turn in the Workbench ended (0 steps); Timmy sealed its receipt, in this project\'s one conversation. Its words are in the Workbench\'s Chat: Timmy seals a turn\'s prompt and answer as hashes only');
+      expect(rows[2].text).toContain('A chat turn in the monitor ended (0 steps); Timmy sealed its receipt');
+      expect(rows[3].text).toContain('A chat turn in a companion page ended (0 steps); Timmy sealed its receipt');
+      expect(await page.$$eval('#console-logs .log-msg .mirror-more', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(ids.map((id) => `Details receipt ${id}`));
       const mirror = (await page.textContent('#console-logs'))!;
       expect(mirror).not.toMatch(/SYNTHETIC (question|answer)/);
       // a reconnect's tail, or the same seal read again, adds no row
@@ -172,4 +179,58 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 240_000);
+  it('R5 lead (the final QA of a77d80d, defect 1): a turn\'s end reaches the whole page with its mirror row: the strip, the activity line and the log change when the bus brings its receipt, not at the next 3 s read of the frame', async () => {
+    // a turn of the project held now, as the Workbench holds the one it answers (this process holds it; no model is asked)
+    const t = takeTurnHold(root, 'workbench');
+    expect(t.ok).toBe(true);
+    if (!t.ok) return;
+    // a companion whose frame reads this project's own store, as an installed Timmy's does (this suite's isolation sets
+    // TIMMY_STORE, which a frame would read instead: src/workbench/state.ts chainOf)
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.TIMMY_STORE;
+    process.env.TIMMY_REPO = root;
+    const own = await startCompanionServer(0, { workspace: { env } });
+    delete process.env.TIMMY_REPO;
+    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    await context.route('**/*', (route) => (new URL(route.request().url()).origin === `http://127.0.0.1:${own.port}` ? route.continue() : route.abort('blockedbyclient')));
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    // when each read of the frame was asked (the page reads it every 3 s while seen, and now on a turn's end too)
+    const reads: number[] = [];
+    page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/workspace') reads.push(Date.now()); });
+    try {
+      await page.goto(own.url);
+      await landWorkspace(page);
+      await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      // R10 CHAT (H171): on Chat the strip is drawn behind the composition, whose own controls offer the same Stop
+      await page.click('#rail-menu .rail-item[data-dest="chat"]');
+      await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { state: 'attached', timeout: 15_000 });
+      // (R11 step 3: Stop lives in the composer; the row keeps it only while the composer is away, on the first run)
+      await page.waitForSelector(`#cx-composer [data-stop-turn="${t.hold.id}"]:visible, #cx-controls [data-stop-turn="${t.hold.id}"]:visible`, { timeout: 15_000 });
+      await page.waitForFunction(() => /^1 running/.test(document.getElementById('ws-activity-counts')?.textContent ?? ''), null, { timeout: 15_000 });
+      // just after one of the page's 3 s reads has been answered, the turn ends: its receipt sealed with its identity
+      const polled = reads.length;
+      await page.waitForResponse((r) => new URL(r.url()).pathname === '/api/workspace', { timeout: 10_000 });
+      const lastPoll = reads[reads.length - 1];
+      expect(reads.length).toBeGreaterThan(polled);
+      const sealed = sealTurn({ prompt: 'SYNTHETIC stopped', answer: '', steps: 0, spend: 0, ms: 5, status: 'cancelled', surface: 'workbench', turnId: t.hold.id, stoppedBy: 'companion', model: 'qwen3:8b', project: 'demo', projectId: projectId(root) }, projectStore(root));
+      // the whole page says it ended: no Stop on the strip, nothing running, its row in the mirror, before the next 3 s read
+      await page.waitForFunction((rc) => !document.querySelector('#ws-actions [data-stop-turn]') && !document.querySelector('#cx-controls [data-stop-turn]')
+        && /^0 running/.test(document.getElementById('ws-activity-counts')?.textContent ?? '')
+        && [...document.querySelectorAll('#console-logs [data-mirror="surface-turn"]')].some((e) => (e.textContent ?? '').includes(rc) && /·\s*stopped/.test(e.textContent ?? '')), sealed.id, { timeout: 10_000 }).catch(async (e) => {
+        const frame = await page.evaluate(`(async () => { const r = await companion.fetch('/api/workspace'); const f = await r.json(); return { chatTurn: f.activity && f.activity.chatTurn, running: f.activity && f.activity.running, turns: ((f.chat && f.chat.turns) || []).slice(0, 3) }; })()`).catch((x) => String(x));
+        const seen = await page.evaluate(() => ({ stop: [...document.querySelectorAll('#ws-actions [data-stop-turn]')].map((b) => b.getAttribute('data-stop-turn')), counts: document.getElementById('ws-activity-counts')?.textContent, rows: [...document.querySelectorAll('#console-logs .log-msg')].map((r) => `${r.getAttribute('data-mirror')}: ${(r.textContent ?? '').replace(/\s+/g, ' ').slice(0, 120)}`) }));
+        throw new Error(`${String(e)}\nthe turn ${t.hold.id}, sealed as ${sealed.id}; the page showed ${JSON.stringify(seen)}; the frame it is given says ${JSON.stringify(frame)}`);
+      });
+      const settled = Date.now();
+      // the next 3 s read cannot have begun before lastPoll + 3000, so a page settled well before then was read again by the bus
+      expect(settled - lastPoll, `the page settled ${settled - lastPoll} ms after its last 3 s read began`).toBeLessThan(2_500);
+      expect(errors).toEqual([]);
+    } finally {
+      t.hold.release();
+      await context.close();
+      await own.shutdown();
+    }
+  }, 60_000);
 });

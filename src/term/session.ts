@@ -26,6 +26,7 @@ type ProcessLike = Pick<NodeJS.Process, 'on' | 'off'>;
 export class TerminalSession {
   private readonly wasRaw: boolean;
   private altScreen = false;
+  private restoring = false;
   private restored = false;
   private stopping = false;
   private exited = false;
@@ -76,10 +77,21 @@ export class TerminalSession {
   /** Attributes, bracketed paste, cursor, main screen and raw mode back as they were. Idempotent. */
   restore(): void {
     if (this.restored) return;
-    this.restored = true;
+    // R5 (H136, a quit with a run going once ended 130 on its own screen): restore entered again while its teardowns run
+    // (the process ending inside one of them runs the exit listener, which restores) gives the terminal back at once, as
+    // the process will not come back to finish the first call; before, that inner call did nothing
+    if (this.restoring) { this.giveBack(); return; }
+    this.restoring = true;
     for (const fn of this.teardowns.splice(0).reverse()) {
       try { fn(); } catch { /* the restore below still runs */ }
     }
+    this.giveBack();
+  }
+
+  /** The terminal as it was: attributes reset, bracketed paste off, cursor on, the main screen, raw mode as before. Once. */
+  private giveBack(): void {
+    if (this.restored) return;
+    this.restored = true;
     this.tty('\x1b[0m\x1b[?2004l\x1b[?25h' + (this.altScreen ? '\x1b[?1049l' : ''));
     if (this.io.stdin.isTTY && this.io.stdin.setRawMode) this.io.stdin.setRawMode(this.wasRaw);
   }

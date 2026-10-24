@@ -157,7 +157,7 @@ export const LANE_RUNNERS: Record<string, LaneRunner> = {
   },
   openedit: {
     cmd: 'openedit', label: 'OpenEdit (OTIO editor)', expected: 'openedit',
-    install: 'register OpenEdit CLI/MCP when available',
+    install: 'register OpenEdit CLI/MCP once it is installed',
     blurb: 'OTIO timeline editor on the film spine; emits modified EDL for re-verify',
     task: 'openedit edit --instruction "{task}"',
   },

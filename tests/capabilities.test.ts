@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines, capabilityJson } from '../src/capabilities/render.js';
 import { exercisedTools, openRouterProbe } from '../src/capabilities/live.js';
+import { ollamaStartStep } from '../src/capabilities/ollama-route.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { replTools } from '../src/repl/main.js';
 
@@ -236,7 +237,13 @@ describe('setup steps are commands a person can run', () => {
     expect(r['claude-code'].setup).toBe('brew install --cask claude-code');
     expect(r.codex.setup).toBe('brew install --cask codex (or npm install -g @openai/codex)');
     expect(r['qwen-code'].setup).toBe('brew install qwen-code (or npm install -g @qwen-code/qwen-code)');
-    expect(r.ollama.setup).toBe('brew install ollama; brew services start ollama; ollama pull <model>');
+    // R6 (H140): Ollama's install step fits the platform (Homebrew only on macOS); with its program here, ollama serve
+    expect(r.ollama.setup).toBe(ollamaStartStep({ cli: false, platform: process.platform }));
+    expect(byId(await capabilities({ ...none, platform: 'darwin' })).ollama.setup).toBe('brew install ollama; brew services start ollama; ollama pull <model>');
+    expect(byId(await capabilities({ ...none, platform: 'linux' })).ollama.setup).toBe('install Ollama: ollama.com/download/linux; then ollama pull <model>');
+    expect(byId(await capabilities({ ...none, platform: 'win32' })).ollama.setup).toBe('install Ollama: ollama.com/download/windows; then ollama pull <model>');
+    expect(byId(await capabilities({ ...none, onPath: (b) => b === 'ollama' })).ollama).toMatchObject({ rung: 'needs setup', setup: 'ollama serve, then ollama pull <model>' });
+    for (const p of ['linux', 'win32'] as const) expect(byId(await capabilities({ ...none, platform: p })).ollama.setup, p).not.toMatch(/brew/);
     expect(r.web.setup).toBe('npm install --global carbonyl');
     // `do: ` plus the step must print whole at 80 columns (the renderer indents it by six).
     for (const row of Object.values(r)) if (row.setup) expect(row.setup.length, row.id).toBeLessThanOrEqual(69);

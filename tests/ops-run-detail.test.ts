@@ -342,11 +342,14 @@ describe('a failed /run, a running one, a cancelled one (FAKE upmd)', () => {
     await ws.jobs.done(job);
     await ws.ops.done(h);
     const c = detailOf(s, h.id);
-    expect(c.verdict).toEqual({ state: 'cancelled', words: `stopped: job ${job} stopped`, from: `.timmy/operations/${h.id}.json` });
-    expect(c.exits.map((x) => [x.who, x.code, x.state])).toEqual([[`upmd (job ${job})`, null, 'cancelled'], ['block first', 0, 'completed'], ['block long', null, 'stopped']]);
-    expect(c.checks.at(-1)).toMatchObject({ name: 'block long', predicted: 'exits 0', actual: 'stopped', differs: true });
+    // R7 lead (H148's N5): a cancelled job's operation in the job's words throughout (src/contracts/stop-words.ts: the step
+    // that was running when the cancel came is cancelled too)
+    expect(c.verdict).toEqual({ state: 'cancelled', words: `cancelled: job ${job} cancelled`, from: `.timmy/operations/${h.id}.json` });
+    expect(c.exits.map((x) => [x.who, x.code, x.state])).toEqual([[`upmd (job ${job})`, null, 'cancelled'], ['block first', 0, 'completed'], ['block long', null, 'cancelled']]);
+    expect(c.checks.at(-1)).toMatchObject({ name: 'block long', predicted: 'exits 0', actual: 'cancelled', differs: true });
     expect(c.time.endedAt).not.toBeNull();
-    expect(c.next).toEqual({ words: 'it was stopped: run it again when you want it', command: '/run SLOW.md long' });
+    expect(c.next).toEqual({ words: 'it was cancelled: run it again when you want it', command: '/run SLOW.md long' });
+    expect(JSON.stringify([c.verdict, c.exits, c.checks, c.next])).not.toMatch(/\bstopped\b/);
   }, 180_000);
 });
 

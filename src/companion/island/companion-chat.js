@@ -9,9 +9,9 @@
  * here is loaded from another site. The page's looks for this tab are classes of companion.css (the page allows no inline
  * style block; React's style objects became those classes).
  *
- * What it does, as before: a message goes to POST /chat through the page's own chat call (companion.js: the token in a
- * header), and the answer of qwen/qwen3.8-max streams back from OpenRouter with this computer's key, so each message spends
- * its credits; Streamdown draws it as it arrives (caret, highlighted code with its copy and download buttons, drawn mermaid
+ * What it did: a message went to POST /chat through the page's chat call (companion.js: the token in a
+ * header), and the answer of the model chosen in Models (the route's model: R11 H169, no fixed model of the page's own) streams
+ * back from OpenRouter with this computer's key, so each message spends its credits; Streamdown draws it as it arrives (caret, highlighted code with its copy and download buttons, drawn mermaid
  * diagrams, tables, task lists, links). ✨ Try it streams the page's own sample through the same renderer: no model is
  * asked and nothing is sent. Token counts: an estimate from the answer's length (said to be one), or the count the provider
  * reported, when it reported one.
@@ -28,6 +28,8 @@
  * setup's choice; src/companion/chat-route.ts): with the local model, its answer streams from this computer's Ollama with no
  * tools, and the chip beside Send says so ("local <model> · Ollama · no tools here"); with OpenRouter and a key, as before;
  * with neither, Send stays off and the words above it say why and where chat happens. ✨ Try it asks no model either way.
+ * R5 (H132): under the free-only policy, a model not known to be free leaves Send off in the policy's words; one that is free
+ * is said to be (route.freeOnly).
  * What the local turn says beside its answer (a cloud-backed model, a cut answer) is shown under it, and its cost as the
  * route reports it (none on this computer's Ollama, otherwise unknown): never an invented number.
  */
@@ -36,6 +38,7 @@ import { createRoot } from 'react-dom/client';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
 import { createMermaidPlugin } from '@streamdown/mermaid';
+import { inertDiagrams } from './inert-diagram.js';
 
 const h = React.createElement;
 const { useState, useRef, useEffect, createContext, useContext } = React;
@@ -45,12 +48,15 @@ const SampleContext = createContext(false);
 /** The visible SAMPLE label: the page's own chip. */
 const sampleLabel = (words) => h('span', { className: 'sd-chip', 'data-sample-label': '' }, words || 'SAMPLE');
 
-const MODEL = 'qwen/qwen3.8-max';
 /** The command that checks Timmy's receipt chain where Timmy runs (src/cli.ts `timmy verify`: the runs chain). */
 export const VERIFY_COMMAND = 'timmy verify';
 
-/** Mermaid draws in its strict mode (no script in a diagram, no click handlers, labels as text), whatever a diagram asks. */
-const mermaid = createMermaidPlugin({ config: { securityLevel: 'strict' } });
+/**
+ * Mermaid draws in its strict mode (no script in a diagram, no click handlers), whatever a diagram asks. R10 (H164): and from
+ * the diagram's inert text (inert-diagram.js): a tag with an attribute in a label is drawn as the text it is (Mermaid's #lt;),
+ * so no attribute of a diagram's, a handler least of all, is ever handed to a parser of this page.
+ */
+const mermaid = inertDiagrams(createMermaidPlugin({ config: { securityLevel: 'strict' } }));
 
 /*
  * R4 (H104): a drawn diagram keeps readable labels. r24: the ✨ sample's diagram labels were about 6 px. Mermaid gives its
@@ -276,7 +282,7 @@ function App() {
     if (!text || streaming) return;
     const page = window.timmyCompanion;
     if (!page || !page.ready()) {
-      setError('This page has no token from Timmy, so it asks nothing: open the companion from `timmy watch` (q on HOME).');
+      setError('This page has no token from Timmy, so it asks nothing: open the companion from Timmy, with the Workbench\'s c (`timmy workbench`) or q on HOME in `timmy watch`.');
       return;
     }
     // R4 (H104, second part): only on a route the companion named; with none, its words, and nothing is sent
@@ -295,7 +301,7 @@ function App() {
     const controller = new AbortController();
     let acc = '';
     try {
-      // R4 (H84): through the page's own chat call, which sends the companion's token in a header
+      // R4 (H84): through the page's chat call (R11 round 4: it refuses, in words; nothing is sent)
       await page.chat(convo.map((m) => ({ role: m.role, content: m.content })), (event, data) => {
         if (event === 'delta') {
           acc += typeof data === 'string' ? data : JSON.stringify(data);
@@ -365,11 +371,12 @@ function App() {
     : route.kind === 'local'
       ? ['Send a message to stream ', route.model, '’s answer from Ollama through Streamdown (no tools here; nothing goes to OpenRouter),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
       : route.kind === 'openrouter'
-        ? ['Send a message to stream ', MODEL, ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
+        ? ['Send a message to stream ', route.model, route.freeOnly ? ' through Streamdown (through OpenRouter, with this computer’s key; free-only is on, and this model is free),' : ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
         : ['Send is off here (why: under the messages).', h('br', { key: 'b' }), '✨ Try it streams this page’s own sample (no model is asked).'];
-  const placeholder = !route ? 'Asking the companion which route the chat takes…'
-    : route.kind === 'local' ? 'Message ' + route.model + ' … (Ollama, no tools here)'
-      : route.kind === 'openrouter' ? 'Message ' + MODEL + ' … (streams back as SSE; spends credits)'
+  // R11 round 4: this older view sends nothing (POST /chat is gone; the chat is the agent turn in Chat, POST /api/chat/turn):
+  // the box says so, and what the next turn's route is, in words
+  const placeholder = !route ? 'Asking the companion which route the next turn takes…'
+    : route.kind === 'local' || route.kind === 'openrouter' ? 'This older view sends nothing: message ' + route.model + ' in Chat above' + (route.kind === 'openrouter' ? (route.freeOnly ? ' (free-only: free)' : ' (each message spends credits)') : '')
         : 'Send is off: see why above';
 
   return h('div', { className: 'sd-app' },
@@ -406,6 +413,8 @@ function App() {
 
     // R4 (H104, second part): why Send is off, and where chat happens, when the chat has no route here
     route && !route.ready ? h('div', { className: 'sd-route-off', id: 'sd-route-off', role: 'status' }, route.words) : null,
+    // R10 (H167): with a route, whose chat this is (H164's route.scope.words), beside the box it is typed in
+    route && route.ready && route.scope && route.scope.words ? h('div', { className: 'sd-scope', id: 'sd-scope' }, route.scope.words) : null,
 
     // Input bar
     h('div', { className: 'sd-input-bar' },

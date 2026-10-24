@@ -10,71 +10,299 @@
 <!-- Timmy's shared look (src/theme/tokens.ts): colors, Monaspace Argon and its fallbacks, as variables. -->
 <link rel="stylesheet" href="/timmy-theme.css" />
 <style>
-  /* Timmy's own panel only, in the shared look (DESIGN.md §10 B9). tldraw's chrome, its fonts and the
-     colors you choose for your drawing stay tldraw's: nothing here touches them. */
-  html, body, #root { margin: 0; height: 100%; }
-  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #e8e6e1); font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  /* Timmy's own panel, in the shared look (DESIGN.md §10 B10, the operator's palette of 2026-10-15: canvas and wells black,
+     structure greys, off-white text, amber for focus, the selection and the one next step, green only for an observed live
+     connection, a passed check or a verified sealed receipt). Every color is a --timmy-* token; the hex beside it is only its
+     fallback. tldraw's fonts and the colors you choose for your drawing stay tldraw's: nothing here touches them. */
+  html, body { margin: 0; height: 100%; }
+  /* R5 (H133): the canvas starts below the workspace strip (#frame; its height is --frame-h, 0 while it is not shown), so the strip
+     never covers tldraw's menus, its style panel or its toolbar, which tldraw lays out inside this box. Absolute, not fixed: a
+     fixed box would be a stacking context of its own, and tldraw's UI layer (z-index 300, its menus) would then sit under the
+     panel (#side, 299) instead of over it (the page never scrolls, so the two place the box alike) */
+  :root { --frame-h: 0px; }
+  #root { position: absolute; left: 0; right: 0; bottom: 0; top: var(--frame-h, 0px); }
+  /* R5 (H133): the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 Layouts), as a compact strip: TIMMY and the
+     project, the ten tabs (Studio active, a 1px amber border; the others are labels, not links), the Studio tab's actions (the one
+     primary amber, each with its command to copy) and one line of activity. Green only for what the frame says is live (.is-live).
+     R5 (H137): the tabs' row and the activity's line are 20px and scroll sideways on a narrow window; the actions never do: they
+     wrap onto more rows, each whole (its number, its label wrapped under itself where the window is narrower than it, its command,
+     shortened with an ellipsis there, and Copy). The activity opens (its button) to the frame's newest entries, under the line. */
+  /* under tldraw's UI layer (300) and the panel (299), which never reach into it: a tldraw menu that opens upward covers the strip,
+     never the other way round */
+  #frame { position: fixed; top: 0; left: 0; right: 0; z-index: 298; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "top" "acts" "activity" "unf" "log"; gap: 2px 14px; padding: 3px 10px;
+    background: var(--timmy-surface, #070707); border-bottom: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
+    font: var(--timmy-weight-body, 400) 13px/18px var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #frame[hidden] { display: none; }
+  /* R10 (H167; the round's rule: raw commands in a secondary inspector): each step says itself in words with its Copy; its
+     command shows while the strip's Commands is open (frame.js setCommands), and Copy's tip and name say it whole */
+  #frame:not([data-commands="shown"]) .fr-cmd { display: none; }
+  #frame-top { grid-area: top; }
+  #frame .fr-row { display: flex; align-items: center; gap: 4px 8px; margin: 0; padding: 0; min-height: 20px; white-space: nowrap; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
+  /* R7 (H151; H147's R6 finding 3: at 800 x 600 the tabs were cut at "7 Contro"): the tabs' row wraps between whole tabs, never inside
+     one, so every tab keeps its key and its whole label at any width (it scrolled sideways, cut at the window's edge) */
+  /* the brand and the tabs flow as one line of words that wraps between whole tabs (inline, so the tabs follow the brand on its row) */
+  #frame #frame-top { display: block; white-space: normal; overflow: visible; line-height: 20px; }
+  #frame-brand { display: inline; margin: 0 8px 0 0; white-space: nowrap; }
+  #frame-brand strong { font-weight: var(--timmy-weight-heading, 700); letter-spacing: .08em; }
+  #frame-tabs, #frame-acts, #frame-log, #frame-unf { list-style: none; }
+  #frame-tabs { display: inline; margin: 0; padding: 0; }
+  /* (R10 H167: a little closer, so the ten tabs keep one row at 1280 px with the strip's 13 px text) */
+  #frame .fr-tab { display: inline-block; margin: 1px 2px 1px 0; line-height: 16px; vertical-align: top; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-text-secondary, #8E8E93); cursor: default; white-space: nowrap; }
+  #frame .fr-tab.is-active { border-color: var(--timmy-accent, #FFB000); color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
+  #frame .fr-key { color: var(--timmy-text-secondary, #8E8E93); font-weight: var(--timmy-weight-body, 400); }
+  /* R7 lead (DESIGN.md §10 B10 "Amber is exact": things waiting for you are amber, as the Workbench and the companion draw them):
+     a waiting count is amber, said in words and weight beside the one primary next step; H151 had it in the text colour, from the
+     lead's brief, which named only focus, the active tab and the primary */
+  #frame .fr-count, #frame .is-waiting { color: var(--timmy-attention, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  /* R7 (H151; "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts visibly unfinished"): an unfinished tab carries a mark, never
+     colour alone (src/contracts/workspace.ts TabDef.unfinished: structure and text colours only), and the strip's own description
+     (#frame-unf, opened by its button) says in the frame's words what works on each now and what does not yet */
+  #frame .fr-unf-mark { color: inherit; font-weight: var(--timmy-weight-body, 400); }
+  #frame .fr-tab.is-unfinished { border-style: dashed; border-color: var(--timmy-line-strong, #444444); }
+  #frame-unf { grid-area: unf; display: grid; gap: 2px; margin: 0; padding: 3px 0 2px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
+    border-top: 1px solid var(--timmy-line, #333333); scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
+  #frame-unf[hidden] { display: none; }
+  #frame .fr-unf-entry { overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
+  #frame .fr-unf-tab { font-weight: var(--timmy-weight-strong, 600); }
+  #frame .fr-unf-word, #frame .fr-unf-k { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame-unf-toggle[hidden] { display: none; }
+  /* R5 (H137): the actions' rows: as many as the window needs, nothing past its edge */
+  #frame-acts { grid-area: acts; display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px 8px; margin: 0; padding: 0; min-width: 0; }
+  /* an action's words flow as a line of text: its label wraps under itself, and its command with Copy follows on the line where
+     they fit, else on the next, kept together (shortened with an ellipsis only where a whole line is narrower than they are) */
+  #frame .fr-act { box-sizing: border-box; display: block; max-width: 100%; min-width: 0; min-height: 20px; overflow-wrap: break-word;
+    padding: 0 6px; border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; }
+  #frame .fr-do { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: top; }
+  /* a narrow window: a long command is shown shortened (Copy copies it whole; it is the command's title and in Copy's name), so
+     two actions share a row where they can */
+  @media (max-width: 1000px) { #frame .fr-cmd { max-width: 18ch; } }
+  #frame .fr-act.is-primary { border-color: var(--timmy-accent, #FFB000); }
+  #frame .fr-act.is-primary .fr-label { color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  #frame .fr-n, #frame .fr-why { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-act.is-off .fr-label { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-cmd { box-sizing: border-box; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: inherit; line-height: 16px; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 3px; padding: 0 4px; user-select: all; }
+  #frame .fr-copy { flex: none; font: inherit; padding: 0 2px; border: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+  #frame .fr-copy:focus-visible, #frame .fr-toggle:focus-visible, #frame .fr-go:focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 1px; }
+  /* R7 (H151): the draft step's control (Go to the draft): the step is the amber primary around it; the control itself is neutral */
+  #frame .fr-go { font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-text, #F2EFE9); background: var(--timmy-raised, #070707);
+    border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  /* R7 (H151): a draft step this page just decided: no longer the step, in structure grey, said in words until the next frame */
+  #frame .fr-act.is-done { border-color: var(--timmy-line, #333333); }
+  #frame .fr-act.is-done .fr-label { color: var(--timmy-text-secondary, #8E8E93); text-decoration: line-through; }
+  /* R5 (H137): the activity's line and the button that opens its entries */
+  #frame-activity-row { grid-area: activity; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #frame-activity { flex: 1 1 auto; min-width: 0; color: var(--timmy-text-secondary, #8E8E93); }
+  /* R7 (H151; "no clipped label" at 800 x 600): the line never runs past the window's edge: its counts stay whole, and the long
+     parts (the turn, Stop current, the newest entry) are shortened with an ellipsis where the window is narrower than they are; each
+     says itself whole in its title, and the open activity lists the entries whole */
+  #frame #frame-activity { overflow: hidden; }
+  #frame #frame-activity > span { flex: none; }
+  #frame #frame-activity > .fr-turn, #frame #frame-activity > .fr-stop, #frame #frame-activity > .fr-log, #frame #frame-activity > .fr-note { flex: 0 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+  #frame #frame-activity > .fr-note:empty { min-width: 0; }
+  /* R10 (H167): the newest entry gives up its room first, so Stop current's words stay whole beside the strip's toggles */
+  #frame #frame-activity > .fr-stop { flex-shrink: 0.1; }
+  #frame #frame-activity > .fr-sep { flex: none; }
+  #frame .fr-toggle { flex: none; font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-text, #F2EFE9); background: none;
+    border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  #frame .fr-toggle[aria-expanded="true"] { border-color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-sep { color: var(--timmy-line-strong, #444444); }
+  #frame .fr-log.is-live { color: var(--timmy-live, #28FE14); }
+  #frame .fr-log.is-attention, #frame .fr-log.is-failure { color: var(--timmy-attention, #FFB000); }
+  /* R5 (H137): the open activity: the frame's newest entries, one a row (its words wrapped under themselves), scrolled in place
+     on a low window */
+  #frame-log { grid-area: log; display: grid; gap: 1px; margin: 0; padding: 3px 0 2px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
+    border-top: 1px solid var(--timmy-line, #333333); scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
+  #frame-log[hidden] { display: none; }
+  #frame .fr-entry { overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
+  #frame .fr-time, #frame .fr-op, #frame .fr-tag, #frame .fr-empty { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-tag.is-live { color: var(--timmy-live, #28FE14); }
+  #frame .fr-tag.is-attention, #frame .fr-tag.is-failure { color: var(--timmy-attention, #FFB000); }
+  /* R5 (H133), B10: tldraw's own chrome (its menus, toolbar, panels, tooltips, dialogs and the canvas behind the drawing) on the
+     same tokens. tldraw 5.5.2 colors that chrome only through these variables (its Themes guide: the canvas's background is
+     --tl-color-background); the canvas's own UI colors (the selection, its brush, snap lines, handles) come from the same
+     tokens through src/theme.js. Nothing here changes how a shape, a fill, a note, a frame, a highlight or an image looks.
+     R7 (H151; H147's R6 finding 4): the style panel's swatches (blue, violet, red and the rest) stay tldraw's on purpose: they are the
+     board's content colours, the ones a person chooses for their own shapes (the operator, 2026-10-16: "Preserve editable content
+     colours where appropriate"; B10: "Content keeps its colors"). Only the panel around them is Timmy's chrome (its well, its words,
+     the selected control and focus), on these tokens; tests/studio-theme-browser.test.ts checks both. */
+  .tl-container.tl-theme__dark {
+    --tl-color-background: var(--timmy-ground, #000000);
+    --tl-color-grid: var(--timmy-line-strong, #444444);
+    --tl-color-selection-fill: color-mix(in srgb, var(--timmy-accent, #FFB000) 16%, transparent);
+    --tl-color-selection-stroke: var(--timmy-accent, #FFB000);
+    --tl-color-low: var(--timmy-surface, #070707);
+    --tl-color-low-border: var(--timmy-line, #333333);
+    --tl-color-muted-none: color-mix(in srgb, var(--timmy-text, #F2EFE9) 0%, transparent);
+    --tl-color-muted-0: color-mix(in srgb, var(--timmy-text, #F2EFE9) 2%, transparent);
+    --tl-color-muted-1: color-mix(in srgb, var(--timmy-text, #F2EFE9) 10%, transparent);
+    --tl-color-muted-2: color-mix(in srgb, var(--timmy-text, #F2EFE9) 5%, transparent);
+    --tl-color-hint: color-mix(in srgb, var(--timmy-text, #F2EFE9) 7%, transparent);
+    --tl-color-overlay: color-mix(in srgb, var(--timmy-ground, #000000) 60%, transparent);
+    --tl-color-divider: var(--timmy-line, #333333);
+    --tl-color-panel: var(--timmy-surface, #070707);
+    --tl-color-panel-contrast: var(--timmy-line, #333333);
+    --tl-color-panel-overlay: color-mix(in srgb, var(--timmy-surface, #070707) 82%, transparent);
+    --tl-color-panel-transparent: color-mix(in srgb, var(--timmy-surface, #070707) 0%, transparent);
+    --tl-color-selected: var(--timmy-accent, #FFB000);
+    --tl-color-selected-contrast: var(--timmy-accent-ink, #000000);
+    --tl-color-focus: var(--timmy-accent, #FFB000);
+    --tl-color-tooltip: var(--timmy-line, #333333);
+    --tl-color-text: var(--timmy-text, #F2EFE9);
+    --tl-color-text-0: var(--timmy-text, #F2EFE9);
+    --tl-color-text-1: var(--timmy-text, #F2EFE9);
+    --tl-color-text-3: var(--timmy-text-secondary, #8E8E93);
+    --tl-color-text-disabled: color-mix(in srgb, var(--timmy-text-secondary, #8E8E93) 70%, var(--timmy-ground, #000000));
+    /* tldraw writes its tooltips' words in this one */
+    --tl-color-text-shadow: var(--timmy-text, #F2EFE9);
+    --tl-color-primary: var(--timmy-accent, #FFB000);
+    /* a toast's "done" is a delivered result: never green (B10) */
+    --tl-color-success: var(--timmy-text, #F2EFE9);
+    --tl-color-info: var(--timmy-silver, #E8E4D9);
+    --tl-color-warning: var(--timmy-attention, #FFB000);
+    --tl-color-danger: var(--timmy-failure, #FFB000);
+  }
+  /* R5 (H133): a pending draft of Timmy's on the canvas: a dashed outline and its label, in front of the drawing, never taking a
+     click (src/drafts.js; the panel's Drafts has Accept and Discard). R7 (H151; one amber next step: the strip's primary and the
+     draft's Accept are that step): the outline is silver, as what a model made is (B10, B4), and its label says so in words */
+  .timmy-draft-mark { position: absolute; box-sizing: border-box; border: 2px dashed var(--timmy-ai, #E8E4D9); border-radius: 6px; pointer-events: none; }
+  /* R8 (H158; open item J, "Say so, offer to move it"): the label and, under it, what the draft lands on (or, once moved, from
+     where), as one tag above the outline; those words are Studio's own (the text colour on the ground, a structure-grey edge), 11 px */
+  .timmy-draft-tag { position: absolute; left: -2px; bottom: 100%; margin-bottom: 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; pointer-events: none; }
+  .timmy-draft-label { white-space: nowrap; padding: 1px 6px; border-radius: 4px;
+    background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-ai, #E8E4D9); color: var(--timmy-ai, #E8E4D9);
+    font: var(--timmy-weight-strong, 600) 11px/1.4 var(--timmy-font-mono, ui-monospace, Menlo, monospace); letter-spacing: .04em; }
+  .timmy-draft-words { width: max-content; max-width: 56ch; padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere;
+    background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line-strong, #444444); color: var(--timmy-text, #F2EFE9);
+    font: var(--timmy-weight-body, 400) 11px/1.4 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  /* R10 (H167): Timmy's own text 13 px (the companion's too); tldraw's chrome keeps its own sizes */
+  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #F2EFE9); font: var(--timmy-weight-body, 400) 13px/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
-  #side { position: fixed; left: 8px; top: 52px; z-index: 400; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1);
+  /* R5 (H133): just under tldraw's UI layer (.tlui-layout, a stacking context at z-index 300, which holds its menus, dialogs and
+     toasts), so tldraw's main menu opens over this panel instead of under it (its Preferences sat under the panel and could not be
+     reached); still over the canvas, its in-front layer (250) and the drawn cards. tldraw's panels never overlap this one. */
+  #side { position: fixed; left: 8px; top: calc(var(--frame-h, 0px) + 52px); z-index: 299; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
     /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold. R4 (H100; the Mac run r24: the New board
        footer and the "Placed card" message sat on the list's cut rows): the panel itself never scrolls; its lists scroll in one
-       region (#side-scroll) that ends above the message band and New board, which stay in place below it. A full panel ends
-       116 px above the window's bottom (its top is at 52): tldraw's toolbar is up to 104 px tall on a narrow window, with
-       its row of actions over it */
-    max-height: calc(100vh - 168px); overflow: hidden; }
-  #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
-  #status[data-kind="ready"] { border-left-color: var(--timmy-accent, #28fe14); }
-  #status[data-kind="error"] { border-left-color: var(--timmy-failure, #ff5f56); }
+       region (#side-scroll) that ends above the message band and New board, which stay in place below it. R5 (H137; the
+       rehearsal: the list lost the strip's height and ended 116 px above the window's foot with room below it): the panel spans
+       from 52 px under the strip (the strip's height taken off once, at its top) to the window's foot, less --side-foot: what
+       tldraw draws under the panel there (its navigation panel on a wide window, its toolbar and the row of actions over it on a
+       narrow one), measured by canvas.js watchFoot, 8 px apart; 116 px until it is measured */
+    max-height: calc(100vh - var(--frame-h, 0px) - 52px - var(--side-foot, 116px)); overflow: hidden; }
+  #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #444444); }
+  /* R7 (H151; H147's R6 finding 3: at 800 x 600 the panels buried the board): below FOLD_BELOW_PX of width (canvas.js) the panel's lists
+     and New board fold behind #side-fold, at first, and the board keeps most of the window; the status, the save line, a newer version
+     on disk, the drafts (Accept and Discard) and the band stay shown. The button opens them again, and folds them. */
+  #side #side-fold { flex: none; font-weight: var(--timmy-weight-strong, 600); white-space: nowrap; }
+  #side[data-folded="true"] #side-foot { border-top: 0; padding-top: 0; }
+  #side[data-folded="true"] #side-scroll, #side[data-folded="true"] #boards, #side[data-folded="true"] #project-said-acts { display: none; }
+  /* R5 (H133), B10: green is earned: "Timmy connected" is an observed live connection (the bridge's socket is open), said in words */
+  /* R5 (H137; QA defect 26): the bar stays neutral: its line holds facts that are not live observations (the version, the
+     license, the save). Only "Timmy connected", while the bridge's socket is open now (observed), carries the live mark: ● in green */
+  #status .is-live { color: var(--timmy-live, #28FE14); white-space: nowrap; }
+  #status[data-kind="error"] { border-left-color: var(--timmy-failure, #FFB000); }
   /* R4 (H83): Timmy refused this page (no session that counts now): what to do, in words. */
-  #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
+  #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #FFB000); }
   #side-ready { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; }
   /* R4 (H83): hidden until the canvas loads (a page Timmy refused shows no jobs, project or boards it cannot use) */
   #side-ready[hidden] { display: none; }
   /* R4 (H100): the one region that scrolls (the jobs and the project's cards), never under the band and the footer below it */
-  #side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 6px; align-content: start; }
+  #side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 6px; align-content: start;
+    /* R5 (H133): its end is visible: a thin scrollbar that stays, room under the last row, and a fade at the bottom edge while more
+       is below it (data-more, set by canvas.js), so a row cut at the edge reads as the edge of a list that goes on */
+    padding-bottom: 6px; scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
+  #side-scroll[data-more="below"] { -webkit-mask-image: linear-gradient(to bottom, var(--timmy-ground, #000000) calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, var(--timmy-ground, #000000) calc(100% - 28px), transparent); }
   #side summary { cursor: pointer; font-weight: var(--timmy-weight-heading, 700); }
   /* R4 (H100): a list's heading stays in view while its list scrolls under it */
-  #side-scroll summary { position: sticky; top: 0; z-index: 1; background: var(--timmy-surface, #121212); }
+  #side-scroll summary { position: sticky; top: 0; z-index: 1; background: var(--timmy-surface, #070707); }
   #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
   #side li { overflow-wrap: anywhere; }
-  #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #FFB000); outline-offset: 2px; }
   /* A job, in the REPL's words: outcome and time, then Canvas (job and revision) and Receipt. */
   #side li.job { display: grid; gap: 1px; padding: 4px 0; }
   #side li.job + li.job { border-top: 1px solid var(--timmy-line, #333333); }
   #side .job-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
-  #side .job-head time { color: var(--timmy-text-secondary, #bdbdb8); }
-  #side .job-head .job-failed { color: var(--timmy-attention, #e5b550); }
+  #side .job-head time { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .job-head .job-failed { color: var(--timmy-attention, #FFB000); }
   #side .job-row { display: grid; grid-template-columns: 8ch minmax(0, 1fr); gap: 0 6px; align-items: baseline; }
-  #side .job-row .k { color: var(--timmy-text-secondary, #bdbdb8); }
-  #side .job-row .job-note { grid-column: 2; color: var(--timmy-attention, #e5b550); }
-  #side button.job-show { justify-self: start; text-align: left; padding: 0; border: 0; background: none; color: var(--timmy-link, #6ca8ff); text-decoration: underline; overflow-wrap: anywhere; min-width: 0; }
-  #side a { color: var(--timmy-link, #6ca8ff); }
-  #side .ok { color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-heading, 700); }
-  #side .bad { color: var(--timmy-failure, #ff5f56); font-weight: var(--timmy-weight-heading, 700); }
+  #side .job-row .k { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .job-row .job-note { grid-column: 2; color: var(--timmy-attention, #FFB000); }
+  #side button.job-show { justify-self: start; text-align: left; padding: 0; border: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; overflow-wrap: anywhere; min-width: 0; }
+  #side a { color: var(--timmy-link, #E8E4D9); }
+  /* R5 (H133), B10: a job that is done delivered its result: the text color, with its word and glyph (never green, never amber) */
+  #side .ok { color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-heading, 700); }
+  #side .bad { color: var(--timmy-failure, #FFB000); font-weight: var(--timmy-weight-heading, 700); }
   #side label { font-weight: var(--timmy-weight-heading, 700); }
-  #side select, #side button { font: inherit; color: var(--timmy-text, #e8e6e1); background: var(--timmy-raised, #1c1c1c); border: 1px solid var(--timmy-line-strong, #6b6b6b); border-radius: 4px; padding: 2px 6px; }
+  #side select, #side button { font: inherit; color: var(--timmy-text, #F2EFE9); background: var(--timmy-raised, #070707); border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; padding: 2px 6px; }
   /* R4 (H100): New board, the panel's footer: below the scrolling region, never over it; one row (its label, the picker and
      Open), so the list keeps the room */
-  #boards { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; padding-top: 6px; border-top: 1px solid var(--timmy-line, #333333); }
+  /* R7 (H151): the footer row: the lists' fold, then New board */
+  #side-foot { flex: none; display: flex; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--timmy-line, #333333); }
+  #boards { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; }
   #side select { width: 100%; min-width: 0; }
   #side button { justify-self: start; cursor: pointer; }
-  /* The primary action is Homebrew green, with black ink on it. */
-  #side #board-open { background: var(--timmy-accent, #28fe14); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
-  #side :focus-visible { outline: 2px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  /* R5 (H137; QA defect 13): one amber next step on screen, the strip's primary (B10): New board's Open and a box's first button
+     are outlined, never filled (their weight says which comes first) */
+  #side #board-open, #side .primary { font-weight: var(--timmy-weight-strong, 600); }
+  /* R5 (H133): the save line: one state at a time, in words and a glyph (src/save-state.js); amber when it needs you, never green.
+     R10 (H172): two lines' room whatever it says. Its words take one line or two by state (at 320 px: saved one, "Not saved yet …
+     (saving in a moment)" two; at 280 px: saved two, "Saving …" one), so each save moved the list region below it, and everything
+     in it, 18.8 px down and back: a press begun on a button there (Read again, a row's Place) was let go of beside it, and lost.
+     Every routine state fits two lines at both widths; one that needs you (failed, a newer version on disk) may take more */
+  #save { flex: none; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93);
+    min-height: calc(2em * 1.45); min-height: 2lh; }
+  #save #save-glyph { flex: none; width: 1.2em; text-align: center; color: var(--timmy-text-secondary, #8E8E93); }
+  #save #save-words { flex: 1 1 12em; min-width: 0; }
+  #save[data-state="saved"] { color: var(--timmy-text, #F2EFE9); }
+  #save[data-state="saved"] #save-glyph { color: var(--timmy-text, #F2EFE9); }
+  #save[data-needs-you="true"], #save[data-needs-you="true"] #save-glyph { color: var(--timmy-attention, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  #save-retry[hidden] { display: none; }
+  /* R5 (H133): a newer canvas on disk: Reload it (this page's version kept as a copy first), or Keep a copy of this page's */
+  #conflict { flex: none; display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #444444); border-left: 3px solid var(--timmy-attention, #FFB000); border-radius: 4px; background: var(--timmy-raised, #070707); }
+  #conflict[hidden] { display: none; }
+  #conflict p { margin: 0; overflow-wrap: anywhere; }
+  #conflict .conflict-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  #side button[disabled] { opacity: .55; cursor: default; }
+  /* R5 (H133): drafts Timmy proposed, waiting for you: each with Show, Accept and Discard (R5 H137: Accept outlined, below) */
+  #drafts { flex: none; display: grid; gap: 4px; padding: 6px 8px; border: 1px dashed var(--timmy-ai, #E8E4D9); border-radius: 4px; background: var(--timmy-raised, #070707); max-height: 34vh; overflow-y: auto; overscroll-behavior: contain; }
+  #drafts[hidden] { display: none; }
+  #drafts h2 { margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text, #F2EFE9); text-transform: uppercase; letter-spacing: .04em; }
+  #drafts #drafts-count { font-weight: var(--timmy-weight-body, 400); text-transform: none; letter-spacing: 0; color: var(--timmy-text, #F2EFE9); }
+  #drafts ol { margin: 0; }
+  #drafts li.draft { display: grid; gap: 3px; padding: 4px 0; }
+  #drafts li.draft + li.draft { border-top: 1px solid var(--timmy-line, #333333); }
+  #drafts .draft-line, #drafts .draft-where { margin: 0; overflow-wrap: anywhere; }
+  #drafts .draft-where { color: var(--timmy-text-secondary, #8E8E93); }
+  #drafts .draft-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  /* R8 (H158; open item J): what a draft lands on, in words, and the one button beside them, Move it to free space: the words in the
+     text colour, the button neutral like Discard (the one amber step is the first draft's Accept, B10) */
+  #drafts .draft-over { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; }
+  #drafts .draft-over-words { flex: 1 1 14em; min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
+  /* R7 (H151; the operator: "Make Studio's primary action reflect the actual next step when a draft is waiting"): while a draft
+     waits, the frame's one Studio primary is its Accept or Discard, and the draft's Accept is that same step: the first waiting
+     draft's Accept is the amber control (outlined, never filled), its Discard and Show neutral. Off while Studio switches. */
+  #side button.draft-accept { font-weight: var(--timmy-weight-strong, 600); }
+  #drafts:not([data-blocked="true"]) li.draft:first-child button.draft-accept:not(:disabled) { color: var(--timmy-accent, #FFB000); border-color: var(--timmy-accent, #FFB000); }
+  #side button.draft-show { border: 0; padding: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; }
+  #side :focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 2px; }
   /* R4 (H55): the project the REPL named, as cards: title, state in words, what is behind it, its command, and actions. */
-  #project-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
-  #project-note { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
+  #project-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #project-note { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
   /* R4 (H100; r24): what a press said ("Placed card: …"), in its own band between the list and New board: it never sits on
      a row or its buttons. Empty, it takes no room (and stays a live region for screen readers). */
   #project-said { flex: none; margin: 0; overflow-wrap: anywhere; max-height: 7.5em; overflow-y: auto; }
   #project-said:not(:empty) { padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
-  #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
+  #project-said[data-kind="error"] { color: var(--timmy-failure, #FFB000); }
   /* R4 (H109): whether this board follows the active project or is pinned to one; the pin, visible beside the project's name */
-  #project-follow { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
-  #project-follow[data-kind="pinned"] { color: var(--timmy-text, #e8e6e1); }
-  .pin-badge { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: var(--timmy-weight-strong, 600); padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-text, #e8e6e1); color: var(--timmy-text, #e8e6e1); }
+  #project-follow { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
+  #project-follow[data-kind="pinned"] { color: var(--timmy-text, #F2EFE9); }
+  .pin-badge { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: var(--timmy-weight-strong, 600); padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-text, #F2EFE9); color: var(--timmy-text, #F2EFE9); }
   .pin-badge[hidden] { display: none; }
   /* R4 (H109): buttons under the band's words that act on what they say (Select the cards a press placed) */
   #project-said-acts { flex: none; display: flex; flex-wrap: wrap; gap: 4px 8px; }
@@ -87,44 +315,47 @@
   #side #project-by button { border-radius: 0; }
   #side #project-by button:first-child { border-radius: 4px 0 0 4px; }
   #side #project-by button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
-  #side #project-by button[aria-pressed="true"] { border-color: var(--timmy-accent, #28fe14); box-shadow: inset 0 -2px 0 var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
+  /* R7 (H151; one amber next step): the grouping chosen is said by its pressed state, weight and underline, in the text colour */
+  #side #project-by button[aria-pressed="true"] { border-color: var(--timmy-text-secondary, #8E8E93); box-shadow: inset 0 -2px 0 var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
   /* R4 (H100): an operation's group: its id and state, its request, Place this operation, its cards in the order they ran */
   #side .pop + .pgroup { margin-top: 6px; padding-top: 2px; border-top: 1px solid var(--timmy-line, #333333); }
-  #side .pop-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--timmy-text, #e8e6e1); }
+  #side .pop-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--timmy-text, #F2EFE9); }
   #side .pop-state { font-weight: var(--timmy-weight-body, 400); }
-  #side .pop-request { margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #e8e6e1); }
-  #side .pop-none, #side .pop-note, #side .pop-count, #side .pcard-op { color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
+  #side .pop-request { margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
+  #side .pop-none, #side .pop-note, #side .pop-count, #side .pcard-op { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
   #side .pop-note { margin: 2px 0 0; }
   #side .pop-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 4px 0 2px; }
-  #side button.pop-place { font-weight: var(--timmy-weight-strong, 600); border-color: var(--timmy-accent, #28fe14); }
-  #side .pgroup h3 { font-size: inherit; font-weight: var(--timmy-weight-heading, 700); margin: 6px 0 2px; color: var(--timmy-text-secondary, #bdbdb8); }
+  #side button.pop-place { font-weight: var(--timmy-weight-strong, 600); }
+  #side .pgroup h3 { font-size: inherit; font-weight: var(--timmy-weight-heading, 700); margin: 6px 0 2px; color: var(--timmy-text-secondary, #8E8E93); }
   #side ol.plist { max-height: none; overflow: visible; margin: 0; gap: 0; }
   #side li.pcard { display: grid; gap: 2px; padding: 5px 0; }
   #side li.pcard + li.pcard { border-top: 1px solid var(--timmy-line, #333333); }
   #side .pcard-title { font-weight: var(--timmy-weight-strong, 600); }
-  #side .pcard-behind { color: var(--timmy-text-secondary, #bdbdb8); }
-  #side button.pcard-cmd { justify-self: stretch; text-align: left; padding: 1px 4px; background: var(--timmy-ground, #000000); border-color: var(--timmy-line, #333333); color: var(--timmy-accent, #28fe14); overflow-wrap: anywhere; }
+  #side .pcard-behind { color: var(--timmy-text-secondary, #8E8E93); }
+  /* R5 (H133), B10: a command to type is never green, and not every one is the next step: the text color, in its well */
+  #side button.pcard-cmd { justify-self: stretch; text-align: left; padding: 1px 4px; background: var(--timmy-ground, #000000); border-color: var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9); overflow-wrap: anywhere; }
   #side button.pcard-cmd code { font: inherit; }
   #side .pcard-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
-  #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #8E8E93); }
   /* R4 (H109): an operation's run detail (src/run-detail.js), at the top of the scrolling region: each field, under it the
      record it came from. Timmy's verdict, the workflow stage, each exit, the freshness and a person's acceptance are rows of
-     their own, never merged; green only for the commands to type. */
-  #run-detail { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #6b6b6b); border-left: 3px solid var(--timmy-accent, #28fe14); border-radius: 4px; background: var(--timmy-raised, #1c1c1c); overflow-wrap: anywhere; }
+     their own, never merged; R5 (H133), B10: nothing in it is green (the commands to type are in the text color, in their well). */
+  /* R7 (H151; one amber next step): an opened run detail's edge is the text colour; amber stays for a refusal (below) */
+  #run-detail { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #444444); border-left: 3px solid var(--timmy-text-secondary, #8E8E93); border-radius: 4px; background: var(--timmy-raised, #070707); overflow-wrap: anywhere; }
   #run-detail[hidden] { display: none; }
-  #run-detail[data-state="not-built"], #run-detail[data-state="reading"] { border-left-color: var(--timmy-line-strong, #6b6b6b); }
-  #run-detail[data-state="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
+  #run-detail[data-state="not-built"], #run-detail[data-state="reading"] { border-left-color: var(--timmy-line-strong, #444444); }
+  #run-detail[data-state="refused"] { border-left-color: var(--timmy-attention, #FFB000); }
   #run-detail .rd-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
   #run-detail h2 { flex: 1 1 auto; margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); }
-  #run-detail h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #8E8E93); }
   #run-detail .rd-dl { margin: 0; display: grid; gap: 1px; }
-  #run-detail .rd-dl dt { color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-dl dt { color: var(--timmy-text-secondary, #8E8E93); }
   #run-detail .rd-dl dd { margin: 0 0 4px 8px; }
-  #run-detail .rd-from { display: block; font-size: 11px; color: var(--timmy-text-secondary, #bdbdb8); }
-  #run-detail .rd-cmd { font: inherit; color: var(--timmy-accent, #28fe14); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
-  #run-detail .rd-note { margin: 0; color: var(--timmy-text-secondary, #bdbdb8); }
-  #run-detail .rd-said { color: var(--timmy-text, #e8e6e1); }
-  #run-detail .rd-refused { color: var(--timmy-attention, #e5b550); }
+  #run-detail .rd-from { display: block; font-size: 11px; color: var(--timmy-text-secondary, #8E8E93); }
+  #run-detail .rd-cmd { font: inherit; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
+  #run-detail .rd-note { margin: 0; color: var(--timmy-text-secondary, #8E8E93); }
+  #run-detail .rd-said { color: var(--timmy-text, #F2EFE9); }
+  #run-detail .rd-refused { color: var(--timmy-attention, #FFB000); }
   /* R4 (H109): Run detail beside a drawn card's Details: like Details, it shows and changes nothing (in the side panel) */
   .tc-foot-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
   .tc-rd { font: inherit; padding: 0; border: 0; background: none; color: var(--timmy-link); text-decoration: underline; cursor: pointer; }
@@ -132,8 +363,9 @@
   #project-acts { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
   #project-acts[data-kind="ok"] { color: var(--timmy-text); }
   #project-acts[data-kind="refused"] { color: var(--timmy-attention); }
-  /* R4 (H75): Timmy's drawn cards on the canvas, in Timmy Homebrew from the theme's variables (src/theme/tokens.ts). Outcome
-     words stay in the text colour; green is for commands and actions; red and amber only for failed and needs-attention. */
+  /* R4 (H75): Timmy's drawn cards on the canvas, from the theme's variables (src/theme/tokens.ts). Outcome words stay in the text
+     colour. R5 (H133), B10: amber for the one action and for failed and needs-attention (each with its word); commands to type in
+     the text colour, in their well; nothing green. */
   .tc { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
     font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
   .tc-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
@@ -141,7 +373,8 @@
   .tc-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
   .tc-title { font-weight: var(--timmy-weight-heading); overflow-wrap: anywhere; }
   .tc-badge { flex: none; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); }
-  .tc-badge.tc-executable { border-color: var(--timmy-accent); color: var(--timmy-accent); }
+  /* R7 (H151; one amber next step): a card that can act says EXECUTABLE in the text colour (its buttons are its actions) */
+  .tc-badge.tc-executable { border-color: var(--timmy-text); color: var(--timmy-text); }
   .tc-mode { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
   .tc-mode-on { color: var(--timmy-text); }
   /* R4 (H100): the operation the card's record names; the id in the text colour (a name to type after /op, not a command) */
@@ -156,14 +389,16 @@
   .tc-path { overflow-wrap: anywhere; }
   .tc-blocks, .tc-outs { list-style: none; padding: 0; display: grid; gap: 4px; }
   .tc-block { padding: 3px 0 3px 8px; border-left: 3px solid var(--timmy-line-strong); overflow-wrap: anywhere; }
-  .tc-w-running { border-left-color: var(--timmy-accent); }
+  /* R7 (H151): a running block is said by its word, its edge the text colour: running is neither a next step nor proof (B10) */
+  .tc-w-running { border-left-color: var(--timmy-text); }
   .tc-w-failed, .tc-w-interrupted { border-left-color: var(--timmy-failure); }
   .tc-name { font-weight: var(--timmy-weight-strong); }
   .tc-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 2px; }
-  .tc-btn { font: inherit; font-weight: var(--timmy-weight-strong); background: var(--timmy-accent); color: var(--timmy-accent-ink); border: 1px solid var(--timmy-accent); border-radius: 4px; padding: 0 8px; cursor: pointer; }
+  /* R5 (H137; QA defect 13): a drawn card's action is outlined too: a board of cards would show as many amber fills as cards */
+  .tc-btn { font: inherit; font-weight: var(--timmy-weight-strong); background: var(--timmy-raised); color: var(--timmy-text); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 0 8px; cursor: pointer; }
   .tc-btn[disabled] { opacity: .55; cursor: default; }
   .tc-btn.tc-quiet { background: var(--timmy-raised); color: var(--timmy-text); border-color: var(--timmy-line-strong); font-weight: var(--timmy-weight-body); }
-  .tc-cmd { font: inherit; color: var(--timmy-accent); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
+  .tc-cmd { font: inherit; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
   .tc-table { border-collapse: collapse; width: 100%; }
   .tc-table th { text-align: left; font-weight: var(--timmy-weight-strong); padding: 2px 8px 2px 0; vertical-align: top; }
   .tc-table td { padding: 2px 8px 2px 0; vertical-align: top; overflow-wrap: anywhere; }
@@ -185,31 +420,264 @@
   .tc-block-cmd code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
   .tc :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
   /* While the board is blank: what to do first. Never in the way of the canvas. */
-  #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
-    text-align: center; color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
-  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #28fe14); margin-bottom: 6px; }
+  /* R7 (H151): in the middle of the board between Timmy's panel and tldraw's style panel (--side-right, --board-right: canvas.js),
+     never over either one's words (at 800 px it sat across the panel's status and under the style panel) */
+  #guide { position: fixed; left: calc((var(--side-right, 0px) + var(--board-right, 100vw)) / 2); top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(var(--board-right, 100vw) - var(--side-right, 0px) - 32px));
+    text-align: center; color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  /* R5 (H137; QA defect 13): headings off-white (amber is focus and the one next step) */
+  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text, #F2EFE9); margin-bottom: 6px; }
   #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
   /* R4 (H83): a page that loads no canvas (no session from Timmy) says why and what to type, in the middle of the page. */
-  #refused { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
-    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #e5b550);
-    color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #refused { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
+    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #FFB000);
+    color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #refused strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; }
   #refused p { margin: 6px 0 0; overflow-wrap: anywhere; }
-  #refused code { color: var(--timmy-accent, #28fe14); }
+  #refused code { color: var(--timmy-accent, #FFB000); }
+  /* R6 (H139; Studio project isolation): while Studio switches from one project's board to another's (or cannot show the project the
+     canvas shows), the board is not shown at all (nothing of the project before under the new one's name), and this cover says
+     where it goes; tldraw's own UI layer goes with the board. The side panel stays, saying what waits. */
+  body[data-board="switching"] #root { visibility: hidden; }
+  #switching { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 298; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
+    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-line-strong, #444444);
+    color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #switching[hidden] { display: none; }
+  /* switching waits for nothing a person does (structure grey); paused needs the person (its words say what to type: amber, as the
+     save line's states that need the person). Paused, the page's own project's board stays, read only; the banner sits at the
+     canvas's top, never over the board's middle */
+  #switching[data-state="paused"] { top: calc(var(--frame-h, 0px) + 10px); transform: translateX(-50%); padding: 8px 12px; font-size: var(--timmy-size-small, 12.5px); border-left-color: var(--timmy-attention, #FFB000); }
+  #switching[data-state="paused"] strong { font-size: inherit; margin-bottom: 2px; }
+  #switching strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; overflow-wrap: anywhere; }
+  #switching p { margin: 6px 0 0; overflow-wrap: anywhere; }
+  /* R6 (H139): the drafts on hold while Studio switches: their buttons off, and why; nothing waits on the person then, so no amber */
+  #drafts[data-blocked="true"] { border-color: var(--timmy-line-strong, #444444); }
+  #drafts-why { margin: 0; color: var(--timmy-text, #F2EFE9); overflow-wrap: anywhere; }
+  #drafts-why[hidden] { display: none; }
+  #drafts button:disabled, #boards button:disabled { opacity: .55; cursor: not-allowed; }
+  .job-waiting { color: var(--timmy-text-secondary, #8E8E93); }
+  /* R6 (H139): what came back for another board than the one on screen, and where it went */
+  #kept[hidden] { display: none; }
+  #kept ol { margin: 6px 0 0; }
+  #kept li { color: var(--timmy-text, #F2EFE9); }
+  #kept time { color: var(--timmy-text-secondary, #8E8E93); }
+  /* R6 (H145): the shown project's artifacts (src/artifacts.js). B10: the chrome on the tokens; the observed image keeps its own
+     colours; what was measured over it is drawn in silver (generated dashed, not vouched for dotted), each labelled in words; green
+     only for a receipt that verifies now (✓ with its words); a receipt that does not verify is amber with ✕; FAKE said in words. */
+  #artifacts-note { margin: 4px 0 0; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #artifacts-note[hidden] { display: none; }
+  #artifacts-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.aitem { display: grid; gap: 2px; padding: 5px 0; }
+  #side li.aitem + li.aitem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .aitem-kind { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .aitem-title { font-weight: var(--timmy-weight-strong, 600); }
+  #side .aitem-fake, .ta-fake { font-size: 11px; letter-spacing: .06em; padding: 0 5px; border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; color: var(--timmy-text, #F2EFE9); }
+  #side .aitem-state, #side .aitem-empty { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .aitem-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .ta-r-verified { color: var(--timmy-live, #28FE14); }
+  .ta-r-failed { color: var(--timmy-failure, #FFB000); }
+  .ta-r-none { color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #444444); border-left: 3px solid var(--timmy-line-strong, #444444); border-radius: 4px; background: var(--timmy-raised, #070707); overflow-wrap: anywhere; }
+  #artifact-preview[hidden] { display: none; }
+  #artifact-preview h2 { flex: 1 1 auto; margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); }
+  #artifact-preview h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview .rd-dl { margin: 0; display: grid; gap: 1px; }
+  #artifact-preview .rd-dl dt { color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview .rd-dl dd { margin: 0 0 4px 8px; }
+  #artifact-preview .rd-note { margin: 0; color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview .rd-refused { color: var(--timmy-attention, #FFB000); }
+  #artifact-preview .rd-cmd { font: inherit; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
+  .ap-fake, .ta-fake-words { margin: 0; padding-left: 6px; border-left: 3px solid var(--timmy-line-strong, #444444); color: var(--timmy-text, #F2EFE9); }
+  .ap-fake[hidden] { display: none; }
+  .ap-receipt { margin: 0; }
+  /* the artifact card on the board */
+  /* R11 round 5 (H174): the timmy-rive shape (companion/studio-canvas/src/rive-shape.js): a Rive component on the board; the state
+     word in HTML beside its canvas; amber for attention words, green only for an observed connected state. */
+  .tr-shape { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
+    font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
+  .tr-shape.is-selected { border-color: var(--timmy-accent); }
+  .tr-shape-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
+  .tr-shape p { margin: 0; }
+  .tr-shape-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .tr-badge { flex: none; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); }
+  .tr-component { display: inline-grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; }
+  .tr-face { position: relative; display: inline-grid; place-items: center; width: 64px; height: 64px; padding: 0; border: 1px solid var(--timmy-line-strong); border-radius: 10px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 28px; font-weight: var(--timmy-weight-heading); }
+  button.tr-face { cursor: pointer; }
+  .tr-face:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+  .tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } /* the asset's baked click listener never sees a pointer */
+  .tr-face canvas:not([data-loaded]) { visibility: hidden; }
+  .tr-fallback { position: relative; z-index: 1; }
+  .tr-fallback[hidden] { display: none; }
+  .tr-words { display: grid; gap: 2px; }
+  .tr-heading { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+  .tr-status { font-weight: var(--timmy-weight-heading); }
+  .tr-component[data-state="connected"] .tr-status { color: var(--timmy-live); }
+  .tr-component[data-state="checking"] .tr-status, .tr-component[data-state="awaiting"] .tr-status, .tr-component[data-state="stopping"] .tr-status, .tr-component[data-state="failed"] .tr-status { color: var(--timmy-accent); }
+  .tr-note, .tr-shape-source, .tr-shape-foot, .tr-shape-more { font-size: 12px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+  /* R11 round 6: the artboard picked on the shape; the mounts' artboards at their proportions on the board */
+  .tr-shape-pick { display: inline-flex; }
+  .tr-shape-select { font: inherit; font-size: 11px; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 1px 4px; }
+  .tr-shape-select:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+  .tr-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* a block grid at the shape's content width: an inline-grid shrank to its words, so a welcome's face (the ActionButton) was a
+     38×9 px pill above the word "ready" (H172's capture at 9447d6f8); the face fills the width at the artboard's aspect */
+  .tr-shape .tr-component[data-artboard] { display: grid; width: 100%; grid-template-columns: 1fr; }
+  .tr-shape .tr-component[data-artboard] .tr-face { width: 100%; height: auto; border-radius: 8px; }
+  .tr-shape .tr-component[data-artboard="AgentConsole"] .tr-face { aspect-ratio: 640 / 380; }
+  .tr-shape .tr-component[data-artboard="ProviderCard"] .tr-face { aspect-ratio: 400 / 260; }
+  .tr-shape .tr-component[data-artboard="ActionButton"] .tr-face { aspect-ratio: 240 / 72; font-size: 14px; }
+  .tr-note:empty { display: none; }
+  .ta { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
+    font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
+  .ta-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
+  .ta p, .ta ul, .ta figure { margin: 0; }
+  .ta-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  .ta-title { flex: 1 1 auto; font-weight: var(--timmy-weight-heading); overflow-wrap: anywhere; }
+  .ta-badge { flex: none; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); }
+  .ta-project, .ta-note, .ta-read, .ta-caption, .ta-k, .ta-mode { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+  .ta-warn { color: var(--timmy-attention); }
+  .ta-state, .ta-verdict, .ta-path { overflow-wrap: anywhere; }
+  .ta-figure { display: grid; gap: 4px; }
+  .ta-stage { position: relative; line-height: 0; background: var(--timmy-ground); border: 1px solid var(--timmy-line); }
+  .ta-stage img { display: block; width: 100%; height: auto; }
+  .ta-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .ta-ov { fill: none; stroke: var(--timmy-silver, #E8E4D9); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .ta-ov.is-generated { stroke-dasharray: 7 4; }
+  .ta-ov.is-unverified { stroke-dasharray: 2 4; stroke: var(--timmy-text-secondary); }
+  .ta-legend { list-style: none; padding: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
+  .ta-ov-mark { color: var(--timmy-silver, #E8E4D9); }
+  .ta-files { list-style: none; padding: 0; display: grid; gap: 2px; }
+  .ta-section { display: grid; gap: 2px; }
+  .ta-foot { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; justify-content: space-between; }
+  .ta :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+  #references-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.ritem { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 4px 0; }
+  #side li.ritem + li.ritem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .ritem-path { overflow-wrap: anywhere; }
+  #side .ritem-size, #side .ritem-empty { color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview-images { display: grid; gap: 8px; }
+  #artifact-preview-images figure, #artifact-preview-images ul { margin: 0; }
+  #artifact-preview-images .ta-legend, #artifact-preview-images .ta-caption { font-size: 12px; }
+  /* the preview needs room for its images: the panel is wider while it is open (the canvas keeps the rest) */
+  #side:has(#artifact-preview:not([hidden])) { width: min(560px, calc(100vw - 16px)); }
+  /* R6 (H145, step 4a): the node palette (src/nodes.js), as the other lists: structure grey, the add buttons as the panel's own */
+  #nodes-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #nodes-note { margin: 4px 0 0; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side .ngroup { margin-top: 6px; }
+  #side .ngroup-title { margin: 6px 0 2px; font-size: 12px; font-weight: var(--timmy-weight-strong, 600); color: var(--timmy-text, #F2EFE9); }
+  #side .nitems { list-style: none; margin: 0; padding: 0; }
+  #side li.nitem { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 4px 0; }
+  #side li.nitem + li.nitem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .nitem-title { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+  #side .nitem-kind, #side .nitem-state, #side .nitem-none { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side .nitem-state { flex: 1 1 100%; }
+  /* R6 (H145, step 4c): the nodes' connections (src/nodes.js): a data link's mark solid and a link's dashed, as their arrows are */
+  #side #node-links { margin-top: 8px; padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
+  #node-links-note, #node-connect-note { margin: 4px 0; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side #node-link-list { list-style: none; margin: 6px 0 0; padding: 0; }
+  #side li.nlink { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 2px 0 2px 8px; border-left: 2px solid var(--timmy-line-strong, #444444); }
+  #side li.nlink + li.nlink { margin-top: 6px; }
+  #side li.nlink.is-data { border-left-color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.nlink.is-link { border-left-style: dashed; }
+  #side .nlink-kind { font-weight: var(--timmy-weight-strong, 600); }
+  #side .nlink-ends { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+  #side .nlink-words, #side .nlink-by, #side .nlink-none { flex: 1 1 100%; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  /* ── R10 (H167, Step C; reference 06's shelf beside its stage; the round's rule: ids, paths and raw commands in a secondary
+     inspector or details control) ────────────────────────────────────────────────────────────────────────────────────────── */
+  /* the panel a little wider on a wide window (its text is 13 px now): the board keeps the most of it */
+  @media (min-width: 1200px) { #side { width: 320px; } }
+  /* the canvas's own facts (tldraw's version, its license, the board's folder) under the save line, behind Details */
+  #side-about { flex: none; margin: 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
+  #side-about p { margin: 2px 0 0; }
+  #side-about code { font: inherit; color: var(--timmy-text, #F2EFE9); }
+  /* a row's Details (a job's, a draft's, an artifact's, a project card's): a quiet control at the row's end, as the companion's
+     (▸ Details, in the secondary text colour); opened, its words take a line of their own under the row's words. Never sticky,
+     as the lists' own headings are */
+  #side :is(#side-about, .job-more, .draft-more, .aitem-more, .pcard-more) > summary { position: static; z-index: auto; background: none; width: fit-content;
+    font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side :is(.job-more, .draft-more, .aitem-more, .pcard-more)[open] { flex: 1 1 100%; }
+  #side :is(.job-ids, .draft-ids, .aitem-said, .pcard-behind, .pcard-op, .pcard-said, .pcard-cmd-k) { display: block; margin-top: 2px; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side .pcard-more .pcard-cmd { display: block; margin-top: 2px; }
+  #side .pcard-file { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  /* a narrow window (a phone): the blank board's guide sits under the panel, across the board, its saving sentence left out (the
+     panel's Details say where Timmy saves the board); between the panel and tldraw's style panel there is no room for it there */
+  @media (max-width: 700px) {
+    #guide { left: 16px; right: 16px; top: calc((var(--side-bottom, 50vh) + 100vh - 96px) / 2); transform: translateY(-50%); max-width: none; }
+    #guide .guide-save { display: none; }
+  }
 </style>
 </head>
 <body>
+<!-- R5 (H133): the shared workspace frame, drawn by src/frame.js from GET /api/workspace (this page's session); shown on a page Timmy
+     opened, never on one opened without a grant -->
+<header id="frame" hidden aria-label="Timmy's workspace: this project, its tabs, Studio's next steps and what runs">
+  <div class="fr-row" id="frame-top"><p id="frame-brand"><strong>TIMMY</strong> <span aria-hidden="true">·</span> <span id="frame-project">reading the workspace…</span></p><ol id="frame-tabs" aria-label="The ten tabs; this page is Studio"></ol></div>
+  <!-- R7 (H151): the strip's own description of the unfinished tabs, in the frame's words (src/contracts/workspace.ts TabDef.unfinished) -->
+  <ol id="frame-unf" hidden aria-label="The unfinished tabs: what works on each now, and what does not yet"></ol>
+  <ol id="frame-acts" aria-label="Studio's workflow actions; the next step first"></ol>
+  <div id="frame-activity-row"><button type="button" id="frame-activity-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-log">▸ Activity</button><button type="button" id="frame-unf-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-unf" hidden>▸ ◌ unfinished</button><button type="button" id="frame-cmds-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-acts">▸ Commands</button><p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p></div>
+  <ol id="frame-log" hidden aria-label="The frame's newest entries, the newest first"></ol>
+</header>
 <div id="root"></div>
+<!-- R6 (H139): while Studio switches from one project's board to another's, or cannot show the project the canvas shows -->
+<div id="switching" role="status" aria-live="polite" hidden><strong id="switching-title"></strong><p id="switching-words"></p></div>
 <aside id="side" aria-label="Timmy">
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
+    <p id="save" role="status" aria-live="polite" data-state="saved" data-needs-you="false"><span id="save-glyph" aria-hidden="true">■</span><span id="save-words">Saved.</span><button id="save-retry" type="button" hidden title="Saves this page's canvas now">Retry</button></p>
+    <!-- R10 (H167; the round's rule: diagnostics in a details control): the canvas's own facts (tldraw's version, its license's
+         verdict) and the folder Timmy saves this board in, which the status line and the blank board's guide name in words -->
+    <details id="side-about"><summary title="tldraw's version, its license, and the folder Timmy saves this board in">Details</summary><p id="side-about-canvas">tldraw, its license: read once the canvas starts</p><p id="side-about-dir">Saved in <code id="guide-dir">its canvas folder</code></p></details>
+    <section id="conflict" hidden aria-labelledby="conflict-title" role="alert">
+      <p id="conflict-title"><strong>A newer version is on disk.</strong> This page will not save over it.</p>
+      <div class="conflict-acts"><button id="conflict-reload" class="primary" type="button" title="Loads the newer canvas from disk. This page's unsaved changes are kept as a copy first.">Reload the newer version</button><button id="conflict-keep" type="button" title="Keeps this page's version as a copy beside the canvas file. The canvas on disk is unchanged.">Keep a copy</button></div>
+    </section>
+    <section id="drafts" hidden aria-labelledby="drafts-title">
+      <h2 id="drafts-title">Drafts from Timmy · <span id="drafts-count"></span></h2>
+      <p id="drafts-why" hidden></p>
+      <ol id="draft-list"></ol>
+    </section>
     <div id="side-scroll">
       <section id="run-detail" hidden aria-labelledby="run-detail-title">
         <div class="rd-head"><h2 id="run-detail-title">Run detail</h2><button id="run-detail-again" type="button" title="Reads this run detail from Timmy's records again">Read again</button><button id="run-detail-close" type="button" title="Closes this run detail">Close</button></div>
         <p id="run-detail-read" class="rd-note"></p>
         <div id="run-detail-body"></div>
       </section>
+      <!-- R6 (H145): Studio's VoxVision preview of an artifact card's record (src/artifacts.js openVox) -->
+      <section id="artifact-preview" hidden aria-labelledby="artifact-preview-title">
+        <div class="rd-head"><h2 id="artifact-preview-title">Preview</h2><button id="artifact-preview-close" type="button" title="Closes this preview">Close</button></div>
+        <p id="artifact-preview-read" class="rd-note"></p>
+        <p id="artifact-preview-fake" class="ap-fake" hidden></p>
+        <div id="artifact-preview-images"></div>
+        <div id="artifact-preview-body"></div>
+      </section>
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
+      <details id="kept" hidden><summary>Kept apart (<span id="kept-count">0</span>)</summary><ol id="kept-list" aria-label="What came back for another board than the one on screen, the newest first"></ol></details>
+      <!-- R6 (H145): the shown project's artifacts (src/artifacts.js): its VoxVision records, runs and receipts, each placed on its
+           board as a card that shows it and opens its preview -->
+      <details id="artifacts"><summary>Artifacts <span id="artifacts-name">reading…</span></summary>
+        <p id="artifacts-note" hidden></p>
+        <ol id="artifact-list" aria-label="This project's artifacts: its VoxVision records, runs and receipts"></ol>
+      </details>
+      <!-- R6 (H145): the shown project's images (src/references.js): one added is copied into its board's folder and shown on the
+           board with its file name and where it came from -->
+      <details id="references"><summary>Reference images <span id="references-name">reading…</span></summary>
+        <ol id="reference-list" aria-label="This project's images (PNG, JPEG, WebP, GIF) to add to its board"></ol>
+      </details>
+      <!-- R6 (H145, step 4a): the node palette (src/nodes.js): the shown project's own cards, by the node each makes, each added to
+           its board bound to it -->
+      <details id="nodes"><summary>Nodes <span id="nodes-name">reading…</span></summary>
+        <p id="nodes-note"></p>
+        <div id="node-palette"></div>
+        <!-- R6 (H145, step 4c): the nodes' connections (src/nodes.js): arrows bound to two of the shown project's cards; data flows
+             only along an operation's own links, and any other arrow is a link that says so -->
+        <section id="node-links" aria-label="Connections between nodes">
+          <h3 class="ngroup-title">Connections</h3>
+          <p id="node-links-note"></p>
+          <p id="node-connect-note"></p>
+          <button type="button" id="node-connect" disabled>Connect the two selected nodes</button>
+          <ul id="node-link-list" aria-label="Connections on this board"></ul>
+        </section>
+      </details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>
         <p id="project-note" hidden></p>
@@ -224,11 +692,14 @@
     </div>
     <p id="project-said" role="status"></p>
     <div id="project-said-acts" hidden></div>
-    <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
+    <!-- R7 (H151): the lists (jobs, artifacts, images, nodes, project) and New board fold behind #side-fold on a small window, so the
+         board keeps most of it; what waits on you (the save line, a newer version on disk, the drafts) and the band stay shown. The
+         button sits in the footer row, beside New board, so it takes no row of its own while the lists are open -->
+    <div id="side-foot"><button type="button" id="side-fold" aria-expanded="true" aria-controls="side-scroll boards">▾ Fold</button><div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div></div>
   </div>
 </aside>
 <div id="refused" role="alert" hidden><strong>This page loads no canvas.</strong><p id="refused-words"></p><p>In Timmy: <code>/canvas open</code> opens the canvas with its project's cards.</p></div>
-<div id="guide" hidden><strong>This board is blank.</strong>Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas". Timmy saves it in <code id="guide-dir">its canvas folder</code>, so it reopens where you left it. A template from New board starts blank too.</div>
+<div id="guide" hidden><strong>This board is blank.</strong><span class="guide-how">Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas".</span> <span class="guide-save">Timmy saves it for this project, in its home (the panel's Details say where), so it reopens where you left it. A template from New board starts blank too.</span></div>
 <script type="module" src="dist/canvas.js" onerror="var s=document.getElementById('status');s.dataset.kind='error';s.textContent='The canvas code did not load (dist/canvas.js). In the Timmy checkout run: npm run build:canvas, then reload.'"></script>
 </body>
 </html>

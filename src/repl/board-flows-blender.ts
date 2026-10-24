@@ -295,8 +295,8 @@ export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string
 
 export const BLENDER_FLOW_CSS = `
 .flow pre.diff { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; }
-.flow pre.diff .removed { color: ${HOMEBREW.failure}; }
-.flow pre.diff .added { color: ${HOMEBREW.accent}; }
+.flow pre.diff .removed { color: ${HOMEBREW.diffRemove}; }
+.flow pre.diff .added { color: ${HOMEBREW.diffAdd}; }
 .flow dd.bad { color: ${HOMEBREW.failure}; }
 .flow .dimensions p.sizes { margin: 4px 0 0; overflow-wrap: anywhere; }
 .flow .dimensions p.sizes.bad { color: ${HOMEBREW.failure}; }

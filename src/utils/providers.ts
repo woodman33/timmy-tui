@@ -29,7 +29,7 @@ const P = (
 export const GENERATION_PROVIDERS: GenerationProvider[] = [
   // — OpenRouter curated (verified live 2026-08-04 via the generation agent) —
   P('bodybuilder', 'OpenRouter Bodybuilder', 'meta', 'openrouter', { modelId: 'openrouter/bodybuilder', notes: 'builds {"requests":[...]} objects for custom calls' }),
-  P('qwen3-8-max', 'Qwen3.8 Max', 'text', 'openrouter', { modelId: 'qwen/qwen3.8-max', aliases: ['qwen3.8-max', 'qwen 3.8 max'], notes: 'default chat / critique brain' }),
+  P('qwen3-8-max', 'Qwen3.8 Max', 'text', 'openrouter', { modelId: 'qwen/qwen3.8-max', aliases: ['qwen3.8-max', 'qwen 3.8 max'], notes: 'a catalog entry: nothing chooses it by default (no model is chosen until you choose one)' }),
   P('nano-banana-2', 'Nano Banana 2', 'image', 'openrouter', { modelId: 'google/gemini-3.1-flash-image', aliases: ['nano banana 2', 'nanobanana 2', 'gemini 3.1 flash image'] }),
   P('nano-banana-pro', 'Nano Banana Pro', 'image', 'openrouter', { modelId: 'google/gemini-3-pro-image', aliases: ['nano banana pro', 'nanobanana pro', 'gemini 3 pro image'] }),
   P('gpt-image-2', 'GPT Image 2', 'image', 'openrouter', { modelId: 'openai/gpt-image-2', aliases: ['gpt image 2'] }),

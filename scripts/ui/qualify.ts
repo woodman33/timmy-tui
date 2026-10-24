@@ -356,10 +356,42 @@ export function platformVerdict(env: ReplayEnv, head: string): { bad: string[]; 
   bad.push(`platform ${JSON.stringify(env?.platform ?? null)} is not one AGENTS.md §10 allows for this replay`);
   return { bad, label: String(env?.platform) };
 }
-/** CLI-29: what is wrong with what a version flag printed: [] when it is the version line and nothing else. */
-export function versionProblems(out: string, version: string): string[] {
-  const want = `timmy-tui v${version}\n`;
-  return out === want ? [] : [`printed ${JSON.stringify(out.slice(0, 120))}, not ${JSON.stringify(want)}`];
+/**
+ * CLI-29: the candidate a version line must name: its commit (git rev-parse HEAD, 40 hex) and whether its tracked files differ
+ * from that commit (git status --porcelain --untracked-files=no, the rule src/build-info.ts reads them by); `source` 'dev' for
+ * the bin run from the checkout, 'packed' for a build packed from it.
+ */
+export interface Candidate { revision: string; dirty: boolean; source: 'dev' | 'packed' }
+/** The candidate's commit and tree state, read from the checkout at `dir` now. */
+export function candidateAt(dir: string, source: Candidate['source']): Candidate {
+  const git = (args: string[]): string => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+  return { revision: git(['rev-parse', 'HEAD']).trim(), dirty: git(['status', '--porcelain', '--untracked-files=no']).trim() !== '', source };
+}
+/**
+ * CLI-29: the version line the candidate prints, exactly (src/build-info.ts versionLine; R10 H163): from source
+ * "timmy-tui v<version> (revision <7 hex>[ and uncommitted changes], from source)", a packed build
+ * "timmy-tui v<version> (revision <7 hex>[, built with uncommitted changes])".
+ */
+export function versionLineFor(version: string, c: Candidate): string {
+  const short = c.revision.slice(0, 7);
+  return `timmy-tui v${version} (revision ${short}${c.source === 'dev' ? `${c.dirty ? ' and uncommitted changes' : ''}, from source` : c.dirty ? ', built with uncommitted changes' : ''})\n`;
+}
+/**
+ * CLI-29: what is wrong with what a version flag printed: [] when it is the version line and nothing else, naming the
+ * candidate's own revision (R10 H163: not just any revision, nor "revision unknown", nor a tree state the candidate's is not).
+ */
+export function versionProblems(out: string, version: string, c: Candidate): string[] {
+  if (!/^[0-9a-f]{40}$/.test(c.revision)) return [`the candidate's revision is not known (${JSON.stringify(c.revision)}), so no version line can be checked against it`];
+  const want = versionLineFor(version, c);
+  if (out === want) return [];
+  const named = /^timmy-tui v\S+ \(revision ([0-9a-f]{7})\b/.exec(out)?.[1];
+  const why = !out.startsWith('timmy-tui v') ? 'not the version line'
+    : !out.startsWith(`timmy-tui v${version} `) && !out.startsWith(`timmy-tui v${version}\n`) ? `not version ${version}`
+      : out === `timmy-tui v${version}\n` ? 'no revision'
+        : /^timmy-tui v\S+ \(revision unknown\b/.test(out) ? 'revision unknown'
+          : named && named !== c.revision.slice(0, 7) ? `revision ${named}, not the candidate's ${c.revision.slice(0, 7)}`
+            : 'not exactly the candidate\'s version line';
+  return [`printed ${JSON.stringify(out.slice(0, 160))} (${why}), not ${JSON.stringify(want)}`];
 }
 /** CLI-29: the help rows that give -v a meaning other than the version. */
 export function helpVProblems(help: string): string[] {
@@ -696,13 +728,15 @@ const CHECKS: Check[] = [
     must(t.status === 0 && tj !== null, `timmy theme --json: exit ${t.status}, not JSON`);
     return 'receipts --json and --quiet, theme --json';
   } },
-  { id: 'CLI-29', ref: '19.5; the 20:14 order', line: '-v never overloaded: through the bin, `-v`, `--version`, `version` and `repl -v` each print the version line and nothing else (exit 0), and no help row gives -v another meaning', run: async () => {
+  { id: 'CLI-29', ref: '19.5; the 20:14 order; R10 H163', line: '-v never overloaded: through the bin, `-v`, `--version`, `version` and `repl -v` each print the version line and nothing else (exit 0), naming the candidate\'s own revision, and no help row gives -v another meaning', run: async () => {
     const version = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')).version as string;
     const BIN = join(REPO, 'timmy.ts');
+    // R10 (H163): the line names the git revision it runs from (src/build-info.ts): the candidate's, read from the checkout now
+    const candidate = candidateAt(REPO, 'dev');
     for (const args of [['-v'], ['--version'], ['version'], ['repl', '-v']]) {
       const r = spawn([BIN, ...args], {});
       must(r.code === 0 && r.stderr === '', `timmy ${args.join(' ')}: exit ${r.code}, stderr ${JSON.stringify(r.stderr.slice(0, 120))}`);
-      const bad = versionProblems(r.stdout, version);
+      const bad = versionProblems(r.stdout, version, candidate);
       must(bad.length === 0, `timmy ${args.join(' ')}: ${bad.join('; ')}`);
     }
     for (const args of [[BIN, '--help'], [CLI, 'repl', '--help']]) {
@@ -710,7 +744,7 @@ const CHECKS: Check[] = [
       const bad = helpVProblems(r.stdout + r.stderr);
       must(bad.length === 0, `${args.slice(1).join(' ')}: ${bad.join('; ')}`);
     }
-    return `timmy -v, --version, version and repl -v: "timmy-tui v${version}" and nothing else, exit 0; no -v row with another meaning in timmy --help or timmy repl --help`;
+    return `timmy -v, --version, version and repl -v: ${JSON.stringify(versionLineFor(version, candidate).trim())} (the candidate's ${candidate.revision.slice(0, 7)}) and nothing else, exit 0; no -v row with another meaning in timmy --help or timmy repl --help`;
   } },
   { id: 'CLI-30', ref: '19.5', line: 'No prompt without TTYs on stdin and stdout: fail fast, naming the fix', run: async () => {
     const t0 = Date.now();
@@ -1248,6 +1282,9 @@ async function installedPackage(): Promise<string> {
   delete buildEnv.NODE_PATH;
   const { log, sh } = stepper(dir, 'install.log', buildEnv);
   const { clone, base, patched, untracked } = cloneFrozen(dir, sh, log);
+  // R10 (H163): the build stamps the revision it is built from (scripts/generate-version.ts writes dist/build-info.json only
+  // for TIMMY_BUILD_REVISION = the clone's HEAD), so the installed timmy -v names the candidate's revision (CLI-29's line)
+  buildEnv.TIMMY_BUILD_REVISION = base;
   const npmVersion = sh(`${q(npm)} --version`).trim();
   sh(`${q(npm)} ci --include=dev --no-audit --no-fund --prefer-offline --loglevel=error`, clone, 1_200_000);
   sh(`${q(npm)} run build`, clone, 900_000);
@@ -1268,9 +1305,10 @@ async function installedPackage(): Promise<string> {
     const r = spawnSync(timmy, args, { cwd: sb.work, env: sb.env, encoding: 'utf8', timeout: 60_000 });
     return { code: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
   };
-  // -v: the version line and nothing else.
+  // -v: the version line and nothing else, naming the revision the package was built from: the candidate's, with its uncommitted
+  // changes said when the frozen tree has them (the clone is HEAD plus those changes)
   const v = run(user('version'), ['-v']);
-  const vBad = versionProblems(v.stdout, version);
+  const vBad = versionProblems(v.stdout, version, { revision: base, dirty: patched, source: 'packed' });
   must(v.code === 0 && vBad.length === 0, `installed timmy -v: exit ${v.code}; ${vBad.join('; ')}`);
   // init, then the doctor it names: next steps that work installed. The doctor's findings are kept.
   const sbi = user('init');
@@ -1397,8 +1435,16 @@ async function controls(): Promise<string[]> {
   expectFail('a replay on an unnamed platform', () => { must(platformVerdict({ platform: 'laptop', os: 'macOS' }, head).bad.length === 0, 'platform'); });
   // CLI-29 and INSTALL-01: -v is the version and nothing else; the next steps work from an installed package;
   // the shell's next output starts its own line.
-  expectFail('a -v that prints more than the version', () => { must(versionProblems('timmy-tui v1.2.3\nverbose: on\n', '1.2.3').length === 0, 'v'); });
-  expectFail('a -v that prints another version', () => { must(versionProblems('timmy-tui v1.2.2\n', '1.2.3').length === 0, 'v'); });
+  // R10 (H163): the version line names the candidate's own revision (src/build-info.ts): from source and packed
+  const cand = { revision: 'a'.repeat(40), dirty: false, source: 'dev' as const };
+  expectFail('a -v that prints more than the version', () => { must(versionProblems('timmy-tui v1.2.3 (revision aaaaaaa, from source)\nverbose: on\n', '1.2.3', cand).length === 0, 'v'); });
+  expectFail('a -v that prints another version', () => { must(versionProblems('timmy-tui v1.2.2 (revision aaaaaaa, from source)\n', '1.2.3', cand).length === 0, 'v'); });
+  expectFail('a -v that names another revision than the candidate\'s', () => { must(versionProblems('timmy-tui v1.2.3 (revision bbbbbbb, from source)\n', '1.2.3', cand).length === 0, 'v'); });
+  expectFail('a -v that names no revision (the line before R10)', () => { must(versionProblems('timmy-tui v1.2.3\n', '1.2.3', cand).length === 0, 'v'); });
+  expectFail('a -v whose revision is unknown', () => { must(versionProblems('timmy-tui v1.2.3 (revision unknown, from source)\n', '1.2.3', cand).length === 0, 'v'); });
+  expectFail('a -v that hides the candidate\'s uncommitted changes', () => { must(versionProblems('timmy-tui v1.2.3 (revision aaaaaaa, from source)\n', '1.2.3', { ...cand, dirty: true }).length === 0, 'v'); });
+  expectFail('a packed -v that says it runs from source', () => { must(versionProblems('timmy-tui v1.2.3 (revision aaaaaaa, from source)\n', '1.2.3', { ...cand, source: 'packed' }).length === 0, 'v'); });
+  expectFail('a candidate whose revision is not known', () => { must(versionProblems('timmy-tui v1.2.3 (revision aaaaaaa, from source)\n', '1.2.3', { ...cand, revision: 'aaaaaaa' }).length === 0, 'v'); });
   expectFail('a help that gives -v another meaning', () => { must(helpVProblems('  -v, --verbose    More output\n').length === 0, 'help'); });
   expectFail('a next step that needs a checkout', () => { must(nextStepProblems('  Next: `timmy doctor`, then `npm start`.\n', /Next: `timmy doctor`, then `timmy`/).length === 0, 'next'); });
   expectFail("the shell's next output mid-line", () => { must(atLineStart('14'), 'column'); });
@@ -1418,7 +1464,10 @@ async function controls(): Promise<string[]> {
   expectPass('a recorded blocker', ((): string[] => { try { blockerOf({ reason: 'the sandbox could not be created from here', at: '2026-10-07T22:30:40Z' }); return []; } catch (e) { return [String(e)]; } })());
   expectPass('a GitHub-hosted run of the frozen commit', platformVerdict(gh, head).bad);
   expectPass('a Vercel Sandbox run', platformVerdict(vercel, head).bad);
-  expectPass('the version line', versionProblems('timmy-tui v1.2.3\n', '1.2.3'));
+  expectPass('the version line from source', versionProblems('timmy-tui v1.2.3 (revision aaaaaaa, from source)\n', '1.2.3', { revision: 'a'.repeat(40), dirty: false, source: 'dev' }));
+  expectPass('the version line from source with uncommitted changes', versionProblems('timmy-tui v1.2.3 (revision aaaaaaa and uncommitted changes, from source)\n', '1.2.3', { revision: 'a'.repeat(40), dirty: true, source: 'dev' }));
+  expectPass('the version line of a packed build', versionProblems('timmy-tui v1.2.3 (revision aaaaaaa)\n', '1.2.3', { revision: 'a'.repeat(40), dirty: false, source: 'packed' }));
+  expectPass('the version line of a build packed with uncommitted changes', versionProblems('timmy-tui v1.2.3 (revision aaaaaaa, built with uncommitted changes)\n', '1.2.3', { revision: 'a'.repeat(40), dirty: true, source: 'packed' }));
   expectPass('a help where -v is the version', helpVProblems('  -v, --version    Print the version\n'));
   expectPass('a doctor that says what works here', doctorProblems(doctorSaid('!', '✗', 78, 'BLOCKED'), 78));
   expectPass('a next step that works installed', nextStepProblems('  Next: `timmy doctor`, then `timmy` to open the REPL.\n', /Next: `timmy doctor`, then `timmy`/));

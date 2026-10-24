@@ -107,11 +107,10 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
       },
     ],
     defaultModelEnv: 'OPENROUTER_MODEL',
-    defaultModel: 'anthropic/claude-opus-4.7',
+    // R11 (H169, Phase 0 item 1): no shipped default model: one is chosen (Models, /model <id>, timmy init --model) or none
     baseUrl: 'https://openrouter.ai/api/v1',
     docsUrl: 'https://openrouter.ai/docs',
     models: [
-      { id: 'anthropic/claude-opus-4.7', label: 'Configured TIMMY default', use: 'default' },
       { id: 'qwen/qwen-2.5-coder-32b', label: 'Configured tmux coding runner model', use: 'coding' },
       { id: 'nousresearch/hermes-3-llama-3.1-405b', label: 'Configured tmux Hermes runner model', use: 'coding' },
       { id: 'meta/llama-3.3', label: 'Configured tmux systems runner model', use: 'fast' },

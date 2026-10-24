@@ -1,0 +1,148 @@
+Overview
+----------
+num_chunks = 13
+num_entity_paths = 13
+num_chunks_without_components = 0 (0.000%)
+num_rows = 36
+num_rows_min = 1
+num_rows_max = 24
+num_rows_avg = 2.769
+num_static = 6
+num_indexes_min = 0
+num_indexes_max = 2
+num_indexes_avg = 1.077
+num_components_min = 1
+num_components_max = 5
+num_components_avg = 2.154
+
+Num chunks per entity
+---------------------
+/__properties: 1
+/container/0cb747ce-67d4-48df-abcd-40bc5e4eb7f3: 1
+/evidence/model-answer: 1
+/evidence/source: 1
+/fixture: 1
+/fixture/cell-center: 1
+/fixture/cells: 1
+/fixture/surface: 1
+/view/0da47b58-fb61-42c3-a866-f5cb28333d65: 1
+/view/0da47b58-fb61-42c3-a866-f5cb28333d65/ViewContents: 1
+/view/aa3f3a53-9f18-4518-9bbb-5fc236d322cb: 1
+/view/aa3f3a53-9f18-4518-9bbb-5fc236d322cb/ViewContents: 1
+/viewport: 1
+
+Num chunks per index
+--------------------
+ablation_row: 1
+blueprint: 6
+log_time: 7
+
+Num chunks per component
+------------------------
+ContainerBlueprint:container_kind: 1
+ContainerBlueprint:contents: 1
+Mesh3D:albedo_factor: 1
+Mesh3D:triangle_indices: 1
+Mesh3D:vertex_positions: 1
+Points3D:colors: 2
+Points3D:labels: 1
+Points3D:positions: 2
+Points3D:radii: 2
+Points3D:show_labels: 1
+RecordingInfo:start_time: 1
+TextDocument:media_type: 2
+TextDocument:text: 2
+ViewBlueprint:class_identifier: 2
+ViewBlueprint:display_name: 2
+ViewBlueprint:space_origin: 2
+ViewContents:query: 2
+ViewCoordinates:xyz: 1
+ViewportBlueprint:root_container: 1
+
+Size (schema + data, compressed)
+--------------------------------
+ipc_size_bytes_total = 48.0 KiB
+ipc_size_bytes_min = 913 B
+ipc_size_bytes_max = 13.2 KiB
+ipc_size_bytes_avg = 3.7 KiB
+ipc_size_bytes_p50 = 1.6 KiB
+ipc_size_bytes_p90 = 11.1 KiB
+ipc_size_bytes_p95 = 13.2 KiB
+ipc_size_bytes_p99 = 13.2 KiB
+ipc_size_bytes_p999 = 13.2 KiB
+
+Size (schema + data, uncompressed)
+----------------------------------
+ipc_size_bytes_total = 124 KiB
+ipc_size_bytes_min = 1.7 KiB
+ipc_size_bytes_max = 45.2 KiB
+ipc_size_bytes_avg = 9.5 KiB
+ipc_size_bytes_p50 = 4.1 KiB
+ipc_size_bytes_p90 = 19.3 KiB
+ipc_size_bytes_p95 = 45.2 KiB
+ipc_size_bytes_p99 = 45.2 KiB
+ipc_size_bytes_p999 = 45.2 KiB
+
+Size (schema only, uncompressed)
+--------------------------------
+ipc_size_bytes_total = 22.3 KiB
+ipc_size_bytes_min = 1.1 KiB
+ipc_size_bytes_max = 2.4 KiB
+ipc_size_bytes_avg = 1.7 KiB
+ipc_size_bytes_p50 = 1.7 KiB
+ipc_size_bytes_p90 = 2.2 KiB
+ipc_size_bytes_p95 = 2.4 KiB
+ipc_size_bytes_p99 = 2.4 KiB
+ipc_size_bytes_p999 = 2.4 KiB
+
+Size (data only, uncompressed)
+------------------------------
+ipc_size_bytes_total = 101.3 KiB
+ipc_size_bytes_min = 656 B
+ipc_size_bytes_max = 43.4 KiB
+ipc_size_bytes_avg = 7.8 KiB
+ipc_size_bytes_p50 = 1.9 KiB
+ipc_size_bytes_p90 = 17.5 KiB
+ipc_size_bytes_p95 = 43.4 KiB
+ipc_size_bytes_p99 = 43.4 KiB
+ipc_size_bytes_p999 = 43.4 KiB
+
+Unsorted timelines
+------------------
+(none — every timeline on every chunk is sorted)
+
+Chunk index
+-----------
+num_chunk_indexes = 2 (one per recording)
+
+Chunk index for StoreId(Recording, "timmy-context-evidence", "ctx-389daef66d2290542d313254")
+  num_chunks_indexed = 7
+  num_static_chunks = 6
+  num_entity_paths = 7
+  num_columns = 35
+  sorbet_schema_num_fields = 20
+  sorbet_schema_sha256 = 2448bd3b0676190493b4cfe9ba455e9ddc4d6cbc5b5fa2ac39a7f4fd361b1d46
+  chunk_byte_size_total (native) = 40.5 KiB
+  chunk_byte_size_uncompressed_total = 104 KiB
+
+Chunk index for StoreId(Blueprint, "timmy-context-evidence", "rec_89735eaf5f214bc8a94ca3caaebfd0f7")
+  num_chunks_indexed = 6
+  num_static_chunks = 0
+  num_entity_paths = 6
+  num_columns = 60
+  sorbet_schema_num_fields = 14
+  sorbet_schema_sha256 = 13558a161bbc0312287f8dbda5923c6e3b73c951360c47b292f6df3c2738c3de
+  chunk_byte_size_total (native) = 8.7 KiB
+  chunk_byte_size_uncompressed_total = 19.4 KiB
+
+Chunk index analysis
+--------------------
+
+Store StoreId(Recording, "timmy-context-evidence", "ctx-389daef66d2290542d313254")
+chunk index columns: 35
+
+Optimization check based on a 2.0 MiB chunk size target (`--profile object-store`)
+  - theoretical lower bound: 1 chunks
+  - effective:               1 chunks (1.0×)
+  - excess:                  0 chunks
+

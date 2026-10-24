@@ -97,12 +97,22 @@ async function press(r: ReturnType<typeof render>, ...keys: string[]): Promise<v
   await sleep(80);
 }
 
+async function until<T>(what: string, get: () => T | undefined | false | null, ms = 10_000, show?: () => string): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = get();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}${show ? `:\n${show()}` : ''}`);
+    await sleep(50);
+  }
+}
+
 const TAB = '\t';
 const DOWN = '\u001b[B';
 const ESC = '\u001b';
 
-describe('the terminal Workbench\'s frames (R4 H110)', () => {
-  it('180x50: all five zones; every row exactly the width; the tray project\'s blocks; Tab moves the focus border', async () => {
+describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s reference layouts)', () => {
+  it('180x50: row 1 (TIMMY, the project, the ten tabs), row 2 (Workflow actions), the body and Activity & log; every row exactly the width; Home first; 6 opens a workspace with Context beside it; Tab moves the focus border; 3 opens Workflows with the tray project\'s blocks across the whole width, Context its drawer', async () => {
     sandbox();
     const p = trayProject('tray-wide');
     const c = workbench(p);
@@ -112,85 +122,125 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     expect(lines).toHaveLength(50);
     expect(lines.every((l) => visibleWidth(l) === 180)).toBe(true);
     const t = f.text();
-    // left, top, center, right, bottom
-    expect(t).toMatch(/◆ TIMMY/); // the navigation has the keyboard first
-    expect(t).toMatch(/CREATE[\s\S]*OPERATE[\s\S]*LIBRARY[\s\S]*Connections/);
-    expect(t).toContain('Timmy Workbench');
-    expect(t).toContain('tray-wide / Workflows');
+    // R10 (H167): the header's first row: TIMMY, the project, the route of the next turn, what runs and waits; its second the
+    // ten tabs on one row, the active one bracketed (amber)
+    expect(lines[0]).toContain('TIMMY · tray-wide');
+    expect(lines[0]).toContain('next turn:');
+    for (const label of ['1 Home', '2 Chat & Intent', '3 Workflows', '4 Studio', '5 VoxVision', '6 3D & Motion', '7 Control Room', '8 Fleet & Clef', '9 Tools & MCP', '0 Logs & Receipts']) expect(lines[1]).toContain(label);
+    expect(lines[1]).toContain('[1 Home]');
+    // row 2: the workflow actions have the keyboard first; the run state and Stop at its end
+    expect(t).toMatch(/┏━ ◆ Workflow actions/);
     expect(t).toMatch(/run: idle\s+Stop current: idle/);
-    expect(t).toContain('Workflows · plan and run');
-    expect(t).toContain('Context');
-    expect(t).toMatch(/Tools │ ▸ Inspector │\s+Files/);
+    // the body: Home's recent work and the selected item (R10 H167); the navigation is a drawer (not shown)
+    expect(t).toContain('tray-wide / Home · recent work');
+    expect(t).toMatch(/Selected/);
+    expect(t).not.toMatch(/CREATE[\s\S]*OPERATE/);
+    expect(t).toMatch(/Activity & log/);
     expect(t).toMatch(/Activity\s+0 running · 0 waiting on you/);
-    for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(t).toContain(block);
-    expect(t).toContain('⚠ needs you before it runs');
-    // Tab: the center has the keyboard (its heavy border and marker), the navigation no longer
+    // 6: 3D & Motion, a workspace with Context beside it (R5, H136: tab 3's body takes the whole width, below)
+    await press(f.r, '6');
+    const w = f.text();
+    expect(f.lines()[1]).toContain('[6 3D & Motion]');
+    // (R5 H131, the QA of e7f853e, defect 23: the pane says the tab's own name)
+    expect(w).toContain('tray-wide / 3D & Motion · scenes, CAD and compositions');
+    expect(w).toContain('Context');
+    expect(w).toMatch(/Tools │ ▸ Inspector │\s+Files/);
+    // Tab: the body's list has the keyboard (its heavy border and marker), the workflow actions no longer
     await press(f.r, TAB);
-    expect(f.text()).toMatch(/┏━ ◆ Workflows · plan and run/);
-    expect(f.text()).not.toMatch(/◆ TIMMY/);
+    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D & Motion · scenes, CAD and compositions/);
+    expect(f.text()).not.toMatch(/◆ Workflow actions/);
     await press(f.r, TAB);
     expect(f.text()).toMatch(/◆ Context/);
-    // the right dock's tabs: End the last, Home the first, ← → between them (wrapping), as the reference's tabs
+    // Context's tabs: End the last, Home the first, ← → between them (wrapping), as the reference's tabs
     await press(f.r, '\u001b[F');
     expect(f.text()).toMatch(/Tools │ {3}Inspector │ ▸ Files/);
     await press(f.r, '\u001b[H');
     expect(f.text()).toMatch(/▸ Tools │ {3}Inspector │ {3}Files/);
     await press(f.r, '\u001b[D');
     expect(f.text()).toMatch(/Tools │ {3}Inspector │ ▸ Files/);
-    // focus mode (z): the center alone, with the top and the bottom; i opens the right dock as a drawer; z leaves it
+    // focus mode (z): the body's list alone, with the tabs, the actions and the log; i opens Context as a drawer; z leaves it
     await press(f.r, 'z');
-    expect(f.text()).toMatch(/┏━ ◆ Workflows · plan and run · focus mode \(z leaves it\)/);
-    expect(f.text()).not.toMatch(/CREATE|Context/);
-    expect(f.text()).toContain('tray-wide / Workflows');
+    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D & Motion · scenes, CAD and compositions · focus mode \(z leaves it\)/);
+    expect(f.text()).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
+    expect(f.text()).toContain('TIMMY · tray-wide');
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
     await press(f.r, 'i');
     expect(f.text()).toMatch(/◆ Context \(drawer\)/);
     await press(f.r, ESC, 'z');
-    expect(f.text()).toContain('CREATE');
     expect(f.text()).toMatch(/╭─ Context ─/);
+    // 3: Workflows, its blocks in three columns across the whole width (src/workbench/layout.ts OWN_COLUMNS): Context is no
+    // column beside it; i opens it as a drawer, Esc closes it
+    await press(f.r, '3');
+    const wf = f.text();
+    expect(f.lines()[1]).toContain('[3 Workflows]');
+    expect(wf).toContain('tray-wide / Workflows · plan and run');
+    expect(wf).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
+    for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wf).toContain(block);
+    expect(wf).toContain('⚠ needs you before it runs');
+    // (R10 H163; H168's F4: the runner by what it is, installed or not; its name and the command that installs it are the
+    // Inspector's, [i]: not on tab 3's face, the RUN box's reason included)
+    expect(wf).toMatch(/PLAN · (?:its runner is installed|the workflow runner is not installed)[^\n]*│ RUN · where it runs[^\n]*│ [╭┏][─━] tidy\.receipt/);
+    expect(wf).not.toMatch(/upmd|brew install/);
+    expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
+    await press(f.r, 'i');
+    expect(f.text()).toMatch(/◆ Context \(drawer\)/);
+    await press(f.r, ESC);
+    expect(f.text()).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
   });
 
-  it('120x36: the right dock is a drawer ([i]), the navigation stays; project, task, state and Stop are on top', async () => {
+  it('110x36: a workspace tab\'s Context is a drawer ([i]); the tabs say short labels; the project, the run state and Stop stay', async () => {
     sandbox();
     const p = trayProject('tray-medium');
     const c = workbench(p);
-    const f = frameOf(c, 120, 36);
+    c.selectPage('workflows');
+    const f = frameOf(c, 110, 36);
     await sleep(100);
     const lines = f.lines();
     expect(lines).toHaveLength(36);
-    expect(lines.every((l) => visibleWidth(l) <= 120)).toBe(true);
-    expect(f.text()).toMatch(/CREATE[\s\S]*OPERATE/);
+    expect(lines.every((l) => visibleWidth(l) <= 110)).toBe(true);
+    expect(lines[0]).toContain('TIMMY · tray-medium');
+    // under 120 columns the tabs' labels are short (the frame's first words), the active one too
+    expect(lines[1]).not.toContain('Chat & Intent');
     expect(f.text()).not.toContain('Context');
     expect(f.text()).toContain('tray-medium / Workflows');
     expect(f.text()).toContain('Stop current: idle');
     await press(f.r, 'i');
     expect(f.text()).toMatch(/◆ Context \(drawer\)/);
-    expect(f.lines().every((l) => visibleWidth(l) <= 120)).toBe(true);
+    expect(f.lines().every((l) => visibleWidth(l) <= 110)).toBe(true);
     await press(f.r, ESC);
     expect(f.text()).not.toContain('Context (drawer)');
   });
 
-  it('80x24: the navigation and the right dock are drawers ([g], [i]); the top keeps the project, task, state and Stop', async () => {
+  it('80x24: the navigation and Context are drawers ([g], [i]); the tabs are their keys and the active label; the project, the run state and Stop stay', async () => {
     sandbox();
     const p = trayProject('tray-narrow');
     const c = workbench(p);
+    c.selectPage('workflows');
     const f = frameOf(c, 80, 24);
     await sleep(100);
     const lines = f.lines();
     expect(lines).toHaveLength(24);
     expect(lines.every((l) => visibleWidth(l) <= 80)).toBe(true);
     expect(f.text()).not.toMatch(/CREATE/);
+    // R10 (H167; H168's F8): from 20 rows the header is two rows at every width: TIMMY, the project and the route first (its
+    // short form here), then the keys (the active one bracketed) and the active tab's name in a slot of its own at the end
+    // (R5, the QA round's defect 4: no cell grows with the active tab)
+    expect(lines[0]).toContain('TIMMY · tray-narrow');
+    expect(lines[0]).toMatch(/next: /);
+    expect(lines[1]).toMatch(/\[3\].*\bWorkflows$/);
+    expect(lines[1]).not.toContain('2 Chat');
     expect(f.text()).toContain('tray-narrow / Workflows');
     expect(f.text()).toMatch(/run: idle\s+Stop current: idle/);
     await press(f.r, 'g');
     expect(f.text()).toMatch(/◆ TIMMY[\s\S]*CREATE/);
-    // the top still names the project and the task with the drawer open (it once lost them to the route's words)
-    expect(f.lines()[1]).toContain('tray-narrow / Workflows');
+    // row 1 still names the project with the drawer open, and row 2 the run state and Stop
+    expect(f.lines()[0]).toContain('TIMMY · tray-narrow');
+    expect(f.text()).toMatch(/run: idle\s+Stop current: idle/);
     expect(f.lines().every((l) => visibleWidth(l) <= 80)).toBe(true);
     await press(f.r, ESC, 'i');
     // the drawer's title and all three tabs stay whole (a range note and the tabs' marker column once cut them)
     expect(f.text()).toMatch(/◆ Context \(drawer\)/);
-    expect(f.text()).toMatch(/Tools │ ▸Inspector │ Files/);
+    expect(f.text()).toMatch(/Tools │ ▸ ?Inspector │ +Files/);
     expect(f.text()).not.toMatch(/CREATE/);
   });
 
@@ -224,13 +274,31 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
       const f = frameOf(c, 180, 50);
       await sleep(150);
       expect(f.text()).toContain(`[x] Stop current: ${job.id} FAKE job (test): sleep 60`);
-      expect(f.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+FAKE job`));
-      // the navigation's count for Control Room, in the longest words that fit whole
-      expect(f.text()).toMatch(/▸ Control Room 1 run\s/);
-      expect(f.text()).toMatch(new RegExp(`Activity\\s+\\S* ?1 running[\\s\\S]*${job.id} started: FAKE job`));
+      // (R5 H137: a pane, its id on the box's edge, its mark, word and label on the row below)
+      expect(f.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job`));
+      // the navigation's count for Control Room (its drawer, g), in the longest words that fit whole, beside the tab's key
+      await press(f.r, 'g');
+      expect(f.text()).toMatch(/▸ Control Room 1 run\s+7/);
+      await press(f.r, ESC);
+      // Activity's first row counts it; the log's newest line is its start (the workspace frame's log)
+      // (R10 H167: the log says a job by its label, its id the details')
+      await until('the frame\'s log', () => f.text().includes('started: FAKE job'), 5000, f.text);
+      expect(f.text()).toMatch(/Activity\s+\S* ?1 running[\s\S]*started: FAKE job/);
       await press(f.r, 'x');
       await sleep(400);
-      expect(f.text()).toContain(`Nothing stopped: ${job.id} belongs to another Timmy session that is still running`);
+      // (R7 H150: a job's outcome in the job's word, cancelled; H148's N5)
+      expect(f.text()).toContain(`Not cancelled: ${job.id} belongs to another Timmy session that is still running`);
+      expect(other.get(job.id)?.state).toBe('running');
+      // R7 (H150; H148's N10): Ctrl+C with only another session's job running: no box, the Workbench quits at once (exit 0) and
+      // says so, naming the job, which keeps running
+      let ended: { code: number; words: string[] } | null = null;
+      (c as unknown as { d: { onExit?: (code: number, words: string[]) => void } }).d.onExit = (code, words) => { ended = { code, words }; };
+      await c.quit();
+      expect(c.ui.overlay).toBe(null);
+      expect(ended).toEqual({ code: 0, words: [
+        'The Workbench quit at once: no job it started was running, so it stopped nothing and asked nothing.',
+        `${job.id} (FAKE job (test): sleep 60) keeps running: started by another Timmy session (pid ${process.pid}), which is still running.`,
+      ] });
       expect(other.get(job.id)?.state).toBe('running');
     } finally {
       await other.stop(job.id);
@@ -251,7 +319,7 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     await sleep(100);
     await press(f.r, '\r');
     expect(JSON.parse(readFileSync(activeProjectPath(), 'utf8')).root).toBe(b.root);
-    expect(f.text()).toContain('pick-b / ');
+    expect(f.text()).toContain('pick-b / Home · recent work');
     expect(f.text()).toMatch(/Now in pick-b/);
   });
 
@@ -273,12 +341,17 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     expect(hrefs).toEqual([]); // nothing opens before the press
     await press(f.r, 'c');
     await sleep(150);
-    expect(f.text()).toContain('The Companion opened in your browser (http://127.0.0.1:4321/), through a private page that carries its key');
+    // (R6 H141: on the tab shown here, Home: the page opens the tab its address names)
+    // (R10 H167; H168's F3: said in words on the screen; the address, without its key, is the details', [i])
+    expect(f.text()).toContain('Opened in the companion: its Home tab.');
+    expect(f.text()).not.toContain('127.0.0.1');
+    expect(companion.state().last).toContain('http://127.0.0.1:4321/?tab=home');
     expect(f.text()).not.toContain(key);
     expect(hrefs).toHaveLength(1);
     expect(hrefs[0]).toMatch(/^file:\/\//);
     const page = fileURLToPath(hrefs[0]);
     expect(readFileSync(page, 'utf8')).toContain(key);
+    expect(readFileSync(page, 'utf8')).toContain(`http://127.0.0.1:4321/?tab=home#token=${key}`);
     expect(statSync(page).mode & 0o777).toBe(0o600);
     // a second press opens the same server again: one start
     await press(f.r, 'c');
@@ -286,7 +359,8 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     expect({ starts, opened: hrefs.length }).toEqual({ starts: 1, opened: 2 });
     await press(f.r, 'C');
     await sleep(100);
-    expect(f.text()).toContain('The Companion at http://127.0.0.1:4321/ stopped serving.');
+    // (R10 H167; H168's F3: in words)
+    expect(f.text()).toContain('The Companion on this computer stopped serving.');
     expect(stops).toBe(1);
     // the private pages go with their minute or with the process; this test's worker does not end here, so it removes its own
     for (const h of hrefs) rmSync(dirname(fileURLToPath(h)), { recursive: true, force: true });
@@ -313,7 +387,7 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     const made = JSON.parse(readFileSync(activeProjectPath(), 'utf8'));
     expect(made.name).toBe('made-here');
     expect(existsSync(made.root)).toBe(true);
-    expect(f.text()).toContain('made-here / ');
+    expect(f.text()).toContain('made-here / Home · recent work');
     expect(f.text()).toMatch(/Now in made-here[\s\S]*a blank project/);
   });
 
@@ -324,7 +398,8 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     expect(s.schema).toBe('timmy.workbench/1');
     expect(s.project.name).toBe('tray-json');
     expect(s.navigation.map((g) => g.group)).toEqual(['CREATE', 'OPERATE', 'LIBRARY', 'FOOT']);
-    expect(s.navigation.flatMap((g) => g.items.map((i) => i.label))).toEqual(['Chat', 'Studio', 'VoxVision', '3D Create', 'Motion', 'Workflows', 'Control Room', 'God\'s Eye View', 'REA', 'Files', 'Templates', 'All tools', 'Connections']);
+    // R5 (H134): Fleet & Clef and Logs & Receipts, tab 8's and tab 0's bodies, after REA
+    expect(s.navigation.flatMap((g) => g.items.map((i) => i.label))).toEqual(['Chat', 'Studio', 'VoxVision', '3D Create', 'Motion', 'Workflows', 'Control Room', 'God\'s Eye View', 'REA', 'Fleet & Clef', 'Logs & Receipts', 'Files', 'Templates', 'All tools', 'Connections']);
     expect(s.activity.stop_current).toEqual({ job: null, words: 'Stop current: idle' });
     expect(s.route.words).toMatch(/^chat: /);
     expect(s.workflows.docs.map((d) => d.rel).sort()).toEqual(['APPROVAL.md', 'WORKFLOW.md']);

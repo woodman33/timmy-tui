@@ -9,8 +9,15 @@
  * asked it once per record, inside a sort's comparator too: on the Mac (r22) one live-board page took about 16 minutes. A
  * view that checks many records runs inside withProcessTable: the table is read once for the whole view (every process at
  * once), and each record is looked up in that reading. Recovery and every other single check still ask about one pid, now.
+ *
+ * R10 (H163; the turn-holds latency, the lead's item (e)): a reading the event loop does not wait on. readProcessTable runs the
+ * same ps -A as a child process and answers when it has; withProcessTable(fn, table) runs a view against a table so read, and
+ * never runs a program: the Workbench's ticks and the workspace frame's builds read this way, so no key, timer or redraw waits
+ * on ps (on a loaded computer 0.1 to 0.5 s each time). A pid that table does not list is no proof that its writer runs: a
+ * writer that started before the table was read would be listed (ps -A lists every process), so it is gone and its pid is
+ * another process's now; one that started after is unknown (taken as running, as when ps cannot answer) until the next reading.
  */
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 
 /** How far a process's start, as the process table reads it (whole seconds), may be from the start a record names. */
 export const START_SLACK_MS = 3000;
@@ -37,25 +44,40 @@ export interface ProcessTableReader {
   all(): Map<number, number> | undefined;
   /** one process's elapsed time in whole seconds (ps -p), or undefined when it cannot be read or runs no more */
   one(pid: number): number | undefined;
+  /** R10 (H163): all(), answered by a child process the event loop does not wait on; a reader without it is asked all() */
+  allAsync?(): Promise<Map<number, number> | undefined>;
 }
 
 const PS_ENV = (): NodeJS.ProcessEnv => ({ ...process.env, LC_ALL: 'C' });
+const PS_ALL_ARGS = ['-A', '-o', 'pid=', '-o', 'etime='];
+
+/** ps -A's lines: each process's pid and elapsed time in whole seconds. */
+function tableOf(stdout: string): Map<number, number> {
+  const rows = new Map<number, number>();
+  for (const line of stdout.split('\n')) {
+    const m = /^\s*(\d+)\s+(\S+)\s*$/.exec(line);
+    const secs = m ? elapsedSeconds(m[2]) : undefined;
+    if (m && secs !== undefined) rows.set(Number(m[1]), secs);
+  }
+  return rows;
+}
 
 /** The process table as ps reads it (macOS and Linux both take these options; src/repl/recover.ts reads it the same way). */
 export const PS_READER: ProcessTableReader = {
   all: () => {
     try {
-      const r = spawnSync('ps', ['-A', '-o', 'pid=', '-o', 'etime='], { encoding: 'utf8', env: PS_ENV(), timeout: 5000, maxBuffer: 16 * 1024 * 1024 });
+      const r = spawnSync('ps', PS_ALL_ARGS, { encoding: 'utf8', env: PS_ENV(), timeout: 5000, maxBuffer: 16 * 1024 * 1024 });
       if (r.status !== 0 || typeof r.stdout !== 'string') return undefined;
-      const rows = new Map<number, number>();
-      for (const line of r.stdout.split('\n')) {
-        const m = /^\s*(\d+)\s+(\S+)\s*$/.exec(line);
-        const secs = m ? elapsedSeconds(m[2]) : undefined;
-        if (m && secs !== undefined) rows.set(Number(m[1]), secs);
-      }
-      return rows;
+      return tableOf(r.stdout);
     } catch { return undefined; }
   },
+  allAsync: () => new Promise((resolve) => {
+    try {
+      execFile('ps', PS_ALL_ARGS, { encoding: 'utf8', env: PS_ENV(), timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+        resolve(err || typeof stdout !== 'string' ? undefined : tableOf(stdout));
+      });
+    } catch { resolve(undefined); }
+  }),
   one: (pid) => {
     try {
       const r = spawnSync('ps', ['-o', 'etime=', '-p', String(pid)], { encoding: 'utf8', env: PS_ENV(), timeout: 5000 });
@@ -73,9 +95,34 @@ export function useProcessTableReader(r: ProcessTableReader): () => void {
   return () => { reader = was; };
 }
 
-/** One view's reading of the process table: taken when the view first needs a start, at `at`; null when ps could not answer. */
-interface TableReading { at: number; rows?: Map<number, number> | null; single: Map<number, number | undefined> }
+/** One view's reading of the process table: taken when the view first needs a start, at `at`; null when ps could not answer.
+ *  R10 (H163): `given`: read beforehand (readProcessTable), so a pid it does not list is never asked about by a program;
+ *  `looked`: where the pids looked up in it are noted (the caller reads again what they decided once the table changes). */
+interface TableReading { at: number; rows?: Map<number, number> | null; single: Map<number, number | undefined>; given?: boolean; looked?: Set<number> }
 let reading: TableReading | undefined;
+
+/** R10 (H163): the process table as read at `at` (this process's clock): each process's pid and elapsed whole seconds; null
+ *  when ps could not answer. */
+export interface ProcessTable { rows: Map<number, number> | null; at: number }
+
+/**
+ * R10 (H163; the turn-holds latency): the process table, read by ps -A as a child process the event loop does not wait on.
+ * Never throws: a table ps could not give has null rows.
+ */
+export async function readProcessTable(): Promise<ProcessTable> {
+  const r = reader;
+  let rows: Map<number, number> | undefined;
+  try { rows = r.allAsync ? await r.allAsync() : r.all(); } catch { rows = undefined; }
+  return { rows: rows ?? null, at: Date.now() };
+}
+
+/** R10 (H163): what a table says of one pid: when that process started (ms, this process's clock), or null when it is not listed;
+ *  undefined when the table could not be read. Two tables whose answers differ by more than START_SLACK_MS say different things. */
+export function startIn(table: ProcessTable, pid: number): number | null | undefined {
+  if (!table.rows) return undefined;
+  const secs = table.rows.get(pid);
+  return secs === undefined ? null : table.at - secs * 1000;
+}
 
 /**
  * R4 (H82): runs `fn` (synchronous: a board build, a view of many records) with one reading of the process table for all
@@ -83,9 +130,10 @@ let reading: TableReading | undefined;
  * reading does not hold (a process that started after it, or one ps did not list) is asked on its own, once per view. A
  * call inside another shares the outer reading. Nothing is cached past `fn`: the next view reads the table again.
  */
-export function withProcessTable<T>(fn: () => T): T {
+export function withProcessTable<T>(fn: () => T, table?: ProcessTable, looked?: Set<number>): T {
   if (reading) return fn();
-  reading = { at: 0, single: new Map() };
+  // R10 (H163): with `table`, the view runs against that reading and runs no program (a pid it does not list: see writerState)
+  reading = table ? { at: table.at, rows: table.rows, single: new Map(), given: true, ...(looked ? { looked } : {}) } : { at: 0, single: new Map() };
   try { return fn(); } finally { reading = undefined; }
 }
 
@@ -95,6 +143,7 @@ const startOf = (secs: number | undefined, at: number): number | undefined => (s
 export function processStartMs(pid: number): number | undefined {
   const r = reading;
   if (!r) return startOf(reader.one(pid), Date.now());
+  if (r.given) { r.looked?.add(pid); const at = startIn({ rows: r.rows ?? null, at: r.at }, pid); return at ?? undefined; }
   if (r.rows === undefined) { r.rows = reader.all() ?? null; r.at = Date.now(); }
   const secs = r.rows?.get(pid);
   if (secs !== undefined) return startOf(secs, r.at);
@@ -113,6 +162,14 @@ export function writerState(owner: { pid?: unknown; started?: unknown } | undefi
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1 || Number.isNaN(started)) return 'gone';
   if (pid === THIS_PROCESS.pid) return owner?.started === THIS_PROCESS.started ? 'alive' : 'gone';
   if (!pidAlive(pid)) return 'gone';
+  // R10 (H163): a table read beforehand that does not list this running pid: its writer, had it started before the table was
+  // read, would be listed (so it is gone: the pid is another process's now); one that started after is unknown until the next
+  // reading. No program is run for it.
+  const r = reading;
+  if (r?.given && r.rows) {
+    r.looked?.add(pid);
+    if (!r.rows.has(pid)) return started + START_SLACK_MS < r.at ? 'gone' : 'unknown';
+  }
   const at = processStartMs(pid);
   if (at === undefined) return 'unknown';
   return Math.abs(at - started) <= START_SLACK_MS ? 'alive' : 'gone';

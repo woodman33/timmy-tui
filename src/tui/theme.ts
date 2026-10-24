@@ -9,9 +9,10 @@ import visualLaw from '../../lanes/visual/tokens.json' with { type: 'json' };
 // fails on drift, on an unbound token, and on any colour chosen elsewhere.
 //
 //   black      the void — every ground
-//   white      structure — text, rails, borders, and THE THING YOU ARE LOOKING
-//              AT (focus, active tab, selected row): interaction is white, not
-//              a hue
+//   white      structure — text, rails, borders. Until B10 it was also THE
+//              THING YOU ARE LOOKING AT; since the operator's palette of
+//              2026-10-15 (DESIGN.md §10 B10) focus, the active tab, the
+//              selected row and the next step are amber (law predict)
 //   grey-1/2/3 derived from black/white — raised surfaces · structure lines ·
 //              muted chrome (dim = absent, off, unverified)
 //   seal       SEAL green — receipts, hash links, verified, gate pass. Never
@@ -21,9 +22,9 @@ import visualLaw from '../../lanes/visual/tokens.json' with { type: 'json' };
 //   generated  GENERATED violet — model-made, measured:false
 //
 // The token names ~1,100 call sites already use are kept and bound to law
-// VALUES below. `accent` (was cyan: interaction) and `warn` (was amber:
-// attention) are both white now: the law admits neither an interaction hue nor
-// an attention hue, and amber means PREDICT only (C1b-1 re-pointed every warn
+// VALUES below. `accent` (was cyan, then white: interaction) and `warn` (was
+// amber, then white: attention) are amber again under B10, bound to law predict;
+// the law file itself is unchanged, it also feeds the render lanes (C1b-1 re-pointed every warn
 // site; not installed and paused went to grey-3; queued is a DECLARED mark,
 // white and plain, since C1b-2).
 // `ident` had zero consumers and is gone.
@@ -43,7 +44,9 @@ export const BINDINGS = {
   // C-11 under B2 (row 28): rules are grey-2, which the monitor's output draws in the palette's
   // rule slot (8). (Row 25 bound grey-3 here while the hex itself reached the terminal.)
   line: 'grey-2',
-  lineFocus: 'white',
+  // B10 (the operator, 2026-10-15): focus is amber. The monitor reaches the terminal through the
+  // palette (B2), so law predict is drawn in the palette's amber slot (Timmy Homebrew: #FFB000).
+  lineFocus: 'predict',
   // text ramp — white reads; grey-3 is every label, hint, timestamp and
   // off-state; hierarchy comes from case, weight and spacing (C1c)
   textPrimary: 'white',
@@ -52,12 +55,12 @@ export const BINDINGS = {
   // text color when it could not be measured. The grey-3 hex itself (5.09:1 on #191919) is never sent.
   textSecondary: 'grey-3',
   textMuted: 'grey-3',
-  // semantic accents. `warn` is ATTENTION (running, next, needs you, blocked,
-  // warning): the law has no attention hue, so it is white structure — bold or
-  // a glyph carries the emphasis; PREDICT amber is reserved for forecasts.
-  accent: 'white',
+  // semantic accents. B10 (2026-10-15) supersedes the white interaction rule: focus, the selection and
+  // the primary next step are amber (law predict), and `warn` (ATTENTION: next, needs you, blocked) is
+  // amber too, always with its word or glyph. Green stays seal: observed live, passed, sealed only.
+  accent: 'predict',
   seal: 'seal',
-  warn: 'white',
+  warn: 'predict',
   danger: 'refuse',
   // the law's own names, for new code
   void: 'black',

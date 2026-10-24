@@ -7,7 +7,7 @@ import type { AgentEvents } from './events.js';
 import type { Message, AgentConfig } from '../types/index.js';
 import { ConversationManager } from './conversation.js';
 import { redactString } from '../utils/redact.js';
-import { defaultTools } from './tools.js';
+import { defaultTools, optedInTools } from './tools.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { execSync, execFileSync } from 'child_process';
 import { classifyCommand } from '../utils/safety.js';
@@ -23,6 +23,9 @@ import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-pa
 import { probeOllama, pickOllamaModel, ollamaChatCompletion, getLocalOllamaBaseUrl } from './providers.js';
 import { modelCheckUrl } from './model-check.js';
 import { runLocalTurn, type LocalChatRoute, type LocalTurnResult } from './local-chat.js';
+// R10 (H169): the route policy (free-only, local-only) every model call of a turn is checked against: the turn's own request,
+// each fallback model, the last-resort local answer, and each tool that asks a model of its own (src/agent/route-policy.ts)
+import { checkRoute, policyTools, PolicyRefusedError, routePolicyNow, type RoutePolicy } from './route-policy.js';
 
 export interface SendOptions {
   /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
@@ -45,6 +48,23 @@ export class NoModelKeyError extends Error {
       'Next: timmy init --chat openrouter (it asks for the key, hidden), or the local model: timmy init --chat local --model <name>.',
     ].join('\n'));
     this.name = 'NoModelKeyError';
+  }
+}
+
+/**
+ * R11 (H169, Phase 0 item 1): a key, and no OpenRouter model chosen: nothing is sent, before the conversation takes the message
+ * and before any request. There is no shipped default any more (src/utils/config.ts): a surface's own check says it first
+ * (src/agent/chat-route.ts NO_MODEL_CHOSEN_REFUSAL); this one holds for any caller that has none.
+ */
+export class NoModelChosenError extends Error {
+  readonly sent = false as const;
+  constructor() {
+    super([
+      'No model chosen. /model <id> chooses one (/model free lists free ones).',
+      'Reason: an OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.',
+      'Next: Models (M) in timmy workbench, /model <id> in the REPL (timmy), or timmy init --chat openrouter --model <id>. Nothing was sent to any model.',
+    ].join('\n'));
+    this.name = 'NoModelChosenError';
   }
 }
 
@@ -373,14 +393,16 @@ export class Agent extends EventEmitter<AgentEvents> {
   public relayedVmLogs: string[] = [];
 
   // TMUX Cluster & Background Workspace Session Tracker. Round R1 review: no memory or cost figures;
-  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4).
+  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4). R11 Phase 2 (H169, item b):
+  // a lane's `model` is a label and nothing here runs a model, so the labels name none (the old ones named models nobody
+  // chose and nothing asked: `/tmux list` says "no model named"); the lane names stay as they were.
   public tmuxSessions: Array<{ id: string; name: string; model: string }> = [
-    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
-    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
-    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3' },
-    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3' },
-    { id: '5', name: 'jcode', model: 'jcode/default' },
-    { id: '6', name: 'Minds CLI', model: 'animoca/builder' }
+    { id: '1', name: 'OpenCode CLI', model: '' },
+    { id: '2', name: 'Hermes CLI', model: '' },
+    { id: '3', name: 'Pi Daemon', model: '' },
+    { id: '4', name: 'Systems MCP', model: '' },
+    { id: '5', name: 'jcode', model: '' },
+    { id: '6', name: 'Minds CLI', model: '' }
   ];
   public showTmuxDropdown = false;
 
@@ -389,7 +411,8 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.client = new OpenRouter({ apiKey: config.apiKey });
     this.conversation = new ConversationManager();
     this.config = config;
-    this.tools = [...defaultTools];
+    // R11 (H169, Phase 0 item 4): the default tools, and the opt-in ones only when TIMMY_TOOLS_OPT_IN names them
+    this.tools = [...defaultTools, ...optedInTools()];
 
     // Initialize multiplexer background manager (tmux, zellij, or rmux). R4 (H87): 'none' unless the caller passes the
     // operator's choice (`timmy watch --lanes`): no lane session and no lane program for anyone who did not ask.
@@ -499,13 +522,15 @@ export class Agent extends EventEmitter<AgentEvents> {
     const session = this.tmuxSessions.find(s => s.id === id);
     if (!session) return;
 
+    // R11 Phase 2 (H169, item b): a pane's agent label names no model (nothing here runs one); the OpenRouter pane's label is
+    // the chosen model, or none
     const agentsMap: Record<string, { name: string; model: string }> = {
-      opencode: { name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
-      hermes: { name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
-      pi: { name: 'Pi Daemon', model: 'inflection/pi-3' },
-      jcode: { name: 'jcode', model: 'jcode/default' },
-      minds: { name: 'Minds CLI', model: 'animoca/builder' },
-      openrouter: { name: 'OpenRouter Agent', model: this.config.model || 'anthropic/claude-3-5-sonnet' }
+      opencode: { name: 'OpenCode CLI', model: '' },
+      hermes: { name: 'Hermes CLI', model: '' },
+      pi: { name: 'Pi Daemon', model: '' },
+      jcode: { name: 'jcode', model: '' },
+      minds: { name: 'Minds CLI', model: '' },
+      openrouter: { name: 'OpenRouter Agent', model: this.config.model || '' }
     };
 
     const selected = agentsMap[agentKey];
@@ -542,6 +567,13 @@ export class Agent extends EventEmitter<AgentEvents> {
    * model, never by OpenRouter or another model; null (the default) is the OpenRouter route, as before.
    */
   private localChat: (LocalChatRoute & { numCtx?: number }) | null = null;
+  /** R10 (H169): the route policy, read at every turn (default: the settings', src/agent/route-policy.ts routePolicyNow) */
+  private routePolicy: () => RoutePolicy = () => routePolicyNow();
+
+  /** R10 (H169): where this agent reads the route policy (a test's, or a surface's own); null: the settings' again. */
+  setRoutePolicy(read: (() => RoutePolicy) | null): void {
+    this.routePolicy = read ?? (() => routePolicyNow());
+  }
   /** R4 (H103): what the last turn on the local route reported (null: none yet, or it did not finish). */
   private lastLocal: LocalTurnResult | null = null;
 
@@ -642,6 +674,30 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.logModelEvent('model.test.failed', { modelId, error: 'no model key; nothing sent' });
       return { ok: false, error };
     }
+    // R11 (H169, Phase 0 item 1): the check is a model call (one small request): never to a model nobody chose, and never to
+    // one the route policy refuses. The order is the one route's (src/agent/chat-route.ts): local-only first (it refuses an
+    // OpenRouter call whatever the model, chosen or not, so choosing one would not help), then no model chosen, then free-only
+    // (which needs the chosen model's price)
+    const policy = this.routePolicy();
+    const refusedBy = (c: Exclude<ReturnType<typeof checkRoute>, { ok: true }>): { ok: false; error: string } => {
+      this.lastHealthError = c.words;
+      this.logModelEvent('model.test.failed', { modelId, error: `refused by the route policy (${c.reason}); nothing sent` });
+      return { ok: false, error: c.words };
+    };
+    if (policy.localOnly) {
+      const c = checkRoute({ source: 'openrouter', model: String(modelId ?? '').trim() || 'the chat\'s OpenRouter model', role: 'turn' }, policy);
+      if (!c.ok) return refusedBy(c);
+    }
+    if (!String(modelId ?? '').trim()) {
+      const error = 'No model chosen, so nothing was sent: choose a model first (/model <id> in the REPL, Models (M) in timmy workbench)';
+      this.lastHealthError = error;
+      this.logModelEvent('model.test.failed', { modelId, error: 'no model chosen; nothing sent' });
+      return { ok: false, error };
+    }
+    if (policy.freeOnly) {
+      const c = checkRoute({ source: 'openrouter', model: modelId, role: 'turn' }, policy);
+      if (!c.ok) return refusedBy(c);
+    }
     const start = Date.now();
     try {
       this.logModelEvent('model.test.started', { modelId });
@@ -725,6 +781,20 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   /** R4 (H103, D1c): what the last turn's last-resort fallback was, when it answered (null: it did not answer that turn). */
   private lastResort: LastResortAnswer | null = null;
+  /** R10 (H169): the model OpenRouter named in its answers of the last turn (a response's `model`), when it named one */
+  private lastReturned: string | null = null;
+  /** R10 (H169): the model id the last turn's answer came from (the one asked, a fallback, or ollama/<model>), when it answered */
+  private lastUsed: string | null = null;
+
+  /** R10 (H169): the model the provider named in the last turn's answer (OpenRouter's response `model`), else null. */
+  lastReturnedModel(): string | null {
+    return this.lastReturned;
+  }
+
+  /** R10 (H169): the model id the last turn's answer came from, whatever was chosen since; null when it did not answer. */
+  lastTurnModel(): string | null {
+    return this.lastUsed;
+  }
 
   /** R4 (H103, D1c): the last turn was answered by the last-resort fallback: which local model, where, and why (else null). */
   lastFallback(): LastResortAnswer | null {
@@ -742,13 +812,17 @@ export class Agent extends EventEmitter<AgentEvents> {
    */
   private async tryOllamaLastResort(
     history: { role: string; content: string }[],
-    reason: string
+    reason: string,
+    policy: RoutePolicy | null = null,
   ): Promise<{ fullText: string; actualModel: string } | null> {
     try {
       const probe = await probeOllama();
       if (!probe.ok) return null;
       const model = pickOllamaModel(probe.models, ['granite', 'ornith', 'gemma', 'qwen']);
       if (!model) return null;
+      // R10 (H169): the last-resort answer is a model call like any other: the route policy checks it (a loopback Ollama's
+      // local weights pass both rules; anything else is not tried)
+      if (policy && !checkRoute({ source: 'ollama-local', model, host: probe.base, role: 'last-resort' }, policy).ok) return null;
       this.logModelEvent('model.fallback.used', { provider: 'ollama', model, reason: String(reason).slice(0, 200) });
       this.emit('stream:start');
       const text = await ollamaChatCompletion(model, history);
@@ -825,8 +899,42 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.emit('error', refused);
       throw refused;
     }
+    // R10 (H169): the route policy, read once for the turn: the turn's own request first, refused before the conversation
+    // takes the message and before any request (every surface's own check comes first; this one holds for any caller)
+    const policy = this.routePolicy();
+    const guarded = policy.freeOnly || policy.localOnly;
+    // R11 (H169, Phase 0 item 2): local-only refuses an OpenRouter turn whatever the model, chosen or not, so it is said before
+    // "no model chosen" (choosing one would not help); the one route says them in the same order (src/agent/chat-route.ts)
+    if (!this.localChat && policy.localOnly) {
+      const own = checkRoute({ source: 'openrouter', model: String(this.config.model ?? '').trim() || 'the chat\'s OpenRouter model', role: 'turn' }, policy);
+      if (!own.ok) {
+        const refused = new PolicyRefusedError(own.reason, own.words);
+        this.emit('error', refused);
+        throw refused;
+      }
+    }
+    // R11 (H169, Phase 0 item 1): a key and no chosen model: refused the same way (no default is ever taken in its place)
+    if (!this.localChat && !String(this.config.model ?? '').trim()) {
+      const refused = new NoModelChosenError();
+      this.emit('error', refused);
+      throw refused;
+    }
+    if (guarded) {
+      const own = this.localChat
+        ? checkRoute({ source: 'ollama-local', model: this.localChat.model, host: this.localChat.host, role: 'turn' }, policy)
+        : checkRoute({ source: 'openrouter', model: this.config.model, role: 'turn' }, policy);
+      if (!own.ok) {
+        const refused = new PolicyRefusedError(own.reason, own.words);
+        this.emit('error', refused);
+        throw refused;
+      }
+    }
+    // the tools a turn offers: each that asks a model of its own is checked at its call (policy off: the tools as set)
+    const turnTools = guarded ? policyTools(this.tools, () => this.routePolicy(), { openRouterModel: () => this.config.model }) : this.tools;
     this.running = true;
     this.lastResort = null;
+    this.lastReturned = null;
+    this.lastUsed = null;
     // Additive options (inline REPL): a signal cancels the turn; retry asks the SDK to retry 429/5xx.
     const requestOptions = opts.signal || opts.retry
       ? {
@@ -857,13 +965,6 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.emit('message:user', userMessage);
     this.emit('thinking:start');
 
-    const FALLBACK_ORDER = [
-      'anthropic/claude-opus-4.7',
-      'google/gemini-3.5-flash',
-      'openai/gpt-5.5',
-      'minimax/minimax-m3'
-    ];
-
     // What this request did, as the user saw it: each tool call with its result once that arrived, and
     // the text streamed so far. A cancel closes the request in the conversation with this record, so an
     // unrelated next turn does not resume it, and an explicit request to continue still can.
@@ -881,7 +982,7 @@ export class Agent extends EventEmitter<AgentEvents> {
       if (this.localChat) {
         this.lastLocal = null;
         const local = await runLocalTurn({
-          route: this.localChat, instructions: this.config.instructions, history, tools: this.tools,
+          route: this.localChat, instructions: this.config.instructions, history, tools: turnTools,
           maxSteps: this.config.maxSteps || 10, signal: opts.signal, ...(this.localChat.numCtx ? { numCtx: this.localChat.numCtx } : {}),
           hooks: {
             emit: (event, ...args) => void (this.emit as (e: string, ...a: unknown[]) => boolean)(event, ...args),
@@ -895,6 +996,7 @@ export class Agent extends EventEmitter<AgentEvents> {
           },
         });
         this.lastLocal = local;
+        this.lastUsed = local.actualModel || this.localChat.model;
         this.activeProvider = 'ollama';
         this.emit('stream:end', local.fullText);
         const answer: Message = { role: 'assistant', content: local.fullText, timestamp: Date.now() };
@@ -908,7 +1010,7 @@ export class Agent extends EventEmitter<AgentEvents> {
           model: modelId,
           instructions: this.config.instructions,
           input: history as any,
-          tools: this.tools.length > 0 ? this.tools : undefined,
+          tools: turnTools.length > 0 ? turnTools : undefined,
           stopWhen: [
             stepCountIs(this.config.maxSteps || 10),
             maxCost(this.config.maxCost || 1),
@@ -927,6 +1029,8 @@ export class Agent extends EventEmitter<AgentEvents> {
         const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
         const price = (response: any): void => {
           if (!response || typeof response !== 'object') return;
+          // R10 (H169): the model OpenRouter says answered (its response's `model`), apart from the one asked
+          if (typeof response.model === 'string' && response.model) this.lastReturned = response.model.slice(0, 200);
           const key = typeof response.id === 'string' && response.id ? response.id : `response-${charged.size + unreported.size}`;
           const usage = response.usage ?? {};
           // On the operator's own provider key (BYOK), `cost` is only OpenRouter's fee and the provider
@@ -1069,56 +1173,24 @@ export class Agent extends EventEmitter<AgentEvents> {
         this.emit('model:health', 'ERROR');
         const sanitizedErr = err.message || 'Unknown provider error';
         this.logModelEvent('openrouter.request.failed', { model: activeModel, error: sanitizedErr });
-
-        let fallbackModel = '';
-        for (const candidate of FALLBACK_ORDER) {
-          if (candidate !== activeModel) {
-            fallbackModel = candidate;
-            break;
-          }
-        }
-
-        if (fallbackModel) {
-          this.logModelEvent('model.fallback.used', { selectedModel: activeModel, fallbackModel });
-          
-          try {
-            executionResult = await runCompletionWithModel(fallbackModel, true);
-            
-            this.emit('message:user', {
-              role: 'assistant',
-              content: `⚙️ **[SYSTEM]** Selected model \`${activeModel}\` failed (Reason: ${sanitizedErr}).\nRetried and succeeded with fallback model \`${fallbackModel}\`.`,
-              timestamp: Date.now()
-            });
-
-            this.config.model = fallbackModel;
-            this.emit('model:switch', fallbackModel);
-          } catch (fallbackErr: any) {
-            if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
-            // R4 (H103, D1c): the notice is the fallback's own, said before its answer (tryOllamaLastResort)
-            const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 100)}; then ${fallbackModel}: ${oneLine(fallbackErr?.message, 100)}`);
-            if (ollamaResult) {
-              executionResult = ollamaResult;
-            } else {
-              const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.\n\nFallback failed for ${fallbackModel} too: ${fallbackErr.message}`;
-              const error = new Error(finalErr);
-              this.emit('error', error);
-              throw error;
-            }
-          }
+        // R11 (H169, Phase 0 item 1; the lead's rule of 2026-10-23 09:04, from the operator's order: never a paid model in
+        // place of one the person chose): no paid fallback model is ever tried (the shipped FALLBACK_ORDER is gone). A fallback
+        // is taken only under free-only or local-only, to the local model on this computer's Ollama that the policy allows
+        // (R4 H103 D1c's last resort, said beside its answer and named in the receipt); with the policy off the turn ends with
+        // the reason and the next step, and nothing else is asked.
+        const ollamaResult = guarded ? await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`, policy) : null;
+        if (ollamaResult) {
+          executionResult = ollamaResult;
         } else {
-          const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`);
-          if (ollamaResult) {
-            executionResult = ollamaResult;
-          } else {
-            const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.`;
-            const error = new Error(finalErr);
-            this.emit('error', error);
-            throw error;
-          }
+          const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model (Models (M) in timmy workbench, or /model <id> in the REPL) or try again. No fallback model was tried${guarded ? ' on OpenRouter, and no local model on this computer could answer' : ': a model nobody chose is never asked in its place'}.`;
+          const error = new Error(finalErr);
+          this.emit('error', error);
+          throw error;
         }
       }
 
       this.emit('stream:end', executionResult.fullText);
+      this.lastUsed = executionResult.actualModel;
 
       const assistantMessage: Message = { role: 'assistant', content: executionResult.fullText, timestamp: Date.now() };
       this.conversation.appendMessage(assistantMessage);
@@ -1143,6 +1215,13 @@ interface ToolCallRecord { name: string; args: string; output?: string; late?: b
 /** What closes a request that was left without an answer: a quit mid-turn, a crash or a failed request. */
 export const UNANSWERED = '[I did not answer this request: it was interrupted before I could (the program ended, or the request failed). I will not continue it unless the user asks me to.]';
 
+/**
+ * R5 lead (the QA round, defect 8): the records Timmy writes into the conversation in the assistant's voice, so the model
+ * knows a request ended without its answer (cancelRecord, UNANSWERED). A surface shows one as Timmy's own note of the stop,
+ * never under the model's speaker label, and does not repeat the partial answer it quotes (already shown as it streamed).
+ */
+export const isTimmyRecord = (text: string): boolean => text.startsWith('[Cancelled by the user before I') || text === UNANSWERED;
+
 const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 /** Tool data or streamed text as a quoted string, secrets redacted: it can neither speak as the assistant nor leave a key in the saved session. */
 const quote = (text: string, max = 400): string => JSON.stringify(clip(redactString(text), max));
@@ -1163,7 +1242,8 @@ const argsText = (raw: string): string => {
  * request, and the next turn, about anything, finished it too (LIVE-01 at C-17).
  */
 export function cancelRecord(calls: ToolCallRecord[], streamed: string): string {
-  const parts = ['[Cancelled by the user before I answered.'];
+  // R5 lead (the QA round, defect 8): "before I answered" only when nothing was written or run; a partial answer is quoted below
+  const parts = [streamed.trim() || calls.some((c) => c.output !== undefined) ? '[Cancelled by the user before I finished answering.' : '[Cancelled by the user before I answered.'];
   const label = (c: ToolCallRecord): string => (c.args ? `${c.name} ${argsText(c.args)}` : c.name);
   const returned = (c: ToolCallRecord): string => `${label(c)}, which returned ${quote(c.output ?? '')}`;
   const finished = calls.filter((c) => c.output !== undefined && !c.late);

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
-import { readdirSync, existsSync, writeFileSync } from 'fs';
+import { readdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import qr from 'qrcode-terminal';
@@ -34,6 +34,7 @@ import { companionPairing } from '../../companion/qr.js';
 import type { Agent } from '../../agent/core.js';
 import { laneOptions } from '../../agent/lane-server.js';
 import { NO_MODEL_KEY, providerStatusWords } from '../provider-status.js';
+import { siblingProjects, siblingProjectsWords, type SiblingProjects } from '../sibling-projects.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
@@ -806,7 +807,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
   // R4 (H103, D1a): the chat's route now (read again every 2 s and after each message): the top line and the drawer say it.
   // R4 (H98, journey-2): with the commander connected and an operator token present, chat-send sends the turn there.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const routeState = useMemo(() => routeNow(String(replModel)), [routeTick, replModel, effectiveAgent, config]);
+  // R11 (H169, Phase 0 item 1): no model chosen ('—' above) is no model: the route says so and refuses, never a default
+  const routeState = useMemo(() => routeNow(replModel === '—' ? '' : String(replModel)), [routeTick, replModel, effectiveAgent, config]);
   const commanderModel = commanderOnline && edgeToken() ? String(profile.commander.model) : null;
   const policyModel = policy.default ?? 'unset';
   const harness = lanes.find(l => l.available)?.id ?? '—';
@@ -964,12 +966,15 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
       ],
     };
   }, []);
-  const projects = useMemo(() => {
-    try {
-      const parent = dirname(process.cwd());
-      return readdirSync(parent)
-        .filter(d => { try { return existsSync(join(parent, d, '.timmy')); } catch { return false; } });
-    } catch { return [] as string[]; }
+  // R9 lead (item B, R7's "unexplained pty-keyboard failure"): the folders beside this one that hold a .timmy, for LIBRARY ›
+  // BOARDS' PROJECTS line, read after the first frame, asynchronously and bounded (src/tui/sibling-projects.ts). This render
+  // used to list the folder above the current one and check every entry itself, synchronously, with no bound: on a cold disk
+  // cache, 33,568 entries in /tmp took 4.1 s, and the keyboard test's first screen stayed blank for 8 s.
+  const [projects, setProjects] = useState<SiblingProjects | null>(null);
+  useEffect(() => {
+    let gone = false;
+    void siblingProjects(dirname(process.cwd())).then((found) => { if (!gone) setProjects(found); });
+    return () => { gone = true; };
   }, []);
   const costToday = useMemo(() => {
     const day = new Date().toISOString().slice(0, 10);
@@ -1758,7 +1763,7 @@ function FleetPane({ lanes, policy, compact, maxRows }: {
   );
 }
 
-function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]; missions: string[] }; projects: string[]; compact?: boolean }) {
+function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]; missions: string[] }; projects: SiblingProjects | null; compact?: boolean }) {
   const b = props.boards;
   return (
     <Card title="BOARDS" purpose={props.compact ? undefined : 'mission · blueprint · template'}>
@@ -1767,7 +1772,7 @@ function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]
       ))}
       {/* C1a (ui-v3-t9r2): the same bound as the board rows — two names + a count — so the
           no-ellipsis gate holds wherever the checkout lives (this row lists sibling folders) */}
-      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.length ? `${props.projects.slice(0, 2).join(' · ')}${props.projects.length > 2 ? ` +${props.projects.length - 2}` : ''}` : '—'}`.slice(0, 70)}</Text>
+      <Text color={PAL.textMuted} wrap="truncate">{siblingProjectsWords(props.projects).slice(0, 70)}</Text>
     </Card>
   );
 }

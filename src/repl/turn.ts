@@ -41,6 +41,11 @@ export interface TurnInspect {
   retry?: boolean;
   /** R4 (H113): the surface's own test that a failure never left this process (the chat session's: src/agent/tools.ts neverSent) */
   notSent?: (err: unknown) => boolean;
+  /**
+   * R5 lead (the operator's 22:32 order, item 2): who asked this turn to stop, in words ("the companion"), when another surface
+   * did (src/agent/chat-turn.ts watchTurnStop); the cancel line says it, as the receipt (stopped_by) and every surface do
+   */
+  stoppedBy?: () => string | undefined;
 }
 
 /**
@@ -264,7 +269,8 @@ export async function runTurn(
     // A cancelled request may still be charged: a cancel is never the whole cost. R4 (H103): except on a local endpoint.
     if (!localOnly()) costMeasured = false;
     // A cancelled turn is sealed too, with what its tools actually did; nothing is rolled back.
-    transcript.handle({ type: 'cancelled', at, tools: o });
+    const by = more.stoppedBy?.();
+    transcript.handle({ type: 'cancelled', at, tools: o, ...(by ? { by } : {}) });
     facts = { prompt: text, answer: '', steps, spend, costMeasured, ms, status: 'cancelled', tools: o, cancelledAt: at };
     if (seal) receipt(seal(facts), ms, true);
   };

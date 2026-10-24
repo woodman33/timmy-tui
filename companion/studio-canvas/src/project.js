@@ -15,9 +15,14 @@
 // for this browser), and an operation's group has "Place this operation" (./cards.js placeOperation), which places its
 // workflow, flow and result cards at once, left to right in the order they ran, linked.
 //
-// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in tldraw's helpers, so this file's pure
-// part runs in Node's tests too.
+// Nothing here imports anything but ./operations.js (pure rules) and (R10 H167) ./face.js (the face's words): canvas.js hands
+// in tldraw's helpers, so this file's pure part runs in Node's tests too.
+//
+// R10 (H167; the round's rule: ids, paths and raw commands in a secondary inspector or details control): a row says its card in
+// words (its title and state, its record by its file's name) beside its actions; its record's place, its receipt, its
+// operation and its command (with Copy) are under the row's Details.
 import { groupByOperation, OPERATION_ID, operationLine } from './operations.js';
+import { FACE_ID, faceTitle, faceWords, fileName } from './face.js';
 
 /** The kinds of card, in the order the panel shows them (the editable artifacts first), with the heading of each. */
 export const GROUPS = [
@@ -32,6 +37,9 @@ export const GROUPS = [
 const BOARD = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/$/;
 const SECTIONS = new Set(['room', 'workflows', 'parameters', 'flows', 'voxvision']);
 const META_KEY = 'timmyProjectCard';
+/** R7 (H151): a project card's note as it is placed in mind: tldraw's note, 200 wide, a little taller as its words grow it. */
+const NOTE_W = 200;
+const NOTE_PLACE_H = 240;
 /** R4 (H100): where this browser keeps the panel's grouping (By kind or By operation). */
 const MODE_KEY = 'timmy-canvas-group-by';
 
@@ -97,17 +105,22 @@ export const pinFor = (project, now = new Date()) => ({ projectId: String(projec
  * The line under the panel's heading: whether this board follows the project the canvas shows (the active project) or is pinned,
  * and, when they differ, the project the canvas shows and the active project of this Timmy home. `now`: the reading; `pin`: the
  * board's pin (readPin), or null.
+ *
+ * R6 (H139): each project has its own board now (src/studio/boards.ts), and Studio shows the board of the project the canvas
+ * shows: when the active project changes, the whole board changes with it (its drafts, jobs and cards). A board pinned to a project
+ * (a pin kept from the canvas a Timmy home had before, when every project's boards were in one) still reads that project's cards.
  */
 export function followWords(now, pin) {
   const o = now || {};
   if (pin) {
     const shown = o.shown && o.shown.id !== pin.projectId ? ` The canvas shows ${o.shown.name} now.` : '';
-    return `Pinned to ${pin.project}: this board keeps it when the active project changes, and its cards are read from it.${shown}`;
+    return `Pinned to ${pin.project}: this board reads ${pin.project}'s cards, whichever project's board holds it.${shown}`;
   }
   const active = o.active && o.project && o.active.id !== o.project.id
     ? ` The active project of this Timmy home is ${o.active.name}; the canvas shows ${o.project.name}, as Timmy's REPL named it.`
     : '';
-  return `This board follows the project the canvas shows (the active project).${active}`;
+  const own = o.project ? `${o.project.name}'s own board: Studio shows the board of the project the canvas shows, and switches to another project's own board when the active project changes.` : 'This board follows the project the canvas shows (the active project).';
+  return `${o.project ? 'This is ' : ''}${own}${active}`;
 }
 
 /**
@@ -223,6 +236,13 @@ export function createProjectPanel(deps) {
   /** R4 (H109): the board and pin the last reading was for, and the project a following board showed last */
   let readFor = '';
   let lastShown = null;
+  /**
+   * R6 (H139): `deps.accept(now)`, optional: whether a reading belongs to the board on screen (canvas.js: asked since the last switch,
+   * of its project); one that does not is never drawn, placed from or handed to the drawn cards. `deps.hold()`, optional: the words
+   * the panel shows instead of a project while Studio switches boards (null when it does not), when it reads nothing.
+   */
+  const fits = (now) => !deps.accept || deps.accept(now) === true;
+  const NOT_NOW = 'Not now: Studio is switching to another project\'s board, so nothing of this reading is placed.';
 
   /** R4 (H109): the current board, and the project it is pinned to (null: it follows the project the canvas shows). */
   function boardNow() {
@@ -274,10 +294,14 @@ export function createProjectPanel(deps) {
   /** Places card `id` from the project as it is now; returns what was placed. */
   async function place(id, editor = deps.editor()) {
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     if (!now.project) throw new Error(now.message || 'No project is named to this canvas.');
     const card = (now.cards || []).find((c) => c.id === id);
     if (!card) throw new Error(`No card ${JSON.stringify(String(id)).slice(0, 120)} in ${now.project.name} now. Its cards: ${(now.cards || []).map((c) => c.id).join(', ').slice(0, 2000) || 'none'}.`);
-    const at = deps.place(editor);
+    // R7 (H151; H147's R6 finding 5): where the note overlaps no shape on the page (canvas.js placeAt, ./placement.js); it had gone
+    // to the middle of the area beside the panel, a step lower each time, over whatever was there. A note grows with its words:
+    // once it has, it is moved clear if it grew over a shape.
+    const at = deps.place(editor, { w: NOTE_W, h: NOTE_PLACE_H });
     const shapeId = deps.createShapeId();
     editor.createShape({
       id: shapeId, type: 'note', x: at.x, y: at.y,
@@ -286,6 +310,7 @@ export function createProjectPanel(deps) {
     });
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
+    if (deps.keepClear) await deps.keepClear(editor, [shapeId]);
     show(now);
     return { placed: true, shape: shapeId, card: { id: card.id, title: card.title, state: card.state, command: card.command, record: card.record, receipt: card.receipt, operation: opOf(card) }, project: now.project.name };
   }
@@ -293,6 +318,7 @@ export function createProjectPanel(deps) {
   /** Reads every placed card again from the project's records (all pages); counts what happened. */
   async function refreshAll(editor = deps.editor()) {
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     const counts = { same: 0, update: 0, gone: 0, other: 0, none: 0 };
     const placed = editor.store.allRecords().filter((r) => r.typeName === 'shape' && placedMeta(r));
     const updates = [];
@@ -324,10 +350,17 @@ export function createProjectPanel(deps) {
   function row(card, board, withOp = true) {
     const li = el('li', undefined, { className: 'pcard' });
     li.dataset.card = card.id;
-    li.append(el('div', card.title, { className: 'pcard-title' }), el('div', card.state, { className: 'pcard-state' }));
+    const title = faceTitle(card.title) || String(card.title ?? '');
+    li.append(el('div', title, { className: 'pcard-title', title: title !== card.title ? String(card.title ?? '') : '' }), el('div', faceWords(card.state), { className: 'pcard-state' }));
+    // its record by its file's name on the face; the record's place, its receipt, its operation and its command under Details
+    // (a record whose file is named by an id, a flow's or an operation's, is said by its place under Details only)
+    if (card.record && !FACE_ID.test(fileName(card.record))) li.append(el('div', `record ${fileName(card.record)}`, { className: 'pcard-file' }));
+    const more = el('details', undefined, { className: 'pcard-more' });
+    more.append(el('summary', 'Details'), ' ');
     const behind = [card.record ? `record ${card.record}` : '', card.receipt ? `receipt ${card.receipt}` : ''].filter(Boolean).join(' · ');
-    if (behind) li.append(el('div', behind, { className: 'pcard-behind' }));
-    if (withOp) li.append(el('div', operationLine(opOf(card), card.operationFrom), { className: opOf(card) ? 'pcard-op' : 'pcard-op pcard-op-none' }));
+    if (behind) more.append(el('div', behind, { className: 'pcard-behind' }));
+    if (withOp) more.append(el('div', operationLine(opOf(card), card.operationFrom), { className: opOf(card) ? 'pcard-op' : 'pcard-op pcard-op-none' }));
+    if (title !== card.title || faceWords(card.state) !== card.state) more.append(el('div', [card.title, card.state].filter(Boolean).join(' · '), { className: 'pcard-said' }));
     const cmd = el('button', undefined, { type: 'button', className: 'pcard-cmd', title: 'Copy this command, then paste it into Timmy' });
     cmd.append(el('code', card.command));
     cmd.addEventListener('click', () => {
@@ -353,13 +386,16 @@ export function createProjectPanel(deps) {
     const href = boardHref(board, card);
     // R4 (H60): the new tab asks a board tab already open for the token (the board's own handoff); this page never holds it.
     if (href) acts.append(el('a', 'Open on the board', { className: 'pcard-board', href, target: '_blank', rel: 'noopener noreferrer', title: 'The live board on this machine (/board live); a tab of it you already have open gives the new tab its token' }));
-    li.append(cmd, acts);
+    more.append(el('div', 'its command, for Timmy (Copy copies it):', { className: 'pcard-cmd-k' }), cmd);
+    acts.append(more);
+    li.append(acts);
     return li;
   }
 
   /** R4 (H75): places card `id`'s drawn card from the project as it is now. */
   async function placeCard(id) {
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     show(now);
     return deps.placeCard(id, now);
   }
@@ -368,6 +404,7 @@ export function createProjectPanel(deps) {
   async function placeOperation(id) {
     if (!deps.placeOperation) throw new Error('This page cannot place an operation\'s cards.');
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     show(now);
     return deps.placeOperation(String(id), now);
   }
@@ -434,6 +471,8 @@ export function createProjectPanel(deps) {
 
   /** Draws the panel from an API answer; only when it changed, keeping the focus on the button it was on. */
   function show(now) {
+    // R6 (H139): a reading of another board than the one on screen is never drawn (nor handed to the drawn cards)
+    if (!fits(now)) return;
     api = now;
     // R4 (H75): every reading reaches the drawn cards, changed or not (they say when they were read).
     try { deps.onAnswer?.(now); } catch { /* a card that cannot follow says so itself */ }
@@ -443,7 +482,8 @@ export function createProjectPanel(deps) {
     if (follow) { follow.textContent = followWords(now, pin); follow.hidden = false; follow.dataset.kind = pin ? 'pinned' : 'follows'; }
     if (pinBadge) { pinBadge.hidden = !pin; pinBadge.textContent = pin ? 'pinned' : ''; }
     if (pinButton) {
-      pinButton.hidden = !pin && !now.project;
+      // R6 (H139): a board is its project's own now, so there is nothing to pin it to; a pin kept from before can be let go
+      pinButton.hidden = !pin;
       pinButton.textContent = pin ? 'Follow the active project' : now.project ? `Pin this board to ${short(now.project.name, 40)}` : 'Pin this board';
       pinButton.title = pin ? `This board is pinned to ${pin.project}; let it follow the project the canvas shows again` : 'Keep this board on this project when the active project changes (kept in the board, so every window shows it pinned)';
     }
@@ -496,7 +536,31 @@ export function createProjectPanel(deps) {
     });
   }
 
+  /** R6 (H139): while Studio switches boards: the panel names no project's cards, and says what it waits for. */
+  function hold() {
+    const words = deps.hold ? deps.hold() : null;
+    if (!words) return false;
+    name.textContent = words;
+    note.hidden = true;
+    groups.replaceChildren();
+    refresh.hidden = true;
+    if (by) by.hidden = true;
+    if (pinButton) pinButton.hidden = true;
+    if (follow) follow.hidden = true;
+    shown = '';
+    return true;
+  }
+  /** R6 (H139): another project's board is on screen now: the panel starts again from it (its last reading was the board before's). */
+  function reset() {
+    api = null;
+    shown = '';
+    lastShown = null;
+    readFor = '';
+    void poll();
+  }
+
   async function poll() {
+    if (hold()) return;
     try { show(await read()); } catch (e) {
       name.textContent = 'not read';
       note.hidden = false;
@@ -518,5 +582,5 @@ export function createProjectPanel(deps) {
   }, deps.fast && deps.fast() ? 1500 : 5000);
   void poll().finally(next);
   // R4 (H109): boardChanged (the canvas shows another board, or a board's pin changed)
-  return { place, placeCard, placeOperation, refreshAll, poll, setMode, boardChanged, togglePin, get mode() { return mode; }, get api() { return api; } };
+  return { place, placeCard, placeOperation, refreshAll, poll, setMode, boardChanged, togglePin, hold, reset, get mode() { return mode; }, get api() { return api; } };
 }

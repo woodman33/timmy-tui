@@ -53,6 +53,7 @@ export function parseProbe(answer: string): { family: 'posix' | 'powershell'; os
     job_folder: folder && JOB_FOLDER.has(folder) ? folder as ProbeFacts['job_folder'] : 'unknown',
     ...(detach === 'setsid' || detach === 'perl' || detach === 'wmi' || detach === 'none' ? { detach } : {}),
     ...(one('sha256') ? { sha256: scrub(one('sha256')) } : {}),
+    ...(one('identity') === 'gnu' || one('identity') === 'bsd' || one('identity') === 'none' ? { identity: one('identity') as ProbeFacts['identity'] } : {}),
     found_on_path: kv.filter(([k]) => k === 'found').map(([, v]) => v).filter((v) => /^[A-Za-z0-9._-]+$/.test(v)),
     not_found_on_path: kv.filter(([k]) => k === 'missing').map(([, v]) => v).filter((v) => /^[A-Za-z0-9._-]+$/.test(v)),
   };
@@ -69,6 +70,7 @@ export function probeWords(d: Pick<DeviceRecord, 'id' | 'shell' | 'os'>, facts: 
   const found = facts.found_on_path.length ? `found on PATH: ${facts.found_on_path.join(', ')}` : 'none of Timmy\'s list found on PATH';
   return `connected: ${what}, user ${facts.user ?? 'unknown'}, shell ${shell}; job folder ${facts.job_folder ?? 'unknown'}; ${detach}`
     + `${facts.sha256 && facts.sha256 !== 'none' ? `; sha256 by ${facts.sha256}` : '; no sha256 program found (fetch will refuse)'}`
+    + `${facts.identity === 'none' ? '; no stat can identify an open file there (fetch will refuse: a swap could not be ruled out)' : ''}`
     + `${startTime ? '' : '; ps gives no start time there (a stop will refuse to signal)'}`
     + `; ${found} (found on PATH only: not proven supported or working)`;
 }

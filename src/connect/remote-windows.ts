@@ -66,11 +66,14 @@ const STATUS_FN = [
   "  if (-not (Test-Path -LiteralPath (Join-Path $job 'claim'))) { 'where=not started' }",
   "  elseif (-not (Test-Path -LiteralPath $s)) { 'where=claimed' }",
   '  else {',
-  `    'where=status'; $t = Get-Content -LiteralPath $s; $t | Where-Object { $_ -match '^(${STATUS_KEYS})=' }`,
+  // R6 lead: as on POSIX (remote-posix.ts timmy_status), the process is asked before the status file's keys are given: the
+  // file is read once for the process it names, and read again for its keys after that process was asked
+  `    'where=status'; $t = Get-Content -LiteralPath $s`,
   `    $g = ${FILE_VALUE('pgid')}; $r = ${FILE_VALUE('pid_start')}`,
   "    if ($wp) { if ($g -eq $wp -and $r -eq $ws) { 'recorded=same' } else { 'recorded=differs' }; $g = $wp; $r = $ws }",
   '    $p = $null; if ($g -match \'^[0-9]+$\') { $p = Get-Process -Id ([int]$g) -ErrorAction SilentlyContinue }',
   `    if (-not $p) { 'alive=no' } elseif ($p.StartTime.${START} -eq $r) { 'alive=yes'; if (Rn $g) { 'runner=yes' } else { 'runner=no' } } else { 'alive=reused' }`,
+  `    Get-Content -LiteralPath $s | Where-Object { $_ -match '^(${STATUS_KEYS})=' }`,
   "    $k = Join-Path $job 'stop'; if (Test-Path -LiteralPath $k) { Get-Content -LiteralPath $k | Where-Object { $_ -match '^(asked_at|signals)=' } | ForEach-Object { 'stop.' + $_ } }",
   "    foreach ($f in 'out.log', 'err.log') { $o = Join-Path $job $f; if (Test-Path -LiteralPath $o) { Get-Content -LiteralPath $o -Tail 5 | ForEach-Object { 'out|' + $(if ($_.Length -gt 300) { $_.Substring(0, 300) } else { $_ }) } } }",
   '  } }',

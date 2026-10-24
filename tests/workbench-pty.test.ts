@@ -11,16 +11,18 @@
 // real program: the run detail's and the chat session's producers are absent in this revision, and the screens say so.
 //
 // The screens are kept (capture-pane -e as .ansi, plain as .txt) in <tmpdir>/timmy-workbench-captures, whose path the test
-// prints: 160x45 Workflows, 100x30 Control Room and 80x24 Files (slice A); the NEEDS YOU box, Activity after the run and
-// Control Room with the run, at 160x45 (slice B).
+// prints: 160x45 Home and Workflows, 100x30 Control Room and 80x24 Files (slice A); the NEEDS YOU box, Activity after the run
+// and Control Room with the run, at 160x45 (slice B).
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { GUARD_MS } from '../src/workbench/controller.js';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { enterOnBlock, keepScreen, pastGuard, sendKeys, settledScreen, waitScreen, type Pane } from './helpers/tmux-frame.js';
 
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
@@ -43,10 +45,14 @@ const argsOf = (pid: number): string | null => {
 const activeRoot = (): string => JSON.parse(readFileSync(join(timmyHome, 'state', 'active-project.json'), 'utf8')).root;
 const widest = (s: string) => Math.max(...s.split('\n').map((l) => [...l].length));
 
-/** A tmux server of the test's own (its socket in the test's folder), its screen, its keys, and a kept capture. */
+/**
+ * A tmux server of the test's own (its socket in the test's folder), its screen, its keys, and a kept capture. R5 (H136; the
+ * finish line, item 5): each through tests/helpers/tmux-frame.ts: a screen is read, waited for and kept only as a whole frame
+ * (row 1's tab titles, the bottom border, the key-hint line or the notice in its place) the same in two reads, and a key is
+ * sent once the Workbench has read the one before it.
+ */
 function terminal(label: string) {
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
-  const screen = () => tmux('capture-pane', '-p', '-t', 't');
   // R4 lead (full suite 35, at bfb7fe5: slice B's `a` did not expand Activity in 30 s, while the Workbench went on drawing;
   // the cause was not found, and loaded reruns and the next full suite passed): a wait that times out also says what the
   // terminal and its processes were doing, so a recurrence names its cause. tmux's flags for the pane; the bytes typed into
@@ -77,35 +83,38 @@ function terminal(label: string) {
     } catch (e) { out.push(`no diagnosis: ${String((e as Error).message).split('\n')[0]}`); }
     return out.join('\n');
   };
-  const waitFor = async (re: RegExp, ms = 30_000): Promise<string> => {
-    let s = '';
-    for (const end = Date.now() + ms; Date.now() < end;) {
-      s = screen();
-      if (re.test(s)) return s;
-      await sleep(100);
-    }
-    throw new Error(`timed out waiting for ${re}:\n${s}\n${diagnose()}`);
-  };
-  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
-  const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
+  const pane: Pane = { tmux, target: 't', folders: [box], diagnose };
+  const screen = () => settledScreen(pane);
+  const waitFor = (re: RegExp, ms = 30_000): Promise<string> => waitScreen(pane, { what: `${re}`, re, ms });
+  const keys = (...k: string[]) => sendKeys(pane, k);
+  const typed = (text: string) => sendKeys(pane, [text], { literal: true });
   // the workspace search: '/', then its prompt on screen, the text, the text on screen, then Enter (under a loaded machine
   // the full suite once sent the text before the search was drawn)
   const find = async (name: string) => {
-    tmux('send-keys', '-t', 't', '/');
+    await keys('/');
     await waitFor(/^\S?\s*\/ /m, 10_000);
-    tmux('send-keys', '-t', 't', '-l', name);
+    await typed(name);
     await waitFor(new RegExp(`/ ${name}`), 10_000);
-    tmux('send-keys', '-t', 't', 'Enter');
-    await sleep(250);
+    await keys('Enter');
   };
-  const capture = (name: string): string => {
-    const txt = screen();
-    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
-    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-    return txt;
-  };
+  // (a kept screen: whole and the same in two reads; a notice may hold the key-hint line's place, as it does in a wait)
+  const capture = (name: string): string => keepScreen(pane, CAPTURES, name, { foot: 'drawn' });
   const close = () => { try { tmux('kill-server'); } catch { /* gone */ } };
-  return { tmux, screen, waitFor, keys, typed, find, capture, close };
+  return { tmux, pane, screen, waitFor, keys, typed, find, capture, close };
+}
+
+/** R5 (H131; the QA round's defect 4): what waits on you at a tab, as the header draws it without moving a tab: ⚠ beside the
+ *  tab whose label starts with `label`, with the count the header says ('' when nothing is drawn there). */
+function badgeOver(rows: readonly string[], label: string): string {
+  // R10 (H167): the header is two rows: the tabs on its second, each tab's cell ending in a mark's cell (⚠ where something
+  // waits there), and the count on its first ("⚠ 1 waiting on you"): ⚠ beside the tab's label, with that count
+  const tabs = rows[1] ?? '';
+  const at = tabs.indexOf(label);
+  if (at < 0) return '';
+  // the tab's own cell: from its label to the next tab's key (a digit) or the active tab's bracket
+  const cell = /^[^\d[]*/.exec(tabs.slice(at + label.length))?.[0] ?? '';
+  if (!cell.includes('⚠')) return '';
+  return `⚠${/⚠ (\d+) waiting on you/.exec(rows[0] ?? '')?.[1] ?? ''}`;
 }
 
 beforeAll(async () => {
@@ -124,7 +133,9 @@ beforeAll(async () => {
   delete base.NODE_PATH;
   env = {
     ...base, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'), XDG_STATE_HOME: join(home, '.local', 'state'),
-    XDG_CACHE_HOME: join(home, '.cache'), TIMMY_HOME: timmyHome, TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'),
+    // R10 CHAT (H167): the Workbench as it was before the Chat screen (Home first, the classic Chat tab): this file checks what
+    // it opens there; the Chat screen's own are tests/workbench-chat-shell.test.ts and tests/workbench-chat-landing-pty.test.ts
+    XDG_CACHE_HOME: join(home, '.cache'), TIMMY_WORKBENCH_CHAT: 'classic', TIMMY_HOME: timmyHome, TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'),
     TIMMY_SETTINGS_DIR: join(box, 'settings'), TMPDIR: join(box, 'tmp'), OPENROUTER_API_KEY: '', COLORTERM: 'truecolor',
     TMUX: '', TMUX_TMPDIR: box, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', PATH: `${bin}:${process.env.PATH ?? ''}`, UPMD_BIN: FAKE_UPMD,
   };
@@ -135,6 +146,8 @@ beforeAll(async () => {
   expect(made.status, `${made.stdout}\n${made.stderr}`).toBe(0);
 }, 150_000);
 
+// R5 (H131): the hook's own retries take up to 10 s (50 x 200 ms), the default hook timeout: under a loaded machine it
+// timed out while it still had retries left (seen once in a 4-file run); it gets the time its loop needs
 afterAll(async () => {
   for (const label of ['wb', 'wbB']) { try { execFileSync('tmux', ['-L', label, 'kill-server'], { env, stdio: 'ignore' }); } catch { /* none */ } }
   for (let i = 0; ; i++) {
@@ -143,10 +156,10 @@ afterAll(async () => {
       await sleep(200);
     }
   }
-});
+}, 30_000);
 
 describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
-  it('opens tray1 at 160x45 on Workflows; Control Room and Activity show a FAKE job a session left; at 100x30 Stop names it and recovery\'s stop cancels it; at 80x24 Files shows the tree; the picker changes the active project; Ctrl+C restores the terminal', async () => {
+  it('opens tray1 at 160x45 on Home (R5: row 1 the tabs, row 2 the workflow actions); 3 shows Workflows; Control Room and Activity show a FAKE job a session left; at 100x30 Stop names it and recovery\'s stop cancels it; at 80x24 Files shows the tree; the picker changes the active project; Ctrl+C restores the terminal', async () => {
     const trayRoot = join(timmyHome, 'projects', 'tray1');
     expect(activeRoot()).toBe(trayRoot);
 
@@ -174,15 +187,24 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     const { tmux, screen, waitFor, keys, typed, find, capture } = terminal('wb');
 
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
-      `stty -a > '${box}/stty-before.txt'; ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
+      `stty -a > '${box}/stty-before.txt'; TIMMY_WORKBENCH_KEYLOG='${box}/wbA-keys.log' ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
 
-    // 160x45: every zone; the project; the tray workflow's blocks; the left job named by Stop and counted by Activity
-    const wide = await waitFor(new RegExp(`Stop current: ${id}[\\s\\S]*Activity\\s+\\S* ?1 running`));
-    expect(wide).toContain('tray1 / Workflows');
-    expect(wide).toMatch(/◆ TIMMY|TIMMY/);
-    expect(wide).toMatch(/CREATE[\s\S]*OPERATE[\s\S]*LIBRARY[\s\S]*Connections/);
-    expect(wide).toContain('Timmy Workbench');
-    expect(wide).toContain('Context');
+    // 160x45: row 1 (TIMMY, the project, the ten tabs), row 2 (the workflow actions, the run state and Stop), Home's body,
+    // Activity & log; the left job named by Stop and counted by Activity
+    const home = await waitFor(new RegExp(`Stop current: ${id}[\\s\\S]*Activity\\s+\\S* ?1 running`));
+    expect(home).toContain('TIMMY · tray1');
+    // (R10 H167: the header's tabs on one row; at 160 columns their first words; the column beside Home's recent work is the
+    // selected item)
+    for (const label of ['1 Home', '2 Chat', '3 Workflows', '7 Control', '0 Logs']) expect(home).toContain(label);
+    expect(home).toContain('Workflow actions');
+    expect(home).toContain('tray1 / Home · recent work');
+    expect(home).toMatch(/Selected/);
+    expect(home).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
+    expect(widest(capture('wb-160x45-home'))).toBeLessThanOrEqual(160);
+    // 3: Workflows, the tray workflow's blocks in its three columns (R5, H136: the whole width; Context a drawer, i)
+    await keys('3');
+    // (R11 H167 step 3d: the centre column is headed RUN · where it runs, never SANDBOX: none runs in one)
+    const wide = await waitFor(/tray1 \/ Workflows[\s\S]*RUN · where it runs/);
     for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wide).toContain(block);
     expect(wide).toContain('⚠ needs you before it runs');
     expect(wide).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
@@ -192,7 +214,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     // Control Room, by the workspace search
     await find('Control');
     const control = await waitFor(/tray1 \/ Control Room[\s\S]*RUNNING NOW \(1\)/);
-    expect(control).toMatch(new RegExp(`${id}\\s+running\\s+FAKE job \\(test\\): sleep 300`));
+    // (R5 H137: a pane, its id on the box's edge, its mark, word and label on the row below)
+    expect(control).toMatch(new RegExp(`${id} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300`));
 
     // 100x30: the right dock is a drawer; the project, the task, the state and Stop stay on top
     tmux('resize-window', '-t', 't', '-x', '100', '-y', '30');
@@ -205,7 +228,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     // x: the job a session that ended left, stopped through recovery's stop; its record says cancelled; its process is gone
     await keys('x');
     // the outcome first, so the one row of a narrow terminal shows it; the whole answer in Activity, expanded
-    await waitFor(new RegExp(`Stopped ${id}; its record says cancelled\\.`));
+    await waitFor(new RegExp(`Cancelled ${id}; its record says cancelled\\.`));
     for (const end = Date.now() + 10_000; recordOf(id).state === 'running' && Date.now() < end;) await sleep(100);
     expect(recordOf(id)).toMatchObject({ state: 'cancelled', cleanup: 'complete' });
     for (const end = Date.now() + 5000; argsOf(pid) === 'sleep 300' && Date.now() < end;) await sleep(100);
@@ -213,8 +236,10 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     await waitFor(/Stop current: idle/);
     await keys('a');
     const activity = await waitFor(/▾ Activity[\s\S]*All operations/);
-    expect(activity.replace(/[│┃]/g, ' ').replace(/\s+/g, ' ')).toContain(`Stopped ${id}; its record says cancelled. FAKE job (test): sleep 300: the session that started it had ended, so recovery's stop ended its process group`);
+    expect(activity.replace(/[│┃]/g, ' ').replace(/\s+/g, ' ')).toContain(`Cancelled ${id}; its record says cancelled. FAKE job (test): sleep 300: the session that started it had ended, so recovery's stop ended its process group`);
+    // R6 (H141): collapsed again, as tray1's layout is left (Remember layout: slice B's Workbench opens tray1 with it)
     await keys('a');
+    await waitFor(/▸ Activity/);
 
     // 80x24: the navigation is a drawer too; Files shows the project's tree
     tmux('resize-window', '-t', 't', '-x', '80', '-y', '24');
@@ -232,14 +257,17 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     await keys('p');
     await waitFor(/Switch project/);
     await typed('demo');
+    // R5 (H136): Enter only once the picker shows what was typed and its one match selected
+    await waitFor(/› demo\b[\s\S]*▸ demo\b/, 10_000);
     await keys('Enter');
     await waitFor(/demo \/ Files/);
     expect(activeRoot()).toBe(join(timmyHome, 'projects', 'demo'));
 
-    // Ctrl+C: nothing of the Workbench's own runs, so it quits at once (130); the terminal is as it was
+    // Ctrl+C: nothing of the Workbench's own runs, so it quits at once; R6 (H141): it stopped nothing, so it exits 0 (no
+    // interruption); the terminal is as it was
     await keys('C-c');
     const after = await waitFor(/EXIT=(\d+)/, 20_000);
-    expect(after.match(/EXIT=(\d+)/)![1]).toBe('130');
+    expect(after.match(/EXIT=(\d+)/)![1]).toBe('0');
     for (const end = Date.now() + 5000; !existsSync(join(box, 'stty-after.txt')) && Date.now() < end;) await sleep(100);
     expect(tmux('display-message', '-p', '-t', 't', '#{alternate_on} #{cursor_flag} #{mouse_any_flag}').trim()).toBe('0 1 0');
     // the terminal's modes as before (its first line, speed and size, differs only by the resizes above)
@@ -248,7 +276,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(modes('stty-after.txt')).toMatch(/(^|\s)icanon(\s|$)[\s\S]*(^|\s)echo(\s|$)/);
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
 
-    console.log(`Workbench captures (160x45 Workflows, 100x30 Control Room, 80x24 Files): ${CAPTURES}`);
+    console.log(`Workbench captures (160x45 Home and Workflows, 100x30 Control Room, 80x24 Files): ${CAPTURES}`);
   }, 180_000);
 
   it('slice B: runs APPROVAL.md › tidy from Workflows in the terminal: the NEEDS YOU box drawn in the Workbench (y), the run\'s progress in Activity, one job, one operation and one workflow receipt, the same operation for the REPL\'s /op and Studio\'s cards', async () => {
@@ -264,30 +292,40 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(runsOf()).toEqual([]);
     const sealedBefore = chain().length;
 
-    const { tmux, waitFor, keys, typed, find, capture, close } = terminal('wbB');
+    const { tmux, pane, screen, waitFor, keys, find, capture, close } = terminal('wbB');
+    // R6 (H141; CI at 388c0c8 and after): the Workbench's key log (src/workbench/run.ts): each chunk it read from the terminal and
+    // each key with what took it, read by a failure below
+    const keyLog = join(box, 'wbB-keys.log');
+    const keysSaid = (n = 40): string => (existsSync(keyLog) ? readFileSync(keyLog, 'utf8').trimEnd().split('\n').slice(-n).join('\n') : '(no key log was written)');
+    // (and slice A's: the layouts it remembered for tray1 and demo, which slice B's Workbench opens with)
+    const layoutsSaid = (): string => (existsSync(join(box, 'wbA-keys.log')) ? readFileSync(join(box, 'wbA-keys.log'), 'utf8').split('\n').filter((l) => /"event":"(layout|now in)/.test(l)).join('\n') : '(slice A wrote no key log)');
     let runId = '';
     let op = '';
     try {
       tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
-        `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
+        `TIMMY_WORKBENCH_KEYLOG='${keyLog}' ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
       await waitFor(/tray1 \/ [\s\S]*Activity/);
       await find('Workflows');
-      const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here, through the REPL's own \/run/);
-      expect(wf).toContain('upmd found');
-      // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here
-      await keys('Enter');
+      const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here/);
+      // (R10 H163; H168's F4: the runner by what it is; its name is the Inspector's)
+      expect(wf).toContain('its runner is installed');
+      // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here (R5 H136: the
+      // first Enter only once a whole frame shows APPROVAL.md › tidy selected in the list that has the keyboard)
+      await enterOnBlock(pane, 'APPROVAL.md', 'tidy');
       await waitFor(/Run APPROVAL\.md › tidy\?/);
       await keys('Enter');
       const box = await waitFor(/⚠ NEEDS YOU[\s\S]*deny \(the default\)/);
+      const boxSeen = Date.now();
       expect(box).toContain('/run APPROVAL.md tidy');
       expect(box).toContain('runs a destructive shell command on this machine: tidy');
       expect(box).toContain('mkdir -p scratch && touch scratch/x && rm scratch/x');
-      expect(box).toMatch(/Control Room ⚠ 1/);
+      // what waits on you, beside the Control Room's tab (R5: the workspace frame's count, read again within a second)
+      await waitScreen(pane, { what: '⚠1 over 7 Control Room', test: (s) => badgeOver(s.split('\n'), '7 Control') === '⚠1', ms: 10_000 });
       capture('wb-160x45-needs-you');
       // nothing of the run has started while the box waits
       expect(runsOf()).toEqual([]);
       expect(chain().length).toBe(sealedBefore);
-      await sleep(500); // past the box's type-ahead guard
+      await pastGuard(boxSeen, GUARD_MS); // past the box's type-ahead guard (keys in its first GUARD_MS are not answers)
       await keys('y');
       for (const end = Date.now() + 30_000; !(runsOf()[0]?.state === 'completed') && Date.now() < end;) await sleep(100);
       const [run] = runsOf();
@@ -296,9 +334,26 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       op = run.operation!;
       expect(op).toMatch(/^o[0-9a-f]{8}$/);
       await waitFor(new RegExp(`${run.id} completed\\s+operation ${op}`));
-      await waitFor(/Activity\s+0 running/);
+      const ended = await waitFor(/Activity\s+0 running/);
+      // R6 (H141; the cause of CI's failures here at 3b6a5b6 and after, as at bfb7fe5, 94e0c01, 0cbadd0 and aa247e5): Activity as
+      // slice A left tray1, collapsed. Its collapse used to be remembered under demo when the picker's switch came within 1.5 s
+      // of it (src/workbench/controller.ts rememberPending), so tray1 opened expanded here and this a collapsed it
+      expect(/▸ Activity/.test(ended), `Activity is not collapsed before the a (slice A's layouts):\n${layoutsSaid()}\n${ended}`).toBe(true);
       await keys('a');
-      await waitFor(/▾ Activity[\s\S]*All operations/);
+      // R5 lead (CI at 94e0c01, 0cbadd0 and aa247e5, as at the R4 lead's bfb7fe5: Activity stayed collapsed for 30 s after its
+      // a was read, the Workbench drawing on): when the expanded Activity does not come, the failure says which it was before it
+      // fails. r draws the screen again from the state as it is (a toggle taken but not drawn), then a second a (a key lost).
+      try {
+        await waitFor(/▾ Activity[\s\S]*All operations/);
+      } catch (e) {
+        const after = async (key: string): Promise<string> => {
+          await keys(key);
+          try { await waitScreen(pane, { what: '▾ Activity', re: /▾ Activity/, ms: 5_000 }); return `after ${key}: Activity is open`; } catch { return `after ${key}: still collapsed`; }
+        };
+        const r = await after('r');
+        const a = r.endsWith('open') ? 'a second a: not pressed' : await after('a');
+        throw new Error(`${(e as Error).message}\n\nR5 lead's check of the cause: ${r}; ${a}\n${screen()}\nThe key log's last lines:\n${keysSaid()}\nSlice A's layouts:\n${layoutsSaid()}`);
+      }
       const activity = capture('wb-160x45-activity-after-run');
       expect(activity).toMatch(new RegExp(`${run.id} tidy completed`));
       await keys('a');
@@ -314,7 +369,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
 
       // Control Room: the same job and operation; the Inspector shows its run detail
       await find('Control');
-      const room = await waitFor(new RegExp(`${run.id}\\s+completed\\s+APPROVAL\\.md › tidy`));
+      // (R5 H137: with nothing running, a quiet pane: its id on the box's edge, its word and label on the row below)
+      const room = await waitFor(new RegExp(`${run.id} [━─][^\\n]*\\n[^\\n]*completed {2}APPROVAL\\.md › tidy`));
       expect(room).toContain(op);
       // R4 lead (merged with H102's producer, src/ops/run-detail.ts): the Inspector draws that operation's real run detail
       await waitFor(/RUN DETAIL/);
@@ -323,7 +379,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       capture('wb-160x45-control-run');
 
       await keys('C-c');
-      expect((await waitFor(/EXIT=(\d+)/, 20_000)).match(/EXIT=(\d+)/)![1]).toBe('130');
+      expect((await waitFor(/EXIT=(\d+)/, 20_000)).match(/EXIT=(\d+)/)![1]).toBe('0');
     } finally {
       close();
     }

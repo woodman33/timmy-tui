@@ -1,0 +1,42 @@
+<Rive version="1" kind="fragment">
+<Artboard defaultStateMachineId="0:30" styleId="0:5" width="128" height="128" name="TimmyConnection" id="0:2">
+<LayoutComponentStyle name="Artboard Style" id="0:5"/>
+<Fill name="Background"><SolidColor colorValue="FF000000" name="Black"/></Fill>
+<Shape x="64" y="64" name="Ring" id="0:10"><Ellipse width="80" height="80" originX="0.5" originY="0.5"/><Stroke thickness="6" name="Stroke"><SolidColor colorValue="FF555555" id="0:12"/></Stroke></Shape>
+<Shape x="64" y="64" opacity="0" name="Dot" id="0:11"><Ellipse width="22" height="22" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FF3DDC84" id="0:13"/></Fill></Shape>
+<Shape x="64" y="64" opacity="0" rotation="45" name="Cross" id="0:14"><Rectangle width="40" height="8" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FFFFB000"/></Fill></Shape>
+<Shape x="64" y="64" name="Frame"><Rectangle width="110" height="110" originX="0.5" originY="0.5" cornerRadiusTL="18"/><Stroke thickness="2" name="Outline"><SolidColor colorValue="FF333333"/></Stroke></Shape>
+<!-- Disconnected: a grey ring, still. -->
+<LinearAnimation duration="1" fps="60" loopValue="oneShot" name="Disconnected" id="0:20"><KeyedObject objectId="0:10"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0.6" interpolationType="hold"/></KeyedProperty></KeyedObject></LinearAnimation>
+<!-- Checking: the ring turns (amber), looping, while the check is in flight. -->
+<LinearAnimation duration="90" fps="60" loopValue="loop" name="Checking" id="0:21"><KeyedObject objectId="0:10"><KeyedProperty propertyKey="15"><KeyFrameDouble value="0" interpolationType="linear"/><KeyFrameDouble value="360" interpolationType="linear" frame="90"/></KeyedProperty></KeyedObject><KeyedObject objectId="0:12"><KeyedProperty propertyKey="37"><KeyFrameColor value="FFFFB000" interpolationType="hold"/></KeyedProperty></KeyedObject></LinearAnimation>
+<!-- Connected: the ring settles, the green dot appears (green: an observed fact the backend said). -->
+<LinearAnimation duration="30" fps="60" loopValue="oneShot" name="Connected" id="0:22"><KeyedObject objectId="0:11"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0" interpolationType="linear"/><KeyFrameDouble value="1" interpolationType="linear" frame="30"/></KeyedProperty></KeyedObject><KeyedObject objectId="0:12"><KeyedProperty propertyKey="37"><KeyFrameColor value="FF3DDC84" interpolationType="hold"/></KeyedProperty></KeyedObject></LinearAnimation>
+<!-- Failed: the amber cross. -->
+<LinearAnimation duration="20" fps="60" loopValue="oneShot" name="Failed" id="0:23"><KeyedObject objectId="0:14"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0" interpolationType="linear"/><KeyFrameDouble value="1" interpolationType="linear" frame="20"/></KeyedProperty></KeyedObject><KeyedObject objectId="0:12"><KeyedProperty propertyKey="37"><KeyFrameColor value="FFFFB000" interpolationType="hold"/></KeyedProperty></KeyedObject></LinearAnimation>
+<LinearAnimation duration="1" fps="60" loopValue="oneShot" name="Selected" id="0:24"><KeyedObject objectId="0:2"><KeyedProperty propertyKey="18"><KeyFrameDouble value="1" interpolationType="hold"/></KeyedProperty></KeyedObject></LinearAnimation>
+<StateMachine name="Connection" id="0:30">
+<StateMachineNumber name="connection" value="0" id="0:31"/>
+<StateMachineBool name="selected" value="false" id="0:32"/>
+<StateMachineBool name="expanded" value="false" id="0:33"/>
+<StateMachineLayer name="State" id="0:34">
+<AnyState x="200" y="-160" id="0:35">
+<StateTransition stateToId="0:40" duration="120"><TransitionNumberCondition inputId="0:31" op="equal" value="0"/></StateTransition>
+<StateTransition stateToId="0:41" duration="120"><TransitionNumberCondition inputId="0:31" op="equal" value="1"/></StateTransition>
+<StateTransition stateToId="0:42" duration="120"><TransitionNumberCondition inputId="0:31" op="equal" value="2"/></StateTransition>
+<StateTransition stateToId="0:43" duration="120"><TransitionNumberCondition inputId="0:31" op="equal" value="3"/></StateTransition>
+</AnyState>
+<ExitState x="600" y="-160"/>
+<EntryState x="0" y="0"><StateTransition stateToId="0:40"/></EntryState>
+<AnimationState x="200" y="0" animationId="0:20" name="Disconnected" id="0:40"/>
+<AnimationState x="400" y="0" animationId="0:21" name="Checking" id="0:41"/>
+<AnimationState x="600" y="0" animationId="0:22" name="Connected" id="0:42"/>
+<AnimationState x="800" y="0" animationId="0:23" name="Failed" id="0:43"/>
+</StateMachineLayer>
+<StateMachineLayer name="Selection" id="0:36">
+<EntryState x="0" y="0"><StateTransition stateToId="0:44"/></EntryState>
+<AnimationState x="200" y="0" name="Plain" id="0:44"><StateTransition stateToId="0:45" duration="120"><TransitionBoolCondition inputId="0:32" op="true"/></StateTransition></AnimationState>
+<AnimationState x="400" y="0" animationId="0:24" name="Selected" id="0:45"><StateTransition stateToId="0:44" duration="120"><TransitionBoolCondition inputId="0:32" op="false"/></StateTransition></AnimationState>
+</StateMachineLayer>
+</StateMachine>
+</Artboard></Rive>

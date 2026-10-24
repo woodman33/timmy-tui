@@ -611,6 +611,26 @@ export const defaultTools = [
   browserClickTool,
   browserScreenshotTool,
   cloudflareGetFeatureFlagTool,
-  cloudflareSendDurablePulseTool,
   listCardTool
 ];
+
+/**
+ * R11 (H169, Phase 0 item 4): tools no turn is offered unless the operator opts in for the process. cloudflare_send_durable_pulse
+ * posts to a remote Worker (TIMMY_EDGE_HOST), with nothing in Timmy that reads what it pulses: out of the default list, kept
+ * for whoever runs that Worker. Each is named in TIMMY_TOOLS_OPT_IN (a comma-separated list of tool names); a name not here is
+ * ignored. An opted-in tool is still gated like every other (src/repl/approvals.ts: it writes to a remote service).
+ */
+export const OPT_IN_TOOLS: Readonly<Record<string, ReturnType<typeof tool>>> = Object.freeze({
+  cloudflare_send_durable_pulse: cloudflareSendDurablePulseTool,
+});
+/** The variable that opts a tool in: `TIMMY_TOOLS_OPT_IN=cloudflare_send_durable_pulse`. */
+export const TOOLS_OPT_IN_VAR = 'TIMMY_TOOLS_OPT_IN';
+/** The names TIMMY_TOOLS_OPT_IN asks for that are opt-in tools, in the list's order, each once. */
+export function optedInToolNames(env: Record<string, string | undefined> = process.env): string[] {
+  const asked = (env[TOOLS_OPT_IN_VAR] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return [...new Set(asked)].filter((name) => Object.hasOwn(OPT_IN_TOOLS, name));
+}
+/** The opted-in tools themselves (none unless TIMMY_TOOLS_OPT_IN names them). */
+export function optedInTools(env: Record<string, string | undefined> = process.env): typeof defaultTools {
+  return optedInToolNames(env).map((name) => OPT_IN_TOOLS[name]) as unknown as typeof defaultTools;
+}

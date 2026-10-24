@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
 import { chatRouteNow, fallbackRoute, localModelCommand, localRouteWords, prepareLocal, refusalSegments, resolveChatRoute, sealedRoute, type ChatRoute, type RouteNow } from '../agent/chat-route.js';
-import { defaultTools } from '../agent/tools.js';
+import { defaultTools, optedInTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
 import { guidedSetup, identityPath, timmyHome } from '../utils/init.js';
@@ -48,8 +48,10 @@ import { createMcpTools, type McpToolOptions } from '../agent/mcp-tools.js';
 import { createNativeTools, type NativeToolOptions } from '../agent/native-tools.js';
 import { createRecipeTools, type RecipeToolOptions } from '../agent/recipe-tools.js';
 import { createIterateTools, type IterateToolOptions } from '../agent/iterate-tools.js';
-import { folderProject, projectId } from '../project/index.js';
+import { activeProjectPath, folderProject, projectId } from '../project/index.js';
 import { Workspace } from './workspace.js';
+// R7 (H149): this REPL follows the active project chosen in another surface; what runs keeps its own project.
+import { ActiveProjectFollower } from './project-follow.js';
 import { studioBaseUrl, studioPort } from '../studio/config.js';
 import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
 import { studioHealth } from '../studio/health.js';
@@ -194,7 +196,8 @@ export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, mor
   // Round R4: /iterate as a tool (iterate_recipe), asked each time.
   const iterate = more.iterate ? createIterateTools(more.iterate) as unknown as typeof defaultTools : [];
   // R4 (H83): the canvas calls carry this REPL's token and holder id (more.canvas), or the canvas refuses them.
-  return [...defaultTools, ...createCanvasTools({ job, ...(more.canvas ? { auth: more.canvas } : {}) }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
+  // R11 (H169, Phase 0 item 4): the opt-in tools (TIMMY_TOOLS_OPT_IN) come after the defaults, before the project's
+  return [...defaultTools, ...optedInTools(), ...createCanvasTools({ job, ...(more.canvas ? { auth: more.canvas } : {}) }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -403,17 +406,31 @@ export async function runRepl(argv: string[]): Promise<number> {
     // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
     onSwitch: (p) => {
       const c = agent.useSessions(join(p.root, '.sessions'));
-      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project.
-      if (canvasProject.follows) void canvasProject.handOff();
+      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project. R7 (H149): or that followed the
+      // active project itself since this REPL last named one (the server decides: src/repl/canvas-project.ts switched)
+      void canvasProject.switched();
       return c.resumed ? `resumed this project's last conversation (${c.messages} messages)` : 'a new conversation, kept in this project';
     },
     // R4 (H55): the board says whether the canvas is open on this project; /board live's address reaches a canvas on it.
     canvas: () => canvasProject.boardLine(),
-    onBoardLive: () => { if (canvasProject.follows) void canvasProject.handOff(); },
+    // R7 (H149): passed on while the canvas is this REPL's (src/repl/canvas-project.ts switched), as a /project switch is
+    onBoardLive: () => { void canvasProject.switched(); },
     // R4 (H74): a /run whose blocks include a risky one asks in this terminal's NEEDS YOU box; in a pipe it is refused
     ...(interactive ? { askPerson: askNeedsYou } : {}),
+    // R7 (H149): the record says a REPL chose (a REPL that follows it says so)
+    surface: 'repl',
   }, folderProject(process.cwd()));
   canvasProject.start();
+  // R7 (H149): at a terminal, a change of the active project another surface makes moves this REPL (src/repl/project-follow.ts):
+  // at once when nothing of it runs, else once its turn, command or action has ended; a pipe's one-shot run follows nothing.
+  const follower = caps.interactive ? new ActiveProjectFollower({
+    file: activeProjectPath(), current: () => workspace.project, busy: () => workspace.busy,
+    move: (p) => workspace.follow(p), running: (root) => workspace.runningIn(root), notify, glyphs: theme.glyphs,
+  }) : null;
+  if (follower) {
+    workspace.afterRequests(() => follower.idle());
+    follower.start();
+  }
   // A second Ctrl+C exits at once: the jobs this REPL started stop with it.
   session.beforeRestore(() => workspace.killNow());
   // Round R1: /canvas, and where to inspect each turn's result, preview and receipt.
@@ -555,6 +572,7 @@ export async function runRepl(argv: string[]): Promise<number> {
     },
   });
   // The REPL is ending: the jobs it started (preview servers included) stop with it.
+  follower?.stop();
   canvasProject.stop();
   await workspace.close();
   return code;

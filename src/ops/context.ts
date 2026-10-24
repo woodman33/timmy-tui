@@ -24,7 +24,7 @@ export const OPERATION_ID = /^o[0-9a-f]{8}$/;
 export const newOperationId = (): string => `o${randomBytes(4).toString('hex')}`;
 
 /** The runs an operation can start, by the record that names them. */
-export type OperationRunKind = 'job' | 'flow' | 'vox' | 'agent' | 'native' | 'mcp';
+export type OperationRunKind = 'job' | 'flow' | 'vox' | 'agent' | 'native' | 'mcp' | 'fleet'; // R4 lead: a fleet plan's run (src/fleet/**)
 
 /**
  * R4 (H99, r24): a process the request itself started and that ended within it, with no record of its own to name it (a

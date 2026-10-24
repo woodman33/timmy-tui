@@ -135,11 +135,13 @@ function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'top'
   const rect = fr.regions[region]?.rect;
   if (!rect) return '';
   const out: string[] = [];
-  for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
+  // R5 (H131): row 2 draws the run state and Stop current in its bottom edge, so the top region is read to that edge
+  const last = region === 'top' ? rect.y + rect.h - 1 : rect.y + rect.h - 2;
+  for (let y = rect.y + 1; y <= last; y++) {
     let x = 0;
     let row = '';
     for (const seg of fr.screen[y] ?? []) for (const ch of seg.text) { if (x > rect.x && x < rect.x + rect.w - 1) row += ch; x += visibleWidth(ch); }
-    out.push(row);
+    out.push(y === rect.y + rect.h - 1 ? row.replace(/[─━]/g, ' ') : row);
   }
   return out.join(' ').replace(/\s+/g, ' ');
 }
@@ -209,9 +211,11 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     const [job] = runsOf(p.root, 'SLOW.md › wait');
     // its words (the controls row shows the newest notice; Activity keeps each one whole)
     expect(c.data.activity.events.map((e) => e.words)).toContain(`Not started: it is running now as ${job.id}, started by this Workbench, operation ${job.operation}: Run starts nothing until it ends (x stops it).`);
-    // the Tools tab says the same, before anything is pressed
+    // the Tools tab says the same, before anything is pressed (R5 H136: Workflows draws its own columns; Context is the i drawer)
+    await press(f.r, 'i');
     c.ui.tab = 'tools';
     expect(regionText(c, 'right')).toContain(`needs: it is running now as ${job.id}`);
+    await press(f.r, 'i');
     await sleep(300);
     expect(runsOf(p.root, 'SLOW.md › wait')).toHaveLength(1);
     expect(operationsOf(p.root, '/run SLOW.md wait')).toHaveLength(1);
@@ -268,7 +272,8 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     two.c.selectWorkspace('control');
     const f2 = frameOf(two.c, 180, 50);
     await until('the first one\'s job', () => two.c.data.jobs.some((j) => j.id === job.id && j.live), 5000, f2.text);
-    expect(f2.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+SLOW\\.md › long[^\\n]*${job.operation}[^\\n]*another session`));
+    // (R5 H137: a pane, its id on the edge, its word and label below, then who started it with its operation)
+    expect(f2.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*another session · ${job.operation}`));
     await press(f2.r, 'a');
     expect(regionText(two.c, 'bottom')).toContain(`${job.id} started: SLOW.md › long`);
     // opening it started nothing
@@ -287,7 +292,7 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     // Stop there names it and leaves it to the session that started it
     two.c.selectWorkspace('control');
     await press(f2.r, 'x');
-    await until('the answer', () => two.c.data.activity.events.some((e) => /^Nothing stopped: .* belongs to another Timmy session that is still running/.test(e.words)), 5000, f2.text);
+    await until('the answer', () => two.c.data.activity.events.some((e) => /^Not cancelled: .* belongs to another Timmy session that is still running/.test(e.words)), 5000, f2.text);
     expect(runsOf(p.root, 'SLOW.md › long')[0].state).toBe('running');
   }, 60_000);
 });
@@ -313,10 +318,14 @@ describe('a project switch during a run (R4 H112, slice C item 3)', () => {
     expect(regionText(c, 'top')).toContain('run: 1 running in tray-a');
     expect(regionText(c, 'bottom')).toMatch(/Activity \S* ?1 running \(1 in tray-a\)/);
     // the switch's own words (the controls row shows their start; Activity keeps them whole)
-    expect(c.data.activity.events.some((e) => e.words.startsWith('Now in tray-b') && e.words.includes(`: ${job.id} (SLOW.md › wait) keeps running in tray-a. Stop still names it.`))).toBe(true);
+    // (R10 H167; H168's F3: said by names, its id and the folder in the details)
+    expect(c.data.activity.events.some((e) => e.words.startsWith('Now in tray-b:') && e.words.includes(': SLOW.md › wait keeps running in tray-a. Stop still names it.'))).toBe(true);
     c.selectWorkspace('control');
-    await sleep(200);
-    expect(regionText(c, 'center')).toMatch(new RegExp(`RUNNING IN ANOTHER PROJECT, STARTED HERE \\(1\\) (?:\\S+ )*${job.id} running SLOW\\.md › wait · in tray-a`));
+    // (R5 H137: its pane under that title, its id on the edge, its word and label, then where it runs). R5 lead: waited for
+    // as a condition (the Control Room drawn with that pane), not a fixed 200 ms that a loaded machine can outlast
+    const elsewhere = new RegExp(`RUNNING IN ANOTHER PROJECT, STARTED HERE \\(1\\)[^\\n]*\\n[^\\n]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait[^\\n]*\\n[^\\n]*in tray-a`);
+    await until('the Control Room with the pane of the run in tray-a', () => elsewhere.test(f.text()), 5000, f.text);
+    expect(f.text()).toMatch(elsewhere);
     expect(runsOf(a.root, 'SLOW.md › wait')[0].state).toBe('running');
     // back in A: it ends there, normally, and once
     await press(f.r, 'p', ...'tray-a', ENTER);
@@ -343,8 +352,9 @@ describe('Activity while lines arrive (R4 H112, slice C item 5)', () => {
     await press(f.r, ENTER, ENTER);
     await until('the run', () => runsOf(p.root, 'STREAM.md › talk')[0]?.state === 'running', 10_000, f.text);
     const [job] = runsOf(p.root, 'STREAM.md › talk');
-    // Activity, expanded, with the keyboard
-    await press(f.r, 'a', TAB, TAB);
+    // Activity, expanded, with the keyboard (R5 H136: Tab from the list, past Context where it is a column)
+    await press(f.r, 'a');
+    for (let i = 0; i < 4 && c.ui.focus !== 'bottom'; i++) await press(f.r, TAB);
     expect(c.ui.focus).toBe('bottom');
     await until('a few lines', () => c.data.activity.events.some((e) => e.words === `${job.id} │ line 4`), 10_000, f.text);
     // following: the newest row is selected (its marker on it) and shown

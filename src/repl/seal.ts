@@ -53,9 +53,12 @@ export interface TurnFacts {
    * kind "ollama"; absent on the OpenRouter route, whose receipts stay as they were.
    */
   route?: {
-    host: string; endpoint: 'local' | 'remote'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown';
+    /** R11 Phase 2 (H169, item c): 'cloud', the model ran on Ollama's servers under the person's Ollama account */
+    host: string; endpoint: 'local' | 'remote' | 'cloud'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown';
     /** R4 (H113): the last-resort fallback answered after OpenRouter failed: its role, and OpenRouter's failure in a line */
     role?: 'last-resort fallback'; openrouterFailed?: string;
+    /** R11 Phase 2 (H169, item c): the route's name, sealed beside the source ("ollama cloud"); absent on the local route */
+    route?: 'ollama cloud';
   };
   /**
    * R4 (H113): which surface sent the turn (src/contracts/chat-session.ts ChatSurface): the REPL, the monitor, the terminal
@@ -64,6 +67,13 @@ export interface TurnFacts {
   surface?: 'repl' | 'monitor' | 'workbench' | 'companion';
   /** R4 (H113): the model that answered, when the surface knows it apart from a route (the chat session's OpenRouter turns) */
   modelResolved?: string;
+  /**
+   * R5 lead (the operator's 22:32 order, item 1): the turn's identity, its hold's id in the project's chat-turns folder
+   * (src/agent/chat-turn.ts takeTurnHold), sealed as turn_id: a surface matches a turn being answered to its receipt by it
+   */
+  turnId?: string;
+  /** R5 lead (item 2): a cancelled turn that another surface asked to stop (requestTurnStop): that surface, sealed as stopped_by */
+  stoppedBy?: 'repl' | 'monitor' | 'workbench' | 'companion' | 'unknown';
 }
 
 export interface SealedTurn {
@@ -107,10 +117,13 @@ export function sealTurn(
     ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome, ...(t.receipt ? { receipt: t.receipt } : {}) })), outcome_rule: OUTCOME_RULE } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
+    ...(cancelled && facts.stoppedBy ? { stopped_by: facts.stoppedBy } : {}),
+    ...(facts.turnId ? { turn_id: facts.turnId } : {}),
     ...(facts.canvas?.length || facts.route ? { sources: [
       ...(facts.route ? [{
         kind: 'ollama', host: facts.route.host, endpoint: facts.route.endpoint, tools: facts.route.tools, cost_basis: facts.route.costBasis,
         ...(facts.route.role ? { role: facts.route.role } : {}), ...(facts.route.openrouterFailed ? { openrouter_failed: facts.route.openrouterFailed } : {}),
+        ...(facts.route.route ? { route: facts.route.route } : {}),
       }] : []),
       ...(facts.canvas ?? []).map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })),
     ] } : {}),

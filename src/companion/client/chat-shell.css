@@ -1,0 +1,597 @@
+/*
+ * R10 CHAT CHECKPOINT (H171; the operator's order of 2026-10-22, 16:01 PT): the browser companion's shell and its Chat, the
+ * composition of the handoff's captures 01 to 06 (1440 × 900): LEFT a permanent menu (TIMMY, the project and New project,
+ * the destinations with Chat first, the foot's local workspace); CENTER the project's saved conversation, the answers
+ * streamed, tool results folded, a readable line length, the route of the next turn and a prominent composer; RIGHT the
+ * Models rail (the provider, search, Sort and four filters, the rows, the selected model's detail); BOTTOM the
+ * conversation's controls and the status line. Loaded after companion.css; the other destinations keep its look.
+ *
+ * Only Timmy's shared variables (--timmy-*, DESIGN.md §10 B10): amber for focus, the selection and the ONE primary step
+ * (Send); green only through .is-live (an observed answer); structure #333/#444; text #F2EFE9 / #8E8E93. No text under 13 px.
+ */
+
+/* ---------- the shell: the left menu beside every destination ---------- */
+
+/* R11 round 4 (H171): the body holds the journey's screens (src/companion/client/shell.js); the chat screen's wrapper
+   (#screen-chat) is the grid the rail and the page sit in, which the body was */
+body.shell { display: block; padding: 0; gap: 0; }
+.sh-screen-chat { display: grid; grid-template-columns: 244px minmax(0, 1fr); height: 100vh; }
+/* the other destinations keep R10's layout at its full width (their tab row, strip and columns, as their own checks measure
+   them): the menu is one click away there (Menu in their header opens it over the page; Esc or a choice closes it) */
+body.shell:not([data-dest="chat"]) .sh-screen-chat { grid-template-columns: minmax(0, 1fr); }
+body.shell:not([data-dest="chat"]) .rail { display: none; }
+body.shell:not([data-dest="chat"]).rail-open .rail { display: flex; position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; width: min(260px, 86vw); border-right: 1px solid var(--timmy-line-strong); }
+.ws-menu { display: none; flex-shrink: 0; }
+body.shell:not([data-dest="chat"]) .ws-menu { display: inline-flex; }
+.shell-main { display: flex; flex-direction: column; height: 100vh; min-width: 0; padding: 10px 14px 12px; gap: 8px; position: relative; }
+
+.rail { display: flex; flex-direction: column; height: 100vh; min-height: 0; border-right: 1px solid var(--timmy-line); background: var(--timmy-ground); overflow: hidden; }
+.rail-brand { display: flex; align-items: center; gap: 12px; padding: 16px 18px 14px; border-bottom: 1px solid var(--timmy-line); }
+.rail-name { display: block; font-size: 20px; font-weight: var(--timmy-weight-heading); letter-spacing: 0.04em; color: var(--timmy-text); }
+.rail-sub { display: block; margin-top: 4px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 10px 10px; display: flex; flex-direction: column; gap: 4px; }
+.rail-sec { margin: 10px 8px 6px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.rail-sec:first-child { margin-top: 0; }
+.rail-project { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); color: var(--timmy-text); font-size: 13px; text-align: left; cursor: pointer; }
+.rail-project:hover { border-color: var(--timmy-text-secondary); }
+.rail-project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--timmy-weight-strong); }
+.rail-project-menu { margin: 4px 0 2px; padding: 8px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); font-size: 13px; color: var(--timmy-text-secondary); display: flex; flex-direction: column; gap: 8px; }
+.rail-project-menu p { line-height: 1.45; }
+.rail-project-menu .rail-mode { color: var(--timmy-text); }
+.rail-small-btn { align-self: flex-start; min-height: 30px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-ground); color: var(--timmy-text); font-size: 13px; cursor: pointer; }
+.rail-small-btn:hover { border-color: var(--timmy-text-secondary); }
+.rail-new { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px; border: 0; background: transparent; color: var(--timmy-text-secondary); font-size: 13px; text-align: left; cursor: pointer; }
+.rail-new:hover { color: var(--timmy-text); }
+.rail-note { margin: 2px 8px 4px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
+.rail-menu { display: flex; flex-direction: column; gap: 2px; }
+.rail-item { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 8px 6px 10px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 14px; text-align: left; cursor: pointer; }
+.rail-item:hover { border-color: var(--timmy-line); }
+.rail-item .rail-glyph { width: 16px; flex-shrink: 0; text-align: center; color: var(--timmy-text-secondary); }
+.rail-item .rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-item .rail-where { flex-shrink: 0; font-size: 13px; color: var(--timmy-text-secondary); }
+.rail-item[aria-current="page"] { border-color: var(--timmy-line-strong); background: var(--timmy-surface); color: var(--timmy-accent); }
+.rail-item[aria-current="page"]::before { content: ''; position: absolute; left: -10px; top: 0; bottom: 0; width: 3px; background: var(--timmy-accent); }
+.rail-item[aria-current="page"] .rail-glyph { color: var(--timmy-accent); }
+.rail-item.is-away { color: var(--timmy-text-secondary); }
+.rail-rule { height: 1px; margin: 10px 8px; background: var(--timmy-line); border: 0; }
+.rail-away-note { margin: 4px 8px; padding: 8px 10px; border: 1px solid var(--timmy-line); border-radius: 3px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
+/* R11 step 3: the rail's footer "? Help  / find" (the terminal's), and its finder */
+/* R11 round 4: the rail's foot holds the keys row and the account (the user's name; sign-out) */
+.rail-foot-keys { display: flex; gap: 14px; padding: 6px 14px 4px; }
+.rail-account { display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px; border-top: 1px solid var(--timmy-line); }
+.rail-avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--timmy-line-strong); border-radius: 50%; font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.rail-account-words { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; flex: 1; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.rail-account-words:hover { background: var(--timmy-surface); }
+.rail-account-words > * { max-width: 100%; }
+.rail-account-name { font-size: 13px; color: var(--timmy-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-account-sub { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-new-conv { margin: 6px 14px 4px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.rail-foot { display: flex; flex-direction: column; gap: 0; padding: 0; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.rail-foot-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.rail-foot-btn:hover { color: var(--timmy-text); }
+.rail-foot-btn kbd { padding: 0 5px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font: inherit; font-size: 13px; color: var(--timmy-text); }
+.rail-group { margin-top: 14px; }
+.rail-find-box { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 8px 8px; }
+.rail-find-label { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.rail-find { flex: 1; min-width: 0; min-height: 30px; padding: 3px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 13px; }
+.rail-find:focus { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+.rail-find-hint { flex: 1 1 100%; font-size: 13px; color: var(--timmy-text-secondary); }
+.rail-none { margin: 6px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-start-k { margin-top: 14px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-ways.cx-starters { margin-top: 26px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cx-welcome-mark { display: inline-grid; margin: 10px auto 0; }
+.cx-empty.is-welcome { text-align: center; }
+.cx-welcome-title { margin-top: 18px; font-size: 34px; line-height: 1.15; }
+.cx-way-glyph { font-size: 16px; color: var(--timmy-text); }
+.cx-starters .cx-way { text-align: left; }
+
+/* ---------- Chat: the composition fills the shell's main column ---------- */
+
+body[data-dest="chat"] .shell-main { padding: 0; gap: 0; }
+body[data-dest="chat"] .ws-header,
+body[data-dest="chat"] .project-folder,
+body[data-dest="chat"] .ws-nav,
+body[data-dest="chat"] .ws-strip,
+body[data-dest="chat"] .ws-activity { display: none; }
+body[data-dest="chat"] #ws-main { flex: 1; min-height: 0; padding: 0; margin: 0; border: 0; overflow: hidden; display: flex; }
+body[data-dest="chat"] #ws-chat { flex: 1; min-height: 0; min-width: 0; display: block; overflow-y: auto; }
+body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
+
+.cx { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; grid-template-columns: minmax(0, 1fr); } /* (one column sized to the screen, never to the top line's longest row: on a phone the crumb shortens instead of pushing the page past the edge) */
+.cx-top { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 0 22px; border-bottom: 1px solid var(--timmy-line); }
+.cx-crumb { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; } /* (the spaces around "/" in the markup are what a reader hears; the flex gap is what is drawn) */
+.cx-crumb .cx-proj { color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+.cx-crumb .cx-sep { color: var(--timmy-text-secondary); }
+.cx-crumb .cx-here { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.cx-saved { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; }
+.cx-top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.cx-state-words { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; }
+/* R11 round 4: the descriptor over the conversation ("AGENT CHAT  Think, make and check your work." · the state words) */
+.cx-descriptor { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 2px 6px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-descriptor-k { letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text); margin-right: 6px; }
+.cx-descriptor-right { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cx-socket { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; }
+.cx-socket.is-live { color: var(--timmy-live); }
+.cx-key { min-height: 30px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.cx-key:hover { border-color: var(--timmy-text-secondary); }
+.cx-key[aria-expanded="true"], .cx-key[aria-pressed="true"] { border-color: var(--timmy-text-secondary); background: var(--timmy-surface); }
+.cx-key kbd { padding: 0 5px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font-size: 13px; color: var(--timmy-text-secondary); }
+
+.cx-body { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 328px; }
+.cx-body.models-closed { grid-template-columns: minmax(0, 1fr); }
+.cx-body.models-closed .cx-models { display: none; }
+
+/* the center: the conversation, the route of the next turn, the composer */
+.cx-center { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 0 24px 10px; }
+.cx-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 4px 12px 2px; }
+.cx-head { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--timmy-line); }
+.cx-head-words { flex: 1; min-width: 0; }
+.cx-kicker { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-title { margin-top: 8px; font-size: 20px; font-weight: var(--timmy-weight-heading); color: var(--timmy-text); }
+.cx-sub { margin-top: 6px; font-size: 13px; color: var(--timmy-text-secondary); max-width: 72ch; line-height: 1.5; }
+.cx-tag { flex-shrink: 0; padding: 3px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font-size: 13px; letter-spacing: 0.04em; color: var(--timmy-text-secondary); white-space: nowrap; }
+
+.cx-turns { list-style: none; display: flex; flex-direction: column; gap: 22px; padding: 20px 0 8px; }
+.cx-turn { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 12px; }
+.cx-mark { width: 24px; height: 24px; margin-top: 1px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-turn.is-timmy .cx-mark { color: var(--timmy-text); }
+.cx-who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-height: 24px; font-size: 13px; }
+.cx-who strong { font-size: 13px; letter-spacing: 0.08em; color: var(--timmy-text); }
+.cx-who .cx-model { color: var(--timmy-silver); }
+.cx-who .cx-model.is-unknown { color: var(--timmy-text-secondary); }
+.cx-who .cx-when { margin-left: auto; color: var(--timmy-text-secondary); }
+.cx-text { grid-column: 2; max-width: 74ch; margin-top: 8px; font-size: 14px; line-height: 1.6; color: var(--timmy-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cx-turn.is-you .cx-text { padding: 12px 16px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); }
+.cx-text pre { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--timmy-line); border-radius: 3px; background: var(--timmy-surface); overflow-x: auto; white-space: pre; font-size: 13px; }
+.cx-meta { grid-column: 2; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-chip { padding: 2px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-actions { grid-column: 2; margin-top: 8px; display: flex; gap: 14px; }
+.cx-link { padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text-secondary); font-size: 13px; cursor: pointer; }
+.cx-link:hover { color: var(--timmy-text); text-decoration: underline; text-underline-offset: 2px; }
+.cx-tool { grid-column: 2; margin-top: 8px; max-width: 74ch; border: 1px solid var(--timmy-line); border-radius: 3px; }
+.cx-tool > summary { list-style: none; cursor: pointer; padding: 8px 12px; font-size: 13px; color: var(--timmy-text-secondary); display: flex; gap: 8px; }
+.cx-tool > summary::-webkit-details-marker { display: none; }
+.cx-tool > summary::before { content: '▸'; color: var(--timmy-text-secondary); }
+.cx-tool[open] > summary::before { content: '▾'; }
+.cx-tool > summary strong { color: var(--timmy-text); font-weight: var(--timmy-weight-body); }
+.cx-tool pre { margin: 0; padding: 10px 12px; border-top: 1px solid var(--timmy-line); max-height: 320px; overflow: auto; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--timmy-text); }
+.cx-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-divider::before, .cx-divider::after { content: ''; flex: 1; height: 1px; background: var(--timmy-line); }
+.cx-turn.is-streaming .cx-text::after { content: '▍'; color: var(--timmy-accent); }
+/* R11 step 2 (H171): the evidence line under each answer, its activity, the indicators of what runs, the welcome's starters */
+.cx-evidence { grid-column: 2; margin-top: 8px; padding: 2px 0; border: 0; background: transparent; text-align: left; font: inherit; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); cursor: pointer; display: block; overflow-wrap: anywhere; }
+.cx-evidence:hover { color: var(--timmy-text); }
+.cx-evidence .cx-ev-mark { color: var(--timmy-text-secondary); }
+.cx-evidence .cx-ev-ok { color: var(--timmy-live); }
+.cx-evidence .cx-ev-no { color: var(--timmy-text-secondary); }
+.cx-activity { grid-column: 2; margin: 6px 0 2px; padding: 8px 0 8px 14px; border-left: 2px solid var(--timmy-line-strong); max-width: 74ch; font-size: 13px; line-height: 1.55; color: var(--timmy-text-secondary); }
+.cx-act-k { letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); font-size: 13px; }
+.cx-act-k + .cx-act-k, .cx-facts + .cx-act-k, .cx-act-tools + .cx-act-k { margin-top: 10px; }
+.cx-act-line { margin-top: 4px; color: var(--timmy-text); }
+.cx-act-line.is-none { color: var(--timmy-text-secondary); }
+.cx-act-dot { color: var(--timmy-text); }
+.cx-act-sub { margin: 0 0 0 18px; color: var(--timmy-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-facts { margin-top: 4px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; }
+.cx-facts dt { color: var(--timmy-text-secondary); }
+.cx-facts dd { margin: 0; color: var(--timmy-text); overflow-wrap: anywhere; }
+.cx-spin { display: inline-block; min-width: 1ch; color: var(--timmy-accent); }
+.cx-running { color: var(--timmy-text); }
+.cx-running-box { margin: 10px 0 0 42px; font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.cx-empty:not([hidden]) + .cx-running-box { max-width: 860px; margin: 16px auto 0; padding: 0 6px; }
+.cx-welcome-line { margin-top: 12px; font-size: 15px; line-height: 1.6; color: var(--timmy-text-secondary); }
+/* R11 Phase 2 (R53): the starters as half-height cards (two rows of two above the composer at 1440x900) */
+.cx-starters .cx-way-compact { min-height: 0; gap: 2px; padding: 8px 14px; }
+.cx-way-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+.cx-way-head .cx-way-title { flex: 1; min-width: 0; }
+.cx-way-compact .cx-way-words { flex: 0 0 auto; }
+.cx-way-compact .cx-way-act { display: inline; padding: 0; white-space: nowrap; }
+/* an empty conversation list keeps no padding: the welcome under the head takes the height */
+.cx-turns:empty { padding: 0; }
+@media (max-width: 720px) { .cx-running-box { margin-left: 0; } }
+.cx-turn.is-failed .cx-meta .cx-end { color: var(--timmy-accent); }
+.cx-empty { max-width: 74ch; margin: 30px auto 10px; padding: 0 10px; }
+.cx-empty h3 { font-size: 18px; color: var(--timmy-text); }
+.cx-empty p { margin-top: 10px; font-size: 14px; line-height: 1.6; color: var(--timmy-text-secondary); }
+.cx-empty .cx-empty-actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+.cx-btn { min-height: 34px; padding: 6px 14px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; }
+.cx-btn:hover { border-color: var(--timmy-text-secondary); }
+.cx-btn.is-primary { border-color: var(--timmy-accent); background: var(--timmy-accent); color: var(--timmy-accent-ink); font-weight: var(--timmy-weight-strong); }
+.cx-btn:disabled { cursor: not-allowed; color: var(--timmy-text-secondary); border-color: var(--timmy-line); }
+
+.cx-note { margin: 6px 0 0; padding: 6px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.cx-note[data-state="failed"] { border-color: var(--timmy-accent); }
+.cx-route { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 4px 2px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-route .cx-route-words { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-route strong { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.cx-route .cx-change.is-setup { padding: 3px 10px; border-radius: 3px; background: var(--timmy-accent); color: var(--timmy-accent-ink); text-decoration: none; font-weight: var(--timmy-weight-strong); } /* (with no model connected this is the one primary next step: the amber fill, B10) */
+.cx-route .cx-change { flex-shrink: 0; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cx-route.is-off strong { color: var(--timmy-text); }
+
+/* R11 step 1 (the plan's section 2, the composer nobody can miss): a tinted field with "› " and a visible caret, Send amber
+   when idle and Stop during a turn, the chord hint, and the model chip with its readiness dot at the right */
+.cx-composer { border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); }
+.cx-composer:focus-within { border-color: var(--timmy-accent); }
+.cx-field { display: flex; align-items: flex-start; gap: 8px; margin: 6px 10px 0; padding: 6px 10px; border-radius: 3px; background: var(--timmy-accent-soft); }
+.cx-prompt { flex-shrink: 0; padding-top: 1px; font-size: 16px; line-height: 1.45; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+/* R11 Phase 2 (R51): one row until typed in; the rows follow the draft (chat-shell.js fitInput), to eight */
+.cx-input { display: block; flex: 1; min-width: 0; min-height: 24px; max-height: 240px; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 15px; line-height: 1.55; resize: none; caret-color: var(--timmy-accent); overflow-y: auto; }
+.cx-input::placeholder { color: var(--timmy-text-secondary); }
+.cx-input:focus-visible { outline: none; }
+.cx-compose-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px 10px 12px; }
+/* R11 step 3: while another surface answers a turn, the reason beside Stop takes a row of its own under the controls */
+.cx-send-why[data-row="own"] { flex: 1 1 100%; order: 4; text-align: left; }
+.cx-send-why { flex: 1 1 0; margin-left: auto; min-width: 0; font-size: 13px; color: var(--timmy-text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* (shrinks before Send leaves its row; its whole sentence is the title and the panel's NEXT TURN words) */
+.cx-send-why:empty { display: none; }
+.cx-compose-foot .cx-send-why ~ .cx-send, .cx-compose-foot .cx-chip ~ .cx-send { margin-left: 0; }
+/* R11 Phase 2 (R52): the chip never forces Send off its row and is never cut: its basis is 0 and its words wrap inside it
+   (as at 390) when the row is tight; it is no wider than its words */
+.cx-chip { display: inline-flex; flex: 1 1 0; min-width: 0; max-width: max-content; align-items: center; gap: 7px; min-height: 32px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; text-align: left; cursor: pointer; }
+.cx-chip:hover { border-color: var(--timmy-text-secondary); }
+.cx-chip[aria-expanded="true"] { background: var(--timmy-surface); border-color: var(--timmy-text-secondary); }
+.cx-chip .cx-chip-words { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.cx-dot { flex-shrink: 0; font-size: 13px; line-height: 1; color: var(--timmy-text-secondary); }
+.cx-dot[data-state="ready"] { color: var(--timmy-live); }
+.cx-dot[data-state="checking"] { color: var(--timmy-accent); animation: cx-pulse 1s ease-in-out infinite; }
+.cx-dot[data-state="failed"] { color: var(--timmy-text); }
+@keyframes cx-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .cx-dot[data-state="checking"] { animation: none; } }
+.cx-foot-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text-secondary); font-size: 13px; cursor: pointer; }
+.cx-foot-btn:hover { color: var(--timmy-text); }
+/* R11 round 4: Send is the preview's ↑ square (amber only with a route and a draft); Stop takes its place while a turn runs */
+.cx-send { margin-left: auto; min-width: 34px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--timmy-accent); border-radius: 3px; background: var(--timmy-accent); color: var(--timmy-accent-ink); font-size: 14px; font-weight: var(--timmy-weight-strong); cursor: pointer; }
+.cx-send:disabled { border-color: var(--timmy-line-strong); background: transparent; color: var(--timmy-text-secondary); cursor: not-allowed; }
+.cx-send.is-stop { border-color: var(--timmy-text); background: transparent; color: var(--timmy-text); }
+.cx-hint { display: flex; gap: 12px; justify-content: space-between; padding: 8px 2px 0; font-size: 13px; color: var(--timmy-text-secondary); }
+
+/* the right rail: Models */
+.cx-models { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--timmy-line); overflow-y: auto; }
+.cm-head { display: flex; align-items: baseline; gap: 10px; padding: 18px 16px 10px; }
+.cm-head h2 { font-size: 15px; color: var(--timmy-text); }
+.cm-count { font-size: 13px; color: var(--timmy-text-secondary); }
+.cm-applies { margin-left: auto; font-size: 13px; color: var(--timmy-text-secondary); }
+/* R11 round 4: the right panel's tabs (Models | Tools), the chosen provider's description, NEXT TURN, the tool items */
+.cx-panel-tabs { display: flex; gap: 18px; padding: 14px 16px 0; border-bottom: 1px solid var(--timmy-line); }
+.cx-panel-tab { padding: 4px 2px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--timmy-text-secondary); font-size: 14px; font-weight: var(--timmy-weight-strong); cursor: pointer; }
+.cx-panel-tab[aria-selected="true"] { color: var(--timmy-text); border-bottom-color: var(--timmy-accent); }
+.cm-head { padding: 8px 0 0; }
+.cm-desc { margin: 12px 16px 0; }
+.cm-desc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.cm-desc h3 { font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.cm-desc > p { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-desc-state { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; }
+.cm-desc .cm-state { margin: 6px 0 0; }
+.cm-connect { margin-top: 12px; }
+.cm-bottom { margin: auto 16px 0; padding: 14px 0 16px; border-top: 1px solid var(--timmy-line); }
+.cm-bottom h3 { margin-top: 6px; font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); overflow-wrap: anywhere; }
+.cm-bottom .cm-state { margin: 4px 0 0; }
+.cm-bottom .cx-chip { margin-top: 10px; max-width: 100%; }
+.cm-empty-models { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 36px 12px; text-align: center; }
+.cm-empty-models strong { color: var(--timmy-text); }
+.cx-tool-item { margin: 0 16px; padding: 14px 0; border-top: 1px solid var(--timmy-line); }
+.cx-tool-item:first-of-type { border-top: 0; }
+.cx-tool-item h3 { font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.cx-tool-item > p { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cx-tool-item .cm-word { font-size: 13px; color: var(--timmy-text); }
+.cx-tool-item .cm-word.is-verified { color: var(--timmy-live); }
+.cx-tool-item .sh-btn-text { margin-top: 6px; }
+.cx-ctl-right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.cx-ctl-running { font-size: 13px; color: var(--timmy-text); white-space: nowrap; }
+.cm-providers { display: grid; grid-template-columns: repeat(2, 1fr); margin: 12px 16px 0; border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 3px; gap: 3px; }
+.cm-provider { min-height: 34px; padding: 2px 4px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: var(--timmy-text); font-size: 13px; line-height: 1.25; cursor: pointer; }
+.cm-provider[aria-selected="true"] { border-color: var(--timmy-accent); color: var(--timmy-accent); background: var(--timmy-surface); }
+.cm-sub { display: flex; gap: 16px; margin: 12px 16px 0; }
+.cm-subtab { padding: 4px 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--timmy-text-secondary); font-size: 13px; cursor: pointer; }
+.cm-subtab[aria-selected="true"] { color: var(--timmy-accent); border-bottom-color: var(--timmy-accent); }
+.cm-state { margin: 10px 16px 0; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-state .cm-word { color: var(--timmy-text); }
+.cm-state .cm-word.is-live { color: var(--timmy-live); }
+.cm-search { display: flex; align-items: center; gap: 8px; margin: 12px 16px 0; padding: 0 10px; min-height: 38px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); }
+.cm-search span { color: var(--timmy-text-secondary); font-size: 13px; }
+.cm-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 13px; padding: 8px 0; }
+.cm-search input::placeholder { color: var(--timmy-text-secondary); }
+.cm-search input:focus-visible { outline: none; }
+.cm-search:focus-within { border-color: var(--timmy-accent); }
+.cm-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 16px 0; }
+.cm-filter { display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 6px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); min-width: 0; }
+.cm-filter.is-sort { grid-column: 1 / -1; }
+.cm-filter label { flex-shrink: 0; font-size: 13px; color: var(--timmy-text-secondary); }
+.cm-detail-k { margin: 0 0 4px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-input-k { display: block; padding: 10px 14px 0; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cm-filter { position: relative; }
+.cm-filter::after { content: '▾'; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 13px; color: var(--timmy-text-secondary); pointer-events: none; }
+.cm-filter select { flex: 1; min-width: 0; padding-right: 13px; border: 0; background: transparent; color: var(--timmy-text); font-size: 13px; text-align: right; text-align-last: right; text-overflow: ellipsis; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.cm-filter.is-sort select { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.cm-filter select option { background: var(--timmy-surface); color: var(--timmy-text); }
+.cm-filter:focus-within { border-color: var(--timmy-accent); }
+.cm-clear { margin: 6px 16px 0; align-self: flex-start; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text-secondary); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cm-list-head { display: flex; justify-content: space-between; gap: 8px; margin: 12px 16px 0; padding-top: 10px; border-top: 1px solid var(--timmy-line); font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cm-list { flex: 1 1 0; min-height: 150px; overflow-y: auto; list-style: none; margin: 6px 8px 0; padding: 0 0 6px; }
+.cm-row { display: block; width: 100%; padding: 10px 10px 10px 12px; border: 1px solid transparent; border-bottom-color: var(--timmy-line); background: transparent; color: var(--timmy-text); text-align: left; cursor: pointer; }
+.cm-row:hover { background: var(--timmy-surface); }
+.cm-row[aria-current="true"] { border-color: var(--timmy-accent); background: var(--timmy-surface); }
+.cm-row-name { display: flex; gap: 8px; align-items: baseline; font-size: 14px; font-weight: var(--timmy-weight-strong); }
+.cm-row-name .cm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-row[aria-current="true"] .cm-name { color: var(--timmy-accent); }
+.cm-row[aria-current="true"] .cm-row-desc { -webkit-line-clamp: 8; }
+.cm-row-name .cm-inuse { flex-shrink: 0; font-size: 13px; font-weight: var(--timmy-weight-body); color: var(--timmy-text); }
+/* R11 step 1: the choice's state beside the row (checking in amber through the dot; a failure in plain words) */
+.cm-row-name .cm-row-state { flex-shrink: 0; font-size: 13px; font-weight: var(--timmy-weight-body); color: var(--timmy-text); white-space: nowrap; }
+.cm-row-id { margin-top: 3px; font-size: 13px; color: var(--timmy-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-row-desc { margin-top: 6px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cm-row-facts { margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cm-empty { margin: 14px 12px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-none { margin: 8px 16px 0; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-none .cm-none-k { letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text); }
+.cx-text.is-none { color: var(--timmy-text-secondary); }
+.cm-detail { margin: 0 0 8px; padding: 10px 12px 12px; border: 1px solid var(--timmy-line-strong); border-top: 0; border-radius: 0 0 3px 3px; background: var(--timmy-ground); }
+.cm-detail-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.cm-detail .cm-detail-k { margin: 0; }
+.cm-detail .cm-detail-id { margin: 0; font-size: 13px; color: var(--timmy-text-secondary); text-align: right; overflow-wrap: anywhere; }
+.cm-detail p { margin-top: 8px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-facts { margin-top: 8px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 12px; font-size: 13px; }
+.cm-fact { min-width: 0; }
+.cm-fact.is-wide { grid-column: 1 / -1; }
+.cm-fact dt { color: var(--timmy-text-secondary); }
+.cm-fact dd { margin-top: 1px; color: var(--timmy-text); overflow-wrap: anywhere; }
+.cm-use { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.cm-use .cx-btn { align-self: flex-start; }
+.cm-use p { margin: 0; }
+.cm-use-state { font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.cm-use-state[data-state="failed"] { padding: 6px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; }
+.cm-foot { padding: 10px 16px 12px; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
+.cm-panel { margin: 14px 16px 0; font-size: 13px; line-height: 1.55; color: var(--timmy-text-secondary); display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.cm-panel h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
+.cm-panel .cm-panel-title { font-size: 15px; color: var(--timmy-text); text-transform: none; letter-spacing: 0; font-weight: var(--timmy-weight-strong); }
+.cm-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; padding-top: 10px; border-top: 1px solid var(--timmy-line); }
+.cm-parts { list-style: none; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--timmy-line); }
+.cm-parts strong { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text); }
+.cm-parts span { overflow-wrap: anywhere; }
+.cm-panel .cm-word { color: var(--timmy-text); }
+.cm-kv dt { color: var(--timmy-text-secondary); }
+.cm-kv dd { color: var(--timmy-text); text-align: right; }
+
+/* the bottom: the conversation's controls, a drawer, the status line */
+.cx-controls { display: flex; align-items: center; gap: 6px; min-height: 46px; padding: 0 16px; border-top: 1px solid var(--timmy-line); overflow-x: auto; }
+.cx-controls-label { margin-right: 6px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); white-space: nowrap; }
+.cx-ctl, .cx-more { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 32px; padding: 4px 10px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.cx-ctl:hover, .cx-more:hover { border-color: var(--timmy-line-strong); }
+.cx-ctl[aria-expanded="true"], .cx-more[aria-expanded="true"] { border-color: var(--timmy-text-secondary); background: var(--timmy-surface); }
+.cx-more { display: none; }
+.cx-more-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.cx-more-list .cx-ctl-n { color: var(--timmy-text-secondary); }
+.cx-ctl .cx-ctl-n { color: var(--timmy-text-secondary); }
+.cx-ctl.is-off { color: var(--timmy-text-secondary); }
+.cx-ctl.is-stop { border-color: var(--timmy-text); }
+.cx-ctl-gap { flex: 1; }
+.cx-drawer { position: relative; max-height: 260px; overflow-y: auto; padding: 14px 52px 14px 22px; border-top: 1px solid var(--timmy-line-strong); background: var(--timmy-ground); }
+.cx-drawer h3 { font-size: 14px; color: var(--timmy-text); }
+.cx-drawer > p { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); max-width: 110ch; }
+.cx-drawer-close { position: absolute; top: 10px; right: 14px; min-width: 30px; min-height: 30px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; }
+.cx-drawer-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 22px; }
+.cx-drawer-grid section h4 { font-size: 13px; font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); }
+.cx-drawer-grid section .cx-d-state { margin-top: 4px; font-size: 13px; color: var(--timmy-text); }
+.cx-drawer-grid section .cx-d-state.is-live { color: var(--timmy-live); }
+.cx-drawer-grid section p { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
+.cx-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; min-height: 30px; padding: 2px 16px; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 26px; color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; }
+.cx-status .cx-st-pair { display: inline-flex; gap: 6px; min-width: 0; max-width: 100%; }
+.cx-status .cx-st-pair .cx-st-k { flex-shrink: 0; }
+.cx-status .cx-st-pair .cx-st-v { min-width: 0; }
+.cx-status .cx-st-k { letter-spacing: 0.06em; text-transform: uppercase; }
+.cx-status .cx-st-v { color: var(--timmy-text); overflow: hidden; text-overflow: ellipsis; }
+.cx-status .cx-st-sep { color: var(--timmy-text-secondary); }
+.cx-status .cx-st-right { margin-left: auto; display: flex; gap: 14px; }
+
+/* the older views, kept below the conversation (the turn mirror and this page's Streamdown view) */
+.cx-older { padding: 10px 22px 22px; border-top: 1px solid var(--timmy-line-strong); }
+.cx-older .cols-chat { min-height: 520px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* the first run, a provider's setup, no model (the handoff's captures 02, 04, 06; the terminal target's first run) */
+.cx-empty { max-width: 860px; margin: 14px auto 10px; padding: 0 6px; }
+body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the welcome is the head of an empty conversation) */
+.cx-empty .cx-title { margin-top: 6px; }
+.cx-ways { margin-top: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cx-way { display: flex; flex-direction: column; gap: 8px; min-height: 150px; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); color: var(--timmy-text); text-align: left; cursor: pointer; }
+.cx-way:hover { border-color: var(--timmy-text-secondary); }
+.cx-way.is-suggested { border-color: var(--timmy-accent); }
+.cx-way-k { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-way-title { font-size: 15px; font-weight: var(--timmy-weight-strong); }
+.cx-way-words { flex: 1; font-size: 13px; line-height: 1.55; color: var(--timmy-text-secondary); }
+.cx-way-act { font-size: 13px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.cx-way-act { align-self: flex-start; padding: 2px 8px; border-radius: 2px; }
+.cx-way.is-suggested .cx-way-act { background: var(--timmy-accent); color: var(--timmy-accent-ink); }
+.cx-note-box { margin-top: 14px; padding: 12px 16px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cx-note-box strong { color: var(--timmy-text); font-weight: var(--timmy-weight-body); width: 100%; }
+.cx-guide { margin-top: 14px; padding: 10px 16px; border-left: 3px solid var(--timmy-silver); font-size: 13px; line-height: 1.55; color: var(--timmy-text); }
+.cx-guide-k { display: block; margin-bottom: 4px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-setup-state { margin-top: 14px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cx-setup-word { color: var(--timmy-text); }
+.cx-setup-word.is-live { color: var(--timmy-live); }
+.cx-steps { margin: 14px 0 0 20px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.6; color: var(--timmy-text); max-width: 74ch; }
+.cx-steps code, .cx-empty code { padding: 1px 5px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font-size: 13px; color: var(--timmy-silver); }
+.cx-cmd { display: inline-flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cx-setup-note { margin-top: 12px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-avail { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--timmy-line); display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; font-size: 13px; max-width: 74ch; }
+.cx-avail dt { color: var(--timmy-text); }
+.cx-avail dd { color: var(--timmy-text-secondary); text-align: right; }
+.cx-send.is-muted { border-color: var(--timmy-line-strong); background: transparent; color: var(--timmy-text); font-weight: var(--timmy-weight-body); }
+
+/* narrower windows (the handoff's capture 07 at 1220 × 740; the terminal target's 80 × 24): the Models rail becomes a drawer
+   over the conversation under 1180 px, and the menu one under 760 px (Menu opens it); Esc closes either and focus returns */
+.cx-menu { display: none; }
+.cx-body { position: relative; }
+/* the controls' row: its label goes under 1440 px, the minor controls move into More from 1180 px (the terminal target's
+   80 x 24 has [Tools] [Budget] [Logs] [More]), and the counts under 520 px; a row still too wide scrolls */
+@media (max-width: 1439px) { .cx-controls-label { display: none; } }
+/* R11 Phase 2 (R51, 1280x720): on a short screen the conversation takes the height first: the field's label is read, not
+   drawn (the field says "Message TIMMY…"), the draft sentence under the composer and the head's paragraph are not drawn */
+@media (max-height: 760px) {
+  .cx-input-k { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .cx-field { margin-top: 10px; }
+  .cx-hint #cx-hint-draft { display: none; }
+  .cx-hint { justify-content: flex-end; padding-top: 4px; }
+  .cx-head .cx-sub { display: none; }
+  /* R11 round 4: the descriptor row ("Agent chat · Think, make and check your work." with the state words the top line
+     carries too) gives its height to the conversation; the composer's foot and the route line sit closer */
+  .cx-descriptor { display: none; }
+  .cx-route { min-height: 26px; padding: 2px; }
+  .cx-compose-foot { padding: 4px 10px 6px 12px; }
+  .cx-controls { min-height: 40px; }
+}
+@media (max-width: 1180px) { .cx-controls .cx-ctl.is-minor { display: none; } .cx-more { display: inline-flex; } }
+@media (max-width: 520px) { .cx-controls .cx-ctl-n { display: none; } .cx-controls { gap: 2px; padding: 0 6px; } .cx-ctl, .cx-more { padding: 4px 4px; } .cx-controls .cx-ctl > span[aria-hidden] { display: none; } }
+/* R11 round 4 (capture 09): on a phone the bottom row is Plan / Run · Permissions · Budget · Logs · More; Cloudflare optional sits in More */
+@media (max-width: 760px) { .cx-controls .cx-ctl-right .cx-ctl { display: none; } }
+@media (max-width: 1180px) {
+  .cx-body, .cx-body.models-closed { grid-template-columns: minmax(0, 1fr); }
+  .cx-body .cx-models { display: none; }
+  .cx-body.models-open .cx-models { display: flex; position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; width: min(340px, 92%); background: var(--timmy-ground); border-left: 1px solid var(--timmy-line-strong); }
+  /* (the overlay's list keeps room for an opened row and its action under it) */
+  .cx-body.models-open .cx-models .cm-list { min-height: 240px; }
+  .cx-center { padding: 0 18px 10px; }
+  .cx-saved { display: none; }
+}
+@media (max-width: 760px) {
+  /* (R11 round 4: the grid is the chat screen's wrapper; the rail folds behind Menu; Connections and Models are the top buttons) */
+  .sh-screen-chat { grid-template-columns: minmax(0, 1fr); }
+  body.shell .rail { display: none; }
+  body.shell.rail-open .rail { display: flex; position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; width: min(260px, 86vw); }
+  .cx-menu { display: inline-flex; }
+  .cx-top { padding: 0 12px; gap: 10px; min-height: 52px; }
+  .cx-socket, .cx-state-words { display: none; }
+  .cx-descriptor { flex-wrap: wrap; gap: 4px 12px; }
+  .cx-descriptor .cx-descriptor-state { display: none; } /* (the status row's "Logs stay on this computer" says it on a phone) */
+  .cx-ctl-running { display: none; }
+  .cx-center { padding: 0 12px 8px; }
+  .cx-turn { grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; }
+  /* (R11 step 2: the head's tag under its words, never beside them: a tag that wide left the title a thin column) */
+  .cx-head { flex-wrap: wrap; gap: 8px 16px; }
+  .cx-head-words { flex: 1 1 100%; }
+  .cx-tag { white-space: normal; }
+  .cx-ways, .cx-ways.cx-starters { grid-template-columns: minmax(0, 1fr); }
+  /* (R11 round 4: the welcome compact on a phone, so its three starters stay above the composer at 390 × 844) */
+  .cx-welcome-mark.sh-mark.is-big { width: 40px; height: 40px; font-size: 22px; border-radius: 6px; }
+  .cx-welcome-title { margin-top: 10px; font-size: 24px; }
+  .cx-welcome-line { margin-top: 6px; font-size: 14px; line-height: 1.4; }
+  .cx-ways.cx-starters { margin-top: 10px; gap: 6px; }
+  .cx-starters .cx-way-compact { padding: 5px 12px; }
+  .cx-empty { margin-top: 6px; }
+  .cx-scroll { padding-top: 10px; }
+  .cx-controls { padding: 0 10px; }
+  .cx-hint { flex-direction: column; gap: 2px; }
+  .cx-compose-foot { flex-wrap: wrap; gap: 8px 12px; }
+  .cx-chip { max-width: 100%; order: 3; flex: 1 1 100%; justify-content: flex-start; }
+  .cx-chip .cx-chip-words { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+  .cx-send-why { flex: 1 1 100%; order: 4; text-align: left; }
+  .cx-send { order: 2; margin-left: auto; }
+  .cx-status { flex-wrap: wrap; row-gap: 0; padding: 4px 10px; }
+  .cx-status .cx-st-sep, .cx-status .cx-st-sync { display: none; }
+  .cx-status .cx-st-right { order: 1; }
+  .cx-status .is-inference { order: 2; flex-basis: 100%; }
+  .cx-drawer { padding: 12px 46px 12px 14px; }
+  #cx-keys { display: none; }
+  .cx-crumb { flex: 1; }
+  .cx-crumb .cx-proj { max-width: 40vw; }
+  .cx-older { padding: 10px 14px 18px; }
+}
+
+/* ── R11 round 6 (H171; the operator's order of 06:32): the native Rive UI in the Chat ── */
+/* the console band above the route line: the native AgentConsole through H174's mount (the face, the state word beside it,
+   aria-live; src/companion/client/rive-components.css draws the component). One place, before the first turn and through every
+   turn; folded (the face hidden, never the word) by its button; the face's height follows the window so the conversation keeps its
+   height: 20 % of a 900 px window is 180 px (the native 640 × 380 at 47 %: its text reads), never under 120 or over 190 */
+.cx-console { margin: 8px 0 2px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); }
+.cx-console-head { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 2px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-console-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text); font: inherit; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.cx-console-toggle:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+.cx-console-caret { display: inline-block; }
+.cx-console.is-folded .cx-console-caret { transform: rotate(-90deg); }
+.cx-console-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-console-body { padding: 0 8px 8px; }
+#cx-console .tr-component[data-artboard] { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; align-items: center; width: 100%; }
+#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { width: auto; height: clamp(120px, 20vh, 190px); aspect-ratio: 640 / 380; }
+#cx-console .tr-component .tr-words { font-size: 13px; }
+#cx-console .tr-component .tr-status { font-size: 14px; }
+/* folded: ONE row — the toggle, then the state word and its note (the face hidden, never the word); the conversation keeps the height */
+.cx-console.is-folded { display: flex; align-items: center; gap: 10px; min-height: 28px; }
+.cx-console.is-folded .cx-console-head { flex: 0 0 auto; }
+.cx-console.is-folded .cx-console-note { display: none; }
+.cx-console.is-folded .cx-console-body { flex: 1; min-width: 0; padding: 0 8px 0 0; }
+.cx-console.is-folded .cx-console-body .tr-face { display: none; }
+.cx-console.is-folded .cx-console-body .tr-component[data-artboard] { display: block; }
+.cx-console.is-folded .cx-console-body .tr-words { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.cx-console.is-folded .cx-console-body .tr-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-height: 760px) { .cx-console { margin: 4px 0 0; } .cx-console-head, .cx-console.is-folded { min-height: 26px; } }
+/* a native ActionButton and its HTML twin (chat-shell.js twinActionButton): one control shows at a time; while the file loads
+   the host is laid out (the runtime needs its size) but out of view and out of the tab order (visibility), the twin the control */
+.cx-twin { display: inline-grid; position: relative; min-width: 0; }
+.cx-twin > .cx-way[hidden], .cx-twin > .cx-btn[hidden] { display: none; } /* (the twin's own display rule would keep a hidden card on the page) */
+.cx-rive-host { display: inline-grid; gap: 4px; justify-items: start; }
+.cx-rive-host.is-loading { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; }
+.cx-rive-host .tr-component, .cx-rive-host .tr-component[data-artboard] { display: inline-grid; grid-template-columns: 1fr; gap: 4px; justify-items: start; }
+/* the word beside a native button IS its label (the native text is the asset's own): read under the face, 13 px, in the text colour */
+.cx-rive-host .tr-component .tr-words { font-size: 13px; }
+.cx-rive-host .tr-component .tr-status { font-size: 13px; color: var(--timmy-text); }
+.cx-rive-host .tr-face .tr-fallback { font-size: 14px; font-weight: var(--timmy-weight-strong); }
+/* the native buttons at 180 × 54 (the artboard's 240 × 72 at 75 %) so once · session · deny sit in one row of the turn's box */
+#cx-own .cx-needs .cx-rive-host .tr-face { width: 180px; height: auto; aspect-ratio: 240 / 72; }
+#cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 200px; height: auto; aspect-ratio: 240 / 72; }
+.cx-needs-opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: start; }
+/* the welcome's primary starter: the native button in the first starter's cell, its words under it; the card is its twin */
+.cx-way-twin { display: grid; }
+.cx-way-twin .cx-rive-host:not(.is-loading) { padding: 8px 14px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; }
+.cx-way-twin .cx-twin-words { font-size: 13px; color: var(--timmy-text-secondary); }
+@media (max-width: 760px) {
+  .cx-console { margin-top: 6px; }
+  .cx-console-head { padding: 2px 6px; }
+  .cx-console-body { padding: 0 6px 6px; }
+  /* opened on a phone: the face above its words, never a thin column beside it */
+  #cx-console .tr-component[data-artboard] { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  #cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { max-width: 100%; }
+  .cx-console-note { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .cx-console-caret { transition: none; } }
+/* R11 round 6 (GATE 36's installed capture): the turn is a grid of the mark's column and the text's; a child without its column
+   is auto-placed — the own turn's tool lines landed in the 30 px MARK column and painted over the NEEDS-YOU box beside them.
+   Every block of the own turn takes the text column: the tool lines, the ask's box (its kicker, the words, the options, the note) */
+.cx-own-tools { grid-column: 2; margin-top: 6px; font-size: 13px; line-height: 1.55; color: var(--timmy-text-secondary); }
+.cx-own-tools .cx-act-line { margin: 2px 0 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.cx-needs { grid-column: 2; margin-top: 8px; padding: 10px 14px; max-width: 74ch; border: 1px solid var(--timmy-attention, var(--timmy-accent)); border-radius: 3px; font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.cx-needs > p { margin: 0; }
+.cx-needs > p + p, .cx-needs .cx-needs-opts { margin-top: 6px; }
+.cx-needs-k { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-attention, var(--timmy-accent)); }
+.cx-needs .cx-act-sub { margin: 6px 0 0; }
+/* R11 round 6 (H168's R65): the band's height is taken from the conversation, so what the conversation shows must fit beside it.
+   The band open (body.console-open, chat-shell.js syncConsoleClass): the face at 18 % of the window's height (162 px at 900: the
+   native text still reads), the welcome compact — the mark, the question, the line and the three starters whole above the band
+   at 1440 × 900; the primary starter's native face beside its label, its words under them, so its card is as tall as the others */
+/* (the lead's ruling on CI run 40110859990: the face ≥ 300 px wide at 1440 × 900, so the artboard's 28 px headline is ≥ 13 px on
+   screen — the page's own floor; 178 px tall is 300 wide at 640 : 380; a short window and a phone fold the band instead) */
+#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { height: clamp(178px, 20vh, 190px); }
+.cx-console { margin: 4px 0 2px; }
+.cx-console-head { min-height: 26px; }
+.cx-console-body { padding: 0 8px 4px; }
+@media (min-width: 761px) {
+  body.console-open .cx-empty.is-welcome { margin-top: 2px; }
+  body.console-open .cx-scroll { padding-top: 8px; }
+  body.console-open .cx-welcome-mark.sh-mark.is-big { width: 44px; height: 44px; font-size: 24px; border-radius: 6px; margin-top: 2px; }
+  body.console-open .cx-welcome-title { margin-top: 8px; font-size: 26px; }
+  body.console-open .cx-welcome-line { margin-top: 4px; font-size: 14px; line-height: 1.4; }
+  body.console-open .cx-ways.cx-starters { margin-top: 8px; }
+}
+.cx-way-twin .cx-rive-host:not(.is-loading) { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.cx-way-twin .cx-rive-host .tr-component, .cx-way-twin .cx-rive-host .tr-component[data-artboard] { display: flex; align-items: center; gap: 10px; }
+.cx-way-twin .cx-twin-words { flex: 1 1 100%; }
+#cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 160px; }
+/* a phone: the ask's native buttons two to a row (150 × 45), the box whole in the conversation's view with the band folded; the
+   welcome's starters a title each (the words are the desk's), the primary's native face 120 px beside its label */
+@media (max-width: 760px) {
+  #cx-own .cx-needs .cx-rive-host .tr-face { width: 150px; }
+  .cx-needs { padding: 8px 10px; }
+  .cx-needs-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .cx-needs-opts .cx-twin { min-width: 0; }
+  .cx-starters .cx-way-words, .cx-way-twin .cx-twin-words { display: none; }
+  .cx-way-twin .cx-rive-host:not(.is-loading) { padding: 6px 12px; }
+  #cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 120px; }
+}

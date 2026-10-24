@@ -8,3 +8,4 @@ export * from './model.js';
 export { buildOverview, type OverviewGiven, type OverviewOptions } from './build.js';
 export { artifactKind } from './artifacts.js';
 export { flowLife, jobLife, operationLife } from './proof.js';
+export { fleetNeeds, fleetPart } from './fleet.js'; // R4 (lead)

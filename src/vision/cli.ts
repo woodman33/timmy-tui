@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getVisionStatus, runVisionInspection, listVisionEvents, listLearningCandidates } from './runtime.js';
+import { getVisionStatus, runVisionInspection, listVisionEvents, listLearningCandidates, visionBridgeAvailability } from './runtime.js';
 import { loadVisionEnvironment, visionAsset } from './config.js';
 import { getVisionCatalog } from './platform.js';
 import { publicVisionEvent } from './presentation.js';
@@ -33,13 +33,32 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
     console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
   if (sub === 'proof-ladder') { const { runProofLadderCli } = await import('./proof-ladder-cli.js'); await runProofLadderCli(args.slice(1)); return; }
-  if (sub === 'status') { print(await getVisionStatus()); return; }
+  // Refuse a damaged installation before starting a runtime operation.
+  if (['run', 'status', 'serve', 'open'].includes(sub)) {
+    const a = visionBridgeAvailability();
+    if (!a.available) {
+      console.error(`timmy vision ${sub} is ${a.words}`);
+      if (sub === 'status' || sub === 'run') print(await getVisionStatus());
+      process.exitCode = 2; return;
+    }
+  }
+  const resultExit = (result: { ok: boolean; state?: string }) => result.ok ? 0
+    : ['not_configured', 'invalid_request', 'not_available'].includes(result.state ?? '') ? 2 : 1;
+  if (sub === 'status') { const result = await getVisionStatus(); print(result); process.exitCode = resultExit(result); return; }
   if (sub === 'catalog') { print(await getVisionCatalog()); return; }
   if (sub === 'events') { const result = listVisionEvents({ limit: 100 }); print({ ...result, events: result.events.map(publicVisionEvent) }); return; }
   if (sub === 'learning') { const result = listLearningCandidates({ limit: 100 }); print({ ...result, events: result.events.map(publicVisionEvent) }); return; }
   if (sub === 'doctor' || sub === 'stream') {
     const localPython = resolve('.timmy/venv-vision/bin/python');
     const script = sub === 'stream' ? 'scripts/vision-stream.py' : 'scripts/vision-doctor.py';
+    // R6 (lead, H146's finding): the script is named in package.json's files but is in neither the checkout nor the package;
+    // say that, instead of letting python3 fail on a missing file.
+    if (!existsSync(visionAsset(script))) {
+      console.error(`timmy vision ${sub} cannot run in this build: its script (${script}) is not included. `
+        + 'What would make it available: a Timmy build that ships that script (this tree and its history hold none). '
+        + 'VoxVision\'s /observe, /detect and /measure do not need it.');
+      process.exitCode = 2; return;
+    }
     const r = spawnSync(process.env.TIMMY_VISION_PYTHON || (existsSync(localPython) ? localPython : 'python3'), [visionAsset(script), ...args.slice(1)], { stdio: 'inherit' });
     process.exitCode = r.status ?? 1; return;
   }
@@ -48,7 +67,8 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
     const result = await runVisionInspection({ imagePath: flag('--image'), modelId: flag('--model'),
       workspace: flag('--workspace'), workflowId: flag('--workflow'),
       ...(spec ? { specification: JSON.parse(readFileSync(spec, 'utf8')) } : {}) });
-    print('event' in result && result.event ? { ...result, event: publicVisionEvent(result.event) } : result); return;
+    print('event' in result && result.event ? { ...result, event: publicVisionEvent(result.event) } : result);
+    process.exitCode = resultExit(result); return;
   }
   if (sub !== 'serve' && sub !== 'open') {
     console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;

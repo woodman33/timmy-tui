@@ -9,7 +9,12 @@
  */
 import { chatRoute, knownAnswers, readSetupState, OLLAMA_DEFAULT, type SetupState } from '../setup/questions.js';
 import { modelKeySource } from '../utils/model-key.js';
+import { freeOnlyOn, freeOnlyRefusal, modelPrice, type ModelPrice } from './model-price.js';
+// R10 (H169): the route policy (free-only and local-only) every model call is checked against
+import { checkRoute, localOnlyOn, policyRefusalLines, type RoutePolicy } from './route-policy.js';
 import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, ollamaAt, PULL_WORDS, validOllamaModelName, type ListedModel, type OllamaAt } from '../setup/ollama-models.js';
+// R11 Phase 2 (H169, item c): the words of Ollama's cloud route (src/models/catalog.ts: the shared contract)
+import { OLLAMA_CLOUD_TERMS, ollamaCloudRoute } from '../models/catalog.js';
 // R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
 import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
 import type { LastResortAnswer } from './core.js';
@@ -66,7 +71,8 @@ export function localRouteWords(r: Local): string {
   if ('error' in r.at) return 'chat: local · the Ollama address is not usable · /setup chat';
   if (!r.model) return 'chat: local · no model chosen · /model';
   const where = r.at.loopback ? 'Ollama' : `Ollama at ${r.at.host} (not this computer)`;
-  return r.cloud ? `chat: ${r.model} · ${where}, cloud-backed` : `chat: local ${r.model} · ${where}`;
+  // R11 Phase 2 (H169, item c): a ":cloud" name runs on Ollama's servers under the person's Ollama account, through this Ollama
+  return r.cloud ? `chat: ${ollamaCloudRoute(r.model)}${r.at.loopback ? '' : ` through the ${where}`}` : `chat: local ${r.model} · ${where}`;
 }
 
 /** The agent's route for a turn, or why there is none (the lines a message gets instead of a turn). */
@@ -108,6 +114,24 @@ export interface RouteNow {
 export const REPL_NO_ROUTE_TRY = 'Try: /setup key (it asks for the key, hidden), or the local model: /setup chat';
 
 /**
+ * R11 (H169, Phase 0 item 1; the operator's order of 2026-10-23: no default paid model anywhere, "Disable an unsafe Send path
+ * rather than using an unchosen model"): a key, and no OpenRouter model chosen for the next turn. Nothing is sent until a
+ * person chooses one; the same words on every surface, each with its own way to choose. The route's words end in
+ * NO_MODEL_CHOSEN_WORDS, so a surface can tell this refusal by them.
+ */
+export const NO_MODEL_CHOSEN_WORDS = 'no model chosen';
+/** The one sentence every surface says (the lead's words; H172's test asserts it on each): the REPL's own way to choose. */
+export const NO_MODEL_CHOSEN_SENTENCE = 'No model chosen. /model <id> chooses one (/model free lists free ones).';
+export const NO_MODEL_CHOSEN_REFUSAL: readonly string[] = [
+  `Error: ${NO_MODEL_CHOSEN_SENTENCE}`,
+  'Cause: an OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.',
+  'Try: Models (M) in timmy workbench, /model <id> in the REPL (timmy), or timmy init --chat openrouter --model <id>',
+  'Nothing was sent to any model.',
+];
+/** The refusal in the words of a surface: the REPL's own command is in the sentence already (no Try); elsewhere, where to choose. */
+export const noModelChosenRefusal = (surface: ChatSurface): string[] => NO_MODEL_CHOSEN_REFUSAL.filter((l) => !(surface === 'repl' && /^Try:/.test(l)));
+
+/**
  * R4 (H103): the chat's route from the setup now, in the words of the contract (src/contracts/chat-session.ts): local (the
  * Ollama and model the setup chose: ready, or why not), OpenRouter (a model key is found), or none (no key, and the setup
  * did not choose the local model: refused, nothing sent). `key`: whether a model key is found; `openRouterModel`: the
@@ -121,15 +145,32 @@ export const REPL_NO_ROUTE_TRY = 'Try: /setup key (it asks for the key, hidden),
  * from `cwd`). Each surface's own way to the fix: the REPL's commands in the REPL; the monitor's /setup on its top line; a
  * command any terminal runs elsewhere.
  */
-export function chatRouteNow(o: { env?: Env; cwd?: string; state?: SetupState; session?: string | null; key?: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface }): RouteNow {
+export function chatRouteNow(o: {
+  env?: Env; cwd?: string; state?: SetupState; session?: string | null; key?: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface;
+  /** R5: free-only now (absent: TIMMY_CHAT_FREE_ONLY, else the settings' freeOnly); `price` answers what a model costs (a test's) */
+  freeOnly?: boolean; price?: (id: string) => ModelPrice;
+  /** R10 (H169): local-only now (absent: TIMMY_CHAT_LOCAL_ONLY, else the settings' localOnly) */
+  localOnly?: boolean;
+}): RouteNow {
   const surface = o.surface ?? 'repl';
   const route = resolveChatRoute({ env: o.env, state: o.state, session: o.session });
+  // R10 (H169): the policy, read at every message (src/agent/route-policy.ts): local-only, then free-only
+  const policy: RoutePolicy = { freeOnly: o.freeOnly ?? freeOnlyOn(o.env ?? process.env), localOnly: o.localOnly ?? localOnlyOn(o.env ?? process.env) };
+  const tag = (words: string): string => `${words}${policy.localOnly ? ' · local-only' : ''}`;
   // the monitor's top line names its own /setup (it answers where the setup happens): never the REPL's /model or /setup chat
   const said = (words: string): string => (surface === 'monitor' ? words.replace(/ · \/(model|setup chat)$/, ' · /setup') : words);
   if (route.kind === 'local') {
     const words = said(localRouteWords(route));
     const ready = prepareLocal(route, { fail: '' });
-    if ('route' in ready) return { route, state: { kind: 'local', words, ready: true }, local: ready.route };
+    if ('route' in ready) {
+      // R10 (H169): a cloud model through this Ollama, or another computer's Ollama, is refused by local-only; free-only
+      // refuses what it cannot know to be free (a model with local weights here costs nothing)
+      if (policy.localOnly || policy.freeOnly) {
+        const c = checkRoute({ source: 'ollama-local', model: ready.route.model, host: ready.route.host, role: 'turn' }, policy, o.price ? { price: o.price } : {});
+        if (!c.ok) return { route, state: { kind: 'local', words: `${words} · ${c.reason === 'cloud-under-local-only' ? 'local-only' : 'free-only'}: not sent`, ready: false, refusal: policyRefusalLines(c, surface !== 'repl') } };
+      }
+      return { route, state: { kind: 'local', words: tag(words), ready: true }, local: ready.route };
+    }
     // the fix in the words of the surface: the REPL's own commands there, a command any terminal runs elsewhere
     const away = surface !== 'repl';
     const refusal = plainLines(ready.refusal).map((l) => (!away || !/^Try:/.test(l) ? l
@@ -138,7 +179,29 @@ export function chatRouteNow(o: { env?: Env; cwd?: string; state?: SetupState; s
     return { route, state: { kind: 'local', words, ready: false, refusal } };
   }
   const key = o.key ?? (() => { try { return modelKeySource(o.env ?? process.env, o.cwd ?? process.cwd()) !== null; } catch { return false; } })();
-  if (key) return { route, state: { kind: 'openrouter', words: said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short })), ready: true } };
+  if (key) {
+    const chosen = String(o.openRouterModel ?? '').trim();
+    const words = said(chatRoute({ key: true, model: chosen || null, short: o.short }));
+    // R10 (H169): local-only refuses OpenRouter, whatever the model costs, and (R11, item 2) whether one is chosen or not: it
+    // is said first, since choosing a model would not help
+    if (policy.localOnly) {
+      const c = checkRoute({ source: 'openrouter', model: chosen || 'the chat\'s OpenRouter model', role: 'turn' }, policy, o.price ? { price: o.price } : {});
+      if (!c.ok) return { route, state: { kind: 'openrouter', words: `${words} · local-only: not sent`, ready: false, refusal: policyRefusalLines(c, surface !== 'repl') } };
+    }
+    // R11 (H169, Phase 0 item 1): a key and no model chosen: refused before anything else, on every surface (free-only needs
+    // the chosen model's price, so it comes after)
+    if (!chosen) {
+      return { route, state: { kind: 'openrouter', words: `${words} · ${NO_MODEL_CHOSEN_WORDS}`, ready: false, refusal: noModelChosenRefusal(surface) } };
+    }
+    // R5: free-only refuses a model not known to be free (unknown is refused, never passed), on every surface alike
+    if (policy.freeOnly) {
+      const model = o.openRouterModel ?? null;
+      const refusal = freeOnlyRefusal(model, model ? (o.price ?? ((id: string) => modelPrice(id)))(model) : null, surface !== 'repl');
+      if (refusal) return { route, state: { kind: 'openrouter', words: `${words} · free-only: not sent`, ready: false, refusal } };
+      return { route, state: { kind: 'openrouter', words: `${words} · free-only`, ready: true } };
+    }
+    return { route, state: { kind: 'openrouter', words, ready: true } };
+  }
   const refusal = surface === 'repl' ? NO_ROUTE_REFUSAL.map((l) => (/^Try:/.test(l) ? REPL_NO_ROUTE_TRY : l)) : [...NO_ROUTE_REFUSAL];
   return { route, state: { kind: 'none', words: said(chatRoute({ key: false })), ready: false, refusal } };
 }
@@ -168,10 +231,14 @@ export function fallbackRoute(fb: LastResortAnswer): NonNullable<TurnFacts['rout
 export function sealedRoute(route: LocalChatRoute, last: LocalTurnResult | null): NonNullable<TurnFacts['route']> {
   const at = ollamaAt(route.host);
   const local = last ? last.localEndpoint : !('error' in at) && at.loopback && !cloudModelTag(route.model);
+  // R11 Phase 2 (H169, item c): a model that ran on Ollama's servers (its name says cloud, or Ollama said so for the turn):
+  // the receipt names the route ("ollama cloud") and its endpoint 'cloud'; its cost basis stays unknown (never no charge)
+  const cloud = last ? last.cloud : cloudModelTag(route.model);
   return {
-    host: 'error' in at ? route.host : at.host, endpoint: local ? 'local' : 'remote',
+    host: 'error' in at ? route.host : at.host, endpoint: local ? 'local' : cloud ? 'cloud' : 'remote',
     tools: last ? (last.toolsOn ? 'on' : 'off') : 'unknown', ...(last?.actualModel ? { modelResolved: last.actualModel } : {}),
     costBasis: local ? 'local endpoint' : 'unknown',
+    ...(cloud ? { route: 'ollama cloud' as const } : {}),
   };
 }
 
@@ -223,11 +290,13 @@ export async function localModelCommand(args: string, r: Local, o: { set: (model
       quiet(`  /model lists what it has. ${PULL_WORDS}`),
     ];
   }
-  // what the model can do, asked of Ollama now (a turn asks again)
+  // what the model can do, asked of Ollama now: this choice's one /api/show, kept for the session's turns (R28: a turn asks
+  // no /api/show again while Ollama keeps answering); a fresh choice asks afresh
   let tools = 'tool calls: checked at the next message';
-  const { showModel, LocalChatError } = await import('./local-chat.js');
+  const { forgetShownModel, showModelOnce, LocalChatError } = await import('./local-chat.js');
   try {
-    const shown = await showModel(r.at, chosen.name, undefined, 5000);
+    forgetShownModel(r.at, chosen.name);
+    const { shown } = await showModelOnce(r.at, chosen.name, undefined, 5000);
     tools = shown.capabilities === null ? 'tool calls: Ollama does not say' : shown.capabilities.includes('tools') ? 'takes tool calls' : 'does not take tool calls: turns run without tools';
   } catch (err) {
     tools = err instanceof LocalChatError ? `tool calls: not known (${err.message.split('\n')[0]})` : tools;
@@ -235,7 +304,7 @@ export async function localModelCommand(args: string, r: Local, o: { set: (model
   o.set(chosen.name);
   out.push([{ text: `  ${o.glyphs.ok} `, role: 'verified' }, { text: 'Chat model ' }, { text: `${r.model ?? 'none'} ${o.glyphs.arrow} `, role: 'secondary' }, { text: chosen.name, role: 'strong' }, { text: ' for this session', role: 'secondary' }]);
   out.push(quiet(`  ${modelFacts(chosen, r.at)} · ${tools}`));
-  if (chosen.cloud) out.push([{ text: '  Cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).', role: 'estimate' }]);
+  if (chosen.cloud) out.push([{ text: `  Ollama cloud: ${chosen.name} ${OLLAMA_CLOUD_TERMS}. Ollama sends the chat off this computer; no cost comes back (unknown).`, role: 'estimate' }]);
   out.push(quiet('  /setup chat keeps a model for every start.'));
   return out;
 }

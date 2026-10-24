@@ -2,7 +2,7 @@
  * R4 (H110): the terminal Workbench's lines. A screen is a list of rows; a row is a list of segments, each a piece of text
  * with a role (src/workbench/theme.ts maps roles to Timmy Homebrew's colours, and every role's meaning is also in its words).
  * Every row is fitted to its width here, before Ink draws it: a row is never wider than its zone, and text that does not fit
- * ends in an ellipsis, cut at a word where one is near, so nothing is cut mid-word without one.
+ * ends in an ellipsis after its last whole word that fits, so no word is cut through (R8 H157: cut()).
  */
 import { truncate, visibleWidth, wrap } from '../term/width.js';
 
@@ -13,14 +13,21 @@ export type Role =
   | 'secondary'
   /** a name or a heading: off-white, bold */
   | 'strong'
-  /** a command, a key, a button: Homebrew green */
+  /** a command, a key, a button: the text's colour. R7 (H150; DESIGN.md §10 B10 "Amber is exact"; R5 visual 10 "amber key hints
+   *  and commands"): keys, key hints and commands are not amber; their brackets and their words say what they are */
   | 'action'
+  /** R7 (H150): amber, where B10 puts it: the selection's marker, the one primary next step, a field's prompt (the field has the
+   *  keyboard), .intent and .predict, and a recommendation (a prediction) */
+  | 'accent'
   /** a link or a place to go: blue */
   | 'link'
   /** a named decision that waits on a person (NEEDS YOU, waiting on you): amber */
   | 'attention'
   /** failed, refused */
   | 'failure'
+  /** R5 (H131): an observed live connection, a passed check, a verified sealed receipt, and nothing else: green (DESIGN.md
+   *  B10). Never a command, a setting, a recommendation, a running process or a delivered result; always with its word. */
+  | 'live'
   /** made by a model, or sent over the network */
   | 'ai'
   /** a border or a rule */
@@ -37,6 +44,12 @@ export interface Seg {
   selected?: boolean;
   /** drawn inverted (a text cursor) */
   inverse?: boolean;
+  /** R8 (H157): raw content (what a job printed, a record as it was read): cut where the row ends (clip), never moved back to
+   *  a word, since it is what was printed and not Timmy's words */
+  raw?: boolean;
+  /** R11 (H167; step 1b): drawn on the composer's tinted ground (the playbook's `block` input: src/workbench/theme.ts
+   *  inputGround); the tint spans the row, so its padding carries the flag too (fit) */
+  block?: boolean;
 }
 
 export type Line = Seg[];
@@ -48,40 +61,81 @@ export const lineCells = (line: Line): number => line.reduce((n, s) => n + visib
 export const plain = (line: Line): string => line.map((s) => s.text).join('');
 
 /**
- * `text` cut to at most `room` cells: whole when it fits; else up to a space near the end and the ellipsis, or (no space
- * near) the ellipsis after as much as fits. An empty string when there is no room at all.
+ * `text` cut to at most `room` cells: whole when it fits; else its words up to the last whole one that fits, then the
+ * ellipsis: never through a word. R8 (H157; the R7 package's item E): before, it ended at a space only in the room's last
+ * third and cut through the word otherwise ("[4 Connect a Cloudro...]", "[2 Check con…]", "composit…"). A first word wider
+ * than the whole room (an id, a hash, a path, a model's name in a narrow cell) shows its start and the ellipsis, as DESIGN.md
+ * §2.4 draws a hash. An empty string when there is no room at all.
  */
 export function cut(text: string, room: number, ellipsis = '…'): string {
+  return cutAt(text, room, ellipsis).text;
+}
+
+/** cut(), and whether it broke through a word (`through`: the first word alone is wider than the room). */
+function cutAt(text: string, room: number, ellipsis: string): { text: string; through: boolean } {
+  if (room <= 0) return { text: '', through: false };
+  if (visibleWidth(text) <= room) return { text, through: false };
+  const e = visibleWidth(ellipsis);
+  // no room for a letter and the ellipsis: the ellipsis alone (never a letter without it)
+  if (room <= e) return { text: room === e ? ellipsis : '', through: false };
+  const hard = truncate(text, room, ellipsis);
+  const body = hard.slice(0, hard.length - ellipsis.length);
+  // the words that fit: all of the body when the text goes on with a space, else up to its last space
+  const end = /^\s/.test(text.slice(body.length)) ? body.length : body.search(/\s\S*$/);
+  if (end >= 0) return { text: `${body.slice(0, end).replace(/[\s,;:·-]+$/, '')}${ellipsis}`, through: false };
+  return { text: hard, through: true };
+}
+
+/**
+ * R8 (H157): raw content (a job's printed line, a record as it was read, a file's line) cut where the row ends: as much as
+ * fits, then the ellipsis. Never moved back to a word: it is what was printed, not Timmy's words (cut() is for those).
+ */
+export function clip(text: string, room: number, ellipsis = '…'): string {
   if (room <= 0) return '';
   if (visibleWidth(text) <= room) return text;
   const e = visibleWidth(ellipsis);
-  // no room for a letter and the ellipsis: the ellipsis alone (never a letter without it)
   if (room <= e) return room === e ? ellipsis : '';
-  const hard = truncate(text, room, ellipsis);
-  const body = hard.slice(0, hard.length - ellipsis.length);
-  const space = body.lastIndexOf(' ');
-  // a word boundary in the last third of the room: cut there, so the last word shown is whole
-  if (space > 0 && visibleWidth(body.slice(0, space)) >= Math.floor(room * 0.66)) return `${body.slice(0, space).replace(/[\s,;:·-]+$/, '')}${ellipsis}`;
-  return hard;
+  return truncate(text, room, ellipsis);
 }
 
-/** The line fitted to exactly `width` cells: segments kept whole while they fit, the first that does not cut (ellipsis), then padding. */
-export function fit(line: Line, width: number, ellipsis = '…'): Line {
+/**
+ * The line cut to at most `width` cells, not padded: segments kept whole while they fit, the first that does not cut (cut():
+ * after a whole word, and the ellipsis; clip() for a raw one). R8 (H157): a segment after others whose first word alone does
+ * not fit (a wrapped row holds one word a segment) ends the row with the ellipsis just after the words before it, so no word
+ * is cut through there either ("or set OP…" is "or set…").
+ */
+export function trimTo(line: Line, width: number, ellipsis = '…'): Line {
   const out: Line = [];
   let used = 0;
   for (const s of line) {
     if (used >= width) break;
     const w = visibleWidth(s.text);
     if (used + w <= width) { out.push(s); used += w; continue; }
-    const room = width - used;
-    const text = cut(s.text, room, ellipsis);
-    if (text) { out.push({ ...s, text }); used += visibleWidth(text); }
+    const c = s.raw ? { text: clip(s.text, width - used, ellipsis), through: false } : cutAt(s.text, width - used, ellipsis);
+    if (c.through && out.length) {
+      // the spaces before it go too: the ellipsis follows the last whole word
+      while (out.length > 1 && !out[out.length - 1].text.trim()) used -= visibleWidth(out.pop()!.text);
+      const last = out[out.length - 1];
+      const kept = last.text.trim() ? last.text.replace(/\s+$/, '') : last.text;
+      used -= visibleWidth(last.text) - visibleWidth(kept);
+      out[out.length - 1] = { ...last, text: kept };
+      if (used + visibleWidth(ellipsis) <= width) out.push({ ...s, text: ellipsis });
+      break;
+    }
+    if (c.text) out.push({ ...s, text: c.text });
     break;
   }
+  return out;
+}
+
+/** The line fitted to exactly `width` cells: trimTo(), then padding. */
+export function fit(line: Line, width: number, ellipsis = '…'): Line {
+  const out = trimTo(line, width, ellipsis);
+  const used = lineCells(out);
   if (used < width) {
     const last = out[out.length - 1];
-    // a selected row keeps its ground to the edge
-    out.push({ text: ' '.repeat(width - used), ...(last?.selected ? { selected: true } : {}) });
+    // a selected row keeps its ground to the edge, and so does the composer's tinted row
+    out.push({ text: ' '.repeat(width - used), ...(last?.selected ? { selected: true } : {}), ...(last?.block ? { block: true } : {}) });
   }
   return out;
 }
@@ -108,6 +162,89 @@ export function pick(pieces: Line[], width: number, gap: Seg = { text: '  ' }): 
   });
   const out: Line = [];
   pieces.forEach((p, i) => { if (kept.has(i)) { if (out.length) out.push(gap); out.push(...p); } });
+  return out;
+}
+
+/**
+ * R5 (H131; the QA round's defect 16): pieces with a rank (0 first), each kept whole or left out, the most important first:
+ * what fits in `width` cells, drawn in the order given (a less important piece is left out before a more important one).
+ * R8 (H157; the R7 package's item E): in one fixed order: once a piece does not fit, every less important one is left out
+ * too, so a row loses its pieces from the least important as it narrows and never draws a shorter, less important piece in
+ * the place of a more important one (at 100 columns the key row drew [a] log and left out [s] Studio · Show).
+ */
+export function pickRanked(pieces: Array<{ line: Line; rank: number }>, width: number, gap: Seg = { text: '  ' }): Line {
+  const order = pieces.map((p, i) => ({ ...p, i })).sort((a, b) => a.rank - b.rank || a.i - b.i);
+  const kept = new Set<number>();
+  let used = 0;
+  for (const p of order) {
+    const w = lineCells(p.line) + (kept.size ? cells(gap.text) : 0);
+    if (used + w > width) break;
+    kept.add(p.i);
+    used += w;
+  }
+  const out: Line = [];
+  pieces.forEach((p, i) => { if (kept.has(i)) { if (out.length) out.push(gap); out.push(...p.line); } });
+  return out;
+}
+
+/** Where a word too long for a row breaks best: just after a separator (a path's /, a ·, -, comma or colon) within `room`. */
+function breakAt(word: string, room: number): number {
+  const chars = [...word];
+  let fits = 0;
+  let w = 0;
+  for (const ch of chars) { const cw = visibleWidth(ch); if (w + cw > room) break; w += cw; fits += 1; }
+  if (fits <= 0) return 1;
+  for (let i = fits; i > Math.floor(fits / 3); i--) if (/[/·\-,:]/.test(chars[i - 1])) return chars.slice(0, i).join('').length;
+  return chars.slice(0, fits).join('').length;
+}
+
+/**
+ * R5 (H131; the QA round's defects 5, 15 and 25): a line of several voices wrapped to rows of at most `width` cells at its
+ * spaces, each piece keeping its role; a word wider than a row (a path) breaks just after a separator where it has one, else
+ * where the row ends, never with an ellipsis. Rows after the first begin with `indent`. A line that fits is returned as it is.
+ */
+export function wrapSegs(line: Line, width: number, indent = ''): Line[] {
+  if (width <= 0 || lineCells(line) <= width) return [line];
+  const indentW = visibleWidth(indent);
+  const out: Line[] = [];
+  let cur: Line = [];
+  let used = 0;
+  let fresh = false;
+  const trim = (): void => {
+    while (cur.length) {
+      const last = cur[cur.length - 1];
+      const t = last.text.replace(/\s+$/, '');
+      if (t === last.text) break;
+      used -= visibleWidth(last.text) - visibleWidth(t);
+      if (t) { cur[cur.length - 1] = { ...last, text: t }; break; }
+      cur.pop();
+    }
+  };
+  const newRow = (): void => { trim(); out.push(cur); cur = indent ? [{ text: indent }] : []; used = indentW; fresh = true; };
+  const add = (s: Seg, text: string): void => { cur.push({ ...s, text }); used += visibleWidth(text); fresh = false; };
+  for (const s of line) {
+    for (const tok of s.text.match(/\s+|\S+/g) ?? []) {
+      const w = visibleWidth(tok);
+      if (/^\s/.test(tok)) {
+        if (fresh) continue;
+        if (used + w > width) { newRow(); continue; }
+        add(s, tok);
+        continue;
+      }
+      if (used + w <= width) { add(s, tok); continue; }
+      if (!fresh && used > indentW) newRow();
+      let rest = tok;
+      while (visibleWidth(rest) > width - used) {
+        const n = breakAt(rest, Math.max(1, width - used));
+        add(s, rest.slice(0, n));
+        rest = rest.slice(n);
+        newRow();
+      }
+      if (rest) add(s, rest);
+    }
+  }
+  trim();
+  if (cur.length && !(fresh && cur.length === (indent ? 1 : 0))) out.push(cur);
   return out;
 }
 

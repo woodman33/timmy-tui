@@ -1,0 +1,334 @@
+// R5 (H133): drafts. What Timmy proposes for the board arrives as a draft the person accepts or discards (the operator's order
+// of 2026-10-15: "Timmy can propose and arrange board content through its supported AI/backend interface; users can review,
+// accept or discard drafts. Accepting a canvas draft must not secretly execute native edits").
+//
+// How it works, on the agent's existing bridge (canvas.js runs the call; src/studio/bridge.ts carries it):
+//   - an exec flagged as a draft runs as any canvas call does, and every shape and asset it creates carries the draft's mark
+//     (meta.timmyDraft: its id, the job, the revision it was made from, when). The page outlines a pending draft in amber,
+//     dashed, labelled DRAFT · proposed by Timmy, and lists it in its side panel with Accept and Discard;
+//   - a draft only adds: a call that changes or removes what is already on the board (anything but a pending draft's own
+//     shapes), or adds a page, keeps nothing and says why (draftRefusal);
+//   - a draft made from a revision the canvas has left (the person or another call changed it after Timmy read it) is refused
+//     before its code runs, and says so (staleWords);
+//   - Accept clears the mark (the shapes stay; meta.timmyProposed keeps who proposed them and when they were accepted); Discard
+//     removes the draft's shapes and assets (shapes of the person's own inside them are moved out first). Neither runs anything:
+//     no tool, no job, no file but the canvas itself, saved through the normal revision-checked save, and the decision recorded.
+//
+// Imports nothing: canvas.js hands in the store's records, so these rules run in Node's tests too.
+
+/** A draft's id, as the canvas server makes it (src/studio/server.ts). */
+export const DRAFT_ID = /^draft-[0-9a-f]{8,32}$/;
+/** The label on a pending draft, on the canvas and in the panel. */
+export const DRAFT_LABEL = 'DRAFT · proposed by Timmy';
+/** The records a draft may create: shapes, the bindings between them (or to the board's shapes), and the assets they show. */
+export const DRAFT_CREATES = Object.freeze(['shape', 'binding', 'asset']);
+/** The records that make up the document (the store's other records are this page's own view: camera, selection, pointer). */
+export const DOCUMENT_TYPES = Object.freeze(['document', 'page', 'shape', 'binding', 'asset']);
+
+const isRevision = (n) => Number.isInteger(n) && n >= 0;
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The draft mark a record carries (meta.timmyDraft), or null. */
+export function draftOf(record) {
+  const d = record && record.meta && record.meta.timmyDraft;
+  return d && typeof d === 'object' && typeof d.id === 'string' && DRAFT_ID.test(d.id) ? d : null;
+}
+
+/** The mark a draft call puts on what it creates. `from`: the canvas revision it was made from. */
+export function draftMark({ id, job = null, from, at = new Date().toISOString() }) {
+  if (!DRAFT_ID.test(String(id))) throw new Error(`Not a draft id: ${JSON.stringify(id).slice(0, 40)}`);
+  return { id, job: typeof job === 'string' ? job : null, from: isRevision(from) ? from : null, at };
+}
+
+/**
+ * The pending drafts among `records` (every record of the store), oldest first: each with its id, job, the revision it was made
+ * from, when, its shapes (ids), the pages they are on, and its assets.
+ */
+export function pendingDrafts(records) {
+  const byId = new Map();
+  const shapes = new Map();
+  for (const r of records) if (r && r.typeName === 'shape') shapes.set(r.id, r);
+  const pageOf = (r) => {
+    let at = r;
+    for (let i = 0; at && i < 64; i++) {
+      if (typeof at.parentId === 'string' && at.parentId.startsWith('page:')) return at.parentId;
+      at = shapes.get(at.parentId);
+    }
+    return null;
+  };
+  for (const r of records) {
+    const d = draftOf(r);
+    if (!d || (r.typeName !== 'shape' && r.typeName !== 'asset')) continue;
+    if (!byId.has(d.id)) byId.set(d.id, { id: d.id, job: d.job ?? null, from: isRevision(d.from) ? d.from : null, at: typeof d.at === 'string' ? d.at : null, shapes: [], pages: [], assets: [] });
+    const draft = byId.get(d.id);
+    if (r.typeName === 'asset') { draft.assets.push(r.id); continue; }
+    draft.shapes.push(r.id);
+    const page = pageOf(r);
+    if (page && !draft.pages.includes(page)) draft.pages.push(page);
+  }
+  // A draft whose shapes are all gone (the person deleted them) is no longer pending: only its assets would be left.
+  return [...byId.values()].filter((d) => d.shapes.length > 0).sort((a, b) => String(a.at).localeCompare(String(b.at)) || a.id.localeCompare(b.id));
+}
+
+/**
+ * What a call did to the document, from its records before and after (each a map of id → record, as a store snapshot's
+ * `store`): the ids it created, changed and removed, among the document's records only.
+ */
+export function documentChanges(before, after) {
+  const isDoc = (r) => r && DOCUMENT_TYPES.includes(r.typeName);
+  const created = [];
+  const changed = [];
+  const removed = [];
+  for (const [id, r] of Object.entries(after)) {
+    if (!isDoc(r)) continue;
+    if (!(id in before)) created.push(id);
+    else if (JSON.stringify(before[id]) !== JSON.stringify(r)) changed.push(id);
+  }
+  for (const [id, r] of Object.entries(before)) if (isDoc(r) && !(id in after)) removed.push(id);
+  return { created, changed, removed };
+}
+
+/**
+ * Why a draft call is refused after it ran, in words; null when it only added. It may create shapes, bindings and assets, and
+ * change or remove only what was a pending draft before it ran (Timmy arranging its own proposal); anything else it touched (a
+ * shape or binding of the board's own, a page, the document) is the person's, and a draft never changes it.
+ */
+export function draftRefusal(changes, before, after) {
+  const typeOf = (id) => (after[id] || before[id] || {}).typeName || 'record';
+  const pending = (id) => {
+    const r = before[id];
+    if (!r) return false;
+    if (draftOf(r)) return true;
+    // a binding from or to a pending draft's shape is that draft's too
+    if (r.typeName === 'binding') return [r.fromId, r.toId].some((s) => draftOf(before[s]));
+    return false;
+  };
+  const added = changes.created.filter((id) => !DRAFT_CREATES.includes(typeOf(id)));
+  const touched = [...changes.changed.filter((id) => !followed(before[id], after[id])), ...changes.removed].filter((id) => !pending(id));
+  if (added.length === 0 && touched.length === 0) return null;
+  const parts = [];
+  if (touched.length) parts.push(`it changed or removed ${plural(touched.length, 'record')} already on the board (${touched.slice(0, 3).join(', ')}${touched.length > 3 ? ', …' : ''})`);
+  if (added.length) parts.push(`it added ${plural(added.length, typeOf(added[0]))}, which a draft does not`);
+  return `Refused: a draft only adds to the board, and ${parts.join('; ')}. Nothing was kept. Propose new shapes as a draft; to change the board's own shapes, ask the person, or run the call without draft (it asks them first in Timmy).`;
+}
+
+/**
+ * The records a draft call created that do not carry its mark when it ends (`created`: those records; `mark`: the draft's), each
+ * with the mark put back. Shapes and assets only (a binding goes with its shapes).
+ */
+export function remarkPlan(created, mark) {
+  return created
+    .filter((r) => r && (r.typeName === 'shape' || r.typeName === 'asset') && draftOf(r)?.id !== mark.id)
+    .map((r) => ({ ...r, meta: { ...(r.meta || {}), timmyDraft: mark } }));
+}
+
+/** Timmy's drawn cards (./cards.js CARD_SHAPES), and the props the page itself writes as a card follows its record. */
+const DRAWN_CARDS = ['timmy-workflow', 'timmy-params', 'timmy-result'];
+const FOLLOWED_PROPS = ['data', 'readAt', 'gone', 'title', 'command', 'h'];
+/**
+ * Whether a change is the page's own following of a drawn card's record (./cards.js onAnswer, which can run while a call
+ * awaits): only those props changed, nothing else of the card. Such a change is never the call's, so it never refuses a draft.
+ */
+export function followed(a, b) {
+  if (!a || !b || a.typeName !== 'shape' || !DRAWN_CARDS.includes(a.type) || a.type !== b.type) return false;
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (k !== 'props' && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+  }
+  for (const k of new Set([...Object.keys(a.props || {}), ...Object.keys(b.props || {})])) {
+    if (!FOLLOWED_PROPS.includes(k) && JSON.stringify(a.props[k]) !== JSON.stringify(b.props[k])) return false;
+  }
+  return true;
+}
+
+/** The words of a draft made from a revision the canvas has left; nothing of it ran. */
+export function staleWords(from, now) {
+  return `Refused: this draft was made from revision ${from}, but the canvas is at revision ${now} now: it changed after Timmy read it. Nothing was drawn. Read the canvas again (canvas_read), then propose again.`;
+}
+
+/**
+ * The records that accept draft `id`, as they will be written: each record it marks (shapes and assets), its mark cleared and
+ * the rest of its meta kept, with meta.timmyProposed saying who proposed it and when it was accepted (`at`). R8 (H158): and, for
+ * a draft the person moved to free space before accepting it, from where (`moved`, as its mark said it).
+ */
+export function acceptPlan(records, id, at = new Date().toISOString()) {
+  const out = [];
+  for (const r of records) {
+    const d = draftOf(r);
+    if (!d || d.id !== id) continue;
+    const { timmyDraft: _gone, ...meta } = r.meta;
+    const moved = isMoved(d.moved) ? { moved: d.moved } : {};
+    out.push({ ...r, meta: { ...meta, timmyProposed: { by: 'Timmy', draft: id, job: d.job ?? null, accepted: at, ...moved } } });
+  }
+  return out;
+}
+
+// ── R8 (H158; open item J, the operator's decision of 2026-10-18, 01:15 PT: "Say so, offer to move it") ────────────────────────
+// A draft is drawn where the model put its shapes. When they land on shapes already on the board, its card in the panel and its
+// label on the board say so, with how many (landsWords), and the card offers one button, Move it to free space (MOVE_LABEL): the
+// draft's shapes move together, as they are arranged, to the nearest place where they cover no shape (./placement.js
+// nearestSpot), and stay a draft. Their mark then says it was moved and from where (movedMark), so the words follow it (movedWords)
+// and one undo takes both back. Nothing moves by itself.
+
+/** The button that moves a draft clear of the board's shapes, and what it does. */
+export const MOVE_LABEL = 'Move it to free space';
+export const MOVE_TITLE = 'Moves this draft\'s shapes together, as they are arranged, to the nearest place where they cover no shape on the board. It stays a draft: Accept or Discard it after. One undo puts it back.';
+
+const isMoved = (m) => !!m && typeof m === 'object' && [m.x, m.y].every((v) => typeof v === 'number' && Number.isFinite(v)) && Number.isInteger(m.over) && m.over > 0;
+
+/**
+ * Draft `id`'s shapes and the board's, page by page, for what it lands on and where it moves. On each page it is on: its shapes
+ * (`own`: { id, box, joins, follows }, by their page bounds, `joins` the shapes an arrow of it is bound to, `follows` true for an
+ * arrow bound to a shape of the board's), its top shapes (`tops`: those
+ * whose parent is not a shape of it; a move moves these), the block a move moves clear (`block`: its shapes' bounds together, an
+ * arrow that joins a shape of the board's left out, since it follows what it joins), and the board's shapes there (`board`:
+ * { id, box }): every shape on that page but its own and what is inside them (a person's shape put in its frame moves with it),
+ * and no group (a group's bounds are its shapes', and they count themselves). `boundsOf(id)`: a shape's page bounds, or null.
+ * Bindings among `records` say what an arrow joins.
+ */
+export function draftGround(records, id, boundsOf) {
+  const shapes = new Map();
+  const joins = new Map();
+  for (const r of records) {
+    if (!r) continue;
+    if (r.typeName === 'shape') shapes.set(r.id, r);
+    else if (r.typeName === 'binding' && r.type === 'arrow' && typeof r.fromId === 'string' && typeof r.toId === 'string') {
+      if (!joins.has(r.fromId)) joins.set(r.fromId, []);
+      joins.get(r.fromId).push(r.toId);
+    }
+  }
+  const mine = (r) => { const d = draftOf(r); return !!d && d.id === id; };
+  const pageOf = (r) => {
+    let at = r;
+    for (let i = 0; at && i < 64; i++) {
+      if (typeof at.parentId === 'string' && at.parentId.startsWith('page:')) return at.parentId;
+      at = shapes.get(at.parentId);
+    }
+    return null;
+  };
+  const insideOwn = (r) => {
+    let at = shapes.get(r.parentId);
+    for (let i = 0; at && i < 64; i++) { if (mine(at)) return true; at = shapes.get(at.parentId); }
+    return false;
+  };
+  const box = (sid) => {
+    const b = typeof boundsOf === 'function' ? boundsOf(sid) : null;
+    return b && [b.minX, b.minY, b.maxX, b.maxY].every((v) => typeof v === 'number' && Number.isFinite(v)) ? { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY } : null;
+  };
+  const pages = new Map();
+  for (const r of shapes.values()) {
+    if (!mine(r)) continue;
+    const page = pageOf(r);
+    if (!page) continue;
+    if (!pages.has(page)) pages.set(page, { page, tops: [], own: [], board: [] });
+    const g = pages.get(page);
+    if (!mine(shapes.get(r.parentId))) g.tops.push(r.id);
+    const b = box(r.id);
+    if (b) g.own.push({ id: r.id, box: b, joins: joins.get(r.id) ?? [] });
+  }
+  // R9 lead, after the R9 independent review (its F10): a shape of another draft not yet accepted is on the board too (a move
+  // takes this one clear of it), and is marked with that draft's id (`draft`), so the words can say which it is
+  const otherDraft = (r) => { const d = draftOf(r); return d && d.id !== id ? d.id : null; };
+  for (const r of shapes.values()) {
+    if (mine(r) || r.type === 'group' || insideOwn(r)) continue;
+    const g = pages.get(pageOf(r));
+    const b = g ? box(r.id) : null;
+    const of = otherDraft(r);
+    if (b) g.board.push({ id: r.id, box: b, ...(of ? { draft: of } : {}) });
+  }
+  return [...pages.values()].map((g) => {
+    // an arrow of it bound to a shape of the board's follows what it joins (`follows`): a move moves the rest clear
+    for (const o of g.own) o.follows = o.joins.some((t) => shapes.has(t) && !mine(shapes.get(t)));
+    const content = g.own.filter((o) => !o.follows);
+    const block = content.length ? {
+      minX: Math.min(...content.map((o) => o.box.minX)), minY: Math.min(...content.map((o) => o.box.minY)),
+      maxX: Math.max(...content.map((o) => o.box.maxX)), maxY: Math.max(...content.map((o) => o.box.maxY)),
+    } : null;
+    return { ...g, block };
+  });
+}
+
+/**
+ * What a draft that lands on `n` shapes says of it, on its card and its label; nothing (null) when it lands on none. `o.ofDrafts`
+ * of them are shapes of other drafts not yet accepted, `o.drafts` of them (R9 lead, after the R9 review's F10: before, those too
+ * were said to be "already on the board").
+ */
+export function landsWords(n, o = {}) {
+  if (!Number.isInteger(n) || n <= 0) return null;
+  const d = Number.isInteger(o.ofDrafts) && o.ofDrafts > 0 ? Math.min(o.ofDrafts, n) : 0;
+  const k = Number.isInteger(o.drafts) && o.drafts > 1 ? o.drafts : 1;
+  const of = `of ${k === 1 ? 'a draft' : `${k} drafts`} not yet accepted`;
+  if (!d) return `This draft lands on ${plural(n, 'shape')} already on the board.`;
+  if (d === n) return `This draft lands on ${plural(n, 'shape')} ${of}.`;
+  return `This draft lands on ${plural(n, 'shape')}: ${n - d} already on the board and ${d} ${of}.`;
+}
+
+/** The mark of a draft moved to free space: its own mark, kept, and from where it was moved (`moved`: { x, y, over, at }). */
+export function movedMark(mark, moved) {
+  return { ...mark, moved };
+}
+
+/** Where draft `id` was last moved from (its mark's `moved`: { x, y, over, at }), or null when it was not moved. */
+export function movedOf(records, id) {
+  for (const r of records) {
+    if (!r || r.typeName !== 'shape') continue;
+    const d = draftOf(r);
+    if (d && d.id === id && isMoved(d.moved)) return d.moved;
+  }
+  return null;
+}
+
+/** What a draft moved to free space says, on its card and its label, while it lands on no shape: from where, and what was there. */
+export function movedWords(moved) {
+  return `Moved to free space from x ${Math.round(moved.x)}, y ${Math.round(moved.y)}, where it landed on ${plural(moved.over, 'shape')}. It lands on no shape now.`;
+}
+
+/**
+ * What discarding draft `id` removes: its shapes (a shape whose parent is in the draft goes with it), its assets that no shape
+ * outside the draft shows; and the person's own shapes inside a draft shape, which are moved out to that draft shape's nearest
+ * parent outside the draft first (`keepOut`: child id → new parent id), so nothing of theirs goes with it.
+ */
+export function discardPlan(records, id) {
+  const shapes = new Map();
+  for (const r of records) if (r && r.typeName === 'shape') shapes.set(r.id, r);
+  const inDraft = (r) => { const d = draftOf(r); return !!d && d.id === id; };
+  const drafted = new Set([...shapes.values()].filter(inDraft).map((r) => r.id));
+  const outside = (sid) => {
+    let at = shapes.get(sid);
+    for (let i = 0; at && drafted.has(at.id) && i < 64; i++) at = shapes.get(at.parentId) ?? { id: at.parentId };
+    return at ? at.id : null;
+  };
+  const keepOut = {};
+  for (const r of shapes.values()) {
+    if (drafted.has(r.id) || !drafted.has(r.parentId)) continue;
+    const to = outside(r.parentId);
+    if (to) keepOut[r.id] = to;
+  }
+  // only the top of each drafted subtree needs removing; its drafted children go with it
+  const top = [...drafted].filter((sid) => !drafted.has(shapes.get(sid).parentId));
+  const shown = new Set([...shapes.values()].filter((r) => !drafted.has(r.id) && r.props && typeof r.props.assetId === 'string').map((r) => r.props.assetId));
+  const assets = records.filter((r) => r && r.typeName === 'asset' && inDraft(r) && !shown.has(r.id)).map((r) => r.id);
+  return { shapes: top, all: [...drafted], keepOut, assets };
+}
+
+/**
+ * One line for a pending draft, in the panel: its label, size and the revision it was made from. R10 (H167; the round's rule:
+ * ids behind a details control): the job that proposed it is named by its id under the draft's Details (canvas.js), not here.
+ */
+export function draftLine(d) {
+  const parts = [DRAFT_LABEL, plural(d.shapes.length, 'shape')];
+  if (isRevision(d.from)) parts.push(`from revision ${d.from}`);
+  return parts.join(' · ');
+}
+
+/**
+ * What the panel's band says once a decision is made: `d` the draft (its shapes, or their `count`, and its job); `saved` the save
+ * that holds it ({ revision }), or null while it is not saved yet.
+ */
+export function decisionWords(decision, d, saved) {
+  const count = Array.isArray(d.shapes) ? d.shapes.length : Number(d.count) || 0;
+  // (R10 H167: the draft by its size, its job's id left to its Details and the drafts record)
+  const what = `${decision === 'accepted' ? 'Accepted' : 'Discarded'} Timmy's draft (${plural(count, 'shape')})`;
+  const effect = decision === 'accepted' ? 'kept on the board' : 'removed from the board';
+  const tail = saved ? `saved at revision ${saved.revision} and recorded` : 'not saved yet (the save line says why)';
+  return `${what}: ${effect}; ${tail}. No tool or job ran.`;
+}

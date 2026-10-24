@@ -15,7 +15,7 @@
  *   roboflow  images                    scripts/roboflow-bridge.py in the project's venv          ROBOFLOW_API_KEY, the venv
  */
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AE_FFMPEG_SETUP, VIDEO_READBACK_SCRIPT, type VideoReadback } from '../flows/iterate-ae.js';
 import { BLEND_READBACK_SCRIPT, type BlendReadback } from '../flows/iterate-blender.js';
@@ -36,7 +36,7 @@ export type Readiness = { ready: true; command: string; via: string; extra?: Rec
 function packaged(rel: string): string {
   return packagedPath(rel, import.meta.url, { kind: 'file' }) ?? join(packageRoot(import.meta.url) ?? fileURLToPath(new URL('.', import.meta.url)), rel);
 }
-/** The geo lane's scorer and the Roboflow bridge, at the package root (a checkout carries them; the npm package does not). */
+/** The geo lane's scorer and the Roboflow bridge, at the package root (a checkout carries them; so does the npm package, since R11). */
 export const GEO_SCRIPT = packaged('lanes/geo/voxel_score.py');
 export const ROBOFLOW_BRIDGE = packaged('scripts/roboflow-bridge.py');
 
@@ -48,10 +48,10 @@ export const SETUP = {
   video: AE_FFMPEG_SETUP,
   python: 'install Python 3, so that python3 is on the PATH',
   geo: 'python3 -m pip install numpy scipy',
-  geoLane: 'run Timmy from a checkout of its repository: the geo lane (lanes/geo/voxel_score.py) is not in the npm package',
+  geoLane: 'reinstall Timmy, or run it from a checkout of its repository: the geo lane (lanes/geo/voxel_score.py) is missing from this installation (the npm package carries it)',
   roboflowKey: 'set ROBOFLOW_API_KEY (console.roboflow.com)',
   roboflowVenv: 'python3 -m venv .timmy/venv-roboflow && .timmy/venv-roboflow/bin/pip install roboflow inference-sdk',
-  roboflowBridge: 'run Timmy from a checkout of its repository: the Roboflow bridge (scripts/roboflow-bridge.py) is not in the npm package',
+  roboflowBridge: 'reinstall Timmy, or run it from a checkout of its repository: the Roboflow bridge (scripts/roboflow-bridge.py) is missing from this installation (the npm package carries it)',
   worker: 'reinstall Timmy: one of its workers is missing',
 } as const;
 
@@ -105,11 +105,20 @@ export function geoReady(t: ToolEnv): Readiness {
 /** The project's Roboflow venv, as src/utils/roboflow-adapter.ts finds it. */
 export function roboflowReady(t: ToolEnv): Readiness {
   if (!t.env.ROBOFLOW_API_KEY) return { ready: false, why: 'needs ROBOFLOW_API_KEY', setup: SETUP.roboflowKey };
+  // The project's venv (made for Roboflow) wins; TIMMY_VISION_PYTHON (the OpenCV Python, by this file's own setup words)
+  // stands in only when the project has no venv. (R11 lead, after the vision integration: the override first sent a
+  // project's Roboflow runs to its OpenCV Python; tests/vox-words.test.ts caught it. The adapter resolves the same way.)
   const modern = join(t.root, '.timmy', 'venv-vision', 'bin', 'python');
-  const venv = existsSync(modern) ? modern : join(t.root, '.timmy', 'venv-roboflow', 'bin', 'python');
-  if (!existsSync(venv)) return { ready: false, why: "the project's Roboflow venv is missing (.timmy/venv-roboflow)", setup: SETUP.roboflowVenv };
+  const legacy = join(t.root, '.timmy', 'venv-roboflow', 'bin', 'python');
+  const venv = existsSync(modern) ? modern : existsSync(legacy) ? legacy : undefined;
+  const override = t.env.TIMMY_VISION_PYTHON;
+  if (!venv && override !== undefined && (!isAbsolute(override) || !runnable(override))) {
+    return { ready: false, why: 'TIMMY_VISION_PYTHON must name an existing absolute Python executable', setup: SETUP.roboflowVenv };
+  }
+  const python = venv ?? override;
+  if (!python) return { ready: false, why: "the project's Roboflow venv is missing (.timmy/venv-roboflow)", setup: SETUP.roboflowVenv };
   if (!existsSync(ROBOFLOW_BRIDGE)) return { ready: false, why: 'the Roboflow bridge (scripts/roboflow-bridge.py) is not in this Timmy', setup: SETUP.roboflowBridge };
-  return { ready: true, command: venv, via: "the project's venv" };
+  return { ready: true, command: python, via: venv ? "the project's venv" : 'set by TIMMY_VISION_PYTHON (no project venv); SDK and endpoint not checked' };
 }
 
 /** What the board's tools panel says of each tool: built in, found (not run until an action uses it), or needs setup. */

@@ -81,6 +81,59 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
   const pressed = (page: Page, sel: string): Promise<string | null> => page.getAttribute(`${card} ${sel}`, 'aria-pressed');
   const nodeWords = (page: Page, key: string): Promise<string> => page.textContent(`${card} [data-wf-node="${key}"] .wf-state`).then((t) => t ?? '');
 
+  /**
+   * R10 (H163; R9's one failure of the "being edited" case, in a local full suite under load and never on CI: its '■ stopped'
+   * wait after ws.stop timed out, the test's own process never stalled over 1.1 s, and the board answers "stopped" within
+   * about 0.1 s of a stop here): the same wait, and when it times out, what each side said meanwhile, so that a failure names
+   * its cause: the node's words on the page now, every /state answer the page read since the case began (when, its status,
+   * and node `key`'s word, detail and the job's state in it), the board's own state for it now, and the job's record.
+   */
+  function stateLog(page: Page, key: string): Array<{ at: number; status: number; node: string; job: string }> {
+    const log: Array<{ at: number; status: number; node: string; job: string }> = [];
+    page.on('response', (r) => {
+      if (new URL(r.url()).pathname !== '/state') return;
+      void r.json().then((s: { wfStates?: Array<{ doc: string; key: string; word: string; detail: string }>; jobs?: Array<{ label: string; state: string }> }) => {
+        const n = s.wfStates?.find((x) => x.doc === 'BUILD.md' && x.key === key);
+        log.push({ at: Date.now(), status: r.status(), node: n ? `${n.word}${n.detail ? ` · ${n.detail}` : ''}` : '(none)', job: s.jobs?.find((j) => j.label === 'BUILD.md › wait')?.state ?? '(none)' });
+      }, () => { log.push({ at: Date.now(), status: r.status(), node: '(unread)', job: '(unread)' }); });
+    });
+    return log;
+  }
+  async function nodeSays(page: Page, ws: Workspace, key: string, want: string, log: ReturnType<typeof stateLog>, since: number): Promise<void> {
+    try {
+      await page.waitForFunction(([k, w]) => (document.querySelector(`[data-wfx="BUILD.md"] [data-wf-node="${k}"] .wf-state`)?.textContent ?? '') === w, [key, want] as const, { timeout: 10_000 });
+    } catch (e) {
+      const shownNow = await nodeWords(page, key).catch((x: unknown) => `(unread: ${String(x).split('\n')[0]})`);
+      const at = new URL(ws.liveBoard!.url);
+      const token = /t=([0-9a-f]{64})/.exec(at.hash)?.[1] ?? '';
+      const now = await fetch(`${at.protocol}//${at.host}/state`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json(), (x: unknown) => ({ error: String(x) })) as { wfStates?: Array<{ doc: string; key: string; word: string; detail: string }>; error?: string };
+      const n = now.wfStates?.find((x) => x.doc === 'BUILD.md' && x.key === key);
+      const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait');
+      throw new Error([
+        `${String(e).split('\n')[0]}: node ${key} says "${shownNow}" on the page; wanted "${want}"`,
+        `the page's /state answers since the case began (ms from it): ${log.map((x) => `${x.at - since} ${x.status} node "${x.node}" job ${x.job}`).join('; ') || 'none'}`,
+        `the board's own state now: node ${n ? `"${n.word}${n.detail ? ` · ${n.detail}` : ''}"` : `(none${now.error ? `: ${now.error}` : ''})`}; the job's record: ${job ? `${job.id} ${job.state}${job.endedAt ? ` ended ${job.endedAt}` : ''}` : '(none)'}`,
+      ].join('\n'));
+    }
+  }
+
+  /**
+   * R10 (H172; check fa45040-c1, under load: build's last result said "block build: receipt 00000003" and no outcome receipt yet):
+   * a block says completed as upmd prints its end (its own receipt sealed then), while the run's outcome is sealed when upmd has
+   * exited and its job ends, and reaches the card (drawn again with the board's next reading, every 2 s) only then, with the files
+   * it names: in between, the block says completed and its last result has no outcome receipt yet (shown with a copy of the FAKE
+   * upmd that exits 3 s after its last block: the read made once failed, this wait passed). Waited for as a person sees it arrive;
+   * a wait that times out says what the last result said meanwhile.
+   */
+  async function lastSays(page: Page, panel: string, want: string): Promise<void> {
+    try {
+      await page.waitForFunction(([p, w]) => (document.querySelector(`${p} .wf-last`)?.textContent ?? '').includes(w), [panel, want] as const, { timeout: 15_000 });
+    } catch (e) {
+      const said = await page.textContent(`${panel} .wf-last`).catch((x: unknown) => `(unread: ${String(x).split('\n')[0]})`);
+      throw new Error(`${String(e).split('\n')[0]}: the last result says "${said}"; wanted "${want}" in it`);
+    }
+  }
+
   it('selects the same block from the graph, from the prose and with the keyboard; edits an OpenSCAD parameter; runs a block and shows each state in words', async () => {
     const { ws, root, notes, sealed } = make();
     const { page, problems, close } = await open(ws);
@@ -135,7 +188,8 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     await page.waitForFunction(() => /^✓ completed · exit 0/.test(document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="2"] .wf-state')?.textContent ?? ''), undefined, { timeout: 15_000 });
     expect(await page.textContent(`${card} [data-wf-select="2"] .wf-chip-state`)).toBe('completed');
     expect(await nodeWords(page, '3')).toBe('· not run yet');
-    expect(await page.textContent(`${panel} .wf-last`)).toContain('outcome receipt');
+    // R10 (H172): the outcome receipt comes with the card drawn again after it is sealed (lastSays), the run's files with it
+    await lastSays(page, panel, 'outcome receipt');
     expect(await page.textContent(`${panel} .wf-last`)).toContain('dist/params.txt');
     expect(readFileSync(join(root, 'dist/params.txt'), 'utf8')).toContain('"width": 80');
     expect(await shown(page)).toEqual(['2']);
@@ -149,13 +203,15 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
 
   it('while something else on the board is being edited (no redraw), the blocks\' states still change in place, in words', async () => {
     const { ws } = make();
+    const since = Date.now();
     const { page, problems, close } = await open(ws);
+    const log = stateLog(page, '4');
     // the tray recipe's card in the Parameters section, edited and not saved: the live board does not draw over it
     await page.fill('#parameters ~ .grid [data-params="tray"] [data-param="width"]', '150');
     expect(await page.getAttribute('#parameters ~ .grid [data-params="tray"]', 'data-editing')).toBe('');
     await page.click(`${card} [data-wf-select="4"]`);
     await page.click(`${card} [data-wf-insp="4"] button[data-act="run"]`);
-    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '● running', undefined, { timeout: 10_000 });
+    await nodeSays(page, ws, '4', '● running', log, since);
     expect(await page.textContent(`${card} [data-wf-select="4"] .wf-chip-state`)).toBe('running');
     expect(await page.textContent(`${card} [data-wf-insp="4"] .wf-insp-head .wf-word strong`)).toBe('running');
     expect(await page.getAttribute(`${card} [data-wf-node="4"] .wf-box`, 'class')).toContain('wfs-running');
@@ -163,7 +219,7 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     expect(await page.inputValue('#parameters ~ .grid [data-params="tray"] [data-param="width"]')).toBe('150');
     const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait')!;
     expect((await ws.stop(job.id)).map((l) => l.map((x) => x.text).join('')).join('\n')).toContain('stopped');
-    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '■ stopped', undefined, { timeout: 10_000 });
+    await nodeSays(page, ws, '4', '■ stopped', log, since);
     expect(await page.inputValue('#parameters ~ .grid [data-params="tray"] [data-param="width"]')).toBe('150');
     expect(problems).toEqual([]);
     await close();
@@ -202,6 +258,53 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '■ stopped', undefined, { timeout: 10_000 });
     expect(ws.jobs.get(job.id)?.state).toBe('cancelled');
     expect(await page.textContent(`${card} .wfx-run`)).toContain('stopped');
+    expect(problems).toEqual([]);
+    await close();
+  }, 60_000);
+
+  // R10 (H163; the review of R9's one failure of the case above): the page asks GET /state every 2 s and after each action, and
+  // nothing keeps the answers in order, so an answer the server made before a newer one, but read after it, put the older state
+  // back on the page until the next answer. Here the answers are delivered out of order on purpose: the page holds the newer.
+  it('an older /state answer that arrives after a newer one does not replace it: the block stays stopped, not running again (R10 H163)', async () => {
+    const { ws } = make();
+    const { page, problems, close } = await open(ws);
+    // FAKE delivery order (the test's): when armed, the next /state is asked of the board at once (so its answer is the
+    // state as it is then) and handed to the page only when the test says
+    const held: Array<{ body: string; give: () => Promise<void> }> = [];
+    let arm = false;
+    await page.route('**/state', async (route) => {
+      if (!arm) { await route.continue(); return; }
+      arm = false;
+      const answer = await route.fetch();
+      const body = await answer.text();
+      held.push({ body, give: () => route.fulfill({ response: answer, body }) });
+    });
+    await page.click(`${card} [data-wf-select="4"]`);
+    await page.click(`${card} [data-wf-insp="4"] button[data-act="run"]`);
+    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '● running', undefined, { timeout: 10_000 });
+    // the older answer: made while the block runs, held
+    arm = true;
+    for (const end = Date.now() + 10_000; Date.now() < end && !held.length;) await new Promise((r) => setTimeout(r, 50));
+    expect(held).toHaveLength(1);
+    const older = JSON.parse(held[0].body) as { wfStates: Array<{ doc: string; key: string; word: string }> };
+    expect(older.wfStates.find((x) => x.doc === 'BUILD.md' && x.key === '4')?.word).toBe('running');
+    // the block stopped, and a newer answer read: the page says so
+    const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait')!;
+    expect((await ws.stop(job.id)).map((l) => l.map((x) => x.text).join('')).join('\n')).toContain('stopped');
+    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '■ stopped', undefined, { timeout: 10_000 });
+    // then the older answer arrives: every word node 4 shows from then on is recorded (in place or drawn again), for half a
+    // second, well before the page's next own ask (2 s after its last): the older state is never put over the newer one
+    await page.evaluate(() => {
+      const w = window as unknown as { h163Seen: string[] };
+      const now = (): string => document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '(no node)';
+      w.h163Seen = [now()];
+      new MutationObserver(() => { const t = now(); if (w.h163Seen[w.h163Seen.length - 1] !== t) w.h163Seen.push(t); })
+        .observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true });
+    });
+    await held[0].give();
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as { h163Seen: string[] }).h163Seen), 'node 4\'s words from when the older answer was handed to the page').toEqual(['■ stopped']);
+    expect(await page.textContent(`${card} [data-wf-select="4"] .wf-chip-state`)).toBe('stopped');
     expect(problems).toEqual([]);
     await close();
   }, 60_000);
