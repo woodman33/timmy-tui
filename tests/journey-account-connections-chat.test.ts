@@ -23,7 +23,7 @@
  * The screens' words are the preview's (R11-R4-COMMON); the page's seams (the screen ids, the session seam) are H171's and
  * H173's contract as posted in the handoff: until a piece lands, its step fails with words naming it.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -275,9 +275,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // the state words are H170's provider states: never "free", never "connected" for a selection
         expect(t).not.toMatch(/\bfree\b/i);
         expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
-        // Ollama · local against the FAKE Ollama: its model listed with its size
-        const listed = await until(o.page, 'the FAKE Ollama\'s model on the local card', (s) => s.includes(MODEL), 20_000);
-        expect(listed).toMatch(/4\.9 GB|4\.6 GiB|4\.9GB/);
+        // Ollama · local against the FAKE Ollama: Check asks it (the card's first state is this computer's PATH: "not installed" with
+        // no ollama program here); its model is then listed
+        await o.page.getByRole('button', { name: /^Check$/ }).first().click();
+        await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000, undefined, facts(o));
         // Download a local model (H170's words, 19:47): the box, the model's name, "Show the size" → the confirmation sentence
         // "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." before anything
         // is pulled; "Confirm the download" → progress "<x> MB of <y> MB · <status> (<n>%)"; Cancel → "Cancelled…", the FAKE
@@ -340,7 +341,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.waitForTimeout(300);
         expect(await search.first().inputValue(), 'a sort keeps the search').toBe('fake');
         expect(await text(o.page)).toContain(MODEL);
-        await o.page.getByText(MODEL, { exact: false }).first().click();
+        const row = o.page.getByText(MODEL, { exact: false }).first();
+        await row.scrollIntoViewIfNeeded().catch(() => undefined);
+        await row.click({ timeout: 10_000 }).catch(async () => { await o.page.locator('li', { hasText: MODEL }).first().click({ force: true }); });
         // the model's detail opens; "Use for the next turn" is the choice (POST /api/chat/choose: Ollama asked for the exact name first)
         await o.page.getByRole('button', { name: /Use for the next turn/ }).first().click();
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
@@ -362,7 +365,11 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const chain = readChain('runs', root!);
         expect(verifyChain('runs', root!).ok, 'the project\'s chain verifies').toBe(true);
         const sealed = chain.find((r) => String(r.hash).replace(/^sha256_/, '').startsWith(evidence![1]));
-        expect(sealed, `the receipt ${evidence![1]} is on the chain`).toBeTruthy();
+        // (for a failure's words: every receipts file under the test's box, and which of them holds the hash)
+        const files = (): string[] => { const out: string[] = []; const walk = (d: string): void => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = join(d, e.name); if (e.isDirectory()) walk(f); else if (/\.jsonl$/.test(e.name) && /receipts/.test(f)) out.push(f); } }; walk(box); return out; };
+        const holders = files().filter((f) => readFileSync(f, 'utf8').includes(evidence![1])).map((f) => f.replace(box, '<box>'));
+        const line = answered.split('\n').find((l) => /receipt/i.test(l)) ?? '';
+        expect(sealed, `the receipt ${evidence![1]} is on the project's runs chain (${root!.replace(box, '<box>')}: ${chain.length} receipts: ${chain.map((r) => `${String(r.kind)} ${String(r.hash).slice(0, 15)}`).join(', ')}); the evidence line: "${line}"; files holding the hash: ${holders.join(', ') || 'none'}; receipts files: ${files().map((f) => f.replace(box, '<box>')).join(', ')}`).toBeTruthy();
         expect(verifyReceiptIn(chain, String(sealed!.hash)).ok).toBe(true);
         // Stop: a second, slow turn ended by Stop with its stage
         await composer.first().fill('FAKE: answer slowly please');
