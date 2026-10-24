@@ -1615,7 +1615,7 @@ body.slate-absent p { max-width: 72ch; }
 .sh-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 60; max-width: min(640px, calc(100vw - 32px)); padding: 10px 16px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; background: var(--timmy-surface); color: var(--timmy-text); font-size: 13px; }
 .sh-toast.is-live { border-color: var(--timmy-live); }
 /* the T mark: a canvas (the Rive mark, when its runtime and file are here) over the text mark it falls back to */
-.sh-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--timmy-line-strong); border-radius: 6px; background: var(--timmy-ground); color: var(--timmy-accent); font-size: 22px; font-weight: var(--timmy-weight-heading); }
+.sh-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--timmy-line-strong); border-radius: 6px; background: var(--timmy-ground); color: var(--timmy-text); font-size: 22px; font-weight: var(--timmy-weight-heading); } /* (the mark's letter in the text colour: amber is B10's — the one primary step, the selection, what waits, focus — never a mark) */
 .sh-mark canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .sh-mark canvas:not([data-loaded]) { visibility: hidden; }
 .sh-mark canvas[data-loaded] + .sh-mark-text { visibility: hidden; }

@@ -38,8 +38,10 @@ const ambers = (page: Page): Promise<Amber[]> => page.evaluate(() => {
     ['focus', (el) => el.matches(':focus-visible') || el.matches('.cm-search:focus-within, .cm-filter:focus-within, .cx-composer:focus-within, .rail-find:focus')],
     // the strip's primary; on tab 9, where the strip gives none, the inspector's own one primary action (H142). R10 CHAT (H171):
     // on Chat, the composition's: Send, the first run's suggested way, or the no-model state's Choose a model
-    ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary, .cx-send:not(.is-muted):not(:disabled), .cx-btn.is-primary, .cx-way.is-suggested')],
-    ['the selection', (el) => within(el, '[aria-current="true"], [aria-pressed="true"], [aria-selected="true"]:not([role="tab"]), .is-selected, .is-picked, .is-shown, .view-btn.active, .cm-providers [role="tab"][aria-selected="true"]')],
+    // R11 round 4 (H171): on Chat with no model connected, "Set up a model →" (the route line) is the one primary step
+    ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary, .cx-send:not(.is-muted):not(:disabled), .cx-btn.is-primary, .cx-way.is-suggested, .cx-route .cx-change.is-setup')],
+    // R11 round 4 (H171): the right panel's Models | Tools tab chosen draws its amber border
+    ['the selection', (el) => within(el, '[aria-current="true"], [aria-pressed="true"], [aria-selected="true"]:not([role="tab"]), .is-selected, .is-picked, .is-shown, .view-btn.active, .cm-providers [role="tab"][aria-selected="true"], .cx-panel-tabs [role="tab"][aria-selected="true"]')],
     ['.intent or .predict', (el) => within(el, '.is-intent, .is-predict, .rd-before, [data-stage="predict"], [data-stage="intent"], .tone-intent, .log-msg.user, .sd-user')],
     // R11 (H171): the model chip's dot while this page checks a model (amber, with its word "checking…")
     ['what waits for you', (el) => within(el, '.tab-waiting, .waits, #token-note, .tools-needs, .sd-approval, .tools-rule.is-waiting, #mirror-status[data-state="reconnecting"], #mirror-status[data-state="restored"], .mirror-note, .saved-banner, .sb-draft, .tone-setup, .st-needs-setup, .cx-dot[data-state="checking"], .cx-spin')],
@@ -129,7 +131,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
             const list = await ambers(page);
             // R10 CHAT (H171): on Chat the strip is behind the composition, whose one primary is its own (an amber fill too)
-            const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary, .cx-send, .cx-btn.is-primary, .cx-way-act', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
+            const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary, .cx-send, .cx-btn.is-primary, .cx-way-act, .cx-route .cx-change.is-setup', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
             report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page) };
             // with TIMMY_CAPTURE_DIR, each tab as measured (the window's view; at 800x600 the page's top, it scrolls on)
             if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/tab${key}-${id}-${at}.png` });

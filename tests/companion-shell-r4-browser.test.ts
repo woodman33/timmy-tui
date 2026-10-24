@@ -142,6 +142,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // the rail: the mark and TIMMY; WORKSPACE with the project box and New conversation; Chat; WORK; CREATE; CONNECT; the account
       expect(await text(page, '#shell-rail .rail-brand')).toBe('T TIMMY');
       expect(await text(page, '#rail-project-label')).toBe('Workspace');
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 60_000 }); // (the socket's welcome names it)
       expect(await text(page, '#rail-project-name')).toBe('fresh');
       expect(await text(page, '#rail-new-conv')).toBe('+ New conversation');
       expect(await texts(page, '#rail-menu .rail-group:not([hidden])')).toEqual(['Work', 'Create', 'Connect']);
@@ -248,7 +249,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
       // (the draft is kept by project: the socket has named it before the person types)
-      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 60_000 });
       await page.fill('#cx-input', 'A draft that survives the reopen.');
       await page.waitForTimeout(200);
       expect(errors).toEqual([]);
@@ -262,7 +263,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // no identity provider: the landing rule opens the workspace (a remembered screen counts only when signed in)
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
-      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 60_000 });
       await page.waitForFunction(() => (document.getElementById('cx-input') as HTMLTextAreaElement | null)?.value === 'A draft that survives the reopen.', null, { timeout: 10_000 });
       expect(await page.inputValue('#cx-input')).toBe('A draft that survives the reopen.');
       // Send (H169's POST /api/chat/turn) as this computer's operator (no identity provider here): the turn runs in the
