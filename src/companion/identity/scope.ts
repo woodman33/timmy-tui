@@ -182,15 +182,15 @@ export function userProjectFor(user: UserRef, env: Env, asked?: unknown): UserPr
   let own: UserProjects;
   try { own = userProjects(user, env); } catch { return null; }
   const entries = readRegistry(own.registry);
-  const as = (root: string): UserProject => ({ id: projectId(root), name: nameOf(root, entries), root, chosen: true });
-  if (asked === undefined || asked === null || asked === '') return as(own.default);
+  const view = (root: string): UserProject => ({ id: projectId(root), name: nameOf(root, entries), root, chosen: true });
+  if (asked === undefined || asked === null || asked === '') return view(own.default);
   if (typeof asked !== 'string') return null;
   const byId = own.roots.find((r) => projectId(r) === asked);
-  if (byId) return as(byId);
+  if (byId) return view(byId);
   if (isAbsolute(asked) && isOwnedRoot(user, asked, env)) {
     const real = realOrNull(asked);
     const root = real ? own.roots.find((r) => under(real, r)) : undefined;
-    if (root) return as(root);
+    if (root) return view(root);
   }
   return null;
 }

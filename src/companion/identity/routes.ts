@@ -111,9 +111,10 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
     res.set('Cache-Control', 'no-store');
     try {
       const user = userOf(req);
-      const own = userProjects(user, envOf(req));
-      const projects = own.roots.map((root) => userProjectFor(user, envOf(req), root)).filter((p): p is NonNullable<typeof p> => Boolean(p));
-      const def = userProjectFor(user, envOf(req));
+      const env = envOf(req);
+      const own = userProjects(user, env);
+      const projects = own.roots.map((root) => userProjectFor(user, env, root)).filter((p): p is NonNullable<typeof p> => Boolean(p));
+      const def = userProjectFor(user, env);
       res.json({ ok: true, projects: projects.map(({ id, name, root }) => ({ id, name, root })), default: def?.id ?? null });
     } catch { failRequest(res, 500, 'This account\'s projects could not be read; nothing was written.'); }
   });
