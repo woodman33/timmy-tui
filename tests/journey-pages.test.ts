@@ -547,6 +547,8 @@ describe('every major page on the shell, from the running companion and Studio: 
         await o.page.keyboard.press('Escape');
         await o.page.waitForTimeout(200);
         expect(await dialog.isVisible().catch(() => false), 'Escape closes Help & find').toBe(false);
+        // (on a phone Help & find was opened from inside the rail sheet, which stays open after the dialog closes: closed before the landing's picture)
+        if (phone && await o.page.locator(SHELL.railSheet).first().isVisible().catch(() => false)) { await o.page.keyboard.press('Escape'); await o.page.waitForTimeout(200); }
         await caps.cap(o.page, size, 'shell-landing', { line: line('the shell', 'the landing of the signed-in product'), facts: [`The landing at ${at}: ${phone ? 'the rail as a top strip (§4)' : 'the ONE grouped rail (§3.1)'}, the topbar (crumb "${crumb.replace(/\s+/g, ' ').trim()}", status "${status.replace(/\s+/g, ' ').trim()}"), theme ${theme}.`], full: true });
         await clean(o, 'the shell');
       } finally { await o.close(); }
