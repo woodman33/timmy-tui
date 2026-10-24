@@ -547,10 +547,17 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         seen.push('a slow turn: working (State 1) → Stop → stopped (State 3) with its receipt');
         // ── the welcome's starter ActionButton fires the starter (a new conversation shows the welcome again) ──
         await o.page.getByRole('button', { name: /New conversation/ }).first().click().catch(() => undefined);
-        // (H171: the welcome's PRIMARY starter is a mounted ActionButton → startWith('plan'); its twin stands until the file is drawn)
-        await o.page.waitForSelector('.cx-starters canvas[data-timmy-rive][data-loaded], .cx-welcome canvas[data-timmy-rive][data-loaded]', { state: 'attached', timeout: 20_000 }).catch(() => undefined);
-        const starter = o.page.locator('.cx-starters, .cx-welcome, .cx-ways').getByRole('button').filter({ has: o.page.locator('canvas[data-timmy-rive]') }).first().or(o.page.locator(SEL.starter).first());
-        if (await starter.count()) {
+        // (H171: the welcome's PRIMARY starter is a mounted ActionButton → startWith('plan'); its HTML twin stands — visible — until the
+        // file is drawn, then hides. On a slow runner the file may take long: the read waits up to 30 s for EITHER the native face (a
+        // visible button holding the drawn canvas) OR a visible twin, and never settles on a hidden variant; the sidecar says which drew.)
+        const starterNative = o.page.locator('.cx-starters, .cx-welcome, .cx-ways').getByRole('button').filter({ has: o.page.locator('canvas[data-timmy-rive][data-loaded]') }).filter({ visible: true });
+        const starterTwin = o.page.locator('.cx-starters, .cx-welcome, .cx-ways').locator(SEL.starter).filter({ visible: true });
+        const starterPath = await Promise.race([
+          starterNative.first().waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'native' as const, () => 'none' as const),
+          o.page.waitForTimeout(4_000).then(async () => { for (let i = 0; i < 26; i++) { if (await starterNative.count()) return 'native' as const; if (await starterTwin.count()) return 'twin' as const; await o.page.waitForTimeout(1_000); } return 'none' as const; }, () => 'none' as const),
+        ]);
+        const starter = starterPath === 'native' ? starterNative.first() : starterPath === 'twin' ? starterTwin.first() : null;
+        if (starter) {
           await starter.waitFor({ state: 'visible', timeout: 10_000 });
           const id = (await starter.getAttribute('data-cx-start')) || (await starter.getAttribute('aria-label')) || (await starter.innerText()).trim();
           expect(await starter.evaluate((e) => e.tagName)).toBe('BUTTON');
@@ -559,9 +566,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
           await o.page.waitForTimeout(500);
           const after = await text(o.page);
           expect(after.length, `the starter "${id}" did something on the page`).toBeGreaterThan(0);
-          await caps.cap(o.page, size, 'chat-starter', [`The welcome's starter ActionButton "${id}" fired (a trusted click; Pressed down then up on ActionButton).`]);
-          seen.push(`the welcome's starter ActionButton "${id}" clicked`);
-        }
+          await caps.cap(o.page, size, 'chat-starter', [starterPath === 'native' ? `The welcome's starter ActionButton "${id}" fired (a trusted click on the native face; Pressed down then up on ActionButton).` : `The welcome's starter "${id}" fired through its HTML twin (the native face had not drawn within the wait on this runner; the twin is the control until it does).`]);
+          seen.push(`the welcome's starter "${id}" clicked (${starterPath === 'native' ? 'the native ActionButton face' : 'its HTML twin, the face not yet drawn'})`);
+        } else console.warn(`journey-rive-product ${at}: no starter control (native or twin) was visible within the wait — the welcome's starter is not exercised here`);
         if (phone) {
           const overflow = await o.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
           expect(overflow, 'nothing overflows the phone\'s width').toBeLessThanOrEqual(0);
