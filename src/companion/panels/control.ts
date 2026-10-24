@@ -33,7 +33,9 @@ import type { PanelContext } from '../panels.js';
 
 type Env = Record<string, string | undefined>;
 
-export const CONTROL_PANEL = { panes: '/api/panel/control/panes' } as const;
+export const CONTROL_PANEL = { panes: '/api/panel/control/panes', room: '/api/panel/control/room' } as const;
+/** R11 round 7 (H169): the Control Room's room — what runs now and waits on you, Stop, the fleet in the three words, the budget. */
+export const CONTROL_ROOM_SCHEMA = 'timmy.control-room/1' as const;
 export const CONTROL_PANES_SCHEMA = 'timmy.control-panes/1' as const;
 /** How often the page reads the panes again while tab 7 is shown (ms): a running pane says it, as the Workbench's says its tick. */
 export const PANES_EVERY_MS = 2000;
@@ -185,7 +187,90 @@ export async function readControlPanes(i: PanesInput): Promise<ControlPanes> {
   };
 }
 
+// ── R11 round 7 (H169): the room ─────────────────────────────────────────────────────────────────────────────────────────
+//
+// GET /api/panel/control/room?project=<id>   what the Control Room page draws beside its panes: the activity (what runs, what
+// waits on you, the frame's Stop current), the approvals that wait (the frame's count; each is answered where the turn runs),
+// the fleet — the lanes and integrations of the capability inventory, each in the three words (available / configured /
+// exercised, src/capabilities/inventory.ts; the Fleet & Clef page's content folds in here), the budget (free-only and local-
+// only as set, what the project's receipts measured in dollars, and that no spending cap exists in this revision) and the
+// companion's own log address. Read only; nothing is run, stopped or changed here (Stop is the page's POST /api/chat/stop for
+// a turn, or the frame's command for a job).
+
+export interface ControlRoom {
+  schema: typeof CONTROL_ROOM_SCHEMA;
+  at: string;
+  project: { id: string; name: string };
+  activity: { running: number; waitingOnYou: number; stop: { job: string | null; words: string; command: string | null } | null; chatTurn: { surface: string; since: string; words: string; id?: string } | null };
+  /** the frame's connections the Fleet & Clef page drew (cloudroom, clef, cloudflare), as the frame says them */
+  connections: Array<{ id: string; label: string; state: string; words: string; observedAt: string | null; setup: string | null }>;
+  /** the capability inventory's lanes and integrations, each in its standing word with the three facts' words */
+  fleet: Array<{ id: string; name: string; group: string; word: 'available' | 'configured' | 'exercised' | 'none'; available: string; configured: string; exercised: string; next?: string }>;
+  budget: {
+    freeOnly: boolean; localOnly: boolean; from: { freeOnly: string; localOnly: string };
+    /** what the project's receipts measured (cost_usd with cost_measured not false), in dollars, and how many said unknown */
+    measuredUsd: number; receipts: number; unmeasured: number;
+    cap: string;
+  };
+  notes: string[];
+}
+
+export async function readControlRoom(i: PanesInput & { inventory?: () => Promise<{ inventory: { rows: Array<{ id: string; name: string; group: string; available: { words: string }; configured: { words: string }; exercised: { words: string }; next?: string }> } }> }): Promise<ControlRoom> {
+  const [policy, words] = await Promise.all([import('../../agent/route-policy.js'), import('../../capabilities/inventory-words.js')]);
+  const notes: string[] = [];
+  let frame: WorkspaceFrame | null = null;
+  if (i.frame) { try { frame = await i.frame(); } catch (e) { notes.push(`The workspace frame could not be read (${msg(e)}): the activity and the fleet's connections are not shown`); } }
+  const stopAct = frame?.actions?.control?.find((a) => a.label === 'Stop current');
+  const a = frame?.activity;
+  const activity: ControlRoom['activity'] = {
+    running: a?.running ?? 0, waitingOnYou: a?.waitingOnYou ?? 0,
+    stop: a && a.running > 0 ? { job: a.stopCurrent.job, words: a.stopCurrent.words, command: stopAct ? stopAct.command : null } : null,
+    chatTurn: a?.chatTurn ?? null,
+  };
+  const FLEET = new Set(['cloudroom', 'clef', 'cloudflare']);
+  const connections = (frame?.connections ?? []).filter((c) => FLEET.has(String(c.id))).map((c) => ({ id: String(c.id), label: c.label, state: String(c.state), words: c.words, observedAt: c.observedAt, setup: c.setup }));
+  let fleet: ControlRoom['fleet'] = [];
+  if (i.inventory) {
+    try {
+      const inv = await i.inventory();
+      fleet = inv.inventory.rows.filter((r) => r.group === 'Lanes' || r.group === 'Integrations').map((r) => ({
+        id: r.id, name: r.name, group: r.group, word: words.standingWord(r as never), available: r.available.words, configured: r.configured.words, exercised: r.exercised.words, ...(r.next ? { next: r.next } : {}),
+      }));
+    } catch (e) { notes.push(`The capability inventory could not be read (${msg(e)}): the fleet is not shown`); }
+  }
+  const chain = (() => { try { return i.env.TIMMY_STORE ? readChain('runs') : readChain('runs', i.root); } catch { return [] as Receipt[]; } })();
+  const pid = projectId(i.root);
+  let measuredUsd = 0; let receipts = 0; let unmeasured = 0;
+  for (const r of chain) {
+    const rp = (r as { project_id?: unknown }).project_id;
+    if (typeof rp === 'string' && rp !== pid) continue;
+    receipts += 1;
+    if (typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd)) { if (r.cost_measured === false) unmeasured += 1; else measuredUsd += r.cost_usd; }
+  }
+  const pol = policy.routePolicyNow(i.env);
+  const from = policy.policyFrom(i.env);
+  return {
+    schema: CONTROL_ROOM_SCHEMA, at: new Date(i.now ?? Date.now()).toISOString(), project: { id: pid, name: i.name },
+    activity, connections, fleet,
+    budget: { freeOnly: pol.freeOnly, localOnly: pol.localOnly, from: { freeOnly: from.freeOnly === 'environment' ? 'TIMMY_CHAT_FREE_ONLY for this companion' : 'the settings', localOnly: from.localOnly === 'environment' ? 'TIMMY_CHAT_LOCAL_ONLY for this companion' : 'the settings' }, measuredUsd: Math.round(measuredUsd * 10000) / 10000, receipts, unmeasured, cap: 'none in this revision: OpenRouter\'s maxCost stops a request; it is not a guaranteed cap on billing' },
+    notes: notes.map((n) => scrubHomes(n, i.env as NodeJS.ProcessEnv)),
+  };
+}
+
 export function mountControlPanel(app: express.Express, ctx: PanelContext): void {
+  app.get(CONTROL_PANEL.room, ctx.withToken, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = ctx.projectFor(req);
+    if (!project) { res.status(404).json({ ok: false, error: ctx.projectUnknown }); return; }
+    try {
+      // the fleet from the capability inventory: a test's FAKE rows (ctx.inventory), else read now (files, settings, receipts)
+      const inventory = ctx.inventory
+        ? () => ctx.inventory!(project) as never
+        : async () => { const { inventory: readInventory } = await import('../../capabilities/inventory.js'); return { inventory: readInventory({ env: { ...ctx.env }, cwd: project.root }) } as never; };
+      const answer = await readControlRoom({ root: project.root, name: project.name, env: { ...ctx.env }, ...(ctx.frame ? { frame: () => ctx.frame!(project) } : {}), inventory });
+      res.json({ ok: true, ...answer });
+    } catch { res.status(500).json({ ok: false, error: FAILED }); }
+  });
   app.get(CONTROL_PANEL.panes, ctx.withToken, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const project = ctx.projectFor(req);

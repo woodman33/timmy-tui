@@ -16,6 +16,8 @@ export interface FakeModel {
   remote_host?: string;
   size?: number;
   details?: Record<string, unknown>;
+  /** R11 round 7 (the CATALOG METADATA contract): when the weights were last pulled or changed, as /api/tags reports it (ISO) */
+  modified_at?: string;
 }
 
 /** One /api/chat answer: an HTTP error with Ollama's words, or JSON lines (each written after `delayMs`), or no answer at all. */
@@ -71,13 +73,14 @@ export async function startFakeOllama(o: { models: FakeModel[]; chat?: ChatScrip
       requests.push({ method: req.method ?? '', path, body });
       const json = (status: number, value: unknown): void => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
       if (req.method === 'GET' && path === '/api/tags') {
-        return json(200, { models: o.models.map((m) => ({ name: m.name, model: m.name, size: m.size ?? 5_200_000_000, digest: 'fake', details: m.details ?? { format: 'gguf', parameter_size: '8B', quantization_level: 'Q4_K_M' }, ...(m.remote_host ? { remote_host: m.remote_host, remote_model: m.name.replace(/[:-]cloud$/, '') } : {}) })) });
+        return json(200, { models: o.models.map((m) => ({ name: m.name, model: m.name, size: m.size ?? 5_200_000_000, digest: 'fake', ...(m.modified_at ? { modified_at: m.modified_at } : {}), details: m.details ?? { format: 'gguf', parameter_size: '8B', quantization_level: 'Q4_K_M' }, ...(m.remote_host ? { remote_host: m.remote_host, remote_model: m.name.replace(/[:-]cloud$/, '') } : {}) })) });
       }
       if (req.method === 'POST' && path === '/api/show') {
         const m = o.models.find((x) => x.name === body?.model);
         if (!m) return json(404, { error: `model '${String(body?.model)}' not found` });
         const caps = m.capabilities === undefined ? ['completion', 'tools'] : m.capabilities;
-        return json(200, { ...LOCAL_SHOW, ...(caps === null ? {} : { capabilities: caps }), ...(m.remote_host ? { remote_host: m.remote_host, remote_model: m.name } : {}) });
+        // (R11 round 7: /api/show's details are the model's own when the fixture gives them, as a real Ollama's are)
+        return json(200, { ...LOCAL_SHOW, ...(m.details ? { details: { ...LOCAL_SHOW.details, ...m.details } } : {}), ...(caps === null ? {} : { capabilities: caps }), ...(m.remote_host ? { remote_host: m.remote_host, remote_model: m.name } : {}) });
       }
       if (req.method === 'POST' && path === '/api/chat') {
         const script = scripts.shift();
