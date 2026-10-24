@@ -718,8 +718,8 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       expect(about).not.toContain('FAKE-license-key');
       // the three shapes placed (H174's timmy-rive shape), drawn by the runtime
       // the three shapes APART (H174's placeRive(component, { at }): the console at the left, the card 480 px to its right, the button
-      // below them) so that an arrow between the console and the card has length, and every face reads at 100 %
-      placed = await page.evaluate(() => { const W = window as unknown as Win; return { activity: W.timmyCanvas.placeRive('activity', { at: { x: 0, y: 0 } }), connection: W.timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local', at: { x: 480, y: 0 } }), welcome: W.timmyCanvas.placeRive('welcome', { at: { x: 200, y: 300 } }) }; });
+      // below them, clear of the console card's words) so that an arrow between the console and the card has length, and every face reads at 100 %
+      placed = await page.evaluate(() => { const W = window as unknown as Win; return { activity: W.timmyCanvas.placeRive('activity', { at: { x: 0, y: 0 } }), connection: W.timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local', at: { x: 480, y: 0 } }), welcome: W.timmyCanvas.placeRive('welcome', { at: { x: 200, y: 420 } }) }; });
       await page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
       // Timmy's lists folded (the Studio's own Fold button), so the board is the picture
       await page.locator('#side-fold').first().click({ timeout: 5_000 }).catch(() => undefined);
