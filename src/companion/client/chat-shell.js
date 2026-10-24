@@ -9,7 +9,7 @@
 // The page's Send is POST /api/chat/turn (R11 round 4, H169's agent turn): the project's conversation, with the project's
 // tools and a sealed receipt, as the turn's evidence line says. Nothing here sends a key, a prompt or a request elsewhere.
 
-/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged, helloMessage, wsConnection, mirrorProject */
+/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged, helloMessage, wsConnection, mirrorProject, readFrameAfterTurnEnd */
 
 const cx = {
   /** the destination shown ('chat', or one of the workspace's tabs) */
@@ -774,7 +774,29 @@ function drawEmpty() {
  * that has none yet; a runtime or file that is not here leaves the text mark beside it, never an error.
  */
 const marks = [];
+/**
+ * GET /assets/mark.json, once for the page ({ mark, runtime }: whether the companion serves the mark's file and the runtime) —
+ * through TimmyRive.words() when the bindings are here (their one read), else this page's own.
+ */
+function markWords() {
+  if (drawMarks.words) return drawMarks.words;
+  const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+  const asked = R && typeof R.words === 'function' ? Promise.resolve().then(() => R.words())
+    : typeof fetch === 'function' ? fetch('/assets/mark.json', { cache: 'no-store', credentials: 'omit' }).then((r) => (r.status === 200 ? r.json() : null))
+      : Promise.resolve(null);
+  drawMarks.words = asked.then((b) => ({ mark: Boolean(b && b.mark === true), runtime: Boolean(b && b.runtime === true) }), () => ({ mark: false, runtime: false }));
+  return drawMarks.words;
+}
 function drawMarks() {
+  if (typeof document === 'undefined' || !document.querySelector('canvas[data-timmy-mark]:not([data-rive-started])')) return;
+  // R11 round 5 (H174's ask): the mark's FILE is asked for only when the companion says it is there (mark.json's `mark`), whatever
+  // runtime is on the page — the Rive UI components load window.rive for their own file (timmy-ui.riv), which says nothing of
+  // the mark's; drawing on the runtime's presence alone asked /assets/timmy-mark.riv and got a 404 in the console per canvas
+  if (drawMarks.mark === undefined) {
+    if (!drawMarks.asking) { drawMarks.asking = true; markWords().then((w) => { drawMarks.mark = w.mark; drawMarks.runtimeServed = w.runtime; if (w.mark) drawMarks(); }); }
+    return;
+  }
+  if (!drawMarks.mark) return;
   const rv = typeof window !== 'undefined' && window.rive && window.rive.Rive ? window.rive : null;
   if (!rv) { loadMarkRuntime(); return; }
   try { if (rv.RuntimeLoader && !drawMarks.wasmSet) { rv.RuntimeLoader.setWasmUrl('/vendor/rive/rive.wasm'); drawMarks.wasmSet = true; } } catch (e) { return; }
@@ -796,18 +818,21 @@ function drawMarks() {
  * and the text mark stays. (The page's policy allows the WebAssembly only then too: page.ts.)
  */
 function loadMarkRuntime() {
-  if (drawMarks.runtime || typeof fetch !== 'function') return;
-  if (!document.querySelector('canvas[data-timmy-mark]')) return;
+  if (drawMarks.runtime) return;
+  // (reached only once mark.json said the mark is there: drawMarks)
+  if (!drawMarks.runtimeServed) { drawMarks.runtime = 'none'; return; }
   drawMarks.runtime = 'asking';
-  fetch('/assets/mark.json', { cache: 'no-store', credentials: 'omit' }).then(async (r) => {
-    const b = r.status === 200 ? await r.json().catch(() => null) : null;
-    if (!b || b.mark !== true || b.runtime !== true) { drawMarks.runtime = 'none'; return; }
-    const s = document.createElement('script');
-    s.src = '/vendor/rive/rive.js';
-    s.onload = () => { drawMarks.runtime = 'here'; drawMarks(); };
-    s.onerror = () => { drawMarks.runtime = 'none'; };
-    document.head.append(s);
-  }).catch(() => { drawMarks.runtime = 'none'; });
+  // the bindings' one loader when they are here (no second <script> for the same runtime), else this page's own
+  const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+  if (R && typeof R.runtime === 'function') {
+    Promise.resolve().then(() => R.runtime()).then((rv) => { drawMarks.runtime = rv ? 'here' : 'none'; if (rv) drawMarks(); }, () => { drawMarks.runtime = 'none'; });
+    return;
+  }
+  const s = document.createElement('script');
+  s.src = '/vendor/rive/rive.js';
+  s.onload = () => { drawMarks.runtime = 'here'; drawMarks(); };
+  s.onerror = () => { drawMarks.runtime = 'none'; };
+  document.head.append(s);
 }
 window.addEventListener('pagehide', () => { for (const r of marks) { try { r.cleanup(); } catch (e) { /* gone */ } } });
 
@@ -1014,6 +1039,10 @@ async function sendNow() {
           if (turn.state === 'streaming') turn.state = data && typeof data === 'object' && data.status === 'cancelled' ? 'stopped' : 'answered';
           if (data && typeof data === 'object') { if (typeof data.model === 'string' && data.model) turn.model = data.model; turn.receipt = data.receipt || null; turn.steps = typeof data.steps === 'number' ? data.steps : null; turn.cost = costOfDone(data); }
           turn.needs = null;
+          // R11 round 5 (H172's observation: the composer read Stop a tick after the turn ended): `done` IS the turn's end — the
+          // composer, the controls and the status row read it so in THIS tick, not when the stream's close is read after it (the
+          // running turn's 1 s redraw drew this li stopped while the composer, on cx.running, still said Stop)
+          endOwnTurn(turn, controller);
         }
       }, controller.signal);
       if (turn.state === 'streaming') turn.state = 'answered';
@@ -1022,14 +1051,26 @@ async function sendNow() {
     if (controller.signal.aborted) { turn.state = 'stopped'; riveFeed('done', { status: 'cancelled' }, 'POST /api/chat/turn: this page stopped reading the turn (its Stop)'); }
     else { turn.state = 'failed'; turn.words = 'the companion did not answer the request'; riveFeed('error', { words: turn.words }, 'POST /api/chat/turn: no answer from the companion'); }
   } finally {
-    turn.ended = Date.now();
     turn.needs = null;
-    cx.running = null;
-    cx.runningTurn = null;
-    drawChat();
+    endOwnTurn(turn, controller);
+    // the frame — whose activity still names this turn until its next read — is read again now, not at its next 3 s poll
+    // (companion.js)
+    if (typeof readFrameAfterTurnEnd === 'function') { try { readFrameAfterTurnEnd(); } catch (e) { /* its next poll reads it */ } }
     // the turn is the project's now (sealed, in its conversation): read it back; the page's copy folds once it is there
     readView(true, true);
   }
+}
+
+/**
+ * This page's own turn ended (its `done`, its failure, or its read dropped): the turn's end is recorded once, the composer is
+ * released ONLY when it still holds this turn's controller (a turn sent after this one's `done`, while its stream drained, is
+ * never released by the earlier turn's close), and the composer, the controls and the status row are drawn in this tick.
+ */
+function endOwnTurn(turn, controller) {
+  if (!turn.ended) turn.ended = Date.now();
+  if (cx.running === controller) { cx.running = null; cx.runningTurn = null; }
+  drawChat();
+  drawStatus();
 }
 
 /** Server-sent events read from a stream: on(event, data) per event (its data parsed as JSON when it is). */
@@ -1494,7 +1535,13 @@ function controlCounts() {
 /** Another surface's turn of this project being answered now (the frame's activity), for the composer's Stop and the status row. */
 function otherTurn() {
   const f = workspace.frame;
-  return f && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
+  const t = f && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
+  if (!t) return null;
+  // R11 round 5 (H172's observation: the composer read Stop a tick after this page's own turn ended): the frame is read every
+  // 3 s, so it names this page's own turn — running or just ended — until its next read; this page's own turn is never
+  // "another surface's": the composer's Stop while it runs is the running branch's, and once it ended there is nothing to stop
+  if (cx.own.some((o) => o.id && o.id === t.id)) return null;
+  return t;
 }
 
 function drawControls() {

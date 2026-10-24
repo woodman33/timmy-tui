@@ -1578,7 +1578,11 @@ body.slate-absent p { max-width: 72ch; }
 .sh-step { display: inline-flex; align-items: baseline; gap: 8px; }
 .sh-step b { font-weight: var(--timmy-weight-body); font-size: 13px; letter-spacing: 0.1em; }
 .sh-step.is-current { color: var(--timmy-accent); }
-.sh-head-words { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; white-space: nowrap; }
+.sh-head-brand { flex: none; }
+.sh-head-words { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; white-space: nowrap; } /* (R11 round 5: at phone width the badge's words end in an ellipsis inside their border — "SIGNED IN · <a long id>" was clipped at the page's edge) */
+/* the screens' headings wrap: the page's `h1, .brand { white-space: nowrap }` is the old header's brand rule, not a screen's
+   ("Choose how you want to run." was cut at the right edge at 390 px, H172's capture 04) */
+.sh-screen h1 { white-space: normal; overflow-wrap: anywhere; }
 .sh-foot { display: flex; justify-content: space-between; gap: 16px; padding: 18px 48px; margin-top: auto; font-size: 13px; color: var(--timmy-text-secondary); }
 .sh-main { flex: 1; width: 100%; max-width: 1240px; margin: 0 auto; padding: 36px 48px; }
 /* a well: the account panel, a provider card; chosen = the amber border (a selection, never a state) */

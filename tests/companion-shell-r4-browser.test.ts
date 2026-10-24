@@ -135,10 +135,38 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
 
   it('at 1440 × 900 the chat as the preview draws it: the rail, the top line, the descriptor, the welcome with three starters, the composer, the bottom row, the right panel with its five controls and NEXT TURN; Send amber with a draft and a route; the FAKE key nowhere', async () => {
     const { context, page, errors } = await land(withRoute, { width: 1440, height: 900 });
+    const consoleErrors: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     try {
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
+      // R11 round 5 (H174's ask): the welcome's T mark asks for its FILE only when the companion says it is there (GET
+      // /assets/mark.json: mark) — on H174's tree the runtime IS on the page (the Rive UI components' own file, timmy-ui.riv,
+      // loads window.rive) and the mark's file is not: drawing on the runtime's presence alone asked /assets/timmy-mark.riv and
+      // wrote "Failed to fetch the Rive file: HTTP 404" to the console per canvas. This fixture holds no .riv at all (the
+      // bindings' own loader rightly loads no runtime then), so a runtime OBJECT is put on the page as those components would
+      // leave it — window.rive.Rive, recording every construction — the marks are drawn again, and the mark's file is neither
+      // asked for nor constructed: the page's one read is mark.json
+      await page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => new URL(e.name).pathname === '/assets/mark.json'), null, { timeout: 10_000 });
+      await page.evaluate(() => {
+        const made: unknown[] = [];
+        (window as unknown as { rive: unknown }).rive = { Rive: class { constructor(o: unknown) { made.push(o); } }, made };
+      });
+      // @ts-expect-error -- drawMarks is a function of the page's classic script chat-shell.js
+      await page.evaluate(() => { drawMarks(); });
+      await page.waitForTimeout(1_000);
+      const rive = await page.evaluate(() => ({
+        made: (window as unknown as { rive: { made: unknown[] } }).rive.made.length,
+        asked: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => /\.riv$|\/vendor\/rive\/|\/assets\/mark\.json$/.test(p)),
+        started: [...document.querySelectorAll('canvas[data-timmy-mark]')].map((c) => c.getAttribute('data-rive-started')),
+      }));
+      expect(rive.made).toBe(0);
+      expect(rive.asked.filter((p) => p !== '/assets/mark.json')).toEqual([]);
+      expect(rive.asked).toContain('/assets/mark.json');
+      expect(rive.started.length).toBeGreaterThan(0);
+      expect(rive.started.every((s) => s === null)).toBe(true);
+      expect(consoleErrors.filter((e) => /Rive|\.riv|404/.test(e))).toEqual([]);
       // the rail: the mark and TIMMY; WORKSPACE with the project box and New conversation; Chat; WORK; CREATE; CONNECT; the account
       expect(await text(page, '#shell-rail .rail-brand')).toBe('T TIMMY');
       expect(await text(page, '#rail-project-label')).toBe('Workspace');
@@ -322,6 +350,17 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.click('#cx-models-toggle');
       await page.waitForSelector('#cx-models:visible', { timeout: 5_000 });
       expect(await texts(page, '#cx-models .cm-provider')).toEqual(['OpenRouter', 'Ollama local', 'Ollama cloud', 'Cloudflare']);
+      // R11 round 5 (H172's capture 04 at 390: the connections screen's heading and the head's identity badge were cut at the
+      // right edge): the screen's h1 wraps (the page's `h1 { white-space: nowrap }` is the old header's brand rule, lifted for
+      // the shell's screens in companion.css), and the badge's words end in an ellipsis inside their border (given long words:
+      // the badge here says "No account signed in"; a signed-in page's names the account's id)
+      await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('connections'));
+      await page.waitForSelector('#screen-connections h1', { timeout: 20_000 });
+      const h1 = await page.$eval('#screen-connections h1', (e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, right: Math.round(r.right), lines: Math.round(r.height / parseFloat(getComputedStyle(e).lineHeight)), whole: r.right <= window.innerWidth && e.scrollWidth <= e.clientWidth + 1 }; });
+      expect(h1).toMatchObject({ text: 'Choose how you want to run.', whole: true });
+      expect(h1.lines).toBeGreaterThanOrEqual(2);
+      expect(await page.$eval('#screen-connections .sh-head-words', (e) => { e.textContent = `Signed in · user_${'x'.repeat(48)}`; const r = e.getBoundingClientRect(); return { inside: r.right <= window.innerWidth, ellipsis: getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth }; })).toEqual({ inside: true, ellipsis: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, LONG);
