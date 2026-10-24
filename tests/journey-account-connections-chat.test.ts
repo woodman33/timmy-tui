@@ -199,29 +199,36 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       try {
         const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
+        expect(t).toMatch(/Choose how you want to run\./);
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
         // the state words are H170's provider states: never "free", never "connected" for a selection
         expect(t).not.toMatch(/\bfree\b/i);
-        expect(t).toMatch(/Not connected|not set up|No key|not installed|Install Ollama/i);
+        expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
         // Ollama · local against the FAKE Ollama: its model listed with its size
         const listed = await until(o.page, 'the FAKE Ollama\'s model on the local card', (s) => s.includes(MODEL), 20_000);
         expect(listed).toMatch(/4\.9 GB|4\.6 GiB|4\.9GB/);
-        // Download a local model: the size first, a confirmation, then progress, then Cancel: the FAKE sees the abort
-        await o.page.getByRole('button', { name: /Download a local model|Download/ }).first().click();
-        const asked = await until(o.page, 'the download\'s confirmation with its size', (s) => /1\.1 GB|1\.0 GiB|1\.1GB/.test(s) && /Download|Confirm|Start/i.test(s));
+        // Download a local model (H170's words, 19:47): the box, the model's name, "Show the size" → the confirmation sentence
+        // "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." before anything
+        // is pulled; "Confirm the download" → progress "<x> MB of <y> MB · <status> (<n>%)"; Cancel → "Cancelled…", the FAKE
+        // /api/pull sees the abort
+        await o.page.getByRole('button', { name: /Download a local model/ }).first().click();
+        const nameField = o.page.getByRole('textbox', { name: /model|name/i }).or(o.page.getByPlaceholder(/model|name/i));
+        if (await nameField.count()) await nameField.first().fill(PULL.name);
+        await o.page.getByRole('button', { name: /Show the size/ }).first().click();
+        const asked = await until(o.page, 'the download\'s confirmation sentence', (s) => /Download .*Ollama downloads it from its library/.test(s), 20_000);
         expect(ollama.pulls().length, 'nothing is pulled before the confirmation').toBe(0);
-        expect(asked).toMatch(new RegExp(PULL.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-        await o.page.getByRole('button', { name: /^(Download|Confirm|Start download|Yes, download)/i }).first().click();
-        await until(o.page, 'the download\'s progress', (s) => /\d+ ?%|MB of|GB of|pulling/i.test(s), 15_000);
-        expect(ollama.pulls().length).toBe(1);
-        await o.page.getByRole('button', { name: /Cancel/ }).first().click();
+        expect(asked).toMatch(new RegExp(`Download ${PULL.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`));
+        await o.page.getByRole('button', { name: /Confirm the download/ }).first().click();
+        await until(o.page, 'the download\'s progress', (s) => /MB of .*\(\d+%\)|\d+ ?%/i.test(s), 20_000);
+        expect(ollama.pulls().length, 'one /api/pull after the confirmation').toBe(1);
+        await o.page.getByRole('button', { name: /^Cancel/ }).first().click();
         const end = Date.now() + 10_000;
         while (!ollama.pulls()[0].aborted && Date.now() < end) await o.page.waitForTimeout(100);
         expect(ollama.pulls()[0].aborted, 'the FAKE /api/pull saw the abort').toBe(true);
-        const cancelled = await until(o.page, 'the download cancelled, said', (s) => /cancel/i.test(s) && !/\d+ ?%/.test(s), 10_000);
+        const cancelled = await until(o.page, 'the download cancelled, said', (s) => /Cancelled/.test(s), 10_000);
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
-        // Continue → the chat
-        await o.page.getByRole('button', { name: /^Continue$|Continue to chat|Explore without a model/ }).first().click();
+        // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
+        await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
         expect(chat).toMatch(/Local logs · cloud sync off|Local logs/);

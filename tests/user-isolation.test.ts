@@ -258,7 +258,8 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     const chosen = await call('POST', ROUTES.chatChoose, { session: identity.token(A), query: { project: id }, body: { source: 'ollama-local', model: MODEL } });
     expect(chosen.status, `POST ${ROUTES.chatChoose}: ${chosen.text.slice(0, 300)}`).toBe(200);
     expect(chosen.json?.ok, chosen.text.slice(0, 300)).toBe(true);
-    const turn = await sse(ROUTES.chatTurn, { session: identity.token(A), body: { message: 'FAKE: what time is it?', project: id }, until: (e) => e.event === 'done' || e.event === 'error', ms: 60_000 });
+    // (H169's body: { message, project: { root } }; a root that is not this account's → 400 before any stream)
+    const turn = await sse(ROUTES.chatTurn, { session: identity.token(A), body: { message: 'FAKE: what time is it?', project: { root } }, until: (e) => e.event === 'done' || e.event === 'error', ms: 60_000 });
     expect(turn.status, `POST ${ROUTES.chatTurn}: ${turn.text.slice(0, 300)} (H169's SSE)`).toBe(200);
     const names = turn.events.map((e) => e.event);
     expect(names, `the turn's events: ${JSON.stringify(turn.events).slice(0, 600)}`).toContain('done');
@@ -285,7 +286,7 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(view.text).not.toContain('FAKE: what time is it?');
     const byRoot = await call('GET', ROUTES.chatView, { session: identity.token(B), query: { project: aProject!.root } });
     expect([400, 403, 404], `B's read by A's root: ${byRoot.status}`).toContain(byRoot.status);
-    const turn = await sse(ROUTES.chatTurn, { session: identity.token(B), body: { message: 'FAKE: B on A\'s root', project: aProject!.id }, until: (e) => e.event === 'done' || e.event === 'error', ms: 15_000 });
+    const turn = await sse(ROUTES.chatTurn, { session: identity.token(B), body: { message: 'FAKE: B on A\'s root', project: { root: aProject!.root } }, until: (e) => e.event === 'done' || e.event === 'error', ms: 15_000 });
     expect(turn.status === 200 ? turn.events.map((e) => e.event) : turn.status, `B's turn on A's project: ${turn.status} ${turn.text.slice(0, 300)}`).not.toContain('done');
     if (turn.status === 200) expect(turn.events.map((e) => e.event)).toContain('error');
     else expect([400, 403, 404]).toContain(turn.status);
