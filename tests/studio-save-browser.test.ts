@@ -99,13 +99,13 @@ describe.skipIf(!browserPath)('the save, in a real browser', () => {
       await stateIs(page, 'saving');
       const saving = await line(page);
       expect(saving).toMatchObject({ glyph: '◔', words: expect.stringMatching(/^Saving revision \d+…$/), retry: false, box: false });
-      expect(saving.color).toBe('rgb(142, 142, 147)');
+      expect(saving.color).toBe('rgb(189, 202, 218)');
       expect(await page.textContent('#status')).toMatch(/revision \d+, saving$/);
       release();
       await stateIs(page, 'saved');
       const saved = await line(page);
       expect(saved).toMatchObject({ glyph: '■', words: expect.stringMatching(/^Saved: revision \d+, at .+\.$/), retry: false });
-      expect(saved.color).toBe('rgb(242, 239, 233)');
+      expect(saved.color).toBe('rgb(236, 241, 245)');
       expect(GREENS).not.toContain(saved.color);
       expect(await page.textContent('#status')).toMatch(/revision \d+, saved$/);
       await page.unroute('**/api/canvas/document');

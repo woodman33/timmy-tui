@@ -855,18 +855,24 @@ export function createCards(deps) {
     if (!card) throw new Error(`No card ${JSON.stringify(String(id)).slice(0, 120)} in ${answer.project.name} now.`);
     const type = drawnType(card.kind);
     if (!type) throw new Error(`${card.title} has no drawn card (an unreadable record): Place on canvas makes a note of it.`);
+    // R11 round 7 (H176): a starter's empty slot for this kind of card takes it (made inside the slot's frame, which grows to show
+    // it: canvas.js slotFor, fitSlots); the card stays the project's own, and acts as on any board
+    const slot = deps.slotFor ? deps.slotFor(editor, CARD_SHAPES[type]) : null;
     // R7 (H151; H147's R6 finding 5: "placed cards cover existing shapes"): where it overlaps no shape on the page (canvas.js
     // placeAt, ./placement.js), cards placed one after another included; it had gone right of the rightmost drawn card, over
     // whatever was there. Its height is a guess until it follows its content: once it has, it is moved clear if it grew over one.
-    const at = deps.place(editor, { w: WIDTH[type], h: PLACE_H });
+    const at = slot ? slot.at : deps.place(editor, { w: WIDTH[type], h: PLACE_H });
     const shapeId = deps.createShapeId();
-    editor.createShape({ id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type) });
+    editor.createShape({ id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y, ...(slot ? { parentId: slot.frame } : {}), props: propsFor(card, answer, type) });
     editor.select(shapeId);
+    if (slot && deps.fitSlots) deps.fitSlots(editor);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
     // R4 (H100): and again once it has its height, so its lower part (its buttons) is not left under tldraw's toolbar
     await revealSized(editor, [shapeId]);
-    if (deps.keepClear) await deps.keepClear(editor, [shapeId]);
-    return { placed: true, shape: shapeId, type: CARD_SHAPES[type], card: { id: card.id, title: card.title } };
+    if (slot && deps.fitSlots) deps.fitSlots(editor);
+    // (a card in a slot sits in its frame on purpose: it is never moved clear of it)
+    if (deps.keepClear && !slot) await deps.keepClear(editor, [shapeId]);
+    return { placed: true, shape: shapeId, type: CARD_SHAPES[type], card: { id: card.id, title: card.title }, slot: slot ? { frame: slot.frame, name: slot.name, words: slot.words } : null };
   }
 
   /**

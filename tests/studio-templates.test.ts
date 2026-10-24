@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { publicTemplates } from '../src/studio/templates.js';
+import { publicTemplates, type GuidedTemplate } from '../src/studio/templates.js';
 
 // Fourth order, step 5: public templates start blank. A board seed shipped in the public tree
 // (templates/boards) is read as its id, title, domain and capability names only, and Timmy Canvas
@@ -43,7 +43,11 @@ describe('public board templates', () => {
 describe('guided blank boards', () => {
   it('are the workflow, the fleet plan review and the VoxVision review, in the index\'s order, each text and empty frames only', async () => {
     const { guidedTemplates } = await import('../src/studio/templates.js');
-    const listed = guidedTemplates();
+    // R11 round 7 (H176): the three Houdini starters (kind 'starter'; tests/studio-starters.test.ts) are listed after them, in the
+    // same answer; the guided boards themselves are as they were
+    const all = guidedTemplates();
+    expect(all.slice(3).map((t) => [t.id, (t as { kind?: string }).kind])).toEqual([['H1', 'starter'], ['H2', 'starter'], ['H3', 'starter']]);
+    const listed = all.slice(0, 3).filter((t): t is GuidedTemplate => !('kind' in t));
     expect(listed.map((t) => [t.id, t.title, t.frames.length, t.flow])).toEqual([
       ['G1', 'Workflow: intent → predict → sandbox → review → receipt', 5, true],
       ['G2', 'Fleet plan review', 6, false],
@@ -73,8 +77,10 @@ describe('guided blank boards', () => {
       'G6.json': { id: 'G6', ...ok, frames: [] },
       'X1.json': { id: 'X1', ...ok },
     });
-    expect(guidedTemplates(dir)).toEqual([{ id: 'G1', title: 'Review', domain: 'ops', intro: 'What this is for.', flow: false, columns: 1, frames: [{ name: 'One', guide: 'What goes here.' }] }]);
-    expect(guidedTemplates(seeds({}))).toEqual([]);
+    // (the shipped starters follow whatever folder the guided boards are read from: they are code, not seeds of that folder)
+    const starters = guidedTemplates(seeds({})).map((t) => t.id);
+    expect(starters).toEqual(['H1', 'H2', 'H3']);
+    expect(guidedTemplates(dir).slice(0, -starters.length)).toEqual([{ id: 'G1', title: 'Review', domain: 'ops', intro: 'What this is for.', flow: false, columns: 1, frames: [{ name: 'One', guide: 'What goes here.' }] }]);
   });
   it('are served beside the seeds by the canvas server, to anyone (they are public and blank)', async () => {
     const { startStudioServer } = await import('../src/studio/server.js');
