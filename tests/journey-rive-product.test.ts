@@ -41,19 +41,50 @@
  *   H170  a ProviderCard inside each [data-provider="<id>"] card; TimmyRive.fromProviderState(id, state) per state change with
  *         the source "GET /api/connections: <id>".
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Locator, type Page, type Video } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import { startStudioServer, type StudioServer } from '../src/studio/server.js';
+import type { CompanionServer } from '../src/companion/server.js';
+import type { StudioServer } from '../src/studio/server.js';
 import { fakeIdentityProvider, fakeUserId, type FakeIdentity } from './fixtures/fake-identity.js';
 import { startFakeOllamaJourney, type FakeOllamaJourney } from './fixtures/fake-ollama-journey.js';
 import { capturer } from './fixtures/journey-caps.js';
 import { grant, nameProject } from './helpers/canvas-auth.js';
+
+/**
+ * The servers: from THE INSTALLED PACKAGE when TIMMY_INSTALLED_ROOT names its root (<prefix>/node_modules/timmy-tui, as
+ * scripts/review/review.sh installs the packed tarball; the operator's 07:06 bar: the recordings come from the installed
+ * package, not a worktree's dev server), else this checkout's sources. The fixtures (the FAKE identity provider, the FAKE Ollama)
+ * are this checkout's either way. The sidecars say which.
+ */
+const INSTALLED = process.env.TIMMY_INSTALLED_ROOT?.trim() || '';
+type Servers = { startCompanionServer: (port: number, o: Record<string, unknown>) => Promise<CompanionServer>; startStudioServer: (port: number, o: Record<string, unknown>) => Promise<StudioServer> };
+async function servers(): Promise<Servers> {
+  if (!INSTALLED) {
+    const c = await import('../src/companion/server.js');
+    const st = await import('../src/studio/server.js');
+    return { startCompanionServer: c.startCompanionServer as Servers['startCompanionServer'], startStudioServer: st.startStudioServer as Servers['startStudioServer'] };
+  }
+  const load = (rel: string): Promise<Record<string, unknown>> => import(pathToFileURL(join(INSTALLED, rel)).href) as Promise<Record<string, unknown>>;
+  const c = await load('dist/src/companion/server.js');
+  const st = await load('dist/src/studio/server.js');
+  return { startCompanionServer: c.startCompanionServer as Servers['startCompanionServer'], startStudioServer: st.startStudioServer as Servers['startStudioServer'] };
+}
+/** The installed package's own words of itself: its version, its build revision (dist/build-info.json), the tarball's sha256 when named. */
+function installedWords(): string[] {
+  if (!INSTALLED) return ['Servers: this checkout\'s sources (a worktree dev server), NOT the installed package.'];
+  const out: string[] = [];
+  try { const pkg = JSON.parse(readFileSync(join(INSTALLED, 'package.json'), 'utf8')) as { name?: string; version?: string }; out.push(`Servers: THE INSTALLED PACKAGE ${pkg.name ?? '?'}@${pkg.version ?? '?'} (TIMMY_INSTALLED_ROOT: the tarball installed into a temp prefix; its own dist/src/companion/server.js and dist/src/studio/server.js started on 127.0.0.1).`); } catch { out.push('Servers: the installed package (its package.json could not be read).'); }
+  try { const info = JSON.parse(readFileSync(join(INSTALLED, 'dist', 'build-info.json'), 'utf8')) as Record<string, unknown>; out.push(`Package build: ${JSON.stringify(info).slice(0, 300)}`); } catch { out.push('Package build: no dist/build-info.json in the installed package.'); }
+  const tgz = process.env.TIMMY_INSTALLED_TARBALL?.trim();
+  if (tgz) { try { out.push(`Tarball: ${tgz.split('/').pop()} · sha256 ${createHash('sha256').update(readFileSync(tgz)).digest('hex')}`); } catch { out.push(`Tarball: ${tgz.split('/').pop()} (not readable for its sha256)`); } }
+  return out;
+}
 
 // ── the contract's selectors (one place to adjust) ──────────────────────────────
 const SEL = {
@@ -79,6 +110,7 @@ const caps = capturer('tests/journey-rive-product.test.ts', [
   'REAL: the companion and the Studio (started in this process), their launch tokens and pages, the identity verifier (RS256 against CLERK_JWT_KEY), the agent turn (openChatSession → runTurn) and its SSE, the NEEDS YOU gate (write_project_file), the Stop route, the sealed receipts, the project storage (the board under the project), @rive-app/canvas served from this origin, the operator\'s timmy-ui.riv (AgentConsole, ProviderCard, ActionButton; TimmyUI).',
   'FAKE: the identity provider (an RSA pair made by the test; the session minted by the test), the Ollama on 127.0.0.1 (no model behind it: one tool call then a fixed answer; the gated write on "write"; the slow answer on "slowly"), the tldraw license key when the environment has none (a string the SDK rejects).',
   'What animates: the native Rive artboards drawn by the runtime, each state the native State input the binding set from a backend event; the HTML word beside it says the same. PREVIEW is only ever in the Inspect view, not here.',
+  ...installedWords(),
 ]);
 
 const PORT = 4500;
@@ -88,6 +120,8 @@ const USER = fakeUserId('product');
 const MODEL = 'fake-qwen3:8b';
 const FAKE_ANSWER = 'FAKE answer: the time was read by a tool (no model behind this).';
 const FAKE_WRITTEN = 'FAKE answer: the note was written (no model behind this).';
+const DENSE_CHUNKS = 300;
+const DENSE_EVERY_MS = 15;
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/chromium', '/usr/bin/google-chrome'].find((p): p is string => Boolean(p) && existsSync(p as string));
 if (!browserPath) console.warn('journey-rive-product: no Chromium found, so the browser legs are skipped here (said, not passed)');
@@ -120,6 +154,8 @@ beforeAll(async () => {
     answer: FAKE_ANSWER,
     slow: { when: /slowly/i, words: 'FAKE slow answer one word at a time so that Stop can end it before it is done'.split(' '), slowMs: 700 },
     asks: { when: /write/i, tool: { name: 'write_project_file', arguments: { path: 'notes.md', content: 'from the FAKE model\n' } }, answer: FAKE_WRITTEN },
+    // the operator's 07:06 bar: a DENSE stream — 300 chunks, one every 15 ms (≈ 66 per second for ≈ 4.5 s)
+    dense: { when: /dense/i, words: Array.from({ length: DENSE_CHUNKS }, (_, i) => `d${i + 1}`), everyMs: DENSE_EVERY_MS },
   });
   identity = fakeIdentityProvider({ azp: `http://127.0.0.1:${PORT}` });
   const userHome = join(timmyHome, 'users', USER);
@@ -131,17 +167,22 @@ beforeAll(async () => {
   for (const k of ['TIMMY_STORE', 'OLLAMA_BASE_URL', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_SECRET_KEY']) delete process.env[k];
   const browserEnv = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && !/proxy/i.test(k))) as Record<string, string>;
   if (browserPath) browser = await chromium.launch({ headless: true, executablePath: browserPath, env: browserEnv, args: ['--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
-  companion = await startCompanionServer(PORT, { token: TOKEN, chatEnv: env, workspace: { env, shareMs: 0 } });
+  const sv = await servers();
+  companion = await sv.startCompanionServer(PORT, { token: TOKEN, chatEnv: env, workspace: { env, shareMs: 0 } });
   // the Studio (Timmy Canvas): the real server and the real bundle built here; the license key from the environment when it has
   // one (the lead's / CI's; never read here), else a FAKE string the SDK rejects — the SDK's own verdict is what is asserted
   studioRoot = mkdtempSync(join(tmpdir(), 'journey-rive-product-studio-'));
   studioHome = mkdtempSync(join(tmpdir(), 'journey-rive-product-home-'));
-  copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(studioRoot, 'index.html'));
-  const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
-  await buildCanvas(repo, join(studioRoot, 'dist'), { licenses: studioRoot });
+  if (!INSTALLED) {
+    // the dev server: the bundle built here from this checkout
+    copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(studioRoot, 'index.html'));
+    const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
+    await buildCanvas(repo, join(studioRoot, 'dist'), { licenses: studioRoot });
+  }
   realKey = Boolean(process.env.TLDRAW_LICENSE_KEY?.trim());
   const studioEnv: Record<string, string | undefined> = { TIMMY_HOME: studioHome, HOME: studioHome, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR, TLDRAW_LICENSE_KEY: realKey ? process.env.TLDRAW_LICENSE_KEY : 'FAKE-license-key-the-sdk-rejects-H172' };
-  studio = await startStudioServer(0, { env: studioEnv, root: studioRoot });
+  // (the installed package serves its own companion/studio-canvas — index.html and the bundle it packed — from its default root)
+  studio = await sv.startStudioServer(0, { env: studioEnv, ...(INSTALLED ? {} : { root: studioRoot }) });
   studioBase = `http://127.0.0.1:${(studio.address() as AddressInfo).port}`;
   projectA = join(studioHome, 'project-a');
   projectB = join(studioHome, 'project-b');
@@ -161,9 +202,11 @@ afterAll(async () => {
 
 // ── the companion page ────────────────────────────────────────────────────────
 
-interface Opened { page: Page; context: BrowserContext; errors: string[]; missing: string[]; left: string[]; close: () => Promise<void> }
+interface Opened { page: Page; context: BrowserContext; errors: string[]; missing: string[]; left: string[]; rivFetches: string[]; close: () => Promise<void> }
 
-function watch(page: Page, o: { errors: string[]; missing: string[]; left: string[] }): void {
+/** What the page did on the network and in its console: errors, misses, requests that left 127.0.0.1, every fetch of the .riv. */
+function watch(page: Page, o: { errors: string[]; missing: string[]; left: string[]; rivFetches: string[] }): void {
+  page.on('response', (r) => { if (/\/assets\/rive\/timmy-ui\/timmy-ui\.riv/.test(r.url())) o.rivFetches.push(`${r.status()} ${new Date().toISOString()}`); });
   page.on('pageerror', (e) => o.errors.push(e.message));
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
@@ -184,13 +227,13 @@ function recordingOf(record?: string): { recordVideo: { dir: string; size: { wid
   return { recordVideo: { dir, size: { width: 1440, height: 900 } } };
 }
 /** Moves a finished recording (the Video taken from the page before its context closed) to its name beside a sidecar; said in the sidecar when none came. */
-async function keepRecording(v: Video | null, name: string, words: string[]): Promise<void> {
+async function keepRecording(v: Video | null, name: string, words: string[], verdict = 'the case\'s verdict is in the vitest log and the GATE line (this sidecar is written before vitest counts it)'): Promise<void> {
   if (!caps.folder) return;
   const base = join(caps.folder, name);
   try {
     const p = v ? await v.path() : '';
     if (p && existsSync(p)) renameSync(p, `${base}.webm`);
-    writeFileSync(`${base}.txt`, [`${name} · a Playwright recording of the companion page in headless Chromium (recordVideo), scripted test run, not a person.`, ...words, ''].join('\n'));
+    writeFileSync(`${base}.txt`, [`${name} · a Playwright recording in headless Chromium (recordVideo), scripted test run, not a person · ${new Date().toISOString()}`, ...installedWords(), `Origins: the companion ${companion.address}; the Studio ${studioBase} — both on 127.0.0.1.`, 'FAKE on 127.0.0.1: the identity provider (an RSA pair made by the test; its public key is CLERK_JWT_KEY; the session minted by the test, verified by the REAL verifier), the Ollama (no model: scripted tool calls and answers). No real Ollama in this sandbox.', ...words, `Verdict: ${verdict}.`, ''].join('\n'));
   } catch (e) { try { writeFileSync(`${base}.failed.txt`, `the recording ${name} did not complete: ${e instanceof Error ? e.message : String(e)}\n`); } catch { /* nothing to say it with */ } }
 }
 
@@ -200,7 +243,8 @@ async function open(size: { width: number; height: number }, o: { reducedMotion?
   const errors: string[] = [];
   const missing: string[] = [];
   const left: string[] = [];
-  watch(page, { errors, missing, left });
+  const rivFetches: string[] = [];
+  watch(page, { errors, missing, left, rivFetches });
   await page.goto(companion.url);
   await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: { identity?: () => unknown } }).TimmyShell?.identity?.()), null, { timeout: 15_000 });
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
@@ -211,7 +255,7 @@ async function open(size: { width: number; height: number }, o: { reducedMotion?
     return 'ok';
   }, identity.token(USER)).catch((e: unknown) => `threw: ${e instanceof Error ? e.message : String(e)}`);
   expect(ok, 'the page\'s session seam (window.timmyAccount.useSession)').toBe('ok');
-  return { page, context, errors, missing, left, close: async () => { await context.close(); } };
+  return { page, context, errors, missing, left, rivFetches, close: async () => { await context.close(); } };
 }
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
@@ -249,6 +293,13 @@ async function eventOf(page: Page, key: string, input: string, word: unknown): P
   return e ? { native: e.native ? `${e.native.input} ${JSON.stringify(e.native.value)}` : '(HTML only)', source: e.source, did: e.did } : null;
 }
 const label = (page: Page, key: string): Promise<string> => page.locator(`[data-rive-status="${key}"]`).first().innerText().then((t) => t.trim());
+/** The handles per component key, as "key×n" sorted — ONE runtime instance per mounted component is the invariant. */
+async function handleCensus(page: Page): Promise<string[]> {
+  const hs = await handles(page);
+  const by = new Map<string, number>();
+  for (const h of hs) by.set(h.component ?? h.id, (by.get(h.component ?? h.id) ?? 0) + 1);
+  return [...by.entries()].sort().map(([k, n]) => `${k}×${n}`);
+}
 
 /** The focus order from the composer: each Tab's active element, until Send or `max` tabs. Never a canvas. */
 async function tabOrder(page: Page, max = 8): Promise<string[]> {
@@ -305,8 +356,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
     const at = `${size.width}x${size.height}`;
     const phone = size.width < 600;
 
-    it.skipIf(!browserPath)(`${at} CHAT: the AgentConsole drawn in the chat at a readable size, its State on a REAL turn (working 1 → idle 0), the label aria-live, the focus order unchanged, the NEEDS-YOU answered through the ActionButton (click, then Enter) with POST /api/chat/answer seen, the welcome starter, Stop → State 3 with the receipt's stop; ${phone ? 'folded to its label, opened on a tap; nothing overflows' : 'recorded'}; no page error`, async () => {
+    it.skipIf(!browserPath)(`${at} CHAT: the AgentConsole drawn in the chat at a readable size, its State on a REAL turn (working 1 → idle 0), the label aria-live, the focus order unchanged, ${phone ? '' : 'the DENSE stream with a NEEDS-YOU in the middle (one instance, the last event\'s State), '}the NEEDS-YOU answered through the ActionButton (click, then Enter) with POST /api/chat/answer seen, the welcome starter, Stop → State 3 with the receipt's stop; ${phone ? 'folded to its label, opened on a tap; nothing overflows' : 'recorded'}; no page error`, async () => {
       const o = await open(size, { record: phone ? undefined : 'recording-chat-1440x900' });
+      let chatPassed = false;
       try {
         const composer = await toChat(o, size, '');
         // ── the console: present, drawn by the runtime, the operator's artboard, readable ──
@@ -353,6 +405,54 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(idle!.native).toBe('State 0');
         expect(idle!.source).toMatch(/POST \/api\/chat\/turn · SSE done/);
         await caps.cap(o.page, size, 'chat-turn-answered', ['After the REAL quick turn: the FAKE answer with its receipt; the console back to idle (State 0, from SSE done (answered)).'], { to: o.page.getByText(/receipt [0-9a-f]{8}/).last(), what: 'the turn\'s receipt line' });
+        // ── RAPID EVENTS (the operator's 07:06 bar, product level): a REAL turn whose FAKE stream is DENSE — a gated write first
+        // (the NEEDS-YOU in the middle of the turn), then 300 chunks at one every 15 ms (≈ 66 per second for ≈ 4.5 s) through the
+        // real SSE and H171's feed into the drawn console. Invariants read from the page before, during and after: one runtime
+        // instance per mounted component, the .riv not fetched again, no "Aborted()" / onLoadError / page error, the console's
+        // State the LAST event's mapping (done → idle → 0) and the HTML word the same once the stream ends.
+        if (!phone) {
+          const censusBefore = await handleCensus(o.page);
+          const rivBefore = o.rivFetches.length;
+          const eventsBefore = (await handleOf(o.page, key))!.events.length;
+          await composer.first().fill('FAKE: dense write please');
+          await o.page.getByRole('button', { name: /^Send/ }).first().click();
+          const denseGroup = o.page.locator(SEL.needsGroup).last();
+          await denseGroup.waitFor({ state: 'visible', timeout: 30_000 });
+          await inputIs(o.page, key, 'State', 2, 10_000);
+          await o.page.waitForSelector(`${SEL.needsGroup} canvas[data-timmy-rive][data-loaded]`, { state: 'attached', timeout: 20_000 });
+          const censusDuring = await handleCensus(o.page);
+          expect(censusDuring.filter((c) => c.startsWith(`${key}×`)), 'ONE console instance while the ask stands').toEqual([`${key}×1`]);
+          const denseOnce = denseGroup.getByRole('button', { name: /^(allow )?once$/i }).first();
+          await denseOnce.waitFor({ state: 'visible', timeout: 10_000 });
+          const denseAnswered = o.page.waitForResponse((r) => r.url().endsWith('/api/chat/answer') && r.request().method() === 'POST', { timeout: 15_000 });
+          const t0 = Date.now();
+          await denseOnce.click();
+          expect((await denseAnswered).status()).toBe(200);
+          // mid-stream: working (State 1), one console instance, the .riv not asked again
+          await inputIs(o.page, key, 'State', 1, 20_000);
+          await o.page.waitForTimeout(1500);
+          expect(await label(o.page, key), 'the word mid-stream').toBe('working');
+          expect((await handleCensus(o.page)).filter((c) => c.startsWith(`${key}×`)), 'ONE console instance mid-stream').toEqual([`${key}×1`]);
+          await caps.cap(o.page, size, 'chat-dense-stream', [`The DENSE REAL turn mid-stream: the FAKE answers ${DENSE_CHUNKS} chunks at one every ${DENSE_EVERY_MS} ms (≈ ${Math.round(1000 / DENSE_EVERY_MS)} per second) after the NEEDS-YOU was answered on the ActionButton; the console working (State 1); one runtime instance.`], { to: root, what: 'the console' });
+          await until(o.page, 'the dense answer complete', (s) => s.includes(`d${DENSE_CHUNKS}`), 90_000);
+          await inputIs(o.page, key, 'State', 0, 30_000);
+          const took = Date.now() - t0;
+          const chat = ollama.chats().filter((c) => /dense/i.test(String(([...(c.body?.messages ?? [])].reverse().find((m: { role?: string }) => m.role === 'user') as { content?: string } | undefined)?.content ?? ''))).at(-1);
+          expect(chat, 'the FAKE saw the dense turn').toBeTruthy();
+          expect(chat!.aborted, 'the dense stream ran to its end (not cut)').not.toBe(true);
+          console.warn(`journey-rive-product ${at}: the dense turn — ${DENSE_CHUNKS} chunks at ${DENSE_EVERY_MS} ms (≈ ${Math.round(1000 / DENSE_EVERY_MS)}/s) ran in ${took} ms; console events recorded +${(await handleOf(o.page, key))!.events.length - eventsBefore} (the bindings keep the last ${40}); .riv fetches during: ${o.rivFetches.length - rivBefore}`);
+          expect(await label(o.page, key), 'the word once the stream ended').toBe('idle');
+          const last = (await handleOf(o.page, key))!.events.at(-1)!;
+          expect(`${last.input} = ${JSON.stringify(last.value)} → ${last.native ? `${last.native.input} ${JSON.stringify(last.native.value)}` : '—'}`, 'the LAST event is the done → idle → State 0').toBe('activity = "idle" → State 0');
+          expect(last.source).toMatch(/POST \/api\/chat\/turn · SSE done/);
+          const censusAfter = await handleCensus(o.page);
+          expect(censusAfter.filter((c) => c.startsWith(`${key}×`)), 'ONE console instance after the stream').toEqual([`${key}×1`]);
+          expect(censusAfter.length, `no component gained a second instance (before: ${censusBefore.join(', ')}; after: ${censusAfter.join(', ')})`).toBeLessThanOrEqual(censusBefore.length + 3); // (+ the ask's three ActionButtons, unmounted when answered or kept inert: H174's unmount)
+          for (const c of censusAfter) expect(c.endsWith('×1'), `one instance each: ${censusAfter.join(', ')}`).toBe(true);
+          expect(o.rivFetches.length - rivBefore, `the .riv fetched only for the ask's new ActionButtons during the dense turn (fetches: ${o.rivFetches.slice(rivBefore).join(' | ')})`).toBeLessThanOrEqual(3);
+          expect(o.errors.filter((e) => /Aborted\(\)|RuntimeError|onLoadError|Failed to fetch the Rive file/.test(e)), 'no runtime abort or load error through the dense stream').toEqual([]);
+          await caps.cap(o.page, size, 'chat-dense-done', ['The dense turn ended: the console idle (State 0, the last event SSE done); one runtime instance throughout; the .riv not fetched again.'], { to: root, what: 'the console' });
+        }
         // ── NEEDS-YOU: a gated tool → the ActionButton (a real <button>) → a trusted click → POST /api/chat/answer seen → the turn goes on ──
         await composer.first().fill('FAKE: write a note please');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
@@ -432,15 +532,17 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not').toEqual([]);
+        chatPassed = true;
       } finally {
         const video = o.page.video();
         await o.close();
-        if (!phone) await keepRecording(video, 'recording-chat-1440x900', ['REAL: the companion, the agent turn and its SSE, the NEEDS YOU gate, the Stop, the receipts, the runtime drawing the AgentConsole and the ActionButtons. FAKE: the identity provider\'s session, the Ollama on 127.0.0.1 (the tool calls and the answers are scripted). What is seen: the console idle → working → idle on a quick turn; the NEEDS YOU answered through the ActionButton (click, then Enter); the slow turn stopped (State 3) with its receipt. No PREVIEW here.']);
+        if (!phone) await keepRecording(video, 'recording-chat-1440x900', ['REAL: the companion, the agent turn and its SSE, the NEEDS YOU gate, the Stop, the receipts, the runtime drawing the AgentConsole and the ActionButtons. What is seen: the console idle → working → idle on a quick turn; the DENSE turn (a NEEDS-YOU answered on the ActionButton, then ≈ 66 chunks per second for ≈ 4.5 s) with one console instance; the NEEDS YOU answered through the ActionButton (click, then Enter); the slow turn stopped (State 3) with its receipt. No PREVIEW here.'], chatPassed ? 'the Chat case passed its assertions' : 'the Chat case FAILED an assertion (see the vitest log)');
       }
     });
 
-    it.skipIf(!browserPath)(`${at} CONNECTIONS: a ProviderCard drawn in each card; Check → the fed event "GET /api/connections: ollama-local" with State 1 while it ran, State 0 after with the label connected (no success pose, said); no page error`, async () => {
-      const o = await open(size);
+    it.skipIf(!browserPath)(`${at} CONNECTIONS: a ProviderCard drawn in each card; Check → the fed event "GET /api/connections: ollama-local" with State 1 while it ran, State 0 after with the label connected (no success pose, said); the four states in quick succession (one instance per card, the last word's mapping); ${phone ? '' : 'recorded; '}no page error`, async () => {
+      const o = await open(size, { record: phone ? undefined : 'recording-connections-1440x900' });
+      let connPassed = false;
       try {
         await until(o.page, 'the connections screen', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s));
         for (const id of PROVIDERS) {
@@ -470,10 +572,59 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(connected!.did).toMatch(/no success pose/);
         expect(connected!.source).toMatch(/GET \/api\/connections: ollama-local/);
         await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check against the FAKE: the card checked, the ProviderCard State 0 with the label "connected" (no success pose is authored, said in the event); the checking event (State 1) recorded from GET /api/connections: ollama-local.'], { to: o.page.locator(SEL.card('ollama-local')).first(), what: 'the local card' });
+        // ── RAPID EVENTS (the operator's 07:06 bar): the four cards' states changed in quick succession — every Check the screen
+        // offers pressed within a second (the FAKE local Ollama answers in milliseconds; a card without a key offers none), and a
+        // burst of backend-shaped words through the REAL feed (TimmyRive.fromProviderState, H170's one line; the test's calls are
+        // FAKE, said in their source): 4 cards × 4 states × 25 rounds in one tick, then a 2 s stream at one every 10 ms. Invariants:
+        // one instance per card, the .riv not fetched again, no abort, each card's word and State = its LAST word's mapping.
+        {
+          const keys: Record<string, string> = {};
+          for (const id of PROVIDERS) keys[id] = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!;
+          const censusBefore = await handleCensus(o.page);
+          const rivBefore = o.rivFetches.length;
+          const checks = o.page.getByRole('button', { name: /^Check/ });
+          const n = await checks.count();
+          const pressStart = Date.now();
+          for (let i = 0; i < n; i++) await checks.nth(i).click({ timeout: 2_000 }).catch(() => undefined);
+          console.warn(`journey-rive-product ${at}: ${n} Check button(s) pressed within ${Date.now() - pressStart} ms (a card without a key offers none)`);
+          const words = ['not set up', 'pending', 'checked', 'refused'] as const; // the cards' state words → disconnected / checking / connected / failed
+          const finalWord = await o.page.evaluate(async ([ids, ws]) => {
+            const R = (window as unknown as { TimmyRive: { fromProviderState: (id: string, state: string, source?: string) => unknown } }).TimmyRive;
+            // one tick: 4 × 4 × 25 = 400 words
+            for (let r = 0; r < 25; r++) for (const id of ids) for (const w of ws) R.fromProviderState(id, w, `FAKE (the test's burst): GET /api/connections: ${id} "${w}"`);
+            // a sustained stream: one every 10 ms for 2 s, ending on a known word per card
+            const end: Record<string, string> = {};
+            for (let k = 0; k < 200; k++) { const id = ids[k % ids.length]; const w = ws[(k >> 2) % ws.length]; end[id] = w; R.fromProviderState(id, w, `FAKE (the test's stream): GET /api/connections: ${id} "${w}"`); await new Promise((f) => setTimeout(f, 10)); }
+            return end;
+          }, [PROVIDERS, words] as const);
+          const expected: Record<string, [string, number]> = { 'not set up': ['disconnected', 0], pending: ['checking', 1], checked: ['connected', 0], refused: ['failed', 4] };
+          const stateOfWord: Record<string, number> = { disconnected: 0, checking: 1, connected: 0, failed: 4 };
+          for (const id of PROVIDERS) {
+            // the LAST event wins: the test's last FAKE word, or — when H170's real GET /api/connections refresh landed after it — the
+            // card's own true state (both are backend-shaped words through the same feed; which one was last is read from the events)
+            const h = (await handleOf(o.page, keys[id]))!;
+            const lastEvent = [...h.events].reverse().find((e) => e.input === 'connection')!;
+            const [fakeWord] = expected[finalWord[id]];
+            const word = String(lastEvent.value);
+            expect([fakeWord, expected[(await o.page.locator(SEL.card(id)).first().getAttribute('data-state')) || 'not set up']?.[0] ?? fakeWord], `${id}: the last event is the test's last word (${finalWord[id]} → ${fakeWord}) or the real refresh's`).toContain(word);
+            expect(await label(o.page, keys[id]), `${id}'s HTML word = its LAST event's word`).toBe(word);
+            await inputIs(o.page, keys[id], 'State', stateOfWord[word], 10_000);
+          }
+          const censusAfter = await handleCensus(o.page);
+          expect(censusAfter, 'one instance per card before and after the burst').toEqual(censusBefore);
+          expect(o.rivFetches.length - rivBefore, 'the .riv not fetched again by the burst').toBe(0);
+          expect(o.errors.filter((e) => /Aborted\(\)|RuntimeError|onLoadError|Failed to fetch the Rive file/.test(e)), 'no runtime abort or load error through the burst').toEqual([]);
+          await caps.cap(o.page, size, 'connections-burst', ['After 400 backend-shaped words in one tick and 200 more over 2 s through the REAL feed (FAKE words, said in each event\'s source): one ProviderCard instance per card, each word and State its LAST word\'s mapping, the .riv not fetched again. (The real GET /api/connections refresh re-syncs the words to the cards\' true states on the next draw.)']);
+        }
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not').toEqual([]);
-      } finally { await o.close(); }
+        connPassed = true;
+      } finally {
+        const video = o.page.video();
+        await o.close();
+        if (!phone) await keepRecording(video, 'recording-connections-1440x900', ['REAL: the companion, the connections screen, GET /api/connections, the runtime drawing a ProviderCard in each card. What is seen: the four cards with their ProviderCards; Check on Ollama · local against the FAKE → connected (State 0, no success pose); the burst of backend-shaped words through the real feed (FAKE, said in each event) and each card settling on its last word.'], connPassed ? 'the Connections case passed its assertions' : 'the Connections case FAILED an assertion (see the vitest log)');
+      }
     });
   }
 
@@ -499,6 +650,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
   it.skipIf(!browserPath)('CANVAS 1440x900: the SDK\'s own license verdict (a FAKE key is rejected in its words; never a key in the test); the three shapes placed, moved, resized; an arrow BOUND between two; saved → reopened: shapes, props and the binding back; a project switch → the other board has none; reduced motion → ReducedMotion true and the pose settles; no page error; recorded', async () => {
     const size = { width: 1440, height: 900 };
     const first = await openCanvas(size, { record: 'recording-canvas-1440x900' });
+    let canvasPassed = false;
     let placed: Record<string, string> = {};
     let before: Record<string, unknown> = {};
     try {
@@ -539,11 +691,37 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       await saved(page);
       await caps.cap(page, size, 'canvas-arrow-bound', ['The console moved, the card resized (expanded), an arrow BOUND from the console to the card (two binding records); saved through Timmy\'s project storage (the board under the project).']);
       before = await page.evaluate(() => { const m = (window as unknown as Win).timmyCanvas.editor.store.serialize('document'); return Object.fromEntries(Object.entries(m).filter(([, r]) => r.typeName !== 'user')); });
+      // ── RAPID REDRAWS (the operator's 07:06 bar): the camera zoomed, panned and the board re-fit 30 times with the three shapes and
+      // the bound arrow on it — every evaluate a block body; invariants: three instances before and after, no execution-context loss,
+      // the records unchanged by the camera, the .riv not fetched again, no abort.
+      {
+        const censusBefore = await handleCensus(page);
+        const moves = await page.evaluate(async () => {
+          const e = (window as unknown as Win).timmyCanvas.editor as unknown as { zoomIn: () => unknown; zoomOut: () => unknown; zoomToFit: () => unknown; setCamera: (c: { x: number; y: number; z: number }) => unknown; getCamera: () => { x: number; y: number; z: number } };
+          let n = 0;
+          for (let i = 0; i < 10; i++) {
+            e.zoomIn(); n++; await new Promise((f) => setTimeout(f, 30));
+            e.zoomOut(); n++; await new Promise((f) => setTimeout(f, 30));
+            const c = e.getCamera(); e.setCamera({ x: c.x + (i % 2 ? -120 : 120), y: c.y + 60, z: c.z }); n++; await new Promise((f) => setTimeout(f, 30));
+          }
+          e.zoomToFit(); n++;
+          return n;
+        });
+        expect(moves).toBeGreaterThanOrEqual(30);
+        await page.waitForTimeout(500);
+        const after = await page.evaluate(() => { const m = (window as unknown as Win).timmyCanvas.editor.store.serialize('document'); return Object.fromEntries(Object.entries(m).filter(([, r]) => r.typeName !== 'user')); });
+        expect(after, 'the records unchanged by the camera').toEqual(before);
+        expect(await handleCensus(page), 'three instances before and after the camera moves').toEqual(censusBefore);
+        expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(3);
+        expect(first.errors.filter((e) => /Aborted\(\)|RuntimeError|onLoadError/.test(e)), 'no runtime abort through the camera moves').toEqual([]);
+        await caps.cap(page, size, 'canvas-after-camera', [`After ${moves} camera moves (zoom in/out, pans, a re-fit) with the three shapes and the bound arrow: three runtime instances, the records unchanged.`]);
+      }
       expect(first.errors, 'page errors').toEqual([]);
+      canvasPassed = true;
     } finally {
       const video = first.page.video();
       await first.context.close();
-      await keepRecording(video, 'recording-canvas-1440x900', ['REAL: the Studio, the tldraw editor (licensed with the environment\'s key, or a FAKE one the SDK rejects), the runtime drawing the three artboards, Timmy\'s board save. What is seen: the three shapes placed, the console moved, the card resized, an arrow bound between them, saved. No PREVIEW here.']);
+      await keepRecording(video, 'recording-canvas-1440x900', ['REAL: the Studio, the tldraw editor (licensed with the environment\'s key, or a FAKE one the SDK rejects — the SDK\'s own verdict is read), the runtime drawing the three artboards, Timmy\'s board save. What is seen: the three shapes placed, the console moved, the card resized, an arrow bound between them, the camera moved 30 times, saved. No PREVIEW here.'], canvasPassed ? 'the Canvas case passed its assertions up to the save (the reopen, the switch and reduced motion follow in new pages)' : 'the Canvas case FAILED an assertion before the save (see the vitest log)');
     }
     // reopened in a new page: every record back (the shapes with their props, the arrow, its two bindings)
     const again = await openCanvas(size);
