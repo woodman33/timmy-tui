@@ -197,9 +197,9 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(box).not.toContain('allow for this session'); // a shell command is asked about every time
     expect(box).toContain('[n] / Esc / Enter deny (the default)');
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
-    // what waits on you shows beside the Control Room's tab and Home's (R5, H131: the workspace frame's counts, read again
-    // within a second of the box)
-    await until('the waiting marks on the tabs and the count', () => waitsOn(f.lines(), '7 Control', 1) && waitsOn(f.lines(), '1 Home', 1), 5000, f.text);
+    // what waits on you shows beside the Control Room's destination and Models & accounts' (Home's page; R5, H131: the
+    // workspace frame's counts, read again within a second of the box; R11 round 7, H177: the plan's names at 180 columns)
+    await until('the waiting marks on the destinations and the count', () => waitsOn(f.lines(), '7 Control Room', 1) && waitsOn(f.lines(), '1 Models & accounts', 1), 5000, f.text);
     expect(ws.jobs.list().filter((j) => j.root === p.root)).toEqual([]);
     expect(existsSync(join(p.root, 'scratch'))).toBe(false);
     // Follow selected artifact (Quick settings): the run, once it starts, is what the Inspector and Activity show

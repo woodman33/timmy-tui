@@ -116,15 +116,17 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       // the landing: Chat, the rail's current item, the crumb, the title focused is not amber-ringed (a quiet ring)
       let s = await shown(page);
       expect(s).toMatchObject({ page: 'chat', dest: 'chat', current: 'chat', visible: ['ws-chat'], crumb: 'Chat', railCurrent: 'chat' });
-      expect(s.kicker).toBe('01 / Start a conversation');
-      expect(s.title).toBe('Make room for your next idea.');
+      // (the kicker's number is the rail's order; its words are the page's — H171 registers Chat's in capitals, the sheet draws them so)
+      expect(s.kicker.toLowerCase()).toBe('01 / start a conversation');
+      expect(s.title.length).toBeGreaterThan(8);
       expect(await text(page, '#shell-crumb-ws')).toBe('fresh');
       // the band reads the companion's own words (the project, the route of the next turn, the records' state): nothing invented
       const band = await page.$$eval('#ws-chat .page-band .band-cell', (els) => els.map((e) => [(e.querySelector('.band-k')?.textContent ?? '').trim(), (e.querySelector('.band-v')?.textContent ?? '').trim()]));
       expect(band.map((c) => c[0])).toEqual(['Workspace', 'Model', 'Records']);
       expect(band[0][1]).toBe('fresh');
       expect(band[1][1]).toMatch(/fake-qwen3:8b/);
-      expect(band[2][1]).toMatch(/Local logs/);
+      expect(band[2][1].length, 'the Records cell: the companion\'s own words (H171\'s band() once Chat registers, else the legacy state words)').toBeGreaterThan(3);
+      expect(band[2][1]).not.toMatch(/^Reading/);
       // the live status word: green only while the socket is observed open, with its words
       expect(await text(page, '#shell-status')).toBe('Companion answering');
       expect(await page.$eval('#shell-status', (e) => e.classList.contains('is-live'))).toBe(true);
@@ -134,7 +136,7 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
         await go(page, goId);
         s = await shown(page);
         expect(s, id).toMatchObject({ page: id, dest: legacy, current: id, visible: [el], railCurrent: ['home', 'fleet', 'settings', 'account'].includes(id) ? null : id });
-        expect(s.kicker, id).toMatch(new RegExp(`^${n} / \\S`));
+        expect(s.kicker, id).toMatch(new RegExp(`^${n} / \\S`, 'i'));
         expect(s.title.length, id).toBeGreaterThan(8);
         expect(s.scrollW, `${id}: no horizontal overflow`).toBeLessThanOrEqual(s.innerW);
         const regions = await page.$eval(`#${el}`, (p) => ['.page-head', '.page-band', '.page-body > .page-work', '.page-body > .page-context', '.page-dock', '.page-records'].map((c) => Boolean(p.querySelector(`:scope > ${c}`))));

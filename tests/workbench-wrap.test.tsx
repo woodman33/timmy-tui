@@ -215,7 +215,8 @@ describe('words given room (R5 H131, the QA round)', () => {
 
     // defect 7: at 100x30 Home's list is clipped, and says which rows it shows (1–N of M)
     const small = screenText(c.frame(100, 30).screen);
-    const titles = small.find((r) => r.includes('recent work'))!;
+    // (R11 round 7, H177: the body's crumb is "project / Models & accounts"; the page head above it carries the title)
+    const titles = small.find((r) => /\/ Models & accounts/.test(r))!;
     expect((titles.match(/\d+–\d+ of \d+/g) ?? []).length, `Home's column titles at 100x30: ${titles}`).toBeGreaterThanOrEqual(1);
 
     // tab 6: 3D Create, then Motion (the key again); R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws, and

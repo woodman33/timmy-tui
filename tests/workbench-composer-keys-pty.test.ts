@@ -87,7 +87,7 @@ describe('keys meant for the Workbench are never sent as a message (R10 H167, H1
         .filter((r) => r.kind === 'chat' && /^chat\.turn · workbench\b/.test(String(r.subject ?? '')));
     };
 
-    await waitScreen(wb, { what: 'the Workbench on tray', re: /tray \/ Home · recent work[\s\S]*Activity & log/, ms: 60_000 });
+    await waitScreen(wb, { what: 'the Workbench on tray', re: /tray \/ Models & accounts[\s\S]*Activity & log/, ms: 60_000 });
     // the route is ready (FAKE, by its name): Home's one next step opens the composer in one key
     // (the status row says the route shorter where the row is short: "next: FAKE fake-qwen3:8b · here · no price" at 122)
     await seen(/next(?: turn)?: FAKE fake-qwen3:8b/, 20_000);
@@ -119,7 +119,8 @@ describe('keys meant for the Workbench are never sent as a message (R10 H167, H1
     keep('h167-f1-122x37-03-esc', left, 'Tab, x, then Esc: the turn stopped and the composer left');
     expect(left).not.toMatch(/› x/);
     await sendKeys(wb, ['1']);
-    await seen(/\[1 Home\][\s\S]*tray \/ Home · recent work/, 10_000);
+    // (R11 round 7, H177: the header's shown destination ▸1 Models at 122 columns; the body's crumb)
+    await seen(/▸1 Models[\s\S]*tray \/ Models & accounts/, 10_000);
     await sendKeys(wb, ['Enter']);
     // Home's next step opens the composer again, empty: nothing typed before is in it
     const again = await seen(/Message[\s\S]*› /, 20_000);

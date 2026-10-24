@@ -298,26 +298,28 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     expect(v.text).not.toContain(TABS.find((t) => t.id === 'fleet')!.unfinished!.works);
   }, 30_000);
 
-  it('the tab strip marks the unfinished tabs with ◌ and says "unfinished" (a mark and a word, no colour needed), at 160x45 and 100x30; row 2 says it beside the active tab\'s name', async () => {
+  it('the header marks the unfinished pages\' destinations with ◌ (never Files, which every page reaches) and says "unfinished" where the row has room (a mark and a word, no colour needed), at 160x45 and 100x30; the page head says it beside the key', async () => {
     const c = workbench('strip-marks');
     c.start();
     await until('the frame', () => c.data.frame);
     for (const [cols, rows] of [[160, 45], [100, 30]] as const) {
       c.key('1', {});
       const fr = c.frame(cols, rows);
-      // (R10 H167: the header is two rows, the tabs on its second)
+      // (R10 H167: the header is two rows, the destinations on its second; R11 round 7, H177: the rail's groups)
       const strip = screenText(fr.screen).slice(0, 2);
       for (const t of fr.pages) {
         const cells = strip.map((l) => [...l].slice(t.x0, t.x1 + 1).join('')).join('\n');
         const tab = c.data.frame!.tabs.find((x) => x.id === t.page)!;
-        if (tab.unfinished) expect(cells, `tab ${tab.key} at ${cols}x${rows}`).toContain('◌');
-        else expect(cells, `tab ${tab.key} at ${cols}x${rows}`).not.toContain('◌');
+        if (tab.unfinished && t.dest !== 'files') expect(cells, `${t.dest} at ${cols}x${rows}`).toContain('◌');
+        else expect(cells, `${t.dest} at ${cols}x${rows}`).not.toContain('◌');
       }
-      expect(strip.join('\n'), `the word at ${cols}x${rows}`).toMatch(/unfinished/);
-      // the active unfinished tab's name on row 2, with the word
+      // (the word where the row has room for it: at 160 beside the short names with their keys; at 100 the rules form fills
+      // the row, and the page head says the word on an unfinished page)
+      if (cols >= 160) expect(strip.join('\n'), `the word at ${cols}x${rows}`).toMatch(/◌ unfinished/);
+      // the active unfinished page's head: its key and the word
       c.key('7', {});
       const top = screenText(c.frame(cols, rows).screen).slice(2, 3).join('');
-      expect(top, `row 2 at ${cols}x${rows}`).toMatch(/7 Control Room · unfinished/);
+      expect(top, `the page head at ${cols}x${rows}`).toMatch(/Control Room · jobs, chat turns and decisions ━+ \[7\] · unfinished ┓/);
       c.key('3', {});
       expect(screenText(c.frame(cols, rows).screen).slice(2, 3).join('')).not.toMatch(/unfinished/);
     }

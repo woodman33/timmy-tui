@@ -160,6 +160,9 @@
         view = 'signedin';
         error = '';
         redraw();
+        // a sign-in made on this page (a flow ran, or the OAuth callback): on to where the person was going; a restored
+        // session on a reopen stays where the landing rule put the page
+        if (busy || location.pathname.replace(/\/$/, '') === '/account/callback') await continueOn();
       } catch (e) { error = e && e.message ? e.message : String(e); redraw(); }
     } else if (!session && clerkSession) {
       // the session Clerk held is gone: the page forgets the token it got from it
@@ -284,26 +287,56 @@
     },
   };
 
-  // ── drawing ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+  // ── drawing (SHELL CONTRACT v1 §2: the shell draws the head and the band from TimmyShell.page('account', …); this page
+  //    draws the work, the context, the dock and the records of #screen-account; an older shell gets the whole section) ──
   const h = (...a) => S().h(...a);
+  const PAGE = 'account';
+  const RETURN_KEY = 'timmy.account.return';   // the page to go back to after a sign-in (a page id only; this tab; the OAuth round trip)
+  let regions = null;
+  let returnTo = '';
+
+  const shellHasPages = () => Boolean(S() && typeof S().page === 'function');
+  function region(root, cls, tag) { let el = root.querySelector(`.${cls}`); if (!el) { el = h(tag || 'div', { class: cls }); root.append(el); } return el; }
+  function findRegions(host) {
+    const scaffold = Boolean(host.querySelector('.page-work')) || shellHasPages();
+    if (!scaffold) { regions = { legacy: true, head: null, band: null, work: host, context: null, dock: null, records: null }; return; }
+    regions = { legacy: false, head: region(host, 'page-head', 'header'), band: region(host, 'page-band'), work: region(host, 'page-work'), context: region(host, 'page-context', 'aside'), dock: region(host, 'page-dock'), records: region(host, 'page-records') };
+    if (!regions.context.getAttribute('aria-label')) regions.context.setAttribute('aria-label', 'About your account');
+  }
+
+  // the return path: where the person was going before the account page (kept per tab across the OAuth round trip)
+  function rememberReturn(id) { if (!id || id === PAGE) return; returnTo = id; try { sessionStorage.setItem(RETURN_KEY, id); } catch (e) { /* no storage */ } }
+  function takeReturn() { let id = returnTo; try { id = id || sessionStorage.getItem(RETURN_KEY) || ''; sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } returnTo = ''; return id && id !== PAGE ? id : ''; }
+  async function continueOn() {
+    const back = takeReturn();
+    try { if (back) S().go(back, 'continue'); else await S().land(); } catch (e) { try { await S().land(); } catch (e2) { /* the shell's own */ } }
+  }
 
   function field(k, name, type, placeholder, opts) {
     const o = opts || {};
-    const input = h('input', { class: 'sh-input', type, name, id: `ac-${name}`, placeholder, autocomplete: o.autocomplete || 'off', required: true, value: draft[name] || '', inputmode: o.inputmode || null, minlength: o.minlength || null, 'aria-describedby': error ? 'ac-error' : null });
+    const input = h('input', { class: 'sh-input ac-input', type, name, id: `ac-${name}`, placeholder, autocomplete: o.autocomplete || 'off', required: true, value: draft[name] || '', inputmode: o.inputmode || null, minlength: o.minlength || null, 'aria-describedby': error ? 'ac-error' : null });
     input.addEventListener('input', () => { draft[name] = input.value; });
-    return h('label', { class: 'sh-field', for: `ac-${name}` }, h('span', { class: 'sh-field-k' }, k), input);
+    return h('label', { class: 'sh-field ac-field', for: `ac-${name}` }, h('span', { class: 'sh-field-k ac-field-k' }, k), input);
   }
 
+  /** The social choices: only the providers the operator declared on (GET /api/identity social: CLERK_SOCIAL); none → nothing drawn. */
   function socialButtons() {
+    const id = identity();
+    const declared = id && Array.isArray(id.social) ? id.social : [];
+    if (!declared.length) return [];
     const on = configured() && !loadWords;
-    const b = (provider, label) => {
-      const btn = h('button', { type: 'button', class: 'sh-btn ac-social', disabled: !on || busy, 'aria-describedby': on ? null : 'ac-social-note' }, h('span', { class: 'ac-social-k', 'aria-hidden': 'true' }, provider === 'google' ? 'G' : '⌘'), label);
+    const enabledAt = (provider) => { try { const soc = clerk && clerk.environment && clerk.environment.userSettings && clerk.environment.userSettings.social; const e = soc && soc[`oauth_${provider}`]; return e ? e.enabled !== false : true; } catch (e) { return true; } };
+    const b = (provider) => {
+      const label = provider === 'google' ? 'Continue with Google' : 'Continue with GitHub';
+      const enabled = enabledAt(provider);
+      const btn = h('button', { type: 'button', class: 'sh-btn ac-social', 'data-social': provider, disabled: !on || busy || !enabled, title: enabled ? null : `${label}: the dashboard says this provider is off.` }, h('span', { class: 'ac-social-k', 'aria-hidden': 'true' }, provider === 'google' ? 'G' : '⌘'), label);
       btn.addEventListener('click', () => run(() => flows.social(provider)));
       return btn;
     };
     return [
-      h('div', { class: 'ac-social-row' }, b('google', 'Continue with Google'), b('github', 'Continue with GitHub')),
-      h('p', { class: 'sh-note ac-center', id: 'ac-social-note' }, on ? 'Through Clerk\'s OAuth; the dashboard must have the provider on.' : `${WORDS.social}${configured() ? ' ' + loadWords : ' ' + needsWords()}`),
+      h('div', { class: 'ac-social-row' }, ...declared.map(b)),
+      h('p', { class: 'ac-note ac-center', id: 'ac-social-note' }, on ? 'Through Clerk’s OAuth, back to this page.' : loadWords || needsWords()),
+      h('div', { class: 'sh-divider ac-divider' }, view === 'signup' ? 'or create an account' : 'or use your email'),
     ];
   }
 
@@ -311,28 +344,32 @@
     const id = identity();
     if (!id) return 'GET /api/identity has not answered.';
     const needs = Array.isArray(id.needs) && id.needs.length ? ` Missing: ${id.needs.join(', ')}.` : '';
-    return (id.words || 'Timmy\'s identity provider is not configured, so nothing signs in.') + (id.words && id.words.includes('Missing:') ? '' : needs);
+    return (id.words || 'Timmy’s identity provider is not configured, so nothing signs in.') + (id.words && id.words.includes('Missing:') ? '' : needs);
   }
 
-  function primary(label, onSubmit) {
+  /** The form's submit: a secondary here when the shell draws the page's ONE primary in the head (the same action); the primary itself on an older shell. */
+  let currentForm = null;
+  function submitButton(label, onSubmit) {
     const on = configured() && !loadWords;
-    const btn = h('button', { type: 'submit', class: 'sh-btn-primary is-wide', disabled: !on || busy, 'aria-describedby': 'ac-primary-note' }, busy ? 'Working…' : label, busy ? null : h('span', { 'aria-hidden': 'true' }, '→'));
-    const note = h('p', { class: 'sh-note ac-center', id: 'ac-primary-note' }, on ? 'Your password goes to the identity provider only; this companion sees the signed session, never the password.' : (configured() ? loadWords : needsWords()));
-    return { btn, note, onSubmit };
+    const btn = h('button', { type: 'submit', class: `${regions && !regions.legacy ? 'sh-btn' : 'sh-btn-primary'} is-wide ac-submit`, disabled: !on || busy, 'aria-describedby': 'ac-primary-note' }, busy ? 'Working…' : label, busy ? null : h('span', { 'aria-hidden': 'true' }, ' →'));
+    const note = h('p', { class: 'ac-note ac-center', id: 'ac-primary-note' }, on ? 'Your password goes to the identity provider only; this companion sees the signed session, never the password.' : (configured() ? loadWords : needsWords()));
+    return { btn, note, onSubmit, label };
   }
-
   function form(children, p) {
     const f = h('form', { class: 'ac-form', novalidate: true }, ...children, p.btn, p.note);
     f.addEventListener('submit', (ev) => { ev.preventDefault(); if (!f.reportValidity()) return; run(p.onSubmit); });
+    currentForm = { el: f, label: p.label };
     return f;
   }
-
-  const errorLine = () => (error ? h('p', { class: 'sh-note sh-error ac-error', id: 'ac-error', role: 'alert' }, error) : null);
-  const textButton = (label, fn) => { const b = h('button', { type: 'button', class: 'sh-btn-text' }, label); b.addEventListener('click', () => { error = ''; fn(); }); return b; };
+  const errorLine = () => (error ? h('p', { class: 'ac-note ac-error', id: 'ac-error', role: 'alert' }, error) : null);
+  const textButton = (label, fn, attrs) => { const b = h('button', Object.assign({ type: 'button', class: 'sh-btn-text ac-text' }, attrs || {}), label); b.addEventListener('click', () => { error = ''; fn(); }); return b; };
   const goView = (v) => () => { view = v; redraw(); };
+  const signedIn = () => view === 'signedin' || Boolean(S().session.get() && verified);
 
   function card() {
-    if (view === 'signedin' || (S().session.get() && verified)) return cardSignedIn();
+    currentForm = null;
+    if (!configured()) return cardBlocker();
+    if (signedIn()) return cardSignedIn();
     if (view === 'verify' || view === 'code') return cardCode();
     if (view === 'recover') return cardRecover();
     if (view === 'reset') return cardReset();
@@ -340,127 +377,216 @@
     return cardSignUp();
   }
 
+  /** UNCONFIGURED: an explicit blocker — what to set, where it comes from, what happens next. No form, nothing signs in. */
+  function cardBlocker() {
+    const id = identity();
+    const steps = id && Array.isArray(id.setup) && id.setup.length ? id.setup : [];
+    const needs = id && Array.isArray(id.needs) ? id.needs : [];
+    const cont = h('button', { type: 'button', class: 'sh-btn', 'data-ac': 'operator' }, 'Continue as this computer’s operator', h('span', { 'aria-hidden': 'true' }, ' →'));
+    cont.addEventListener('click', () => continueOn());
+    const settings = h('button', { type: 'button', class: 'sh-btn-text ac-text', 'data-ac': 'settings' }, 'Open Settings');
+    settings.addEventListener('click', () => { try { S().go('settings', 'account'); } catch (e) { /* no page */ } });
+    return h('div', { class: 'sh-card ac-card ac-blocker', role: 'region', 'aria-labelledby': 'ac-blocker-title' },
+      h('p', { class: 'ac-state is-attn', 'data-ac': 'blocker-state' }, 'Sign-in is not set up on this companion'),
+      h('h2', { id: 'ac-blocker-title' }, 'No identity provider is configured.'),
+      h('p', { class: 'ac-sub' }, id ? (steps.length ? `Set ${needs.length ? needs.join(' and ') : 'the names below'} where Timmy’s terminal starts the companion, then start Timmy again: this page then shows the sign-up.` : needsWords()) : 'GET /api/identity has not answered.'),
+      steps.length ? h('ol', { class: 'ac-steps' }, ...steps.map((st) => h('li', { class: `ac-step${st.missing ? ' is-missing' : ''}${st.optional ? ' is-optional' : ''}` },
+        h('code', { class: 'ac-code' }, st.name), st.optional ? h('span', { class: 'ac-tag' }, 'optional') : (st.missing ? h('span', { class: 'ac-tag is-attn' }, 'missing') : h('span', { class: 'ac-tag' }, 'set')),
+        h('p', { class: 'ac-note' }, st.what), h('p', { class: 'ac-note ac-where' }, st.where)))) : null,
+      h('p', { class: 'ac-note' }, 'Until then this companion runs as this computer’s operator: your own Timmy home, keys and projects, as before accounts. Nothing is signed in and no account is pretended.'),
+      h('div', { class: 'ac-actions' }, cont, settings));
+  }
+
   function cardSignUp() {
-    const p = primary('Create account', flows.signUp);
+    const p = submitButton('Create account', flows.signUp);
     return h('div', { class: 'sh-card ac-card' },
       h('h2', null, 'Create your Timmy account'),
-      h('p', { class: 'sh-sub' }, 'Your workspace starts with you.'),
+      h('p', { class: 'ac-sub' }, 'Your workspace starts with you.'),
       ...socialButtons(),
-      h('div', { class: 'sh-divider' }, 'or create an account'),
       errorLine(),
       form([
         field('Username', 'username', 'text', 'Choose a username', { autocomplete: 'username', minlength: 3 }),
         field('Email address', 'email', 'email', 'you@example.com', { autocomplete: 'email' }),
         field('Password', 'password', 'password', 'Create a password', { autocomplete: 'new-password', minlength: 8 }),
       ], p),
-      h('p', { class: 'sh-note ac-center ac-switch' }, 'Already have an account? ', textButton('Sign in', goView('signin'))));
+      h('p', { class: 'ac-note ac-center ac-switch' }, 'Already have an account? ', textButton('Sign in', goView('signin'), { 'data-ac': 'to-signin' })));
   }
 
   function cardSignIn() {
-    const p = primary('Sign in', flows.signIn);
+    const p = submitButton('Sign in', flows.signIn);
     return h('div', { class: 'sh-card ac-card' },
       h('h2', null, 'Welcome back to Timmy'),
-      h('p', { class: 'sh-sub' }, 'Sign in to continue your work.'),
+      h('p', { class: 'ac-sub' }, 'Sign in to continue your work.'),
       ...socialButtons(),
-      h('div', { class: 'sh-divider' }, 'or use your email'),
       errorLine(),
       form([
         field('Email address', 'email', 'email', 'you@example.com', { autocomplete: 'email' }),
         field('Password', 'password', 'password', 'Enter your password', { autocomplete: 'current-password' }),
       ], p),
-      h('div', { class: 'sh-actions ac-center-row' },
-        textButton('Email me a code instead', () => run(flows.signInByCode)),
-        textButton('Forgot your password?', goView('recover'))),
-      h('p', { class: 'sh-note ac-center ac-switch' }, 'New to Timmy? ', textButton('Create an account', goView('signup'))));
+      h('div', { class: 'ac-actions ac-center-row' },
+        textButton('Email me a code instead', () => run(flows.signInByCode), { 'data-ac': 'by-code' }),
+        textButton('Forgot your password?', goView('recover'), { 'data-ac': 'recover' })),
+      h('p', { class: 'ac-note ac-center ac-switch' }, 'New to Timmy? ', textButton('Create an account', goView('signup'), { 'data-ac': 'to-signup' })));
   }
 
   function cardCode() {
     const signup = view === 'verify';
-    const p = primary('Verify', signup ? flows.verifySignUp : flows.verifySignIn);
+    const p = submitButton('Verify', signup ? flows.verifySignUp : flows.verifySignIn);
     return h('div', { class: 'sh-card ac-card' },
       h('h2', null, 'Check your email'),
-      h('p', { class: 'sh-sub' }, `We sent a code to ${pending ? pending.email : 'your address'}.`),
+      h('p', { class: 'ac-sub' }, `We sent a code to ${pending ? pending.email : 'your address'}.`),
       errorLine(),
       form([field('Verification code', 'code', 'text', '6-digit code', { autocomplete: 'one-time-code', inputmode: 'numeric' })], p),
-      h('div', { class: 'sh-actions ac-center-row' },
+      h('div', { class: 'ac-actions ac-center-row' },
         signup ? textButton('Resend code', () => run(flows.resendSignUp)) : null,
         textButton('Back', goView(signup ? 'signup' : 'signin'))));
   }
 
   function cardRecover() {
-    const p = primary('Send code', flows.recover);
+    const p = submitButton('Send code', flows.recover);
     return h('div', { class: 'sh-card ac-card' },
       h('h2', null, 'Reset your password'),
-      h('p', { class: 'sh-sub' }, 'Enter your email address; we send a code.'),
+      h('p', { class: 'ac-sub' }, 'Enter your email address; we send a code.'),
       errorLine(),
       form([field('Email address', 'email', 'email', 'you@example.com', { autocomplete: 'email' })], p),
-      h('div', { class: 'sh-actions ac-center-row' }, textButton('Back to sign in', goView('signin'))));
+      h('div', { class: 'ac-actions ac-center-row' }, textButton('Back to sign in', goView('signin'))));
   }
 
   function cardReset() {
-    const p = primary('Set new password', flows.reset);
+    const p = submitButton('Set new password', flows.reset);
     return h('div', { class: 'sh-card ac-card' },
       h('h2', null, 'Set a new password'),
-      h('p', { class: 'sh-sub' }, `Enter the code we sent to ${pending ? pending.email : 'your address'} and a new password.`),
+      h('p', { class: 'ac-sub' }, `Enter the code we sent to ${pending ? pending.email : 'your address'} and a new password.`),
       errorLine(),
       form([
         field('Verification code', 'code', 'text', '6-digit code', { autocomplete: 'one-time-code', inputmode: 'numeric' }),
         field('New password', 'newPassword', 'password', 'Create a password', { autocomplete: 'new-password', minlength: 8 }),
       ], p),
-      h('div', { class: 'sh-actions ac-center-row' }, textButton('Back to sign in', goView('signin'))));
+      h('div', { class: 'ac-actions ac-center-row' }, textButton('Back to sign in', goView('signin'))));
   }
 
   function cardSignedIn() {
     const u = S().session.user() || {};
-    const cont = h('button', { type: 'button', class: 'sh-btn-primary is-wide' }, 'Continue', h('span', { 'aria-hidden': 'true' }, '→'));
-    cont.addEventListener('click', () => { S().land(); });
-    const out = h('button', { type: 'button', class: 'sh-btn' }, 'Sign out');
+    const cont = h('button', { type: 'button', class: `${regions && !regions.legacy ? 'sh-btn' : 'sh-btn-primary'} is-wide`, 'data-ac': 'continue' }, 'Continue', h('span', { 'aria-hidden': 'true' }, ' →'));
+    cont.addEventListener('click', () => continueOn());
+    const out = h('button', { type: 'button', class: 'sh-btn', 'data-ac': 'signout' }, 'Sign out');
     out.addEventListener('click', () => run(forget));
+    const settings = h('button', { type: 'button', class: 'sh-btn-text ac-text', 'data-ac': 'settings' }, 'Open Settings');
+    settings.addEventListener('click', () => { try { S().go('settings', 'account'); } catch (e) { /* no page */ } });
     return h('div', { class: 'sh-card ac-card' },
-      h('h2', null, 'You\'re signed in'),
-      h('p', { class: 'sh-sub' }, [u.username, u.email].filter(Boolean).join(' · ') || u.id || ''),
+      h('h2', null, 'You’re signed in'),
+      h('p', { class: 'ac-sub' }, [u.username, u.email].filter(Boolean).join(' · ') || u.id || ''),
       // green only for the observed fact: this companion verified the session it holds (GET /api/identity/me)
       h('p', { class: `sh-state ac-state${verified ? ' is-live' : ''}`, 'aria-live': 'polite' }, verified ? WORDS.verified(verified) : WORDS.verifying),
       errorLine(),
-      h('div', { class: 'sh-actions' }, cont, out));
+      h('div', { class: 'ac-actions' }, cont, out, settings));
   }
 
-  function hero() {
-    return h('div', { class: 'ac-hero' },
-      h('p', { class: 'sh-label ac-kicker' }, 'Your ideas. Your tools. One workspace.'),
-      h('h1', { class: 'ac-title' }, 'Make room', h('br'), 'for your', h('br'), h('span', { class: 'ac-title-dim' }, 'next idea.')),
-      h('p', { class: 'ac-lede' }, 'Think in Chat. Build on Canvas. Put your tools to work, together.'),
-      h('div', { class: 'ac-start' },
-        h('span', { class: 'sh-mark is-big', 'aria-hidden': 'true' }, h('canvas', { 'data-timmy-mark': '' }), h('span', { class: 'sh-mark-text' }, 'T')),
-        h('div', null, h('p', { class: 'ac-start-k' }, 'Start here. Make it yours.'), h('p', { class: 'sh-note' }, 'One workspace, from first thought to final result.'))));
+  /** The right column: Timmy identity apart from provider authorization; how the session is verified. */
+  function context() {
+    const id = identity();
+    const host = hostOf();
+    const models = h('button', { type: 'button', class: 'sh-btn', 'data-ac': 'connections' }, 'Models & accounts', h('span', { 'aria-hidden': 'true' }, ' →'));
+    models.addEventListener('click', () => { try { S().go('connections', 'account'); } catch (e) { /* no page */ } });
+    return [
+      h('h2', { class: 'ac-ctx-title' }, 'Two different things'),
+      h('dl', { class: 'ac-ctx-dl' },
+        h('dt', null, 'Your Timmy account'), h('dd', null, 'Who you are here. It keeps your projects, conversations and records apart in your own Timmy home.'),
+        h('dt', null, 'Provider authorization'), h('dd', null, 'What you connect for models — OpenRouter, Ollama, Cloudflare. Kept in Models & accounts, never tied to the account.')),
+      h('p', { class: 'ac-note' }, configured() ? `Sign-in is handled by the identity provider at ${host}; this companion verifies each session itself and never sees a password.` : 'With no identity provider configured there is no account here: the companion runs as this computer’s operator.'),
+      h('div', { class: 'ac-ctx-actions' }, models),
+      !id ? null : h('details', { class: 'ui-details ac-details' }, h('summary', null, 'Details'), h('dl', { class: 'ac-ctx-dl' },
+        h('dt', null, 'Identity provider'), h('dd', { class: 'ac-mono' }, configured() ? host : 'not configured'),
+        h('dt', null, 'Session'), h('dd', null, configured() ? 'a short-lived token the instance signs (RS256), sent in the X-Timmy-Session header, verified by this companion on every request' : 'none (the launch token is the operator’s)'),
+        h('dt', null, 'Environment names'), h('dd', { class: 'ac-mono' }, (Array.isArray(id.setup) ? id.setup.map((s) => s.name) : []).join(', ') || '—'))),
+    ];
   }
 
-  function head() {
+  function dockButtons() {
+    const out = [];
+    if (configured() && !signedIn()) {
+      const sw = h('button', { type: 'button', class: 'dock-btn sh-btn', 'data-ac': 'dock-switch' }, view === 'signup' ? 'Sign in instead' : 'Create an account instead');
+      sw.addEventListener('click', () => { error = ''; view = view === 'signup' ? 'signin' : 'signup'; redraw(); });
+      out.push(sw);
+    }
+    const settings = h('button', { type: 'button', class: 'dock-btn sh-btn', 'data-ac': 'dock-settings' }, 'Settings');
+    settings.addEventListener('click', () => { try { S().go('settings', 'account'); } catch (e) { /* no page */ } });
+    out.push(settings);
+    return out;
+  }
+  function records() {
+    let det = regions.records.querySelector('details[data-records-owner="account"]');
+    if (!det) { det = h('details', { class: 'records ac-records', 'data-records-owner': 'account' }); regions.records.append(det); }
+    const wasOpen = det.open;
+    const id = identity();
+    det.replaceChildren(h('summary', null, 'How sign-in is verified here'), h('dl', { class: 'ac-ctx-dl' },
+      h('dt', null, 'Identity provider'), h('dd', null, configured() ? `Clerk at ${hostOf()}${id && id.words && /development instance/.test(id.words) ? ' (a development instance)' : ''}` : 'not configured'),
+      h('dt', null, 'What this companion verifies'), h('dd', null, configured() ? (id && id.words ? id.words.replace(/^Timmy's identity provider is configured: /, '') : 'the session token on every request') : 'nothing: every request is the operator’s, under the launch token'),
+      h('dt', null, 'Clerk’s code'), h('dd', { class: 'ac-mono' }, id && id.clerkScript ? `${id.clerkScript} (served by this companion; nothing from another site)` : (id && id.clerkWords) || 'not installed')));
+    det.open = wasOpen;
+  }
+
+  // ── the registration: the head's words per state, the ONE primary ────────────────────────────────────────────────────
+  function pageMeta() {
+    if (!configured()) {
+      return { kicker: 'ACCOUNT / SET UP SIGN-IN', title: 'Sign-in is not set up on this companion.', intro: 'No identity provider is configured, so there is no account to make or restore here. This companion runs as this computer’s operator; nothing is pretended.', primary: { label: 'Continue as the operator', run: continueOn }, context: 'selection', dock: 'ACCOUNT TOOLS' };
+    }
+    if (signedIn()) {
+      const u = S().session.user() || {};
+      return { kicker: 'ACCOUNT / YOU ARE SIGNED IN', title: `Welcome${u.username ? `, ${u.username}` : ''}.`, intro: verified ? `${WORDS.verified(verified)}. Your projects and records are your own.` : WORDS.verifying, primary: { label: 'Continue', run: continueOn }, context: 'selection', dock: 'ACCOUNT TOOLS' };
+    }
+    const submit = () => { if (currentForm && currentForm.el.isConnected) currentForm.el.requestSubmit(); };
+    const on = !loadWords;
+    const base = { context: 'selection', dock: 'ACCOUNT TOOLS' };
+    if (view === 'signin') return { ...base, kicker: 'ACCOUNT / SIGN IN TO TIMMY', title: 'Welcome back to Timmy.', intro: 'Sign in to continue your work. Your account is who you are here; the providers you connect are a separate thing.', primary: { label: 'Sign in', run: submit, disabled: !on, why: on ? '' : loadWords } };
+    if (view === 'verify' || view === 'code') return { ...base, kicker: 'ACCOUNT / CHECK YOUR EMAIL', title: 'One code away.', intro: `We sent a code to ${pending ? pending.email : 'your address'}. Enter it below.`, primary: { label: 'Verify', run: submit, disabled: !on, why: on ? '' : loadWords } };
+    if (view === 'recover') return { ...base, kicker: 'ACCOUNT / RESET YOUR PASSWORD', title: 'Reset your password.', intro: 'Enter your email address; we send a code.', primary: { label: 'Send code', run: submit, disabled: !on, why: on ? '' : loadWords } };
+    if (view === 'reset') return { ...base, kicker: 'ACCOUNT / RESET YOUR PASSWORD', title: 'Set a new password.', intro: `Enter the code we sent to ${pending ? pending.email : 'your address'} and a new password.`, primary: { label: 'Set new password', run: submit, disabled: !on, why: on ? '' : loadWords } };
+    return { ...base, kicker: 'ACCOUNT / CREATE YOUR ACCOUNT', title: 'Make room for your next idea.', intro: 'Create your Timmy account: your workspace starts with you. The providers you connect for models are separate.', primary: { label: 'Create account', run: submit, disabled: !on, why: on ? '' : loadWords } };
+  }
+  function register() {
+    if (!shellHasPages()) return;
+    try { S().page(PAGE, pageMeta()); } catch (e) { /* the shell's own */ }
+    try { if (typeof S().state === 'function') S().state(PAGE, !configured() ? 'error' : 'content', !configured() ? { words: 'No identity provider is configured; nothing signs in.', next: { label: 'Continue as the operator', run: continueOn } } : undefined); } catch (e) { /* the shell's own */ }
+  }
+
+  // an older shell (no page registration): the head, the band and the foot drawn by this page, as round 4 did
+  function legacyHead() {
     const on = configured();
     return h('header', { class: 'sh-head' },
       h('div', { class: 'sh-head-brand' }, h('span', { class: 'sh-mark', 'aria-hidden': 'true' }, h('canvas', { 'data-timmy-mark': '' }), h('span', { class: 'sh-mark-text' }, 'T')), 'TIMMY'),
-      h('nav', { class: 'sh-steps', 'aria-label': 'Steps' },
-        h('span', { class: 'sh-step is-current', 'aria-current': 'step' }, h('b', null, '01'), 'Account'),
-        h('span', { class: 'sh-step' }, h('b', null, '02'), 'Connections'),
-        h('span', { class: 'sh-step' }, h('b', null, '03'), 'Workspace')),
+      h('nav', { class: 'sh-steps', 'aria-label': 'Steps' }, h('span', { class: 'sh-step is-current', 'aria-current': 'step' }, h('b', null, '01'), 'Account'), h('span', { class: 'sh-step' }, h('b', null, '02'), 'Connections'), h('span', { class: 'sh-step' }, h('b', null, '03'), 'Workspace')),
       h('span', { class: 'sh-head-words' }, on ? `Identity · ${hostOf()}` : 'Identity · not configured'));
   }
-
-  function foot() {
-    return h('footer', { class: 'sh-foot' },
-      h('span', null, configured() ? WORDS.foot.ok : WORDS.foot.needs),
-      h('span', null, WORDS.foot.right));
+  function legacyFoot() { return h('footer', { class: 'sh-foot' }, h('span', null, configured() ? WORDS.foot.ok : WORDS.foot.needs), h('span', null, WORDS.foot.right)); }
+  function legacyHero() {
+    const m = pageMeta();
+    return h('div', { class: 'ac-hero' }, h('p', { class: 'sh-label ac-kicker' }, m.kicker), h('h1', { class: 'ac-title' }, m.title), h('p', { class: 'ac-lede' }, m.intro));
   }
 
   function redraw() {
-    if (!hostEl || !hostEl.isConnected || S().current() !== 'account') return;
-    const focused = document.activeElement && document.activeElement.id;
-    hostEl.replaceChildren(head(), h('main', { class: 'sh-main ac-main' }, hero(), card()), foot());
-    if (focused) { const again = document.getElementById(focused); if (again) again.focus(); }
+    if (!hostEl || !hostEl.isConnected || !regions) return;
+    if (S().current && S().current() !== PAGE && typeof S().page === 'function') return; // another page is shown: drawn again when this one is
+    const focused = document.activeElement && hostEl.contains(document.activeElement) ? (document.activeElement.id || document.activeElement.getAttribute('data-ac')) : null;
+    if (regions.legacy) {
+      hostEl.replaceChildren(legacyHead(), h('main', { class: 'sh-main ac-main' }, legacyHero(), card()), legacyFoot());
+    } else {
+      register();
+      regions.work.replaceChildren(h('div', { class: 'ac-work' }, card()));
+      regions.context.replaceChildren(...context());
+      let group = regions.dock.querySelector('[data-dock-owner="account"]');
+      if (!group) { group = h('span', { class: 'dock-group', 'data-dock-owner': 'account' }); regions.dock.append(group); }
+      group.replaceChildren(...dockButtons());
+      records();
+      hostEl.dataset.state = configured() ? 'content' : 'error';
+      hostEl.dataset.accountView = configured() ? (signedIn() ? 'signedin' : view) : 'blocker';
+    }
+    if (focused) { const again = hostEl.querySelector(`#${CSS.escape(focused)}, [data-ac="${CSS.escape(focused)}"]`); if (again && !again.disabled) again.focus({ preventScroll: true }); }
   }
 
   function draw(host) {
     hostEl = host;
+    findRegions(host);
     // a reopened page: Clerk restores the session (clerk.load() reads its own client state), the listener adopts the token
     if (configured() && !clerk && !loadWords && !S().session.get()) {
       loadClerk().then(() => {
@@ -476,21 +602,30 @@
   const mount = () => {
     const shell = S();
     if (!shell) return;
-    shell.mount('account', draw);
-    // a new GET /api/identity answer: the words start over and, when this screen is shown, Clerk is loaded if it was not
-    shell.on('identity', () => { loadWords = ''; if (hostEl && hostEl.isConnected && S().current() === 'account') draw(hostEl); else redraw(); });
+    shell.mount(PAGE, draw);
+    register();
+    // the page the person came from, for the return path after a sign-in
+    if (typeof shell.on === 'function') {
+      let last = '';
+      const seen = (d) => { const id = d && d.id; if (!id) return; if (id === PAGE) { if (last && last !== PAGE) rememberReturn(last); } last = id; };
+      shell.on('page', seen);
+      shell.on('screen', seen);
+    }
+    shell.on('identity', () => { loadWords = ''; if (hostEl && hostEl.isConnected && S().current() === PAGE) draw(hostEl); else redraw(); });
     shell.on('session', ({ user }) => { if (!user && view === 'signedin') { view = 'signin'; verified = null; } redraw(); });
   };
   if (window.TimmyShell) mount(); else document.addEventListener('DOMContentLoaded', mount, { once: true });
 
   /** The seam the tests and other scripts use: the same adopt/forget the Clerk flows call; the server verifies as always. */
   window.timmyAccount = {
-    useSession: (token) => adopt(token, null).then((u) => { view = 'signedin'; keepFresh(); redraw(); return S().land().then(() => u); }),
+    useSession: (token) => adopt(token, null).then((u) => { view = 'signedin'; keepFresh(); redraw(); return continueOn().then(() => u); }),
     signOut: () => forget(),
     // Clerk's state as its listener gets it (a test's seam for the active → none rule; what Clerk itself calls)
     clerkState: (state) => onClerkState(state),
     // module: Clerk's module imported from /vendor/clerk/ (its code ran here); clerk: load() reached the instance;
     // clerkSession: the page holds a session CLERK gave it (only that one is let go when Clerk's goes)
-    state: () => ({ view, configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession) }),
+    state: () => ({ view: configured() ? (signedIn() ? 'signedin' : view) : 'blocker', configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession), social: (identity() && identity().social) || [], returnTo: returnTo || '' }),
+    meta: pageMeta,
+    forgetReturn: () => { returnTo = ''; try { sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } },
   };
 })();

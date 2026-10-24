@@ -23,8 +23,9 @@ import { chatTurnNow } from './hub.js';
 import { inWords, routeLine } from './home-journey.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { noModelChosen } from './state.js';
-import type { WorkspaceId } from './nav.js';
+import { navItem, type WorkspaceId } from './nav.js';
 import { clock, count, cut, fit, lineCells, spread, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
+import { destinationShown, RAIL_GROUPS, RAIL_ITEMS } from './destinations.js';
 import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type MakerOption, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
 import { localModelGlyph } from '../setup/local-model-check.js';
 import type { ProviderState } from '../setup/providers-state.js';
@@ -104,32 +105,10 @@ const CONVO_AT = 4;
  * & records); Canvas Studio's outline (Studio · Show opens it in the browser); Vision VoxVision; Motion & 3D the 3D and
  * motion apps; Models & accounts Home's connections (the keys and the servers; Models itself is M); Tools & integrations the
  * Tools & MCP page; Control Room the jobs, turns and decisions.
+ * R11 round 7 (H177): the list lives in src/workbench/destinations.ts, which the tabbed pages' header reads too (one set of
+ * groups and names on every screen); re-exported here for its readers.
  */
-export interface RailItem { id: string; label: string; wide: string; short: string; page: TabId; ws?: WorkspaceId }
-export const RAIL_GROUPS: ReadonlyArray<{ label: string | null; items: readonly RailItem[] }> = [
-  { label: null, items: [{ id: 'chat', label: 'Chat', wide: 'Chat', short: 'Chat', page: 'chat' }] },
-  { label: 'WORK', items: [
-    { id: 'files', label: 'Files', wide: 'Files', short: 'Files', page: 'logs', ws: 'files' },
-    { id: 'workflows', label: 'Workflows', wide: 'Workflows', short: 'Workflows', page: 'workflows' },
-    { id: 'logs', label: 'Runs & receipts', wide: 'Runs & receipts', short: 'Runs', page: 'logs' },
-    { id: 'studio', label: 'Canvas', wide: 'Canvas', short: 'Canvas', page: 'studio' },
-  ] },
-  { label: 'CREATE', items: [
-    { id: 'voxvision', label: 'Vision', wide: 'Vision', short: 'Vision', page: 'voxvision' },
-    { id: 'motion', label: 'Motion & 3D', wide: 'Motion & 3D', short: 'Motion & 3D', page: 'create' },
-  ] },
-  { label: 'CONNECT', items: [
-    { id: 'connections', label: 'Models & accounts', wide: 'Models & keys', short: 'Models', page: 'home' },
-    { id: 'tools', label: 'Tools & integrations', wide: 'Tools & MCP', short: 'Tools', page: 'tools' },
-    { id: 'control', label: 'Control Room', wide: 'Control Room', short: 'Control', page: 'control' },
-  ] },
-];
-
-/** The rail's menu items in order (the groups flattened). */
-export const RAIL: ReadonlyArray<RailItem> = RAIL_GROUPS.flatMap((x) => x.items);
-
-/** The rail's items, in order: the project selector, New project, the menu, then Help and the finder. */
-export const RAIL_ITEMS: readonly string[] = ['project', 'new', ...RAIL.map((r) => r.id), 'help', 'find'];
+export { RAIL, RAIL_GROUPS, RAIL_ITEMS, type RailItem } from './destinations.js';
 
 /**
  * The rail's rows from row 3 to the screen's last (`railW` cells each; its separator is the caller's): the groups with a
@@ -164,7 +143,7 @@ function railLines(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Line
     if (k && roomy) row += 1;
     if (gr.label) { label(row, gr.label); row += 1; }
     for (const r of gr.items) {
-      const shown = ui.page === r.page && (r.id === 'files' ? ui.workspace === 'files' : r.id === 'logs' ? ui.workspace !== 'files' : true);
+      const shown = destinationShown(r, ui.page, ui.workspace);
       const text = cut(wide ? r.wide : r.short, grid.railW - 2, g.ellipsis);
       const o = { ...(shown ? { bold: true } : {}), ...on(r.id) };
       put(row, r.id, [S(shown ? '> ' : '  ', shown ? 'accent' : 'text', o), S(text, shown ? 'accent' : 'text', o)]);
@@ -1194,6 +1173,10 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
     : ui.overlay && a.convoTotal > convoRows ? `${ui.overlay.kind === 'help' ? 'Keys ' : ''}${a.convoScroll + 1}–${Math.min(a.convoTotal, a.convoScroll + convoRows)} of ${a.convoTotal}` : '';
   const titleRight: Line = note ? [S(note, 'secondary')] : modelsKey;
   center[1] = [...title, S(' '.repeat(Math.max(1, cw - lineCells(title) - lineCells(titleRight) - 3))), ...titleRight];
+  // R11 round 7 (H177; the order's hierarchy in cells): the page's one-line description under its title (src/workbench/nav.ts
+  // purpose; the row was blank) wherever CHAT / <project> is the title: the conversation, the welcome and the no-model view;
+  // the first run's question and a box over the conversation say their own words
+  if (!a.first && !ui.overlay) center[2] = [S(navItem('chat').purpose, 'secondary')];
   a.convo.slice(0, convoRows).forEach((l, k) => { center[CONVO_AT + k] = l; });
   let chip: { x0: number; x1: number; y: number } | undefined;
   if (!whole) {

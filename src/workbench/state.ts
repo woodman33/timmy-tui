@@ -48,7 +48,7 @@ import { readOperationRecord } from '../ops/operations.js';
 import { withProcessTable, type ProcessTable } from '../ops/process-proof.js';
 import { waitingNow } from '../ops/waiting.js';
 import type { PipelineStage, PipelineView, TurnRow } from './model.js';
-import { FAMILY_APPS, GROUP_LABEL, NAV, type WorkspaceId } from './nav.js';
+import { FAMILY_APPS, GROUP_LABEL, GROUPS, NAV, type WorkspaceId } from './nav.js';
 import { ruleWords } from './output.js';
 import { took } from './text.js';
 
@@ -727,10 +727,11 @@ export async function workbenchJson(d: StateDeps = {}): Promise<WorkbenchJson> {
   const wf = d.workflows ? d.workflows() : given(() => readWorkflows(project.root, { jobs: records.filter((j) => sameFolder(j.root, project.root)), chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env, ...(d.onPath ? { onPath: d.onPath } : {}) }));
   const act = activityOf(rows, decisions.total);
   const stop = stopTarget(rows);
-  const groups = [...new Set(NAV.map((n) => n.group))];
+  // R11 round 7 (H177): the rail's groups (src/workbench/nav.ts GROUPS); the Chat group, which the screens label with nothing,
+  // is named CHAT here so every group has a name
   return {
     schema: STATE_SCHEMA, at: new Date().toISOString(), project,
-    navigation: groups.map((g) => ({ group: GROUP_LABEL[g] || 'FOOT', items: NAV.filter((n) => n.group === g).map((n) => ({ id: n.id, label: n.label, title: n.title, ...(n.id === 'control' ? { waiting: decisions.total } : {}) })) })),
+    navigation: GROUPS.map((g) => ({ group: GROUP_LABEL[g] || 'CHAT', items: NAV.filter((n) => n.group === g).map((n) => ({ id: n.id, label: n.label, title: n.title, ...(n.id === 'control' ? { waiting: decisions.total } : {}) })) })),
     activity: { running: act.running, waiting_on_you: act.waiting, last: act.last, stop_current: { job: stop?.id ?? null, words: stop ? `Stop current: ${stop.id} ${stop.label}` : 'Stop current: idle' } },
     events: act.events.slice(0, EVENTS_IN_JSON),
     route: readRoute(env, cwd),

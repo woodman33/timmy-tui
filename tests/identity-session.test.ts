@@ -21,7 +21,7 @@ import { connectSrcFor, frontendApiOf, IDENTITY_ENV, identityConfig, pageIdentit
 import { forgetKeys, OPERATOR_ID, OPERATOR_WORDS, operatorUser, originsOf, SESSION_WORDS, USER_ID, verifySession } from '../src/companion/identity/session.js';
 import { verifyHello } from '../src/companion/identity/middleware.js';
 import { projectId } from '../src/project/index.js';
-import { CLERK_SCRIPT, findClerkDist } from '../src/companion/identity/routes.js';
+import { CLERK_SCRIPT, findClerkDist, IDENTITY_NO_PROJECT } from '../src/companion/identity/routes.js';
 import { FILES_LIMIT, FILES_WORDS, listProjectFolder, readProjectFile, resolveProjectPath, viewOf } from '../src/companion/workspace.js';
 import { tildePath } from '../src/utils/home-scrub.js';
 import { createUserProject, DEFAULT_PROJECT, isOwnedRoot, userEnv, userHome, userProjectFor, userProjects } from '../src/companion/identity/scope.js';
@@ -537,6 +537,21 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     expect(viewOf(join(root, 'README.md'), 'README.md', 42)).toBe('text');
     expect(listProjectFolder(root, 'nowhere')).toMatchObject({ status: 404 });
     expect(readProjectFile(root, 'mark.png')).toMatchObject({ kind: 'image', type: 'image/png', size: 40 });
+    // R7 (GATE 04 R-f): GET /api/canvas is the USER's project's board too (the same scope as the frame, the panels and the files):
+    // A's default, read under A's OWN Timmy home (users/<id>/canvas/projects/<project id>/, as Studio lays a board out under
+    // TIMMY_HOME) — a board saved there is what the page is told; no session → 401 needs:'session'; B asking A's id → 404 in
+    // the account's words
+    const canvas = await call(`/api/canvas?project=${def}`, { session: a });
+    expect(canvas.status).toBe(200);
+    expect(canvas.body).toMatchObject({ project: defName, revision: 0 });
+    const board = join(box, 'home', 'users', USER_A, 'canvas', 'projects', projectId(root));
+    mkdirSync(board, { recursive: true });
+    writeFileSync(join(board, 'canvas.json'), JSON.stringify({ format: 'timmy-canvas', revision: 7, snapshot: {}, savedAt: '2026-10-24T22:00:00.000Z' }));
+    expect((await call(`/api/canvas?project=${def}`, { session: a })).body).toMatchObject({ project: defName, revision: 7, savedAt: '2026-10-24T22:00:00.000Z' });
+    expect(existsSync(join(box, 'home', 'canvas'))).toBe(false); // nothing of a user's board under the operator's home
+    expect((await call('/api/canvas')).body.needs).toBe('session');
+    expect((await call(`/api/canvas?project=${def}`, { session: b })).status).toBe(404);
+    expect((await call(`/api/canvas?project=${def}`, { session: b })).body.error).toBe(IDENTITY_NO_PROJECT);
     // more than FILES_LIMIT entries: the first are listed and it is said
     mkdirSync(join(root, 'many'));
     for (let i = 0; i < FILES_LIMIT + 5; i++) writeFileSync(join(root, 'many', `f${String(i).padStart(4, '0')}.txt`), 'x');
@@ -613,5 +628,9 @@ describe('no identity provider configured: the launch token\'s holder is the OPE
     expect(list.body.where).toEqual({ root: tildePath(root), home: tildePath(join(box, 'home')) });
     expect((await call('/api/files/file?path=hello.txt')).body.text).toBe('the operator\'s file\n');
     expect((await call('/api/files?project=0123456789abcdef')).status).toBe(404);
+    // R7 (GATE 04 R-f): GET /api/canvas as the operator — the fixed project's board, as before accounts
+    const canvas = await call('/api/canvas');
+    expect(canvas.status).toBe(200);
+    expect(canvas.body).toMatchObject({ project: 'project' });
   });
 });

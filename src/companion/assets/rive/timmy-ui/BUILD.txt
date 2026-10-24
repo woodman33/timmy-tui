@@ -1,17 +1,15 @@
-timmy-ui.riv — built from the source of commit 4e8d4905 (RIVE CONTRACT v2) by the lead on the operator's machine, 2026-10-24 14:43 PT
+timmy-ui.riv — built from the source of commit 44c4605f (RIVE CONTRACT v2; this folder's source) by the lead on the operator's machine, 2026-10-24 15:15 PT
 tool: Rive CLI 1.1.1 (rive rive 1.1.1), in the session's sandbox; not in this repository's build
-rive . --verify   exit 0   verified (153 ms, 0 errors, 0 warnings)
-rive . --once     exit 0   built build/timmy-ui.riv (93,211 bytes, 145 ms, 0 errors, 0 warnings)
+rive . --verify   exit 0   verified (127 ms, 0 errors, 0 warnings)
+rive . --once     exit 0   built build/timmy-ui.riv (93,256 bytes, 114 ms, 0 errors, 0 warnings)
 rive inspect      exit 0   7 artboards: AgentConsole 640×380, ProviderCard 400×260, ActionButton 240×72, ActionButtonGlacier 240×72,
                            AgentConsolePreview 640×380, ProviderCardPreview 400×260, ActionButtonPreview 240×72; default AgentConsole;
-                           21 warnings "artboards-overlap" (editor-stage layout only: every artboard at x 0, y 0 — the next source gives each a stage position)
-sha256: e97d28dc5efd83a04ddd5e8b04db5a0dada329fe7c165826e7040c8ad3e7dc36   bytes: 93211
+                           0 warnings (the stage positions of this source: no artboards-overlap)
+sha256: b493297ab715f0c63159bcba77edbfe232b06567c209d98460590b660bd9fd36   bytes: 93256
 records: rive-build-log.txt and rive-build-problems.txt are the CLI's rive.log and problems.log (renamed: the repository ignores *.log)
-yaml: the CLI ran with the four-line rive.yaml (name + logs); the longer rive.yaml committed in 4e8d4905 aborts its yaml parser (fkyaml type_error) —
-      the repo's rive.yaml is the four-line one since the commit that adds this asset; the metadata lives in CONTRACT.json.
-native renders (the lead's, beside the review material, not in the repo): each artboard at rest after --advance=30; AgentConsolePreview after
-      --pointer=click@532,338 (the Working ring and the baked PREVIEW caption and pill: on the preview artboard only); ActionButton --pointer=move (hover);
-      ActionButtonPreview --pointer=down (pressed). Per-state renders of the PRODUCTION artboards are not possible from the CLI (no input flag; pointer
-      and key gestures and --data view-model properties only): the states are what the browser suites show on this file.
-inks: this build carries the study's primary-action inks (amber #5B421D, glacier #244761); the source of 0b6c0e45 has the inks H175 measured
-      (#402E14, #1D3848) and is the next build.
+yaml: the CLI's four-line rive.yaml (name + logs) as the generator writes it; the metadata lives in CONTRACT.json's `meta` block.
+native renders (the lead's, beside the review material, not in the repo): the four production artboards at rest after --advance=30 (this build);
+      the preview variant after a pointer click, the hover and the pressed button: the build of 4e8d4905 (the same constructs). Per-state renders
+      of the PRODUCTION artboards are not possible from the CLI (no input flag; pointer and key gestures and --data view-model properties only):
+      the states are what the browser suites show on this file.
+previous build: 4e8d4905's source (sha256 e97d28dc…, 93,211 bytes; the study's inks, the artboards at the stage origin) — superseded by this one.

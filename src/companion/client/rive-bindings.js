@@ -231,15 +231,19 @@
       if (l.answered) { words = { mark: false, runtime: l.runtime, words: FALLBACK_WORDS }; return words; }
       return plainFetch(WORDS_PATH).then(async (r) => {
         const b = r.status === 200 ? await r.json().catch(() => null) : null;
-        words = b && typeof b === 'object' ? read(b) : none;
+        if (!(b && typeof b === 'object')) { wordsAsked = null; return none; } // (nothing answered: asked again next time)
+        words = read(b);
         return words;
-      }).catch(() => { words = none; return words; });
+      }).catch(() => { wordsAsked = null; return none; });
     });
     return wordsAsked;
   }
 
   let runtimeWhy = '';
   let listingAsked = null;
+  /** Whether the last ask of the listing went unanswered (no session yet): the faces that went to words then are asked again. */
+  let listingUnanswered = false;
+  const UNANSWERED_WHY = 'the components’ listing has not answered yet (the page has no session yet, or the server did not reply): asked again at the next mount or when the session arrives';
   let listingInfo = null; // the served native file's facts from the listing (contract, artboards, previewArtboards, runs)
   /**
    * GET /api/rive/assets (through the shell's fetch, which carries the launch token, on the companion; plain on the Studio, whose
@@ -249,16 +253,20 @@
   function listing() {
     if (listingAsked) return listingAsked;
     const f = W.TimmyShell && typeof W.TimmyShell.fetch === 'function' ? W.TimmyShell.fetch.bind(W.TimmyShell) : (typeof companion !== 'undefined' && companion && companion.fetch ? companion.fetch : plainFetch);
+    // (R11 round 7, the blocker on the merged head: a listing asked BEFORE the page's session exists gets the shell's 401
+    // { needs: 'session' } — that answer is never kept; the next ask, at the next mount or when the session arrives, goes out)
+    const unanswered = { answered: false, any: false, runtime: false, mark: null };
     listingAsked = f(LISTING_PATH).then(async (r) => {
       const b = r.status === 200 ? await r.json().catch(() => null) : null;
-      const native = b && Array.isArray(b.components) ? b.components.find((c) => c && c.component === 'timmy-ui') : null;
+      if (!b || b.ok !== true) { listingAsked = null; return unanswered; }
+      const native = Array.isArray(b.components) ? b.components.find((c) => c && c.component === 'timmy-ui') : null;
       const meta = native && native.meta && typeof native.meta === 'object' ? native.meta : {};
       // what the SERVED native file is (CONTRACT.json beside it, read by the server as meta.served — the source's rive.yaml may be
       // a contract ahead of the compiled file): the contract, its artboards, its preview artboards
       const served = meta.served && typeof meta.served === 'object' ? meta.served : { contract: 1, artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], previewArtboards: [] };
       listingInfo = { contract: Number(served.contract) || 1, artboards: Array.isArray(served.artboards) ? served.artboards : [], previewArtboards: Array.isArray(served.previewArtboards) ? served.previewArtboards : [], sourceContract: Number(meta.contract) || 1, runs: meta.runs && typeof meta.runs === 'object' ? meta.runs : {} };
-      return { answered: Boolean(b && b.ok === true), any: Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: Boolean(b && b.runtime === true), mark: b && b.mark && typeof b.mark === 'object' ? b.mark : null };
-    }).catch(() => ({ answered: false, any: false, runtime: false, mark: null }));
+      return { answered: true, any: Boolean(Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: b.runtime === true, mark: b.mark && typeof b.mark === 'object' ? b.mark : null };
+    }).catch(() => { listingAsked = null; return unanswered; });
     return listingAsked;
   }
 
@@ -274,7 +282,18 @@
       // the runtime is loaded only when there is a file for it to draw: the page's policy carries the WebAssembly keyword
       // only then (page.ts setPagePolicyWasm; rive-assets.ts), and a runtime without it would fail its compile and ask a CDN
       Promise.all([askWords(), listing()]).then(([w, l]) => {
-        if ((!w.runtime && !l.runtime) || typeof document === 'undefined') { runtimeWhy = 'this server serves no Rive runtime'; settle(null); return; }
+        if (typeof document === 'undefined') { runtimeWhy = 'no document'; settle(null); return; }
+        if (!l.answered && !w.mark) {
+          // the listing did not answer (the page has no session yet, or the server did not reply) and the mark alone gives no
+          // file: nothing is loaded NOW, nothing is concluded — the next mount, or the session's arrival, asks again
+          listingUnanswered = true;
+          runtimeWhy = UNANSWERED_WHY;
+          const ws = runtimeWaiters; runtimeWaiters = []; runtimeState = '';
+          for (const x of ws) x(null);
+          return;
+        }
+        listingUnanswered = false;
+        if (!w.runtime && !l.runtime) { runtimeWhy = 'this server serves no Rive runtime'; settle(null); return; }
         if (!w.mark && !l.any) { runtimeWhy = 'no .riv is in this installation, so the runtime is not loaded'; settle(null); return; }
         const s = document.createElement('script');
         s.src = RUNTIME_PATH;
@@ -291,6 +310,8 @@
    */
   function absentWords(handle) {
     const file = typeof handle.asset === 'string' ? handle.asset.slice(handle.asset.lastIndexOf('/') + 1) : '';
+    // a face waiting on the listing (no session yet) says so — never "not in this installation", which nothing has said
+    if (handle.retryable) return Promise.resolve(`${file || 'the file'} is not drawn yet: ${UNANSWERED_WHY}. The state is the word beside it.`);
     if (!file || file === 'timmy-mark.riv') return askWords().then((w) => w.words);
     return Promise.resolve(`${file} is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.`);
   }
@@ -415,22 +436,40 @@
     // on the list BEFORE anything of it can emit (applySeen below): a re-entered component() for the same host finds it
     handles.push(handle);
     if (handle.binds.length) applySeen(handle);
-    const toWords = (why) => {
-      handle.state = 'words';
-      handle.why = why;
-      if (canvas) { delete canvas.dataset.loaded; canvas.dataset.riveState = 'words'; }
-      if (handle.fallback) handle.fallback.hidden = false;
-      if (handle.root) handle.root.dataset.rive = 'words';
-      absentWords(handle).then((words) => { if (handle.note) handle.note.textContent = words; });
-    };
-    if (!canvas || typeof assetPath !== 'string' || !assetPath) { toWords(assetPath ? 'no canvas' : 'the companion says the file is not here (nothing asked for)'); return handle; }
+    if (!canvas || typeof assetPath !== 'string' || !assetPath) { wordsOf(handle, assetPath ? 'no canvas' : 'the companion says the file is not here (nothing asked for)'); return handle; }
+    handle.artboardBase = handle.artboard;
+    attach(handle);
+    return handle;
+  }
+  /** The words path of a handle: the text fallback and the words, never an error. */
+  function wordsOf(handle, why) {
+    const canvas = handle.canvas;
+    handle.state = 'words';
+    handle.why = why;
+    handle.retryable = why === UNANSWERED_WHY;
+    if (canvas) { delete canvas.dataset.loaded; canvas.dataset.riveState = 'words'; }
+    if (handle.fallback) handle.fallback.hidden = false;
+    if (handle.root) handle.root.dataset.rive = 'words';
+    absentWords(handle).then((words) => { if (handle.note) handle.note.textContent = words; });
+  }
+  /**
+   * Asks the runtime for the handle's file and draws it on its canvas (the handle's state 'loading' → 'drawn' | 'words'). Run
+   * once by load(); run again by retry() for a face that went to words only because the listing had not answered.
+   */
+  function attach(handle) {
+    const canvas = handle.canvas;
+    const assetPath = handle.asset;
+    const toWords = (why) => wordsOf(handle, why);
+    handle.state = 'loading';
+    handle.retryable = false;
     canvas.dataset.riveState = 'loading';
     runtime().then((rv) => {
+      if (handle.state === 'unmounted') return;
       if (!rv) { toWords(runtimeWhy || 'the companion serves no Rive runtime'); return; }
       const patience = setTimeout(() => { if (handle.state === 'loading') toWords(`the file did not load within ${LOAD_PATIENCE_MS / 1000} s`); }, LOAD_PATIENCE_MS);
       // the listing has answered by now (runtime() waits for it): the served file's own artboard for this face (a v2 file's
       // preview variant for the Inspect view, its Glacier button for that theme; a v1 file's three)
-      if (handle.artboard) handle.artboard = artboardFor(handle.artboard, handle.artboardPick);
+      if (handle.artboardBase) handle.artboard = artboardFor(handle.artboardBase, handle.artboardPick);
       if (handle.root && handle.artboard) handle.root.dataset.riveArtboard = handle.artboard; // (data-artboard stays the base name: the CSS keys on it)
       try {
         // (an asset with a native ReducedMotion input keeps playing so its zero-duration transitions settle each pose; the
@@ -467,7 +506,18 @@
         });
       } catch (e) { clearTimeout(patience); toWords(`the runtime refused: ${e && e.message ? e.message : e}`); }
     });
-    return handle;
+  }
+  /**
+   * The faces that went to words only because the listing had not answered (no session yet) are asked for again: at the next
+   * mount, and when the shell's session arrives (TimmyShell.on('session')). Nothing is re-asked for a face the server said no to.
+   */
+  function retry(why) {
+    const again = handles.filter((x) => x.state === 'words' && x.retryable);
+    if (!again.length && !listingUnanswered) return 0;
+    listingAsked = null; wordsAsked = null; words = null;
+    if (runtimeState !== 'here' && runtimeState !== 'loading') runtimeState = '';
+    for (const x of again) { x.events.push({ input: null, value: null, at: now(), source: why || 'asked again', did: 'the listing asked again for this face', native: null }); attach(x); }
+    return again.length;
   }
 
   /**
@@ -477,6 +527,7 @@
    */
   function component(o) {
     const host = o.host;
+    if (listingUnanswered) retry('a new mount: the listing asked again');
     // re-entrancy: the same component asked for the same host while its first making is in flight (a binding event emitted
     // during load() → applySeen() → set() reaching a synchronous redraw that asks again: H172's 06:5x finding, 632 handles for one
     // card at f5730666) gets the handle under way, never a second instance; the same after it is made
@@ -796,7 +847,7 @@
       word: x.word, values: { ...x.values }, binds: x.binds.slice(), events: x.events.slice(), runtime: report(x), sources: x.sources.slice(),
       nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null, place: x.place || 'inspect', disabled: Boolean(x.disabled),
       runs: x.runs ? JSON.parse(JSON.stringify(x.runs)) : null, stateSource: x.stateSource, fedState: x.fedState, restored: x.restored || 0,
-      fileContract: x.contract, identity: x.identity ? { ...x.identity } : null, receipt: x.receipt || null, stale: x.stale || 0,
+      fileContract: x.contract, identity: x.identity ? { ...x.identity } : null, receipt: x.receipt || null, stale: x.stale || 0, retryable: Boolean(x.retryable),
     }));
   }
 
@@ -805,7 +856,7 @@
 
   W.TimmyRive = Object.freeze({
     VERSION: 'r11-r7', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, RUNS, CAPTION, nativeOf,
-    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, reconcile, watchPage, connectionWordOf, activityWordOf, absentWords, providerNameOf, themeOf,
+    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, reconcile, retry, watchPage, connectionWordOf, activityWordOf, absentWords, providerNameOf, themeOf,
     feed: () => ({ ...feed }), served: () => (listingInfo ? JSON.parse(JSON.stringify(listingInfo)) : null),
     mountConsole, mountProviderCard, mountActionButton, NATIVE_ASSET, ARTBOARD,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
@@ -814,4 +865,14 @@
     cleanup: () => { for (const x of handles) { try { if (x.rive) x.rive.cleanup(); } catch (e) { /* gone */ } } },
   });
   if (typeof window !== 'undefined') window.addEventListener('pagehide', () => W.TimmyRive.cleanup());
+  // the session's arrival (the shell's 'session' event with a user): the listing is asked again for every face that waited on it
+  let sessionHooked = false;
+  const hookSession = () => {
+    const sh = W.TimmyShell;
+    if (sessionHooked || !sh || typeof sh.on !== 'function') return sessionHooked;
+    sessionHooked = true;
+    sh.on('session', (e) => { if (e && e.user) retry('the session arrived: the listing asked again'); });
+    return true;
+  };
+  if (!hookSession() && typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', hookSession, { once: true });
 })();
