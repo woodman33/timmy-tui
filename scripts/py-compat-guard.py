@@ -123,10 +123,15 @@ def main(argv: list[str]) -> int:
         if r.returncode != 0:
             print(json.dumps({"ok": False, "status": "usage", "note": "no files given and git ls-files failed; pass the files"})); return 64
         files = [p for p in r.stdout.decode().split("\0") if p]
+    # R11 round 6: the operator's Rive asset SOURCE (src/companion/assets/rive/<asset>/create-controls.py) is kept beside the
+    # compiled .riv so the asset stays editable; it is his build script for the Rive editor on his own machine (Python 3.12+
+    # f-strings), never spawned by Timmy or a lane, so the 3.9 floor does not apply to it. Said in the result, not hidden.
+    skipped = [p for p in files if p.startswith("src/companion/assets/rive/")]
+    files = [p for p in files if p not in skipped]
     tokens = sys.version_info >= (3, 12) and floor < (3, 12)
     offenders = [o for p in files for o in check(p, floor, tokens)]
     print(json.dumps({"ok": not offenders, "floor": floor_s, "python": sys.version.split()[0], "pep701_check": tokens,
-                      "files": len(files), "offenders": offenders}, indent=1))
+                      "files": len(files), "skipped": skipped, "offenders": offenders}, indent=1))
     return 1 if offenders else 0
 
 
