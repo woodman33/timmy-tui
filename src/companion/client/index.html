@@ -22,6 +22,9 @@
   <link rel="stylesheet" href="/companion.css">
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition (src/companion/client/chat-shell.css) -->
   <link rel="stylesheet" href="/chat-shell.css">
+  <!-- R11 round 7 (H169): Workflows / Runs & receipts and the Control Room's own styles (src/companion/client/panel-run.css, panel-control.css) -->
+  <link rel="stylesheet" href="/panel-run.css">
+  <link rel="stylesheet" href="/panel-control.css">
   <!-- R11 round 4 (H170): the Connections screen's own styles (src/companion/client/screen-connections.css) -->
   <link rel="stylesheet" href="/screen-connections.css">
   <!-- R11 round 5 (H174): the Rive components and the Inspect animation view (src/companion/client/rive-components.css) -->
@@ -123,7 +126,7 @@
     <p id="ws-strip-note" class="strip-note" role="status" aria-live="polite">Reading the workspace…</p>
   </section>
 
-  <main id="ws-main" class="ws-main" tabindex="-1">
+  <main id="ws-main" class="ws-main right-col" tabindex="-1">
 
     <!-- 01 · Chat (H171): the composition of R10/R11 rounds 4–6 (#cx, chat-shell.js) sits in the page's work region until H171 moves
          its Models rail into .page-context, its controls into .page-dock and its status into the band (SHELL CONTRACT v1 §6).
