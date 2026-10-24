@@ -52,26 +52,35 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
     rmSync(root, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
-  async function open(): Promise<{ page: Page; context: BrowserContext; errors: string[] }> {
+  async function open(): Promise<{ page: Page; context: BrowserContext; errors: string[]; failed: string[] }> {
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     const errors: string[] = [];
+    // every request this page makes that fails or answers ≥ 400 — status, method and the exact URL (the 404 after placeRive
+    // reported in round 6 is traced here to its URL and asker, not guessed)
+    const failed: string[] = [];
+    page.on('response', (r) => { if (r.status() >= 400) failed.push(`${r.status()} ${r.request().method()} ${r.url()} (asked by ${r.request().resourceType()})`); });
+    page.on('requestfailed', (r) => failed.push(`FAILED ${r.method()} ${r.url()} (${r.failure()?.errorText ?? '?'})`));
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('crash', () => errors.push('the page CRASHED (the renderer died)'));
     page.on('framenavigated', (f) => { if (f === page.mainFrame() && !/#code=/.test(f.url()) && navigations.push(f.url()) > 1) errors.push(`the page navigated again: ${f.url()}`); });
     const navigations: string[] = [];
     await page.goto(`${base}/#code=${await grant(port(), server!.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-    return { page, context, errors };
+    return { page, context, errors, failed };
   }
   const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 
   it('places a connection shape: ProviderCard drawn by the runtime beside the state word, selected (→ Hover) and expanded from tldraw, FAKE backend words kept with the board (checking → State 1; connected → State 0, no success pose)', async () => {
-    const { page, context, errors } = await open();
+    const { page, context, errors, failed } = await open();
     try {
+      const failedBefore = failed.length;
       const id = await page.evaluate(() => (window as unknown as Win).timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local' }));
       expect(typeof id).toBe('string');
       await page.waitForSelector('[data-timmy-rive-shape][data-component="connection"]', { timeout: 20_000 });
+      await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().some((x) => x.component === 'connection:ollama-local' && x.state !== 'loading'), null, { timeout: 30_000 });
+      // the round-6 finding "a 404 after placeRive": no request this placing makes fails or answers ≥ 400 (the URLs otherwise)
+      expect(failed.slice(failedBefore), 'requests failing after placeRive').toEqual([]);
       const shape = page.locator('[data-timmy-rive-shape][data-component="connection"]');
       expect(await shape.getAttribute('data-state')).toBe('disconnected');
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected');

@@ -23,7 +23,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type express from 'express';
 import { failRequest } from '../utils/server-failure.js';
-import { RIVE_ABSENT, riveDir, setPagePolicyWasm } from './page.js';
+import { MARK_ABSENT, markDir, RIVE_ABSENT, riveDir, setPagePolicyWasm } from './page.js';
 
 export const RIVE_ASSETS_PATH = '/assets/rive/';
 export const RIVE_ASSETS_API = '/api/rive/assets';
@@ -114,6 +114,8 @@ export interface RiveAssetsDeps {
   withUser?: express.RequestHandler;
   /** The components' folder (a test's). */
   dir?: string;
+  /** The T mark's folder (a test's); the companion's src/companion/assets/mark by default. */
+  markDir?: string;
 }
 
 /**
@@ -127,12 +129,18 @@ export function mountRiveAssets(app: express.Application, deps: RiveAssetsDeps =
   const first = listRiveComponents(dir);
   // the policy's WebAssembly keyword when there is a component to draw and a runtime to draw it with (never turned off here)
   if (runtime && first.some((c) => c.riv !== null)) setPagePolicyWasm(true);
+  // the T mark's facts travel with the listing (R11 round 7: the Studio serves this listing but not the companion's
+  // /assets/mark.json, so a page that asked that first recorded a 404 after every placeRive — traced in
+  // studio-rive-shape-browser to that URL; the bindings now read the mark here and ask mark.json only when no listing answers)
+  const markRiv = join(markDir(deps.markDir), 'timmy-mark.riv');
   app.get(RIVE_ASSETS_API, ...guards, (_req, res) => {
     const components = listRiveComponents(dir);
     const any = components.some((c) => c.riv !== null);
     if (runtime && any) setPagePolicyWasm(true);
+    const mark = existsSync(markRiv);
     res.set('Cache-Control', 'no-store').json({
       ok: true, runtime, components,
+      mark: { riv: mark, words: mark ? 'The T mark is drawn by its Rive file.' : MARK_ABSENT },
       words: !runtime ? RIVE_ABSENT : any ? 'The components with a .riv are drawn by the runtime; the others show their state word.' : 'No component has its .riv here yet: every component shows its state word, and its editable source is listed beside it.',
     });
   });

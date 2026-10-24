@@ -174,10 +174,10 @@
         h('div', { class: 'sh-actions' }, h('button', { type: 'button', class: 'sh-btn', 'data-inspect-close': '' }, 'Close'))));
     if (!R) return;
     R.watchPage();
-    Promise.all([
-      fetcher(LISTING).then(async (r) => (r.status === 200 ? { status: 200, ...(await r.json()) } : { status: r.status, words: r.status === 404 ? 'GET /api/rive/assets answered 404: this companion does not serve the Rive components’ listing yet (src/companion/rive-assets.ts is not mounted), so only the T mark is listed.' : `GET /api/rive/assets answered ${r.status}.` })).catch(() => ({ status: 0, words: 'GET /api/rive/assets did not answer.' })),
-      fetch(WORDS_PATH, { cache: 'no-store', credentials: 'omit' }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null),
-    ]).then(([l, m]) => {
+    // the listing first; the T mark's facts come with it (R11 round 7) — GET /assets/mark.json only from a listing without them
+    fetcher(LISTING).then(async (r) => (r.status === 200 ? { status: 200, ...(await r.json()) } : { status: r.status, words: r.status === 404 ? 'GET /api/rive/assets answered 404: this companion does not serve the Rive components’ listing yet (src/companion/rive-assets.ts is not mounted), so only the T mark is listed.' : `GET /api/rive/assets answered ${r.status}.` })).catch(() => ({ status: 0, words: 'GET /api/rive/assets did not answer.' }))
+      .then(async (l) => [l, l.status === 200 && l.mark && typeof l.mark === 'object' ? { mark: l.mark.riv === true, runtime: l.runtime === true, words: l.mark.words } : await fetch(WORDS_PATH, { cache: 'no-store', credentials: 'omit' }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null)])
+      .then(([l, m]) => {
       listing = l;
       mark = m;
       const note = host.querySelector('[data-inspect-listing]');

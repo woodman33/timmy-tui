@@ -8,12 +8,13 @@
  * FAKE; nothing is compiled) exercises the with-.riv branch in a temp folder.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { MARK_ABSENT, markDir } from '../src/companion/page.js';
 import { listRiveComponents, mountRiveAssets, readRiveMeta, RIVE_ASSET_ABSENT, RIVE_COMPONENT_ABSENT, RIVE_NO_RIV, RIVE_WITH_RIV, riveAssetsDir, riveRuntimeHere } from '../src/companion/rive-assets.js';
 
 function raw(port: number, path: string, headers: Record<string, string> = {}): Promise<{ status: number; type: string; body: string }> {
@@ -34,6 +35,7 @@ const listen = (app: express.Express): Promise<{ server: Server; port: number }>
 
 describe('the Rive components\' assets (R11 round 5, H174)', () => {
   let temp = '';
+  let markTemp = '';
   let fake: { server: Server; port: number };
   let repo: { server: Server; port: number };
   const FAKE_RIV = Buffer.from('FAKE .riv bytes written by tests/companion-rive-assets.test.ts: not a compiled Rive file');
@@ -50,7 +52,10 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     // the listing behind a guard: a header the test's guard asks for
     const guarded = express();
     const withToken: express.RequestHandler = (req, res, next) => { if (req.headers.authorization === 'Bearer test-token') next(); else res.status(401).json({ ok: false, error: 'the test\'s guard refused' }); };
-    mountRiveAssets(guarded, { withToken, dir: temp });
+    // the T mark's facts travel with the listing (a FAKE mark folder with the file; the companion's own folder on `own`)
+    const markTemp = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'h174-rive-mark-')); // outside the components' folder
+    writeFileSync(join(markTemp, 'timmy-mark.riv'), FAKE_RIV);
+    mountRiveAssets(guarded, { withToken, dir: temp, markDir: markTemp });
     guarded.use((_req, res) => { res.status(404).type('text/plain').send('nothing here'); });
     fake = await listen(guarded);
     const own = express();
@@ -80,6 +85,10 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     expect(w.meta).toEqual({ name: 'welcome', artboard: 'TimmyWelcome', stateMachine: 'Welcome', inputs: ['welcome', 'selected', 'expanded'] });
     expect(w.words).toBe(RIVE_WITH_RIV);
     expect(r.body).not.toContain(temp);
+    // R11 round 7: the mark's facts in the listing — the Studio serves no /assets/mark.json, and asking it was the 404 after placeRive
+    expect(b.mark).toEqual({ riv: true, words: 'The T mark is drawn by its Rive file.' });
+    const ownListing = JSON.parse((await raw(repo.port, '/api/rive/assets')).body);
+    expect(ownListing.mark).toEqual({ riv: existsSync(join(markDir(), 'timmy-mark.riv')), words: existsSync(join(markDir(), 'timmy-mark.riv')) ? 'The T mark is drawn by its Rive file.' : MARK_ABSENT });
   });
 
   it('serves a component\'s files by exact name with their types; 404 in words for a missing file or component; nothing for a path, a dot segment or another extension', async () => {

@@ -180,14 +180,24 @@
   /** The fetch the page gives (TimmyShell.fetch carries the launch token + session); plain fetch for the assets, which need none. */
   const plainFetch = (url) => (typeof fetch === 'function' ? fetch(url, { cache: 'no-store', credentials: 'omit' }) : Promise.reject(new Error('no fetch')));
 
-  /** GET /assets/mark.json once: whether the companion serves the runtime, and its words for a page without the animation. */
+  /**
+   * The T mark's facts once: from the listing (GET /api/rive/assets carries `mark` since R11 round 7, on the companion and the
+   * Studio alike), else GET /assets/mark.json (the companion's; an older server). The Studio serves no /assets/mark.json: asking
+   * it first was the 404 after every placeRive (traced in studio-rive-shape-browser), so it is asked only when no listing answers.
+   */
   function askWords() {
     if (wordsAsked) return wordsAsked;
-    wordsAsked = plainFetch(WORDS_PATH).then(async (r) => {
-      const b = r.status === 200 ? await r.json().catch(() => null) : null;
-      words = b && typeof b === 'object' ? { mark: b.mark === true, runtime: b.runtime === true, words: typeof b.words === 'string' ? b.words : FALLBACK_WORDS } : { mark: false, runtime: false, words: FALLBACK_WORDS };
-      return words;
-    }).catch(() => { words = { mark: false, runtime: false, words: FALLBACK_WORDS }; return words; });
+    const read = (b) => ({ mark: b.mark === true, runtime: b.runtime === true, words: typeof b.words === 'string' ? b.words : FALLBACK_WORDS });
+    const none = { mark: false, runtime: false, words: FALLBACK_WORDS };
+    wordsAsked = listing().then((l) => {
+      if (l.answered && l.mark) { words = { mark: l.mark.riv === true, runtime: l.runtime, words: typeof l.mark.words === 'string' ? l.mark.words : FALLBACK_WORDS }; return words; }
+      if (l.answered) { words = { mark: false, runtime: l.runtime, words: FALLBACK_WORDS }; return words; }
+      return plainFetch(WORDS_PATH).then(async (r) => {
+        const b = r.status === 200 ? await r.json().catch(() => null) : null;
+        words = b && typeof b === 'object' ? read(b) : none;
+        return words;
+      }).catch(() => { words = none; return words; });
+    });
     return wordsAsked;
   }
 
@@ -203,8 +213,8 @@
     const f = W.TimmyShell && typeof W.TimmyShell.fetch === 'function' ? W.TimmyShell.fetch.bind(W.TimmyShell) : (typeof companion !== 'undefined' && companion && companion.fetch ? companion.fetch : plainFetch);
     listingAsked = f(LISTING_PATH).then(async (r) => {
       const b = r.status === 200 ? await r.json().catch(() => null) : null;
-      return { any: Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: Boolean(b && b.runtime === true) };
-    }).catch(() => ({ any: false, runtime: false }));
+      return { answered: Boolean(b && b.ok === true), any: Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: Boolean(b && b.runtime === true), mark: b && b.mark && typeof b.mark === 'object' ? b.mark : null };
+    }).catch(() => ({ answered: false, any: false, runtime: false, mark: null }));
     return listingAsked;
   }
 
