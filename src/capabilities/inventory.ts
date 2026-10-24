@@ -493,7 +493,7 @@ function visionRows(c: Ctx, chain: Chain): InventoryRow[] {
     available: fact(here, here ? `in this build: ${VISION_BRIDGE} (a file, not a verified model)` : `missing from this installation: ${VISION_BRIDGE} (the npm package carries it)`, SRC_BUILD),
     configured,
     exercised: { ok: false, found: 'Roboflow inference is unverified: no real authorized run has succeeded, so no receipt counts here', source: 'capabilityInventory (src/capabilities/inventory.ts; docs/VISION-REAL-CHECKS.md)' },
-    next: !here ? 'reinstall Timmy, or run it from a checkout of its repository' : !configured.ok ? 'set ROBOFLOW_API_KEY, a Python with inference-sdk and a configured model or server' : 'timmy vision run <image> (a real authorized run; until one succeeds, Roboflow inference stays unverified)',
+    next: !here ? 'reinstall Timmy, or run it from a checkout of its repository' : !configured.ok ? 'set ROBOFLOW_API_KEY, a Python with inference-sdk, and a model (TIMMY_VISION_MODEL_ID) or a workspace + workflow' : 'timmy vision run <image> (a real authorized run; until one succeeds, Roboflow inference stays unverified)',
   });
   return [vision];
 }

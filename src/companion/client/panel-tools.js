@@ -144,8 +144,12 @@
     const fact = (k, f) => h('li', { class: 'tl-fact', 'data-tl-fact': k, 'data-tl-ok': f.ok ? '1' : '0' },
       h('span', { class: `tl-mark ${f.ok ? (k === 'exercised' ? 'is-ok is-verified' : 'is-ok') : 'is-no'}`, 'aria-hidden': 'true' }, f.ok ? '✓' : '–'), h('span', { class: 'tl-fact-w' }, f.words));
     const facts = h('ul', { class: 'tl-facts' }, fact('available', r.available), fact('configured', r.configured), fact('exercised', r.exercised));
+    // the next step in the terminal's words (H167's inventoryNext, sent as r.step: the step and where it is set, no command,
+    // no address: the same words the terminal's row shows); the inventory's sentence whole beneath it as the detail
+    const step = r.step && r.step.next ? `${r.step.next}${r.step.where ? `: ${r.step.where}` : ''}` : r.next;
     const next = r.next
-      ? h('p', { class: 'tl-next', 'data-tl-next': r.nextIsCredential ? 'terminal' : 'step' }, h('span', { class: 'tl-next-k' }, 'Next'), ` ${r.next}`,
+      ? h('p', { class: 'tl-next', 'data-tl-next': r.nextIsCredential ? 'terminal' : 'step' }, h('span', { class: 'tl-next-k' }, 'Next'), ` ${step}`,
+        step !== r.next ? h('span', { class: 'tl-next-detail' }, ` ${r.next}`) : null,
         r.nextIsCredential ? h('span', { class: 'tl-next-where' }, ' Set in Models & accounts, the environment or the .env file: nothing is set from this card.') : null)
       : h('p', { class: 'tl-next is-none', 'data-tl-next': 'none' }, h('span', { class: 'tl-next-k' }, 'Next'), ' nothing: it is exercised here.');
     // data-inventory-row and data-state: what H172's capability-words check reads (one element per row, its standing word)
@@ -168,7 +172,7 @@
     const groups = inv ? inv.inventory.groups.map((g) => {
       const cards = inv.cards.filter((c) => c.group === g && byId.has(c.id));
       if (!cards.length) return null;
-      return h('section', { class: 'tl-group', 'data-tl-group': g }, h('h3', { class: 'tl-group-k' }, g), h('div', { class: 'tl-cards' }, ...cards.map((c) => capCard({ ...byId.get(c.id), standing: c.standing, nextIsCredential: c.nextIsCredential }))));
+      return h('section', { class: 'tl-group', 'data-tl-group': g }, h('h3', { class: 'tl-group-k' }, g), h('div', { class: 'tl-cards' }, ...cards.map((c) => capCard({ ...byId.get(c.id), standing: c.standing, step: c.step, nextIsCredential: c.nextIsCredential }))));
     }) : [];
     put(el, head, legend, inv ? h('p', { class: 'tl-note' }, `Read: ${inv.read}. ${inv.note}`) : null, ...groups);
   }

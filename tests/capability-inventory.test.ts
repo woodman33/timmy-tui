@@ -291,7 +291,7 @@ describe('the capability inventory: one shape, three words kept apart, nothing r
     expect(present.available).toMatchObject({ ok: true, found: 'in this build: scripts/vision-bridge.py (a file, not a verified model)' });
     expect(present.configured.ok).toBe(false);
     expect(present.exercised).toMatchObject({ ok: false, found: 'Roboflow inference is unverified: no real authorized run has succeeded, so no receipt counts here' });
-    expect(present.next).toBe('set ROBOFLOW_API_KEY, a Python with inference-sdk and a configured model or server');
+    expect(present.next).toBe('set ROBOFLOW_API_KEY, a Python with inference-sdk, and a model (TIMMY_VISION_MODEL_ID) or a workspace + workflow');
     const absent = byId(capabilityInventory({ env, cwd: project, platform: 'linux', packaged: () => false }))['vision:bridge'];
     expect(absent.available).toMatchObject({ ok: false, found: 'missing from this installation: scripts/vision-bridge.py (the npm package carries it)' });
     expect(absent.exercised.found).toContain('unverified');

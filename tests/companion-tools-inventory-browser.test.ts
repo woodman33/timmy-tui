@@ -86,10 +86,11 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
       }
       // the key step: named, said to be set in the terminal, nothing to type
       const key = '[data-inventory-row="fake:model:openrouter"]';
-      expect(await text(page, `${key} .tl-next`)).toBe('Next Sign in with OpenRouter, or paste a key from openrouter.ai/keys Set in Models & accounts, the environment or the .env file: nothing is set from this card.');
+      // the step in the terminal's words (inventoryNext: the step and where it is set), the inventory's sentence whole as the detail, then the note
+      expect(await text(page, `${key} .tl-next`)).toBe('Next sign in with OpenRouter, or paste a key: Models & accounts Sign in with OpenRouter, or paste a key from openrouter.ai/keys Set in Models & accounts, the environment or the .env file: nothing is set from this card.');
       expect(await page.getAttribute(`${key} .tl-next`, 'data-tl-next')).toBe('terminal');
       // a plain step says only the step
-      expect(await text(page, '[data-inventory-row="fake:model:ollama-local"] .tl-next')).toBe('Next Send a message in the chat (each answered turn seals a receipt)');
+      expect(await text(page, '[data-inventory-row="fake:model:ollama-local"] .tl-next')).toBe('Next send a message in the chat; each answered turn seals a receipt Send a message in the chat (each answered turn seals a receipt)');
       expect(await page.getAttribute('[data-inventory-row="fake:model:ollama-local"] .tl-next', 'data-tl-next')).toBe('step');
       // the exercised row: nothing next
       expect(await text(page, '[data-inventory-row="fake:vox:measure"] .tl-next')).toBe('Next nothing: it is exercised here.');

@@ -1044,7 +1044,8 @@ body.slate-absent p { max-width: 72ch; }
 .tl-next { font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
 .tl-next.is-none { color: var(--timmy-text-secondary); }
 .tl-next-k { letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); margin-right: 4px; }
-.tl-next-where { color: var(--timmy-text-secondary); }
+.tl-next-detail, .tl-next-where { display: block; color: var(--timmy-text-secondary); }
+.tl-next-detail { font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 720px) { .tl-cards { grid-template-columns: minmax(0, 1fr); } .tl-card-head { flex-wrap: wrap; } }
 .tools-callsbox, .tools-frame-cols { flex: 0 0 auto; }
 .tools-frame-cols { margin-bottom: 4px; }

@@ -37,6 +37,15 @@ describe('the Tools & integrations inventory as the page reads it: the three wor
     // the cards in the inventory's group order, each with its standing word and whether its step is a credential
     expect(page.cards.map((c) => c.id)).toEqual(['fake:model:openrouter', 'fake:model:ollama-local', 'fake:tool:docker', 'fake:vox:measure', 'fake:vision:bridge', 'fake:receipts:chain']);
     expect(page.cards.map((c) => [c.group, c.standing, c.nextIsCredential])).toEqual([['Models', 'available', true], ['Models', 'configured', false], ['Tools', 'available', false], ['Tools', 'exercised', false], ['Vision', 'none', false], ['Receipts', 'configured', false]]);
+    // the next step in the terminal's words (inventoryNext), sent with the card: the page shows what the terminal's row shows
+    expect(page.cards.map((c) => c.step)).toEqual([
+      { next: 'sign in with OpenRouter, or paste a key', short: 'sign in or paste a key', where: 'Models & accounts' },
+      { next: 'send a message in the chat; each answered turn seals a receipt', short: 'send a message in the chat' },
+      { next: 'start Docker, then run a job' },
+      null,
+      { next: 'reinstall Timmy, or run it from a checkout of its repository', short: 'reinstall, or run from a checkout' },
+      { next: 'run it once (it asks first); its receipt seals the run', short: 'run it once; its receipt seals the run' },
+    ]);
     expect(page.counts).toEqual({ available: 2, configured: 2, exercised: 1, none: 1 });
     expect(page.words).toBe('6 capabilities here: 1 exercised, 2 configured, 2 available, 1 with none of the three.');
     // the exercised row has nothing next; every other row has one step
