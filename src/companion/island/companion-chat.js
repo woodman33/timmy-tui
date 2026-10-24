@@ -9,7 +9,7 @@
  * here is loaded from another site. The page's looks for this tab are classes of companion.css (the page allows no inline
  * style block; React's style objects became those classes).
  *
- * What it does, as before: a message goes to POST /chat through the page's own chat call (companion.js: the token in a
+ * What it did: a message went to POST /chat through the page's chat call (companion.js: the token in a
  * header), and the answer of the model chosen in Models (the route's model: R11 H169, no fixed model of the page's own) streams
  * back from OpenRouter with this computer's key, so each message spends its credits; Streamdown draws it as it arrives (caret, highlighted code with its copy and download buttons, drawn mermaid
  * diagrams, tables, task lists, links). ✨ Try it streams the page's own sample through the same renderer: no model is
@@ -301,7 +301,7 @@ function App() {
     const controller = new AbortController();
     let acc = '';
     try {
-      // R4 (H84): through the page's own chat call, which sends the companion's token in a header
+      // R4 (H84): through the page's chat call (R11 round 4: it refuses, in words; nothing is sent)
       await page.chat(convo.map((m) => ({ role: m.role, content: m.content })), (event, data) => {
         if (event === 'delta') {
           acc += typeof data === 'string' ? data : JSON.stringify(data);
@@ -373,11 +373,10 @@ function App() {
       : route.kind === 'openrouter'
         ? ['Send a message to stream ', route.model, route.freeOnly ? ' through Streamdown (through OpenRouter, with this computer’s key; free-only is on, and this model is free),' : ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
         : ['Send is off here (why: under the messages).', h('br', { key: 'b' }), '✨ Try it streams this page’s own sample (no model is asked).'];
-  // R10 (H167; H164's scope, the lead's call (b)): the box says whose chat this is: this page's own, not the project's
-  // conversation (no tools, no receipt), and what a message costs, in words
-  const placeholder = !route ? 'Asking the companion which route this page’s own chat takes…'
-    : route.kind === 'local' ? 'Message ' + route.model + ' here: this page’s own chat (no tools, no receipt)'
-      : route.kind === 'openrouter' ? 'Message ' + route.model + ' here: this page’s own chat' + (route.freeOnly ? ' (free-only: free)' : ' (each message spends credits)')
+  // R11 round 4: this older view sends nothing (POST /chat is gone; the chat is the agent turn in Chat, POST /api/chat/turn):
+  // the box says so, and what the next turn's route is, in words
+  const placeholder = !route ? 'Asking the companion which route the next turn takes…'
+    : route.kind === 'local' || route.kind === 'openrouter' ? 'This older view sends nothing: message ' + route.model + ' in Chat above' + (route.kind === 'openrouter' ? (route.freeOnly ? ' (free-only: free)' : ' (each message spends credits)') : '')
         : 'Send is off: see why above';
 
   return h('div', { className: 'sd-app' },

@@ -29,7 +29,7 @@ import { RUN_NO_PRODUCER, runDetailAnswer, type RunDetailProducer } from '../src
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { projectId, saveActiveProject, type ActiveProject } from '../src/project/index.js';
 import { tildePath } from '../src/utils/home-scrub.js';
-import { openWorkspaceTab } from './helpers/companion-page-kit.js';
+import { openWorkspaceTab, landWorkspace } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks } from './fixtures/fake-ollama-chat.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -109,16 +109,16 @@ function setupHome(answers: Record<string, string> | null, providers: Record<str
 const tokenOf = (c: CompanionServer): string => /#t=([0-9a-f]{64})$/.exec(c.url)![1];
 const auth = (c: CompanionServer): Record<string, string> => ({ Authorization: `Bearer ${tokenOf(c)}` });
 
-/** POST /chat with the token; the server-sent events it streamed, parsed. */
-async function chat(c: CompanionServer, message: string): Promise<Array<{ event: string; data: any }>> {
-  const r = await fetch(`http://127.0.0.1:${c.port}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth(c) }, body: JSON.stringify({ messages: [{ role: 'user', content: message }] }), signal: AbortSignal.timeout(30_000) });
-  expect(r.status).toBe(200);
-  return (await r.text()).split('\n\n').filter(Boolean).map((block) => {
-    const event = /^event: (.*)$/m.exec(block)?.[1] ?? 'message';
-    const raw = /^data: (.*)$/m.exec(block)?.[1] ?? 'null';
-    return { event, data: JSON.parse(raw) };
-  });
+/**
+ * R11 round 4 (H169, contract C3): the legacy POST /chat is REMOVED, never kept as a fallback: 404 in the companion's words,
+ * nothing streamed, nothing sent to any model. The page's chat is POST /api/chat/turn under a signed-in user
+ * (tests/companion-chat-run.test.ts). This asks the old address and returns its status and words.
+ */
+async function chatGone(c: CompanionServer, message: string): Promise<{ status: number; text: string }> {
+  const r = await fetch(`http://127.0.0.1:${c.port}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth(c) }, body: JSON.stringify({ messages: [{ role: 'user', content: message }] }), signal: AbortSignal.timeout(10_000) });
+  return { status: r.status, text: await r.text() };
 }
+const GONE = 'The browser companion has nothing at this address.';
 
 /** FIXTURE: a run detail as H102's producer (src/ops/run-detail.ts, not in this revision) will make one. */
 function fixtureDetail(operation: string, root: string, over: Partial<RunDetail> = {}): RunDetail {
@@ -250,6 +250,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     page.on('pageerror', (e) => seen.errors.push(e.message));
     // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases read the header and Home, as before
     await page.goto(`${origin}${o.path ?? '/?tab=home'}#t=${tokenOf(target)}`);
+    await landWorkspace(page);
     return { page, context, seen };
   }
   const clean = (seen: Seen): void => {
@@ -364,6 +365,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       // the companion's address opened again in this tab (a reload alone has no token: the page keeps it in memory only)
       // keeps the pin, this tab's own; a new page follows
       await pinned.page.goto(`http://127.0.0.1:${own.port}/?tab=home#t=${tokenOf(own)}`);
+      await landWorkspace(pinned.page);
       await connected(pinned.page);
       await shows(pinned.page, 'beta');
       await pinned.page.waitForFunction(() => document.getElementById('project')?.dataset.mode === 'pinned', null, { timeout: 5_000 });
@@ -410,7 +412,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     } finally { await context.close(); }
   });
 
-  it('on the local route, Send streams the answer of the model the setup chose from the recorded Ollama (FAKE), with no tools, labelled "local <model> · Ollama · this page\'s own chat · no tools"; nothing reaches OpenRouter', async () => {
+  it('on the local route the older Streamdown view names the route ("local <model> · Ollama · the project\'s conversation") and sends nothing: its Send says the chat is in Chat (POST /api/chat/turn); nothing reaches Ollama\'s chat or OpenRouter', async () => {
     const ollama = await startFakeOllama({
       models: [{ name: 'fake-chat:8b', capabilities: ['completion', 'tools'] }],
       chat: [() => ({ chunks: textChunks('fake-chat:8b', ['FAKE local ', 'answer: **streamed** ', 'from the FAKE Ollama.']), delayMs: 150 })],
@@ -422,35 +424,25 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       try {
         await connected(page);
         await tab(page, 'streamdown');
-        await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · this page\'s own chat · no tools', null, { timeout: 15_000 });
+        // (R11 round 4, H169's contract C3: the route's label names the project's conversation; its scope words say whose it is)
+        await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · the project\'s conversation', null, { timeout: 15_000 });
         expect(await page.getAttribute('#sd-route-chip', 'data-route')).toBe('local');
-        // (R10 H167; H164's scope: whose chat this is, in words, not the request's path)
-        expect(await text(page, '#sd-route')).toBe('This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.');
-        expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('Message fake-chat:8b here: this page’s own chat (no tools, no receipt)');
+        expect(await text(page, '#sd-route')).toBe('The project\'s conversation, the one the Workbench and the REPL continue: the agent\'s tools, gated at NEEDS YOU; every turn sealed with a receipt.');
+        expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('This older view sends nothing: message fake-chat:8b in Chat above');
         expect(await page.locator('#sd-route-off').count()).toBe(0);
         await page.fill('#sd-input', 'FAKE: a question for the local model');
         expect(await page.isEnabled('#sd-send')).toBe(true);
         await page.click('#sd-send');
-        // streamed: its first piece is drawn while the answer is still streaming
-        await page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'STREAMING…' && /FAKE local/.test([...document.querySelectorAll('#sd-messages .sd-answer')].pop()?.textContent ?? ''), null, { timeout: 15_000 });
+        // the older view sends nothing: the page's chat call refuses in words, drawn as the view's error; nothing streams
+        await page.waitForSelector('.sd-error', { timeout: 15_000 });
+        expect(await text(page, '.sd-error')).toContain('This older view sends nothing: the chat is the agent turn in Chat above (POST /api/chat/turn).');
         await page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'IDLE', null, { timeout: 15_000 });
-        expect(await text(page, '#sd-messages .sd-answer:last-child')).toBe('FAKE local answer: streamed from the FAKE Ollama.');
-        expect(await page.locator('#sd-messages .sd-answer:last-child strong, #sd-messages .sd-answer:last-child [data-streamdown="strong"]').count()).toBeGreaterThan(0);
-        expect(await text(page, '#sd-cost')).toBe('no charge: Ollama on this computer, the model\'s local weights');
-        expect(await text(page, '#sd-tokens')).toMatch(/^◉ ~\d+ tokens \(estimated: no count was reported\)$/);
-        expect(await page.locator('.sd-error').count()).toBe(0);
-        // what the FAKE Ollama was sent: the chosen model, streamed, no tools, the note that there are none, the question
-        const chats = ollama.chats();
-        expect(chats).toHaveLength(1);
-        expect(chats[0]).toMatchObject({ model: 'fake-chat:8b', stream: true });
-        expect(chats[0].tools).toBeUndefined();
-        expect(chats[0].messages.at(-1)).toEqual({ role: 'user', content: 'FAKE: a question for the local model' });
-        expect(chats[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('No tools are available in this conversation') });
-        // R10 CHAT (H171): the Chat's Models rail lists the local models first (GET /api/tags, /api/show, /api/ps: no model
-        // runs); this page's Send then asks its model's facts and the chat
-        const paths = ollama.requests.map((r) => r.path);
-        expect(paths.slice(-2)).toEqual(['/api/show', '/api/chat']);
-        for (const p of paths.slice(0, -2)) expect(['/api/tags', '/api/show', '/api/ps']).toContain(p);
+        // the FAKE Ollama saw the Models rail's reads only (GET /api/tags, /api/show, /api/ps: no model runs), never a chat
+        expect(ollama.chats()).toHaveLength(0);
+        for (const p of ollama.requests.map((r) => r.path)) expect(['/api/tags', '/api/show', '/api/ps']).toContain(p);
+        // the legacy address is gone: 404 in words
+        expect(await chatGone(own, 'FAKE: a question for the local model')).toMatchObject({ status: 404, text: expect.stringContaining(GONE) });
+        expect(ollama.chats()).toHaveLength(0);
         expect(openrouter.seen).toEqual([]);
         clean(seen);
       } finally { await context.close(); }
@@ -474,11 +466,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
         expect(await page.isDisabled('#sd-input')).toBe(true);
         expect(await text(page, '#sd-send')).toBe('Send: off');
         expect(await page.getAttribute('#sd-send', 'title')).toBe(words);
-        // asked directly, /chat says the same and sends nothing anywhere
-        const events = await chat(own, 'FAKE: a message with no route');
-        expect(events.map((e) => e.event)).toEqual(['route', 'error']);
-        expect(events[0].data).toEqual({ kind: 'none', label: 'no chat route here · Send is off' });
-        expect(events[1].data.error).toBe(words);
+        // asked directly, the legacy /chat is gone (404 in words) and sends nothing anywhere
+        expect(await chatGone(own, 'FAKE: a message with no route')).toMatchObject({ status: 404, text: expect.stringContaining(GONE) });
         expect(openrouter.seen).toEqual([]);
         // the page's own sample asks no model: it streams without a route
         await page.click('#sd-try');
@@ -490,7 +479,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     } finally { await openrouter.close(); }
   });
 
-  it('the route as the setup gives it, at each request: a cloud-backed model only by a name that says so (and said); a remote one whose name does not is refused before any chat; no model chosen; OpenRouter with the key where the REPL finds it (providers.json), never shown', async () => {
+  it('the route as the setup gives it, at each request: a cloud-backed model only by a name that says so; a remote one whose name does not; no model chosen; OpenRouter with the key where the REPL finds it, never echoed; the legacy POST /chat a 404 throughout (R11 round 4: the turn is POST /api/chat/turn, tests/companion-chat-run.test.ts)', async () => {
     const ollama = await startFakeOllama({
       models: [
         { name: 'fake-big:70b-cloud', capabilities: ['completion'], remote_host: 'FAKE-remote' },
@@ -512,19 +501,16 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       // a cloud-backed model, chosen by its name (which says cloud): the label names the route (R11 Phase 2, H169: "ollama cloud · <name>"); the turn says
       // the terms and that the chat leaves this computer
       use({ chat: 'local', model: 'fake-big:70b-cloud' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'ollama cloud · fake-big:70b-cloud · this page\'s own chat · no tools' });
-      const cloud = await chat(own, 'FAKE: for the cloud model');
-      expect(cloud.find((e) => e.event === 'notice')?.data.text).toBe('fake-big:70b-cloud runs on Ollama\'s servers; your account\'s terms: Ollama sends this chat off this computer, and no cost comes back (unknown).');
-      expect(cloud.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE cloud answer');
-      expect(cloud.find((e) => e.event === 'cost')?.data).toMatchObject({ usd: null, measured: false });
-      expect(cloud.at(-1)?.event).toBe('done');
-      // a model Ollama sends elsewhere though its name does not say cloud: refused, nothing sent to /api/chat
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'ollama cloud · fake-big:70b-cloud · the project\'s conversation' });
+      // (R11 round 4: the legacy POST /chat is gone; the cloud terms notice and the remote refusal are the turn's, in
+      // tests/companion-chat-run.test.ts and the chat session's own tests)
+      expect(await chatGone(own, 'FAKE: for the cloud model')).toMatchObject({ status: 404, text: expect.stringContaining(GONE) });
+      expect(ollama.chats()).toHaveLength(0);
+      // a model Ollama sends elsewhere though its name does not say cloud: the route says cloud: false (the turn refuses it)
       use({ chat: 'local', model: 'sneaky:8b' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: false, label: 'local sneaky:8b · Ollama · this page\'s own chat · no tools' });
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: false, label: 'local sneaky:8b · Ollama · the project\'s conversation' });
       const before = ollama.chats().length;
-      const sneaky = await chat(own, 'FAKE: for the sneaky model');
-      expect(sneaky.map((e) => e.event)).toEqual(['route', 'cost', 'error']);
-      expect(sneaky[2].data.error).toMatch(/^Ollama would send this chat off this computer, so nothing was sent\.\nReason: Ollama names FAKE-remote for sneaky:8b; its name does not say cloud\./);
+      expect((await chatGone(own, 'FAKE: for the sneaky model')).status).toBe(404);
       expect(ollama.chats()).toHaveLength(before);
       // the local model with none chosen: Send is off, saying where to choose one
       use({ chat: 'local' }, { ollama_host: ollama.url });
@@ -540,23 +526,19 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(or).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen', label: 'No model chosen: choose one in Models · Send is off' });
       expect(or.words).toMatch(/^Send is off: No model chosen: choose one in Models /);
       expect(JSON.stringify(or)).not.toContain(key);
-      const refused = await chat(own, 'FAKE: for OpenRouter, no model chosen');
-      expect(refused.map((e) => e.event)).toEqual(['route', 'error']);
-      expect(refused[1].data.error).toMatch(/^Send is off: No model chosen: choose one in Models /);
+      expect((await chatGone(own, 'FAKE: for OpenRouter, no model chosen')).status).toBe(404);
       expect(openrouter.seen).toHaveLength(0);
       // a FAKE model saved as a choice in this test's own settings file (as Models in the Workbench, /model or timmy init
       // --chat openrouter --model keep it): the route names it, and Send asks it
       writeFileSync(join(env.TIMMY_SETTINGS_DIR!, 'config.json'), JSON.stringify({ model: 'fake/page-test:free', modelChosen: 'fake/page-test:free' }));
-      expect(await route()).toMatchObject({ kind: 'openrouter', ready: true, model: 'fake/page-test:free', keyFrom: 'providers.json', label: 'fake/page-test:free · OpenRouter · this page\'s own chat · each message spends credits' });
-      const answered = await chat(own, 'FAKE: for OpenRouter');
-      expect(answered.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE OpenRouter answer');
-      expect(openrouter.seen).toHaveLength(1);
-      expect(openrouter.seen[0].auth).toBe(`Bearer ${key}`);
-      expect(JSON.parse(openrouter.seen[0].body)).toMatchObject({ model: 'fake/page-test:free', stream: true });
+      expect(await route()).toMatchObject({ kind: 'openrouter', ready: true, model: 'fake/page-test:free', keyFrom: 'providers.json', label: 'fake/page-test:free · OpenRouter · the project\'s conversation · each message spends credits' });
+      // the legacy address sends nothing to OpenRouter, key or no key
+      expect(await chatGone(own, 'FAKE: for OpenRouter')).toMatchObject({ status: 404, text: expect.stringContaining(GONE) });
+      expect(openrouter.seen).toHaveLength(0);
       // OpenRouter chosen, no key anywhere: off, saying so
       use({ chat: 'openrouter' }, null);
       expect(await route()).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', words: expect.stringMatching(/^Send is off: the setup chose OpenRouter for chat, and no OpenRouter key is set/) });
-      expect(openrouter.seen).toHaveLength(1);
+      expect(openrouter.seen).toHaveLength(0);
     } finally { await ollama.close(); await openrouter.close(); }
   });
 

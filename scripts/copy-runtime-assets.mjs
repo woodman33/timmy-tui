@@ -47,6 +47,12 @@ export const RUNTIME_ASSETS = Object.freeze([
   // R10 CHAT (H171): the shell's left menu and the Chat composition
   'src/companion/client/chat-shell.js',
   'src/companion/client/chat-shell.css',
+  // R11 round 4 (H171): the journey's shell (the three screens, window.TimmyShell)
+  'src/companion/client/shell.js',
+  // R11 round 4 (H171, step 3): the T mark's Rive source (a proposed mark; the .riv is placed beside them when built)
+  'src/companion/assets/mark/scene.rml',
+  'src/companion/assets/mark/rive.yaml',
+  'src/companion/assets/mark/README.md',
   // R11 round 4 (H170): the Connections screen (src/companion/connections.ts serves its data)
   'src/companion/client/screen-connections.js',
   'src/companion/client/screen-connections.css',

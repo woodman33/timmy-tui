@@ -28,6 +28,7 @@ import { folderProject, saveActiveProject } from '../src/project/index.js';
 import { opsKit, replOf, sandbox } from './helpers/ops-sandbox.js';
 import { reportProject, runOf } from './helpers/run-inspect-fixture.js';
 import { png, sealRecord, writeFile } from './helpers/vox-panel-kit.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -90,6 +91,7 @@ describe.skipIf(!browserPath)('the companion\'s previews: drawn, legible and sho
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(e.message));
       await page.goto(`${origin}/?tab=home#t=${token}`);
+      await landWorkspace(page);
 
       // ── Home: the newest images, each with its words and its action ──
       const thumbs = '#home-preview [data-preview="images"]';
@@ -172,6 +174,7 @@ describe.skipIf(!browserPath)('the companion\'s previews: drawn, legible and sho
 
       // ── the run viewer at 1376x768: its image fits the box it is seen in, and is a button that shows it at size ──
       await page.goto(`${origin}/run/${op}#t=${token}`);
+      await landWorkspace(page);
       await page.waitForSelector(`#run-detail .run-view[data-operation="${op}"][data-inspected="true"]`, { timeout: 30_000 });
       await page.waitForFunction(() => { const i = document.querySelector('.rv-v-body [data-rv-image]') as HTMLImageElement | null; return !!i && i.complete && i.naturalWidth === 640; }, null, { timeout: 15_000 });
       const fit = await page.$eval('.rv-v-body [data-rv-image]', (i) => {

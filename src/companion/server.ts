@@ -124,7 +124,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
-import { companionHeaders, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountMark, mountRive, mountTheme, mountWebAssets, sendSlateAbsent, setPagePolicyConnect, setPagePolicyWorker } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
@@ -142,7 +142,16 @@ import { mountChatView } from './chat-view.js';
 import type { InventorySource } from './panels/tools.js';
 // R11 round 4 (H173, contract C1): the identity provider's configuration, Clerk's JS served from here, the user's projects
 // (src/companion/identity/routes.ts); its withUser is what every user-data route runs after withToken
-import { mountIdentity, type IdentityDeps } from './identity/routes.js';
+import { IDENTITY_NO_PROJECT, mountIdentity, type IdentityDeps } from './identity/routes.js';
+import { connectSrcFor } from './identity/config.js';
+// R11 round 4 (H171, the wiring): a user's own project and env for a request or a socket hello that carries a session
+// (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
+import { isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
+import { verifyHello } from './identity/middleware.js';
+import { sessionTokenOf } from './identity/session.js';
+import { mountConnections } from './connections.js';
+import { mountChatRun } from './chat-run.js';
+import { tildePath } from '../utils/home-scrub.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -162,9 +171,10 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
 // R6 lead: the tab panels' page code (panels.js, the registry; panel-studio.js, panel-vox.js and panel-tools.js, each panel's own drawing)
 // R6 (H144): panel-run.js, the Workflows tab's run detail
 // R10 CHAT (H171): chat-shell.js and chat-shell.css, the shell's left menu and the Chat composition
-// R11 round 4 (H170): screen-connections.js and .css, the Connections screen (src/companion/connections.ts serves its data);
-// (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js'] as const;
+// R11 round 4 (H171): shell.js, the journey's three screens and what they share (window.TimmyShell)
+// R11 round 4 (H170): screen-connections.js and .css, the Connections screen (src/companion/connections.ts serves its data)
+// R11 round 4 (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js'];
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -337,7 +347,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // followed when its record changes, unless the page pinned one; TIMMY_REPO, when it is set as this companion starts,
   // fixes the folder for every page (it was the one folder before). Each page's own view: the project it shows, whether it
   // pinned it, and whether it said hello (the welcome and the tail are sent then). Every folder a page shows is tailed.
-  interface PageView { project: ActiveProject; pinned: boolean; hello: boolean }
+  // R11 round 4 (H171): `user` once a hello's session was verified: the view is that user's project (scope.ts), never the
+  // operator's follower; `followed` leaves it where it is, and its project messages carry the project's root for the turn
+  interface PageView { project: ActiveProject; pinned: boolean; hello: boolean; user?: UserRef }
   const views = new Map<import('ws').WebSocket, PageView>();
   const follower = new ProjectFollower({ cwd: process.cwd(), fixed: process.env.TIMMY_REPO || null, onChange: (p) => followed(p) });
   const isBusEvent = (o: any): boolean =>
@@ -399,8 +411,16 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // then that folder's tail); a page that has not said hello yet is told in its welcome.
   const sendTo = (ws: import('ws').WebSocket, msg: unknown): void => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
   const modeOf = (v: PageView): ProjectMode => (follower.fixed ? 'fixed' : v.pinned ? 'pinned' : 'following');
+  // R11 round 4 (H171): a signed-in user's project as the page shows it: its own id, name and folder; `user: true` and its
+  // root (the turn's body names the root, H169's contract C3); the active project is itself (the follower's is the operator's)
+  const userView = (p: ActiveProject, note?: string) => {
+    const id = projectId(p.root);
+    return { id, name: p.name, folder: tildePath(p.root), chosen: true, mode: 'pinned' as ProjectMode, record: '', active: { id, name: p.name, folder: tildePath(p.root) }, user: true, root: p.root, ...(note ? { note } : {}) };
+  };
+  // (the operator's view carries its root too: the page's turn names its project by root, H169's contract C3)
+  const viewOf = (v: PageView, note?: string) => (v.user ? userView(v.project, note) : { ...follower.view(v.project, modeOf(v), note), root: v.project.root });
   const showProject = (ws: import('ws').WebSocket, v: PageView, reason: string, note?: string): void => {
-    if (v.hello) sendTo(ws, { type: 'project', reason, project: follower.view(v.project, modeOf(v), note) });
+    if (v.hello) sendTo(ws, { type: 'project', reason, project: viewOf(v, note) });
   };
   const moveTo = (ws: import('ws').WebSocket, v: PageView, p: ActiveProject, reason: string): void => {
     v.project = p;
@@ -412,6 +432,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // the active project changed: every following page moves to it; a pinned page stays, and is told what is active now
   function followed(p: ActiveProject): void {
     for (const [ws, v] of views) {
+      if (v.user) continue;
       if (v.pinned) showProject(ws, v, 'active');
       else moveTo(ws, v, p, 'followed');
     }
@@ -429,6 +450,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files, at /web/fonts/
   // before the built web code's own (src/companion/page.ts)
   mountTheme(app);
+  // R11 round 4 (H171, step 3): the Rive runtime and the T mark's files, from this computer (no CDN)
+  mountRive(app);
+  mountMark(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
@@ -698,7 +722,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // it as its own Esc or Ctrl+C would; the turn is named by its id (the frame's activity.chatTurn.id), so the page stops the
   // turn it shows and never another. 200 {ok, words}; 400 for a body that names no turn; 409 when that turn is not being
   // answered now (it ended, or its process did). The token first, as every content route.
-  app.post('/api/chat/stop', withToken, express.json({ limit: '1kb' }), async (req, res) => {
+  // R11 round 4 (H171): with a session the request is a user's: it falls through to H169's /api/chat/stop (mountChatRun,
+  // below), which stops a turn of the user's own project only; this handler answers the operator's page (no session)
+  app.post('/api/chat/stop', withToken, (req, _res, next) => { if (sessionTokenOf(req.headers)) next('route'); else next(); }, express.json({ limit: '1kb' }), async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const project = projectFor(req);
     if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
@@ -721,8 +747,6 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R10 (H164): the journey's routes (/api/journey/…), token-checked, for the shown project; the route of the page's own Send
   // read from the environment its /chat reads
   mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
-  // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models)
-  mountChatView(app, { withToken, json: express.json({ limit: '2kb' }), projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
@@ -743,7 +767,52 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
   // H169, H170, H171: `identity.withUser` after withToken on every route that reads or writes a user's data, and
   // `identity.envOf(req)` for that user's env (never process.env); the hello's `session` through verifyHello (middleware.ts)
-  void identity;
+  const baseEnv = options.workspace?.env ?? process.env;
+  // R11 round 4 (H171, step 4): the page's policy with the identity provider, only when it is configured: connect-src gains
+  // the Clerk instance's frontend API (its one https origin), and worker-src 'self' blob: lets Clerk's script run its own
+  // Web Worker (it makes one from a blob of its own code; refused, it falls back to page timers). script-src stays 'self'.
+  setPagePolicyConnect(connectSrcFor(identity.cfg));
+  setPagePolicyWorker(Boolean(identity.cfg.configured));
+  // R11 round 4 (H171, the wiring). A request that carries a session (X-Timmy-Session) is a user's: withUser verifies it
+  // (401 { needs: 'session' } when it is not one) and the route reads that user's project and env, never the operator's
+  // follower or process.env; a request without one is the operator's own page (nothing signed in: the companion's own
+  // workspace, as before accounts). The user's project is ?project=<id> among the user's own, else the user's default.
+  // The lead's ruling (21:48) and H173's operator principal: with NO identity provider configured, a request without a
+  // session is this computer's operator — req.user = { id: 'operator', operator: true }, whose env is the companion's own
+  // (chatEnv) and whose projects are the follower's (this process's, by id or root; scope.ts never sees the follower). With
+  // a provider configured, every user-data request needs a verified session (identity.withUser: 401 { needs: 'session' }).
+  type Principal = UserRef & { operator?: boolean };
+  const withUserOrOperator: express.RequestHandler = (req, res, next) => {
+    if (!identity.cfg.configured && !sessionTokenOf(req.headers)) { (req as express.Request & { user?: Principal & { sessionId: string } }).user = { id: 'operator', sessionId: 'operator', operator: true }; next(); return; }
+    identity.withUser(req, res, next);
+  };
+  const operatorOwns = (root: string): boolean => {
+    const cur = follower.current();
+    return path.resolve(root) === path.resolve(cur.root) || follower.find(projectId(root)) !== null;
+  };
+  const principalEnv = (u: Principal, base?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => (u.operator ? chatEnv() : userEnv(u, base ?? baseEnv));
+  const principalOwns = (u: Principal, root: string, env: NodeJS.ProcessEnv): boolean => (u.operator ? operatorOwns(root) : isOwnedRoot(u, root, env));
+  const userProjectOf = (req: express.Request): ActiveProject | null => {
+    const u = (req as express.Request & { user?: Principal }).user;
+    if (!u || u.operator) return null;
+    const p = userProjectFor(u, identity.envOf(req), req.query.project);
+    return p ? { name: p.name, root: p.root, chosen: true } : null;
+  };
+  // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models,
+  // /choose) — for the user's project under the user's env when the request carries a session
+  mountChatView(app, {
+    withToken, json: express.json({ limit: '2kb' }), projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: baseEnv,
+    user: { withUser: withUserOrOperator, envOf: identity.envOf, projectFor: userProjectOf, projectUnknown: IDENTITY_NO_PROJECT },
+  });
+  // R11 round 4 (H170): the Connections screen's routes (/api/connections…), each under the signed-in user's own home; what
+  // changes is told to that user's pages over their sockets ({ type: 'connections', provider, state, words })
+  mountConnections(app, {
+    withUser: withUserOrOperator, userEnv: (u) => principalEnv(u),
+    notify: (userId, event) => { for (const [ws, v] of views) if (v.user && v.user.id === userId) sendTo(ws, event); },
+  });
+  // R11 round 4 (H169, contract C3): the page's chat is the real agent turn (POST /api/chat/turn SSE, /api/chat/answer,
+  // /api/chat/stop { id }) in the user's own project under the user's env
+  mountChatRun(app, { withToken, withUser: withUserOrOperator, json: express.json({ limit: '80kb' }), userEnv: (u, base) => principalEnv(u, base), isOwnedRoot: principalOwns });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
@@ -761,7 +830,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     else failRequest(res, 500, COMPANION_FAILED);
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, upgradeReq) => {
     // R4 (H87): a client's broken frame or a dropped socket ends that client, never the monitor
     ws.on('error', () => { clients.delete(ws); views.delete(ws); });
     clients.add(ws);
@@ -774,7 +843,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       views.delete(ws);
       logger.info(`Companion client disconnected (total: ${clients.size})`);
     });
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
         const globalServer = (global as any).companionServer;
@@ -783,9 +852,21 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         if (msg.type === 'hello') {
           // R4 (H104, second part): a reloaded page names the project it had pinned (its id); kept when this companion knows it
           let note: string | undefined;
+          // R11 round 4 (H171): a hello with a session is a user's page: verified as the HTTP routes verify theirs
+          // (verifyHello); the view is then the user's project (msg.pin names one of the user's, else the user's default)
+          // and never the operator's; a session that does not verify is told so, and the page shows nothing of a project
+          if (view && typeof msg.session === 'string' && msg.session) {
+            const r = await verifyHello(msg, identity.cfg, upgradeReq.headers.host, { lan: lanOrigins, ...(options.identity?.user ?? {}) });
+            if (!r.ok) { ws.send(JSON.stringify({ type: 'session', ok: false, needs: 'session', words: r.why })); return; }
+            view.user = { id: r.user.id };
+            const own = userProjectFor(view.user, userEnv(view.user, baseEnv), typeof msg.pin === 'string' && msg.pin ? msg.pin : undefined);
+            if (!own) { ws.send(JSON.stringify({ type: 'session', ok: false, needs: 'project', words: IDENTITY_NO_PROJECT })); return; }
+            view.project = { name: own.name, root: own.root, chosen: true };
+            view.pinned = true;
+          }
           if (view) {
             view.hello = true;
-            if (typeof msg.pin === 'string' && msg.pin) {
+            if (!view.user && typeof msg.pin === 'string' && msg.pin) {
               const pinned = follower.fixed ? null : follower.find(msg.pin);
               if (pinned) { view.project = pinned; view.pinned = true; } else note = follower.fixed ? PIN_FIXED : PIN_UNKNOWN;
             }
@@ -794,7 +875,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           const root = view?.project.root ?? follower.current().root;
           // R4 (H104): `since`, this companion's start, before the bus tail (the page cuts the tail to this session with it).
           // R4 (H104, second part): the project the page shows, and the tail of that project's folder.
-          ws.send(JSON.stringify({ type: 'welcome', state: currentState, since: startedAt, ...(view ? { project: follower.view(view.project, modeOf(view), note) } : {}) }));
+          ws.send(JSON.stringify({ type: 'welcome', state: currentState, since: startedAt, ...(view ? { project: viewOf(view, note) } : {}) }));
           ws.send(JSON.stringify({ type: 'bus.tail', events: busTail(root, 200), project: projectId(root) }));
           
           // Send integration status
@@ -827,6 +908,14 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           if (globalServer && globalServer.lastTmux) {
             ws.send(JSON.stringify({ type: 'tmux', data: globalServer.lastTmux }));
           }
+        } else if (msg.type === 'pin' && view && view.user) {
+          // R11 round 4 (H171): a user's page switches among the user's own projects (H173's registry) by id
+          const own = userProjectFor(view.user, userEnv(view.user, baseEnv), typeof msg.id === 'string' ? msg.id : undefined);
+          if (!own) showProject(ws, view, 'pinned', IDENTITY_NO_PROJECT);
+          else if (own.root !== view.project.root) moveTo(ws, view, { name: own.name, root: own.root, chosen: true }, 'pinned');
+          else showProject(ws, view, 'pinned');
+        } else if (msg.type === 'unpin' && view && view.user) {
+          showProject(ws, view, 'pinned');
         } else if (msg.type === 'pin' && view) {
           // R4 (H104, second part): this page keeps the project it shows (`id`: the one it showed when the pin was pressed)
           if (follower.fixed) showProject(ws, view, 'pinned', PIN_FIXED);

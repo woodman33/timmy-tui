@@ -33,6 +33,7 @@ import { forgetRrdReadings, readRrdWithCli, rrdReadingsIdle, type RrdReading } f
 import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
 import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 import { cubeStl } from './helpers/vox-fakes.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -105,6 +106,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
     await page.goto(companion.url);
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.keyboard.press('6');
     await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 15_000 });
@@ -401,6 +403,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     });
     try {
       await page.goto(companion.url);
+      await landWorkspace(page);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
       await page.keyboard.press('6');
       const sub = '.create-mesh[data-create-mesh="refs/demo-tray.stl"] .create-mesh-sub';
@@ -490,6 +493,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
     const at = companion.url.indexOf('#');
     const [base, hash] = at < 0 ? [companion.url, ''] : [companion.url.slice(0, at), companion.url.slice(at)];
     await page.goto(`${base}${base.includes('?') ? '&' : '?'}${query}${hash}`);
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 15_000 });
     return { page, errors, bad };

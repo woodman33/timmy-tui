@@ -27,6 +27,7 @@ import { JobManager } from '../src/jobs/index.js';
 import { inOperation } from '../src/ops/context.js';
 import { projectId } from '../src/project/index.js';
 import { appendReceipt, receiptsPath } from '../src/utils/receipts.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -96,6 +97,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 7: the Control Room\'s panes
     });
     page.on('response', (r) => { if (r.status() >= 400) seen.bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
     await page.goto(companion.url);
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.keyboard.press('7');
     await page.waitForSelector('[data-panel-host="control"] [data-control="grid"]', { timeout: 15_000 });

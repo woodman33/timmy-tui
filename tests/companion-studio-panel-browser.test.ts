@@ -40,6 +40,7 @@ import { boardDir } from '../src/studio/boards.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { grant, nameProject } from './helpers/canvas-auth.js';
 import { act, png, put, tempKit } from './helpers/vox-panel-kit.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -242,6 +243,7 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('response', (r) => { if (r.status() >= 400 && /\/api\/panel\/studio\//.test(r.url())) bad.push(`${r.status()} ${r.url()}`); });
     await page.goto(companion.url);
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     return { page, context, errors, bad };
   }

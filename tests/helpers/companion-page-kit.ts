@@ -103,8 +103,9 @@ export async function pageProject(kit: OpsKit, o: { prefix?: string; records?: b
 }
 
 /** A page of the companion at `size`, every request to another origin refused; its errors collected. */
-export async function openPage(browser: Browser, p: Pick<PageProject, 'origin'>, size: { width: number; height: number }): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
-  const context = await browser.newContext({ viewport: { ...size }, deviceScaleFactor: 1 });
+export async function openPage(browser: Browser, p: Pick<PageProject, 'origin'>, size: { width: number; height: number }, storageState?: Awaited<ReturnType<BrowserContext['storageState']>>): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
+  // (R11 round 4: a saved storage state stands for the same browser opened again — a new context is otherwise a new profile)
+  const context = await browser.newContext({ viewport: { ...size }, deviceScaleFactor: 1, ...(storageState ? { storageState } : {}) });
   await context.route('**/*', (route) => (new URL(route.request().url()).origin === p.origin ? route.continue() : route.abort('blockedbyclient')));
   const page = await context.newPage();
   const errors: string[] = [];
@@ -209,3 +210,18 @@ export async function smallText(page: Page, least = 11): Promise<SmallText[]> {
 export async function closeProject(p: PageProject | undefined): Promise<void> {
   if (p) await p.companion.shutdown();
 }
+
+/**
+ * R11 round 4 (H171): the page lands by the shell's rule (shell.js): on the account screen when no identity provider is
+ * configured (every test companion here, until one sets CLERK_* keys), the workspace hidden behind it. A test of the workspace
+ * itself goes to the chat screen as a person would ("Review the workspace without an account →"): this waits for the landing,
+ * then asks the shell for it. Nothing is signed in; the page reads and writes as the companion's own process, as before.
+ */
+export async function landWorkspace(page: Page): Promise<void> {
+  await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
+  await page.evaluate(() => {
+    const shell = (window as unknown as { TimmyShell?: { current(): string; go(id: string): void } }).TimmyShell;
+    if (shell && shell.current() !== 'chat') shell.go('chat');
+  });
+}
+

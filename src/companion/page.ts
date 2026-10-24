@@ -34,6 +34,7 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { NextFunction, Request, Response } from 'express';
 import type express from 'express';
 import { FONT_FILES, themeCss } from '../theme/tokens.js';
@@ -69,15 +70,43 @@ export const PAGE_IMG_SRC = "img-src 'self' data:";
  * The companion page's policy. `host`: the request's Host, which the local rule has already checked; the page's own
  * WebSocket (ws://<host>) is named beside 'self' (some browsers do not count ws: as 'self').
  */
+/**
+ * R11 round 4 (H171, step 4): what the identity provider adds to connect-src, only when configured: the Clerk instance's
+ * frontend API (H173's identityConfig / connectSrcFor: " https://<host>", exactly one https origin, nothing else). Set once by
+ * the server (setPagePolicyConnect); '' leaves the policy as it was. script-src stays 'self'.
+ */
+let policyConnect = '';
+const CONNECT_ORIGIN = /^ https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i;
+export function setPagePolicyConnect(extra: string): void {
+  policyConnect = typeof extra === 'string' && CONNECT_ORIGIN.test(extra) ? extra : '';
+}
+/**
+ * R11 round 4 (H171, step 3): the T mark's Rive runtime compiles WebAssembly (its rive.wasm, served by this companion from
+ * /vendor/rive/), which the policy allows only with the keyword 'wasm-unsafe-eval' — a keyword, not a host: script-src names
+ * no origin but 'self' either way. Set by mountMark only when the mark's file is here to draw; without it the page loads no
+ * runtime and the policy stays as it was.
+ */
+let policyWasm = false;
+export function setPagePolicyWasm(on: boolean): void { policyWasm = on === true; }
+/**
+ * R11 round 4 (H171, step 4): Clerk's script (served by this companion from /vendor/clerk/) makes a Web Worker from a blob:
+ * of its own code; with no worker-src the policy falls back to script-src 'self', which refuses a blob: worker, and Clerk
+ * falls back to page timers. Set by the server only when the identity provider is configured: worker-src 'self' blob: —
+ * a worker made of the page's own scripts, never a fetched one from elsewhere. Absent, the page declares no worker-src.
+ */
+let policyWorker = false;
+export function setPagePolicyWorker(on: boolean): void { policyWorker = on === true; }
+
 export function pagePolicy(host: string | undefined): string {
   const socket = typeof host === 'string' && HOST.test(host) ? ` ws://${host}` : '';
   return [
     "default-src 'none'",
-    "script-src 'self'",
+    `script-src 'self'${policyWasm ? " 'wasm-unsafe-eval'" : ''}`,
     PAGE_STYLE_SRC,
     "font-src 'self'",
     PAGE_IMG_SRC,
-    `connect-src 'self'${socket}`,
+    `connect-src 'self'${socket}${policyConnect}`,
+    ...(policyWorker ? ["worker-src 'self' blob:"] : []),
     "frame-src 'self'",
     "object-src 'none'",
     "base-uri 'none'",
@@ -147,6 +176,58 @@ export function mountWebAssets(app: express.Application, webDir?: string): void 
 }
 
 export const FONT_ABSENT = 'No such font here: the page uses this computer\'s own monospace font instead.';
+
+/**
+ * R11 round 4 (H171, step 3): the Rive runtime for the T mark, served from its package (@rive-app/canvas, a runtime
+ * dependency; no CDN: the page's CSP is 'self'): /vendor/rive/rive.js and /vendor/rive/rive.wasm by exact name. Not
+ * installed → 404 in words; the page keeps its text mark.
+ */
+export const RIVE_PATH = '/vendor/rive/';
+const RIVE_FILES: Readonly<Record<string, string>> = { 'rive.js': 'text/javascript; charset=utf-8', 'rive.wasm': 'application/wasm' };
+export function riveDir(): string | null {
+  try { return dirname(createRequire(import.meta.url).resolve('@rive-app/canvas/package.json')); } catch { return null; }
+}
+export const RIVE_ABSENT = 'The Rive runtime is not installed here (@rive-app/canvas): the page draws its text mark instead.';
+export function mountRive(app: express.Application): void {
+  app.get(`${RIVE_PATH}:file`, (req, res, next) => {
+    const file = String(req.params.file);
+    const type = RIVE_FILES[file];
+    const dir = type ? riveDir() : null;
+    if (!type || !dir || !existsSync(join(dir, file))) { if (type) failRequest(res, 404, RIVE_ABSENT, 'text'); else next(); return; }
+    res.set('Cache-Control', 'public, max-age=86400').type(type).sendFile(join(dir, file), (err?: Error) => { if (err) failRequest(res, 404, RIVE_ABSENT, 'text'); });
+  });
+}
+
+/**
+ * R11 round 4 (H171, step 3): the T mark's files (src/companion/assets/mark/: the preview's proposed T mark — its Rive source
+ * scene.rml and rive.yaml, and timmy-mark.riv when the binary is there; a proposed mark, not a final mascot), at /assets/<name>
+ * by exact name. A file not there → 404 in words; the page keeps its text mark.
+ */
+export const MARK_FILES: Readonly<Record<string, string>> = { 'timmy-mark.riv': 'application/octet-stream', 'scene.rml': 'text/plain; charset=utf-8', 'rive.yaml': 'text/plain; charset=utf-8' };
+export const MARK_ABSENT = 'The T mark’s file is not in this installation: the page draws its text mark instead.';
+export function markDir(assetsDir?: string): string {
+  return assetsDir ?? join(dirname(fileURLToPath(import.meta.url)), 'assets', 'mark');
+}
+export function mountMark(app: express.Application, assetsDir?: string): void {
+  const dir = markDir(assetsDir);
+  // the policy's WebAssembly keyword only when there is a mark to draw and a runtime to draw it with (see setPagePolicyWasm)
+  const rive = riveDir();
+  const hasMark = (): boolean => existsSync(join(dir, 'timmy-mark.riv'));
+  const hasRuntime = (): boolean => rive !== null && existsSync(join(rive, 'rive.js')) && existsSync(join(rive, 'rive.wasm'));
+  setPagePolicyWasm(hasMark() && hasRuntime());
+  // what the page may draw (chat-shell.js asks before loading the runtime): always 200, so an installation without the mark
+  // records no failed request on every open
+  app.get('/assets/mark.json', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ mark: hasMark(), runtime: hasRuntime(), words: hasMark() ? 'The T mark is drawn by its Rive file.' : MARK_ABSENT });
+  });
+  app.get('/assets/:file', (req, res, next) => {
+    const file = String(req.params.file);
+    const type = MARK_FILES[file];
+    if (!type) { next(); return; }
+    if (!existsSync(join(dir, file))) { failRequest(res, 404, MARK_ABSENT, 'text'); return; }
+    res.set('Cache-Control', 'public, max-age=3600').type(type).sendFile(join(dir, file), (err?: Error) => { if (err) failRequest(res, 404, MARK_ABSENT, 'text'); });
+  });
+}
 
 /** R5 (H132): the path of the theme's style sheet (the variables and the font faces), as the page links it. */
 export const THEME_PATH = '/timmy-theme.css';

@@ -27,6 +27,7 @@ import { sealTurn } from '../src/repl/seal.js';
 import { readChain } from '../src/utils/receipts.js';
 import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 import { onlyPorts, recordFetch } from './fixtures/recording-fetch.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -92,6 +93,7 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
     page.on('pageerror', (e) => errors.push(e.message));
     try {
       await page.goto(companion.url);
+      await landWorkspace(page);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
       // R5 (H132): the mirror is the Chat tab's (2). R10 CHAT (H171): Chat is the menu's first destination, and the mirror
       // one of its older views, below the conversation
@@ -199,6 +201,7 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
     page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/workspace') reads.push(Date.now()); });
     try {
       await page.goto(own.url);
+      await landWorkspace(page);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
       // R10 CHAT (H171): on Chat the strip is drawn behind the composition, whose own controls offer the same Stop
       await page.click('#rail-menu .rail-item[data-dest="chat"]');

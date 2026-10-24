@@ -108,7 +108,8 @@ describe('no fallback model, no model in a label', () => {
     const island = readFileSync(join(import.meta.dirname, '..', 'src', 'companion', 'island', 'companion-chat.js'), 'utf8');
     expect(island).not.toContain('qwen3.8-max');
     expect(island).not.toMatch(/const MODEL\b/);
-    expect(island).toContain("'Message ' + route.model + ' here: this page’s own chat'");
+    // (R11 round 4: the island's placeholder names the route's model, never a default of its own; the view sends nothing now)
+    expect(island).toContain("'This older view sends nothing: message ' + route.model + ' in Chat above'");
     const chatmain = readFileSync(join(import.meta.dirname, '..', 'src', 'tui', 'chatmain.tsx'), 'utf8');
     expect(chatmain).not.toMatch(PAID);
     expect(chatmain).toContain("model: String(cfg.model || process.env.TIMMY_MODEL || '')");

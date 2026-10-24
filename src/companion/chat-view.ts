@@ -500,7 +500,23 @@ export interface ChatViewContext {
   chatEnv: () => Env;
   /** the environment the project's records are read with (a test's TIMMY_HOME), else this process's */
   env: Env;
+  /**
+   * R11 round 4 (H171; H173's contract C1): a request that carries a session is a user's. `withUser` verifies it when it is
+   * there (401 { needs: 'session' } when it does not verify) and lets a request without one through (the operator's own page);
+   * `projectFor` is then the user's project (?project=<id> among the user's own, else the user's default: scope.ts
+   * userProjectFor) and `envOf` the user's env — the conversation, the route, the providers' states, the models and the
+   * choice all read and written there, never in the operator's follower or process.env.
+   */
+  user?: {
+    withUser: express.RequestHandler;
+    envOf: (req: express.Request) => Env;
+    projectFor: (req: express.Request) => ActiveProject | null;
+    projectUnknown: string;
+  };
 }
+
+/** What a request reads: whose project, which env for the route and the keys, which for the records, and the route's cwd. */
+interface ChatScope { project: ActiveProject | null; unknown: string; env: Env; records: Env; cwd: string }
 
 const FAILED = 'The companion could not read what the Chat needs, so it answers with nothing. It is still running.';
 
@@ -508,19 +524,34 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
   const answer = (res: express.Response, body: unknown, status = 200): void => {
     res.status(status).set('Cache-Control', 'no-store').json(scrubStrings(body, (t) => scrubHomes(t)));
   };
-  app.get(CHAT_VIEW_ROUTES.view, ctx.withToken, async (req, res) => {
-    const project = ctx.projectFor(req);
-    if (!project) { answer(res, { ok: false, error: ctx.projectUnknown }, 404); return; }
+  // the user's scope when the request is a user's (req.user set by ctx.user.withUser), else the operator's page's
+  const scoped: express.RequestHandler = ctx.user ? ctx.user.withUser : (_req, _res, next) => next();
+  const scopeOf = (req: express.Request): ChatScope => {
+    // (H173's operator principal — { id: 'operator', operator: true } where no identity provider is configured — reads as
+    // the operator's page: the follower's project and the companion's own env)
+    const principal = (req as express.Request & { user?: { operator?: boolean } }).user;
+    const isUser = Boolean(ctx.user && principal && !principal.operator);
+    if (isUser && ctx.user) {
+      const env = ctx.user.envOf(req);
+      const project = ctx.user.projectFor(req);
+      return { project, unknown: ctx.user.projectUnknown, env, records: env, cwd: project ? project.root : process.cwd() };
+    }
+    return { project: ctx.projectFor(req), unknown: ctx.projectUnknown, env: ctx.chatEnv(), records: ctx.env, cwd: process.cwd() };
+  };
+  app.get(CHAT_VIEW_ROUTES.view, ctx.withToken, scoped, async (req, res) => {
+    const sc = scopeOf(req);
+    const project = sc.project;
+    if (!project) { answer(res, { ok: false, error: sc.unknown }, 404); return; }
     try {
-      const env = ctx.chatEnv();
+      const env = sc.env;
       const local = await companionCatalog('ollama-local', env, { fresh: req.query.fresh === '1' });
-      const providers = companionProviders(env, process.cwd(), local.observed);
-      const { route, choice } = pageChoice(env, pageRoute(env, process.cwd()), local, providers);
+      const providers = companionProviders(env, sc.cwd, local.observed);
+      const { route, choice } = pageChoice(env, pageRoute(env, sc.cwd), local, providers);
       answer(res, {
         ok: true,
         at: new Date().toISOString(),
         project: { name: project.name },
-        conversation: savedConversation(project.root, ctx.env),
+        conversation: savedConversation(project.root, sc.records),
         route,
         choice,
         scope: PAGE_SCOPE,
@@ -531,12 +562,12 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
       });
     } catch { answer(res, { ok: false, error: FAILED }, 500); }
   });
-  app.get(CHAT_VIEW_ROUTES.models, ctx.withToken, async (req, res) => {
-    const project = ctx.projectFor(req);
-    if (!project) { answer(res, { ok: false, error: ctx.projectUnknown }, 404); return; }
+  app.get(CHAT_VIEW_ROUTES.models, ctx.withToken, scoped, async (req, res) => {
+    const sc = scopeOf(req);
+    if (!sc.project) { answer(res, { ok: false, error: sc.unknown }, 404); return; }
     try {
       const q = catalogQueryOf(req.query as Record<string, unknown>);
-      const read = await companionCatalog(q.source, ctx.chatEnv(), { fresh: req.query.fresh === '1' });
+      const read = await companionCatalog(q.source, sc.env, { fresh: req.query.fresh === '1' });
       // queryCatalog's total is the source's rows before the search and the filters; matched, the rows they keep
       const out = queryCatalog(read.rows, q);
       answer(res, {
@@ -548,11 +579,12 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     } catch { answer(res, { ok: false, error: FAILED }, 500); }
   });
   // R11 step 1: a model chosen on the page for the next turn (the Workbench's own write paths; see chooseModel)
-  app.post(CHAT_VIEW_ROUTES.choose, ctx.withToken, ctx.json, async (req, res) => {
-    const project = ctx.projectFor(req);
-    if (!project) { answer(res, { ok: false, error: ctx.projectUnknown }, 404); return; }
+  app.post(CHAT_VIEW_ROUTES.choose, ctx.withToken, scoped, ctx.json, async (req, res) => {
+    const sc = scopeOf(req);
+    const project = sc.project;
+    if (!project) { answer(res, { ok: false, error: sc.unknown }, 404); return; }
     try {
-      const r = await chooseModel(ctx.chatEnv(), project.root, req.body);
+      const r = await chooseModel(sc.env, project.root, req.body);
       // the local Ollama's memo is stale once a choice was made: the next view read asks again
       if (r.ok) localKept = null;
       answer(res, r, r.ok ? 200 : 409);
