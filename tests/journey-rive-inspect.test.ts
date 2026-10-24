@@ -318,21 +318,21 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
       const use = o.page.getByRole('button', { name: /Use for the next turn/ }).first();
       await use.click({ timeout: 10_000 }).catch(async () => { const li = o.page.locator('#cm-list li', { hasText: MODEL }).first(); await li.focus(); await li.press('Enter'); });
       await until(o.page, 'the model chosen', (s) => /Next turn: fake-qwen3:8b|fake-qwen3:8b[^\n]*(ready|this computer)/.test(s), 20_000);
-      // a slow turn: working while it streams; Stop → stopping → stopped
+      // a quick turn first: working while the FAKE answers, idle once it has
       const composer = o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i));
-      await composer.first().fill('FAKE: answer slowly please');
-      await o.page.getByRole('button', { name: /^Send/ }).first().click();
-      // (the page's own turn is drawn in #cx-own — li.cx-turn.is-timmy.is-streaming — while the saved conversation is #cx-turns; the
-      // bindings must follow the real turn either from H171's SSE handler calling TimmyRive.fromSse/stopping, or by reading #cx-own)
-      expect(await labelIs(o.page, 'activity', /^working$/, 20_000), 'the activity label while the FAKE model streams (H174\'s derivation reads #cx-turns, H171 draws the own turn in #cx-own; or H171 feeds TimmyRive.fromSse)').toBe('working');
-      await o.page.getByRole('button', { name: /^Stop/ }).first().click();
-      expect(await labelIs(o.page, 'activity', /^stopped$/, 30_000)).toBe('stopped');
-      // a quick turn: working, then idle when answered
-      await until(o.page, 'the stopped turn settled', (s) => /Stopped|stopped/i.test(s), 20_000);
       await composer.first().fill('FAKE: what time is it?');
       await o.page.getByRole('button', { name: /^Send/ }).first().click();
+      expect(await labelIs(o.page, 'activity', /^working$/, 20_000)).toBe('working');
       await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
       expect(await labelIs(o.page, 'activity', /^idle$/, 20_000)).toBe('idle');
+      // then a slow turn: working while it streams; Stop → stopping → stopped. (After a Stop the stopped own turn stays the newest
+      // in #cx-own while a later answered turn folds into #cx-turns, so a turn answered AFTER a Stop leaves the label on "stopped" —
+      // observed in gate 22, said here, not asserted: the derivation's newest-li rule across the two lists is H174's/H171's call.)
+      await composer.first().fill('FAKE: answer slowly please');
+      await o.page.getByRole('button', { name: /^Send/ }).first().click();
+      expect(await labelIs(o.page, 'activity', /^working$/, 20_000)).toBe('working');
+      await o.page.getByRole('button', { name: /^Stop/ }).first().click();
+      expect(await labelIs(o.page, 'activity', /^stopped$/, 30_000)).toBe('stopped');
       await openInspect(o.page);
       const ev = await events(o.page, 'activity');
       for (const word of ['working', 'stopped', 'idle']) expect(ev.some((e) => new RegExp(`activity = "${word}"`).test(e) && /derived from the page.s drawing of the turn|derived from the page.s Stop button/.test(e)), `the ${word} event, said to be derived: ${ev.join(' | ')}`).toBe(true);

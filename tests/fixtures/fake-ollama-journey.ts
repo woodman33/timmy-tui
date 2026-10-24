@@ -93,7 +93,10 @@ export async function startFakeOllamaJourney(o: JourneyOptions): Promise<FakeOll
         const chunk = (message: Record<string, unknown>, done: boolean, more: Record<string, unknown> = {}): string => line({ model, created_at: new Date().toISOString(), message, done, ...more });
         const messages: Array<{ role?: string; content?: string }> = Array.isArray(body?.messages) ? body.messages : [];
         const last = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-        const toolAnswered = messages.some((m) => m.role === 'tool');
+        // the tool's result for THIS turn: a tool message after the last user message (the project's conversation carries the
+        // earlier turns' tool messages too, which must not make a later turn skip its own tool call)
+        const lastUserAt = messages.map((m) => m.role).lastIndexOf('user');
+        const toolAnswered = messages.slice(lastUserAt + 1).some((m) => m.role === 'tool');
         if (o.slow && o.slow.when.test(String(last)) && !toolAnswered) {
           let k = 0;
           const next = (): void => {
