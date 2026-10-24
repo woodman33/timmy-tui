@@ -12,22 +12,29 @@
  *   GET /account, /account/callback            nothing more             the page (as GET /): the account screen, and where Clerk's
  *                                                                       OAuth (Google, GitHub) lands back; no token in the address
  *   GET /api/identity/me                       the token + the user     who the session is, as verified here: { user: { id,
- *                                                                       sessionId, username?, email? } }
+ *                                                                       sessionId, username?, email? } }; the operator:
+ *                                                                       { user: { id: 'operator', operator: true }, words }
  *   GET /api/projects                          the token + the user     the user's projects: { projects: [{ id, name, root }],
- *                                                                       default: <id> } (scope.ts userProjects; the default made)
+ *                                                                       default: <id> } (scope.ts userProjects; the default made);
+ *                                                                       the operator's: the companion's own (the follower's)
  *   POST /api/projects { name }                the token + the user     makes one under the user's home: { id, name, root }
  *
- * Nothing here signs anyone in: the page does that with Clerk's JS against the instance; this server only verifies what
- * the page then sends (withUser).
+ * "The user" is the verified session's — or, on a companion with NO identity provider configured, the OPERATOR principal
+ * (middleware.ts: the launch token's holder; session.ts operatorUser), for whom every route answers as the companion always
+ * did (its own home, keys and projects). Nothing here signs anyone in: the page does that with Clerk's JS against the
+ * instance; this server only verifies what the page then sends (withUser).
  */
 import type { Application, RequestHandler, Response } from 'express';
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import { projectId } from '../../project/index.js';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { failRequest } from '../../utils/server-failure.js';
+import type { ActiveProject } from '../../project/index.js';
 import { identityConfig, pageIdentity, type Env, type IdentityConfig } from './config.js';
 import { userOf, withUser, type WithUserOptions } from './middleware.js';
-import { createUserProject, userEnv, userProjectFor, userProjects } from './scope.js';
+import { createUserProject, userEnv, userProjectFor, userProjects, type UserProject } from './scope.js';
+import { isOperator, OPERATOR_WORDS } from './session.js';
 
 /**
  * The build the page loads, as @clerk/clerk-js 6.40.1 ships it (checked against the installed dist/, 2026-10-23):
@@ -59,6 +66,12 @@ export interface IdentityDeps {
   clerkDir?: string;
   /** withUser's options (the LAN addresses, a test's origins, JWKS or clock). */
   user?: WithUserOptions;
+  /**
+   * The companion's own project rule for the OPERATOR principal (server.ts projectFor: ?project=<id> among the projects it
+   * has shown, else the one followed). Preferred over scope.ts's operator rule (which sees the fixed/active project and
+   * <TIMMY_HOME>/projects, not what a page pinned) when given.
+   */
+  operator?: { projectFor: (req: Parameters<RequestHandler>[0]) => ActiveProject | null; current: () => ActiveProject };
 }
 
 export interface IdentityMount {
@@ -66,8 +79,14 @@ export interface IdentityMount {
   cfg: IdentityConfig;
   /** The middleware the other owners put after withToken on every route that reads or writes user data. */
   withUser: RequestHandler;
-  /** The user's env for a request behind withUser (scope.ts userEnv). */
+  /** The user's env for a request behind withUser (scope.ts userEnv); the operator's is the companion's own. */
   envOf: (req: Parameters<RequestHandler>[0]) => Env;
+  /**
+   * The project a request behind withUser is about, for EITHER principal: the user's by ?project=<id> or path, else their
+   * default (scope.ts userProjectFor); the operator's by the companion's own rule (deps.operator.projectFor, else scope.ts's).
+   * null when it is not one of theirs: the route answers with words (IDENTITY_NO_PROJECT) and reads nothing.
+   */
+  projectFor: (req: Parameters<RequestHandler>[0]) => UserProject | null;
   /** Where Clerk's files are served from, or null when the package is not installed. */
   clerkDir: string | null;
 }
@@ -117,16 +136,25 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
     });
   });
 
-  // who this session is, as THIS SERVER verified it (the page shows the account from this, never from what it decoded itself)
+  // who this session is, as THIS SERVER verified it (the page shows the account from this, never from what it decoded itself);
+  // the operator principal says so in words
   app.get('/api/identity/me', deps.withToken, guard, (req, res) => {
     const user = userOf(req);
-    res.set('Cache-Control', 'no-store').json({ ok: true, user: { id: user.id, sessionId: user.sessionId, ...(user.username ? { username: user.username } : {}), ...(user.email ? { email: user.email } : {}) } });
+    res.set('Cache-Control', 'no-store');
+    if (isOperator(user)) { res.json({ ok: true, user: { id: user.id, operator: true }, words: OPERATOR_WORDS }); return; }
+    res.json({ ok: true, user: { id: user.id, sessionId: user.sessionId, ...(user.username ? { username: user.username } : {}), ...(user.email ? { email: user.email } : {}) } });
   });
 
   // the account screen by its own address, and where Clerk's OAuth lands back (the page reads the callback; no token in the address)
   app.get(['/account', '/account/', '/account/callback', '/account/callback/'], (_req, res) => { deps.sendPage(res); });
 
   const envOf = (req: Parameters<RequestHandler>[0]): Env => userEnv(userOf(req), env);
+  const asView = (p: ActiveProject): UserProject => ({ id: projectId(p.root), name: p.name, root: p.root, chosen: true });
+  const projectFor = (req: Parameters<RequestHandler>[0]): UserProject | null => {
+    const user = userOf(req);
+    if (isOperator(user) && deps.operator) { const p = deps.operator.projectFor(req); return p ? asView(p) : null; }
+    return userProjectFor(user, envOf(req), req.query.project);
+  };
 
   app.get('/api/projects', deps.withToken, guard, (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -135,8 +163,12 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
       const env = envOf(req);
       const own = userProjects(user, env);
       const projects = own.roots.map((root) => userProjectFor(user, env, root)).filter((p): p is NonNullable<typeof p> => Boolean(p));
-      const def = userProjectFor(user, env);
-      res.json({ ok: true, projects: projects.map(({ id, name, root }) => ({ id, name, root })), default: def?.id ?? null });
+      // the default: the user's (scope.ts); the operator's as the companion names it (deps.operator: the followed project,
+      // which the operator's roots then include even when it is one the companion was pointed at by a page)
+      const def = isOperator(user) && deps.operator ? deps.operator.current() : null;
+      const defView = def ? asView(def) : userProjectFor(user, env);
+      if (defView && !projects.some((p) => p.id === defView.id)) projects.unshift(defView);
+      res.json({ ok: true, projects: projects.map(({ id, name, root }) => ({ id, name, root })), default: defView?.id ?? null, ...(isOperator(user) ? { operator: true, words: OPERATOR_WORDS } : {}) });
     } catch { failRequest(res, 500, 'This account\'s projects could not be read; nothing was written.'); }
   });
 
@@ -151,5 +183,5 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
     } catch { failRequest(res, 500, 'The project could not be made; nothing was written.'); }
   });
 
-  return { cfg, withUser: guard, envOf, clerkDir };
+  return { cfg, withUser: guard, envOf, projectFor, clerkDir };
 }

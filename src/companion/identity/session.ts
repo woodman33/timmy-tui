@@ -24,13 +24,27 @@ import type { IncomingHttpHeaders } from 'node:http';
 import type { IdentityConfig } from './config.js';
 
 export interface SessionUser {
-  /** Clerk's user id: user_ followed by letters and digits. */
+  /** Clerk's user id: user_ followed by letters and digits — or OPERATOR_ID, the operator principal (below). */
   id: string;
-  /** Clerk's session id (sid). */
-  sessionId: string;
+  /** Clerk's session id (sid); absent for the operator (the launch token is their session). */
+  sessionId?: string;
   username?: string;
   email?: string;
+  /** The operator principal: this computer's operator, holding the launch token, on a companion with NO identity provider configured. */
+  operator?: true;
 }
+
+/**
+ * The OPERATOR principal (the lead's ruling of 2026-10-23 21:48): when identityConfig(env).configured is FALSE, withUser
+ * resolves the launch token's holder as this computer's operator — the companion as it was before round 4 (the operator's
+ * own Timmy home, keys and projects). It exists ONLY then: with a provider configured there is no operator fallback and
+ * every withUser route needs a verified session. Its id is not of Clerk's shape, so no token can ever name it (badSubject).
+ */
+export const OPERATOR_ID = 'operator';
+export const OPERATOR_WORDS = 'This computer\'s operator · no identity provider configured (CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY)';
+export const operatorUser = (): SessionUser => ({ id: OPERATOR_ID, operator: true });
+/** Whether a user (as a route has it) is the operator principal. */
+export const isOperator = (user: Pick<SessionUser, 'id'> | null | undefined): boolean => Boolean(user) && user!.id === OPERATOR_ID;
 
 export type SessionResult = { ok: true; user: SessionUser } | { ok: false; why: string };
 

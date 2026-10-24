@@ -742,6 +742,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     withToken, sendPage, json: express.json({ limit: '2kb' }), env: options.workspace?.env ?? process.env,
     ...(options.identity?.clerkDir !== undefined ? { clerkDir: options.identity.clerkDir } : {}),
     user: { lan: lanOrigins, ...(options.identity?.user ?? {}) },
+    // the OPERATOR principal (no identity provider configured): the companion's own project rule, as every page had it
+    operator: { projectFor, current: () => follower.current() },
   });
   // H169, H170, H171: `identity.withUser` after withToken on every route that reads or writes a user's data, and
   // `identity.envOf(req)` for that user's env (never process.env); the hello's `session` through verifyHello (middleware.ts)
