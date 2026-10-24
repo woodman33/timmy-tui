@@ -116,7 +116,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // (R11 round 6: the NEEDS-YOU case after the first — the FAKE model asks for write_project_file, which asks the person; answered
       // once, the tool runs and the model says Written.)
       chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 }), () => ({ hang: true }),
-        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-r6.md', content: 'from the FAKE model, allowed once on the page\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Written.']) })],
+        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-r6.md', content: 'from the FAKE model, allowed once on the page\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Written', '.', ' The', ' note', ' is', ' there.']), delayMs: 400 })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
     writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: MODELS }));
@@ -575,6 +575,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.focus('#cx-input');
       await page.keyboard.press('Shift+Tab');
       expect(await page.evaluate(() => document.activeElement?.id), 'the stop before the textarea is the route line\'s button, as before the band').toBe('cx-change');
+      const rivBefore = await page.evaluate(() => { performance.setResourceTimingBufferSize(4000); return performance.getEntriesByType('resource').filter((e) => /timmy-ui\.riv$/.test(new URL(e.name).pathname)).length; });
       await page.focus('#cx-input');
       await page.keyboard.type('write notes');
       await page.keyboard.press('Enter');
@@ -609,15 +610,45 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(res.status()).toBe(200);
       expect(answers).toHaveLength(1);
       expect(JSON.parse(answers[0])).toEqual({ id: boxId, choice: 'once' });
-      // the real action behind the gate: the tool ran where the turn runs (the project's folder), the model's answer followed, the
-      // turn sealed; the console reads idle again
-      await page.waitForFunction(() => document.querySelector('#cx-own li.cx-turn.is-timmy.is-answered') !== null, null, { timeout: 30_000 });
+      // the real action behind the gate: the tool ran where the turn runs (the project's folder) — its line reads ran while the
+      // FAKE's answer still streams (six chunks, 400 ms apart), the answered ask's box under it
+      await page.waitForFunction(() => /· ran$/.test((document.querySelector('#cx-own .cx-act-line[data-tool="write_project_file"]')?.textContent ?? '').replace(/\s+/g, ' ').trim()), null, { timeout: 30_000 });
       expect(readFileSync(join(box, 'tray', 'notes-r6.md'), 'utf8')).toBe('from the FAKE model, allowed once on the page\n');
-      expect(await page.$$eval('#cx-own .cx-act-line[data-tool="write_project_file"]', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual([expect.stringMatching(/^● write_project_file · ran$/)]);
-      expect(await page.$eval('#cx-own li.cx-turn.is-timmy .cx-text', (e) => e.textContent)).toBe('Written.');
+      expect(await page.$$eval('#cx-own .cx-act-line[data-tool="write_project_file"]', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(['● write_project_file · ran']);
+      // (the installed capture of GATE 36, H172: the tool line was laid in the turn grid's MARK column, 30 px wide, and painted
+      // over the ask's box beside it) the tool line is ONE row in the turn's text column — the glyph, the name, the state — its box
+      // not overlapping the ask's box, which sits under it with its "answered: once" note; both start where the turn's text starts
+      const rows = await page.evaluate(() => {
+        const r = (el: Element | null) => { if (!el) return null; const b = el.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom), height: Math.round(b.height) }; };
+        const li = document.querySelector('#cx-own li.cx-turn.is-timmy')!;
+        const line = li.querySelector('.cx-act-line[data-tool="write_project_file"]');
+        return { who: r(li.querySelector('.cx-who')), line: r(line), dot: r(line?.querySelector('.cx-act-dot') ?? null), needs: r(li.querySelector('.cx-needs')), note: r(li.querySelector('.cx-needs .cx-act-sub')), lineHeight: line ? parseFloat(getComputedStyle(line).lineHeight) : 0, answered: li.querySelector('.cx-needs .cx-act-sub')?.textContent?.trim() };
+      });
+      expect(rows.line && rows.needs && rows.who && rows.dot).toBeTruthy();
+      expect(rows.line!.height, 'one row').toBeLessThanOrEqual(Math.ceil(rows.lineHeight * 1.5));
+      expect(rows.line!.left, 'in the text column, where TIMMY starts').toBe(rows.who!.left);
+      expect(rows.needs!.left).toBe(rows.who!.left);
+      expect(rows.line!.bottom, 'the ask\'s box under the tool line, not beside or over it').toBeLessThanOrEqual(rows.needs!.top);
+      expect(rows.dot!.top, 'the glyph on the line\'s row').toBeGreaterThanOrEqual(rows.line!.top);
+      expect(rows.dot!.bottom).toBeLessThanOrEqual(rows.line!.bottom + 1);
+      expect(rows.answered).toBe('└ answered: once');
+      // the model's answer follows, the turn ends on this page and folds into the project's conversation by its receipt; the
+      // console reads idle again
+      await page.waitForFunction(() => document.querySelector('#cx-own li.cx-turn.is-timmy.is-answered') !== null || [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy .cx-text')].some((e) => /Written\. The note is there\./.test(e.textContent ?? '')), null, { timeout: 30_000 });
+      await page.waitForFunction(() => [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy .cx-text')].some((e) => /Written\. The note is there\./.test(e.textContent ?? '')), null, { timeout: 30_000 });
       expect(await text(page, '#cx-console [data-rive-status]')).toBe('idle');
       expect(await page.evaluate(() => document.activeElement?.closest('#cx-console') !== null)).toBe(false);
       expect(answers, 'one answer, and no second one from the twin or the face').toHaveLength(1);
+      // the operator's bar (one runtime instance per MOUNTED component; GATE 36's finding): after the answered ask and the turn's
+      // end no ActionButton handle remains (this conversation has no welcome starter) — the three of the ask were unmounted when
+      // it was answered, and an answered ask never mounted a second set — and the .riv was fetched exactly once per drawn button
+      const after = await page.evaluate(() => ({
+        census: (window as unknown as { TimmyRive: { inspect(): Array<{ component: string; state: string }> } }).TimmyRive.inspect().map((x) => `${x.component}:${x.state}`),
+        rivFetches: performance.getEntriesByType('resource').filter((e) => /timmy-ui\.riv$/.test(new URL(e.name).pathname)).length,
+      }));
+      expect(after.census.filter((c) => c.startsWith('action:')), `no ActionButton outlives its ask (census: ${after.census.join(', ')})`).toEqual([]);
+      expect(after.census.filter((c) => c.startsWith('console:'))).toEqual(['console:drawn']);
+      expect(after.rivFetches - rivBefore, 'the .riv fetched once per drawn button of the ask (three), never for an answered ask').toBe(drawn ? 3 : 0);
       // the operator's bar of 07:06 (rapid backend events): a dense burst through THIS PAGE's feed (riveFeed, the one the turn's
       // SSE goes through) leaves the band's word at the LAST event's state, no lag, no intermediate word; a run of deltas is one
       // event (the feed collapses a repeated word), every other event is fed as it comes

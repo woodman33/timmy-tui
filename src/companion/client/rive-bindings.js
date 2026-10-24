@@ -77,6 +77,72 @@
 
   /** The word shown beside an activity state (the operator's words; 'awaiting' is "awaiting approval"). */
   const SHOWN = Object.freeze({ awaiting: 'awaiting approval' });
+  /**
+   * The text runs the native asset bakes into its faces (a run's name is its baked text: create-controls.py) and what a face
+   * in this product says in them, so a live face never reads "PREVIEW" and a preview never reads "LIVE" (the operator's rule).
+   * The runtime sets a run by name (artboard.textRun(name)); the ProviderCard's five same-named subtitle runs
+   * ('OpenRouter  ·  Ollama  ·  Cloudflare', one per state group) it cannot tell apart, so that one is left as baked and the
+   * README names it for the source.
+   */
+  const RUNS = Object.freeze({
+    caption: 'PREVIEW  /  NOT A LIVE JOB',   // AgentConsole, ProviderCard
+    inspect: 'Inspect interaction',           // AgentConsole, ProviderCard: the baked face button, meaningless here → ''
+    actionIdle: 'Connect provider',           // ActionButton: its Idle label → the button's own label
+    provider: 'OpenRouter  ·  Ollama  ·  Cloudflare', // ProviderCard ×5 under one name: not addressable (left as baked)
+  });
+  const CAPTION = Object.freeze({
+    preview: 'PREVIEW  /  NOT A LIVE JOB',
+    activity: 'LIVE  /  THE TURN’S EVENTS',
+    connection: 'LIVE  /  GET /api/connections',
+  });
+  /** The caption a face should carry now: the last state event's source decides (a preview says PREVIEW, a feed says LIVE). */
+  function captionOf(handle) {
+    if (handle.artboard !== 'AgentConsole' && handle.artboard !== 'ProviderCard') return null;
+    if (handle.stateSource === 'preview') return CAPTION.preview;
+    if (handle.stateSource === 'fed') return handle.binds.some((b) => b.startsWith('connection')) ? CAPTION.connection : CAPTION.activity;
+    if (handle.caption) return handle.caption;
+    return handle.binds.some((b) => b.startsWith('connection')) ? CAPTION.connection : handle.binds.includes('activity') ? CAPTION.activity : CAPTION.preview;
+  }
+  /** Writes the runs on a drawn handle and records what each reads back (handle.runs, for the Inspect view and the tests). */
+  function applyRuns(handle) {
+    const r = handle.rive;
+    if (!r || !r.artboard) return;
+    const put = (name, value) => {
+      let run = null;
+      try { run = r.artboard.textRun(name) || null; } catch (e) { run = null; }
+      if (!run) return { name, set: value, reads: undefined, absent: true };
+      try { if (value !== null && run.text !== value) run.text = value; } catch (e) { /* stays baked */ }
+      let reads;
+      try { reads = run.text; } catch (e) { reads = undefined; }
+      return { name, set: value, reads };
+    };
+    const runs = {};
+    if (handle.artboard === 'AgentConsole' || handle.artboard === 'ProviderCard') {
+      runs.caption = put(RUNS.caption, captionOf(handle));
+      runs.inspect = put(RUNS.inspect, '');
+      if (handle.artboard === 'ProviderCard') runs.provider = { name: RUNS.provider, set: null, reads: put(RUNS.provider, null).reads, note: 'five runs share this name (one per state group): the runtime addresses one; left as baked — the source must name them apart' };
+    } else if (handle.artboard === 'ActionButton') {
+      runs.actionIdle = put(RUNS.actionIdle, typeof handle.faceLabel === 'string' ? handle.faceLabel : (handle.word || ''));
+    }
+    handle.runs = runs;
+  }
+  /** The State input, cached per drawn handle (the wrapper stays valid while the instance lives). */
+  function stateInput(handle) {
+    if (handle.stateInputCached) return handle.stateInputCached;
+    if (!handle.rive) return null;
+    handle.stateInputCached = inputOf(handle, 'State');
+    return handle.stateInputCached;
+  }
+  /**
+   * Every frame: the asset bakes a click listener ("Inspect click": the hit area → State = 1) that would put a live face in
+   * Working/Checking without any backend event. A State the feed did not set is put back to the fed value before the frame
+   * draws (the face's canvas also takes no pointer events: rive-components.css). Counted on handle.restored.
+   */
+  function guardState(handle) {
+    const si = stateInput(handle);
+    if (!si || typeof handle.fedState !== 'number') return;
+    try { if (si.value !== handle.fedState) { si.value = handle.fedState; handle.restored = (handle.restored || 0) + 1; } } catch (e) { /* the input is gone */ }
+  }
   const RUNTIME_PATH = '/vendor/rive/rive.js';
   const WASM_PATH = '/vendor/rive/rive.wasm';
   const WORDS_PATH = '/assets/mark.json';
@@ -181,19 +247,28 @@
   const wordOf = (input, value) => (typeof value === 'boolean' ? (value ? input : `not ${input}`) : SHOWN[value] || String(value));
 
   /** What the runtime reports of a loaded file (contents, names, the inputs with their type and current value). */
-  function report(handle) {
+  const typeName = (t) => (t === 56 ? 'Number' : t === 58 ? 'Trigger' : t === 59 ? 'Bool' : String(t));
+  /** What the file holds (artboards, state machines, animations): read from the runtime once per drawn handle — it never changes. */
+  function fileReport(handle) {
+    if (handle.fileReport) return handle.fileReport;
     const r = handle.rive;
-    if (!r) return null;
-    const typeName = (t) => (t === 56 ? 'Number' : t === 58 ? 'Trigger' : t === 59 ? 'Bool' : String(t));
     let contents = null;
     try { contents = r.contents || null; } catch (e) { contents = null; }
     const artboards = contents && Array.isArray(contents.artboards) ? contents.artboards.map((a) => ({ name: a.name, animations: a.animations || [], stateMachines: (a.stateMachines || []).map((m) => ({ name: m.name, inputs: (m.inputs || []).map((i) => ({ name: i.name, type: typeName(i.type) })) })) })) : [];
-    let inputs = [];
-    try { inputs = (handle.stateMachine ? r.stateMachineInputs(handle.stateMachine) || [] : []).map((i) => ({ name: i.name, type: typeName(i.type), value: i.type === 58 ? null : i.value })); } catch (e) { inputs = []; }
     let animationNames = [];
     let stateMachineNames = [];
     try { animationNames = r.animationNames || []; stateMachineNames = r.stateMachineNames || []; } catch (e) { /* not loaded */ }
-    return { artboards, artboardNames: artboards.map((a) => a.name), stateMachineNames, animationNames, inputs };
+    const out = { artboards, artboardNames: artboards.map((a) => a.name), stateMachineNames, animationNames };
+    if (handle.state === 'drawn' && contents) handle.fileReport = out; // cached once the file is in (a redraw per event must not re-read it)
+    return out;
+  }
+  /** The runtime's report for the Inspect view: the file's contents (cached) and the inputs' current values (read now). */
+  function report(handle) {
+    const r = handle.rive;
+    if (!r) return null;
+    let inputs = [];
+    try { inputs = (handle.stateMachine ? r.stateMachineInputs(handle.stateMachine) || [] : []).map((i) => ({ name: i.name, type: typeName(i.type), value: i.type === 58 ? null : i.value })); } catch (e) { inputs = []; }
+    return { ...fileReport(handle), inputs };
   }
 
   /** The runtime's input of this name on the handle's state machine, or null. */
@@ -220,7 +295,7 @@
         i.value = Boolean(native.value);
         // a press: down now, up on the next frame (the native Pressed wash plays its release)
         if (native.press) requestAnimationFrame(() => { try { if (handle.rive) i.value = false; } catch (e) { /* released */ } });
-      } else { if (typeof native.value !== 'number') return `${native.name} is a Number input; ${JSON.stringify(value)} has no number`; i.value = native.value; }
+      } else { if (typeof native.value !== 'number') return `${native.name} is a Number input; ${JSON.stringify(value)} has no number`; i.value = native.value; if (native.name === 'State') handle.fedState = native.value; }
       // reduced motion without a native ReducedMotion input: the pose shown, the runtime paused (one advance draws it)
       if (handle.still && !handle.nativeReduced) { try { handle.rive.pause(); } catch (e) { /* paused */ } }
       return native.note ? `moved (${native.note})` : 'moved';
@@ -239,12 +314,17 @@
 
   /** One binding event: recorded for the Inspect view, the label written, the runtime moved. */
   function set(handle, input, value, source) {
-    if (!handle || typeof input !== 'string') return null;
+    if (!handle || typeof input !== 'string' || handle.state === 'unmounted') return null;
     const did = move(handle, input, value);
     const ev = { input, value, at: now(), source: typeof source === 'string' && source ? source : 'unnamed', did, native: handle.lastNative || null };
     handle.events.push(ev);
     if (handle.events.length > MAX_EVENTS) handle.events.splice(0, handle.events.length - MAX_EVENTS);
     setLabel(handle, input, value);
+    if (input === 'activity' || input === 'connection') {
+      // the face's caption follows the source of its state: a preview says PREVIEW, a feed says LIVE (never the other way)
+      handle.stateSource = ev.source.startsWith('PREVIEW') ? 'preview' : 'fed';
+      if (handle.rive) applyRuns(handle);
+    }
     emit(handle, ev);
     return ev;
   }
@@ -265,7 +345,10 @@
       id: `rive-${++seq}`, component: o.component || 'component', asset: assetPath, artboard: o.artboard || null, stateMachine: o.stateMachine || null,
       canvas, rive: null, state: 'loading', why: '', still: still(), values: {}, events: [], label: o.label || null, root: o.root || null, fallback: o.fallback || null,
       binds: Array.isArray(o.binds) ? o.binds.slice() : [], word: o.word || 'idle', sources: Array.isArray(o.sources) ? o.sources : [],
+      hostEl: o.hostEl || null, caption: typeof o.caption === 'string' ? o.caption : null, faceLabel: typeof o.faceLabel === 'string' ? o.faceLabel : null,
+      stateSource: null, fedState: undefined, restored: 0, runs: null,
     };
+    // on the list BEFORE anything of it can emit (applySeen below): a re-entered component() for the same host finds it
     handles.push(handle);
     if (handle.binds.length) applySeen(handle);
     const toWords = (why) => {
@@ -288,6 +371,7 @@
           src: assetPath, canvas, autoplay: true, enableRiveAssetCDN: false,
           ...(handle.artboard ? { artboard: handle.artboard } : {}),
           ...(handle.stateMachine ? { stateMachines: handle.stateMachine } : {}),
+          onAdvance: () => guardState(handle),
           onLoad: () => {
             clearTimeout(patience);
             handle.rive = r;
@@ -304,6 +388,10 @@
             if (reduced) { try { reduced.value = Boolean(handle.still); } catch (e) { /* the pose stands */ } }
             // the values set while it loaded, applied now
             for (const [k, v] of Object.entries(handle.values)) if (k !== 'welcome') move(handle, k, v);
+            // the fed State from here on is what the page set (0 Idle until a feed moves it): the baked click listener cannot
+            const si = stateInput(handle);
+            if (si && typeof handle.fedState !== 'number') { try { handle.fedState = si.value; } catch (e) { /* unread */ } }
+            applyRuns(handle);
             if (handle.still && !reduced) { try { r.pause(); } catch (e) { /* paused */ } }
             emit(handle, { input: null, value: null, at: now(), source: 'runtime', did: `loaded${reduced ? ` (ReducedMotion ${handle.still})` : ''}`, native: null });
           },
@@ -321,6 +409,11 @@
    */
   function component(o) {
     const host = o.host;
+    // re-entrancy: the same component asked for the same host while its first making is in flight (a binding event emitted
+    // during load() → applySeen() → set() reaching a synchronous redraw that asks again: H172's 06:5x finding, 632 handles for one
+    // card at f5730666) gets the handle under way, never a second instance; the same after it is made
+    const making = host ? handles.find((x) => x.component === o.component && x.hostEl === host && x.state !== 'unmounted') : null;
+    if (making) return making;
     const role = o.role === 'button' ? 'button' : 'img';
     const text = o.text || 'T';
     const canvas = h('canvas', { 'data-timmy-rive': o.component, 'aria-hidden': 'true' });
@@ -332,7 +425,7 @@
     const note = h('span', { class: 'tr-note sh-note', 'data-rive-note': o.component });
     const root = h('div', { class: `tr-component tr-${o.component}`, 'data-rive-component': o.component, 'data-rive': 'loading', ...(o.artboard ? { 'data-artboard': o.artboard } : {}), ...(o.size ? { 'data-size': o.size } : {}) }, face, h('span', { class: 'tr-words' }, o.heading ? h('span', { class: 'tr-heading' }, o.heading) : null, label, note));
     if (host) host.append(root);
-    const handle = load(canvas, o.asset, { ...o, label, root, fallback, word: label.textContent });
+    const handle = load(canvas, o.asset, { ...o, label, root, fallback, word: label.textContent, hostEl: host || null, faceLabel: o.faceLabel !== undefined ? o.faceLabel : (role === 'button' ? (o.label || text) : null) });
     handle.note = note;
     handle.face = face;
     if (handle.state === 'words') absentWords(handle).then((words) => { note.textContent = words; });
@@ -375,10 +468,11 @@
     handle.place = place;
     handle.size = o.size || 'card';
     if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
-    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } };
+    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } if (handle.artboard === 'ActionButton') { handle.faceLabel = String(words); if (handle.rive) applyRuns(handle); } };
     handle.unmount = () => {
       try { if (handle.observer) handle.observer.disconnect(); } catch (e) { /* gone */ }
       try { if (handle.rive) { handle.rive.cleanup(); handle.rive = null; } } catch (e) { /* gone */ }
+      handle.stateInputCached = null;
       const i = handles.indexOf(handle);
       if (i >= 0) handles.splice(i, 1);
       if (handle.root && handle.root.parentNode) handle.root.remove();
@@ -573,6 +667,7 @@
       id: x.id, component: x.component, asset: x.asset, artboard: x.artboard, stateMachine: x.stateMachine, state: x.state, why: x.why, still: x.still,
       word: x.word, values: { ...x.values }, binds: x.binds.slice(), events: x.events.slice(), runtime: report(x), sources: x.sources.slice(),
       nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null, place: x.place || 'inspect', disabled: Boolean(x.disabled),
+      runs: x.runs ? JSON.parse(JSON.stringify(x.runs)) : null, stateSource: x.stateSource, fedState: x.fedState, restored: x.restored || 0,
     }));
   }
 
@@ -580,7 +675,7 @@
   const preview = (handle, input, value) => set(handle, input, value, 'PREVIEW — not an execution, no progress, no receipt');
 
   W.TimmyRive = Object.freeze({
-    VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, nativeOf,
+    VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, RUNS, CAPTION, nativeOf,
     component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf, absentWords,
     mountConsole, mountProviderCard, mountActionButton, NATIVE_ASSET, ARTBOARD,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },

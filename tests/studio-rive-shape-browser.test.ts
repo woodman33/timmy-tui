@@ -21,7 +21,10 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
 
-type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void; createShape: (s: unknown) => void; createBindings: (b: unknown[]) => void; getBindingsToShape: (id: string, type: string) => unknown[]; getShapePageBounds: (id: string) => { x: number; y: number; w: number; h: number } | undefined; getCurrentPageShapes: () => Array<{ id: string; type: string; props: Record<string, unknown> }>; licenseManager?: { state: { get: () => string }; isDevelopment: boolean } }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string } };
+type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void; createShape: (s: unknown) => void; createBindings: (b: unknown[]) => void; getBindingsToShape: (id: string, type: string) => unknown[]; getShapePageBounds: (id: string) => { x: number; y: number; w: number; h: number } | undefined; getCurrentPageShapes: () => Array<{ id: string; type: string; props: Record<string, unknown> }>; licenseManager?: { state: { get: () => string }; isDevelopment: boolean } }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string; handles: () => unknown[] } };
+/** The capture of the welcome shape at 100 %: written beside the report when H174_CAPS names that folder, else skipped. */
+const CAP_DIR = process.env.H174_CAPS || '';
+const CAP_WELCOME = CAP_DIR ? join(CAP_DIR, 'studio-welcome-face-100pct.png') : '';
 
 describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from the operator\'s native asset (R11 round 5, H174)', () => {
   let root = '';
@@ -134,6 +137,25 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       const face = page.locator('[data-timmy-rive-shape][data-component="welcome"] .tr-face');
       await face.waitFor({ state: 'visible', timeout: 10_000 });
       expect(await face.evaluate((e) => e.tagName)).toBe('BUTTON');
+      // readable and usable as a button at 100 %: the face fills the shape's content width at 240:72 (H172's capture at 9447d6f8
+      // showed a 38×9 px pill — the component was an inline-grid shrunk to its word); its box ≥ 200×60 at zoom 1; a wider
+      // shape scales it; the artboard's own label run is the shape's label; a capture at 100 % beside the report
+      await page.evaluate(() => { const ed = (window as unknown as Win & { timmyCanvas: { editor: { getZoomLevel: () => number; resetZoom: () => unknown } } }).timmyCanvas.editor; if (Math.abs(ed.getZoomLevel() - 1) > 0.001) ed.resetZoom(); return 'ok'; });
+      await page.waitForTimeout(250);
+      const box = await face.boundingBox();
+      expect(box, 'the face at 100 %').not.toBeNull();
+      expect(box!.width).toBeGreaterThanOrEqual(200);
+      expect(box!.height).toBeGreaterThanOrEqual(60);
+      expect(Math.abs(box!.width / box!.height - 240 / 72)).toBeLessThan(0.15);
+      await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().find((x) => x.component === 'welcome')!.state === 'drawn', null, { timeout: 20_000 });
+      const runs = await page.evaluate(() => { const R = (window as unknown as Win).TimmyRive; const hd = (R.handles() as Array<{ component: string; rive: { getTextRunValue: (n: string) => string | undefined } | null }>).find((x) => x.component === 'welcome')!; return { idle: hd.rive!.getTextRunValue('Connect provider'), arrow: hd.rive!.getTextRunValue('→') }; });
+      expect(runs).toEqual({ idle: 'Welcome / guide', arrow: '→' });
+      const wider = await page.evaluate(() => { const W = window as unknown as Win & { timmyCanvas: { editor: { getCurrentPageShapes: () => Array<{ id: string; type: string; props: { component?: string; w: number; h: number } }>; updateShape: (s: { id: string; type: string; props: { w: number } }) => unknown } } }; const ed = W.timmyCanvas.editor; const sh = ed.getCurrentPageShapes().find((x) => x.type === 'timmy-rive' && x.props.component === 'welcome')!; ed.updateShape({ id: sh.id, type: sh.type, props: { w: sh.props.w * 1.5 } }); return sh.props.w * 1.5; });
+      await page.waitForTimeout(250);
+      const box2 = await face.boundingBox();
+      expect(box2!.width).toBeGreaterThan(box!.width * 1.3);
+      expect(box2!.width).toBeLessThanOrEqual(wider);
+      if (CAP_DIR && existsSync(CAP_DIR)) await page.screenshot({ path: CAP_WELCOME, clip: { x: Math.max(0, box2!.x - 40), y: Math.max(0, box2!.y - 80), width: Math.min(900, box2!.width + 80), height: box2!.height + 220 } }).catch(() => undefined);
       const before = await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect().find((x) => x.component === 'welcome')!.events.filter((e) => e.input === 'welcome').length);
       expect(before).toBe(0);
       await face.click();

@@ -681,7 +681,10 @@ function needsBlock(t) {
   const had = needsBoxes.get(n.id);
   if (had && had.key === key) return had.box;
   if (had) letGoTwins(had.box);
-  const opts = (n.options.length ? n.options : ['yes', 'no']).map((o) => {
+  // (GATE 36's finding, H172: the options were built — three native buttons mounted — for an ANSWERED ask too, then not shown:
+  // three runtime instances per ask outlived the turn, orphaned in hosts never attached. The options exist only while the ask
+  // is open; an answered ask's box is its note alone)
+  const opts = n.answered ? [] : (n.options.length ? n.options : ['yes', 'no']).map((o) => {
     const choice = String(typeof o === 'string' ? o : o.id || o.value || '');
     const label = typeof o === 'string' ? o : (o.label || o.id || String(o.value || ''));
     const btn = h('button', { type: 'button', class: 'cx-btn', 'data-cx-answer': choice, 'data-cx-answer-id': n.id }, label);

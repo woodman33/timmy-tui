@@ -552,3 +552,13 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
   .cx-console-note { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .cx-console-caret { transition: none; } }
+/* R11 round 6 (GATE 36's installed capture): the turn is a grid of the mark's column and the text's; a child without its column
+   is auto-placed — the own turn's tool lines landed in the 30 px MARK column and painted over the NEEDS-YOU box beside them.
+   Every block of the own turn takes the text column: the tool lines, the ask's box (its kicker, the words, the options, the note) */
+.cx-own-tools { grid-column: 2; margin-top: 6px; font-size: 13px; line-height: 1.55; color: var(--timmy-text-secondary); }
+.cx-own-tools .cx-act-line { margin: 2px 0 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.cx-needs { grid-column: 2; margin-top: 8px; padding: 10px 14px; max-width: 74ch; border: 1px solid var(--timmy-attention, var(--timmy-accent)); border-radius: 3px; font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.cx-needs > p { margin: 0; }
+.cx-needs > p + p, .cx-needs .cx-needs-opts { margin-top: 6px; }
+.cx-needs-k { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-attention, var(--timmy-accent)); }
+.cx-needs .cx-act-sub { margin: 6px 0 0; }
