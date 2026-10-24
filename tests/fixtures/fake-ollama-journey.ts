@@ -35,6 +35,10 @@ export interface JourneyOptions {
   answer: string;
   /** a message that gets a slow answer (one word every `slowMs`), for a Stop */
   slow?: { when: RegExp; words: string[]; slowMs: number };
+  /** R11 round 6: a message that gets a GATED tool call instead (e.g. write_project_file → the NEEDS YOU gate), then `answer` */
+  asks?: { when: RegExp; tool: { name: string; arguments: Record<string, unknown> }; answer: string };
+  /** R11 round 6 (the operator's 07:06 bar): a message whose answer is a DENSE stream — `words.length` chunks, one every `everyMs` */
+  dense?: { when: RegExp; words: string[]; everyMs: number };
 }
 
 export async function startFakeOllamaJourney(o: JourneyOptions): Promise<FakeOllamaJourney> {
@@ -108,12 +112,26 @@ export async function startFakeOllamaJourney(o: JourneyOptions): Promise<FakeOll
           next();
           return;
         }
+        const asks = o.asks && o.asks.when.test(String(last)) ? o.asks : null;
         if (!toolAnswered) {
-          res.write(chunk({ role: 'assistant', content: '', tool_calls: [{ function: { name: o.tool.name, arguments: o.tool.arguments } }] }, false));
+          const tool = asks ? asks.tool : o.tool;
+          res.write(chunk({ role: 'assistant', content: '', tool_calls: [{ function: { name: tool.name, arguments: tool.arguments } }] }, false));
           res.end(chunk({ role: 'assistant', content: '' }, true, { done_reason: 'stop', total_duration: 1, prompt_eval_count: 1, eval_count: 1 }));
           return;
         }
-        for (const piece of o.answer.split(' ')) res.write(chunk({ role: 'assistant', content: `${piece} ` }, false));
+        if (o.dense && o.dense.when.test(String(last))) {
+          // the dense stream: one chunk every `everyMs` (many per second), ended by the usual done line; cut when the request is
+          let k = 0;
+          const next = (): void => {
+            if (res.destroyed || rec.aborted) return;
+            if (k >= o.dense!.words.length) { res.end(chunk({ role: 'assistant', content: '' }, true, { done_reason: 'stop', total_duration: 1, prompt_eval_count: 1, eval_count: k })); return; }
+            res.write(chunk({ role: 'assistant', content: `${k ? ' ' : ''}${o.dense!.words[k++]}` }, false));
+            setTimeout(next, o.dense!.everyMs);
+          };
+          next();
+          return;
+        }
+        for (const piece of (asks ? asks.answer : o.answer).split(' ')) res.write(chunk({ role: 'assistant', content: `${piece} ` }, false));
         res.end(chunk({ role: 'assistant', content: '' }, true, { done_reason: 'stop', total_duration: 1, prompt_eval_count: 1, eval_count: 1 }));
         return;
       }

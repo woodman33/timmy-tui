@@ -32,8 +32,8 @@ const sizeKey = (s: { width: number; height: number }): string => `${s.width}x${
  * @param suite  the test file's name, written in every sidecar
  * @param common the REAL/FAKE lines true of every capture of that file
  */
-export function capturer(suite: string, common: string[]): Capturer {
-  const folder = process.env.TIMMY_JOURNEY_CAPS || '';
+export function capturer(suite: string, common: string[], sub = ''): Capturer {
+  const folder = process.env.TIMMY_JOURNEY_CAPS ? (sub ? join(process.env.TIMMY_JOURNEY_CAPS, sub) : process.env.TIMMY_JOURNEY_CAPS) : '';
   const counts = new Map<string, number>();
   const revision = revisionOf();
   if (folder) { try { mkdirSync(folder, { recursive: true }); } catch { /* said on the first capture */ } }

@@ -325,7 +325,8 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         if (native) {
           // REAL: the runtime loaded from this origin drew the six (canvas[data-loaded] is set by TimmyRive's onLoad only); the mark not
           expect(await o.page.evaluate(() => typeof (window as unknown as { rive?: { Rive?: unknown } }).rive?.Rive), 'window.rive from /vendor/rive/').toBe('function');
-          expect(await o.page.$$eval('canvas[data-timmy-rive][data-loaded]', (els) => els.map((e) => e.getAttribute('data-timmy-rive')).sort())).toEqual(DRAWN);
+          // (the Inspect view's own six: round 6 draws more on the page — H171's console band and starter, H170's four provider cards)
+          expect(await o.page.$$eval('#screen-inspect canvas[data-timmy-rive][data-loaded]', (els) => els.map((e) => e.getAttribute('data-timmy-rive')).sort())).toEqual(DRAWN);
           expect(await o.page.$$eval('[data-inspect-component="mark"] canvas[data-loaded]', (els) => els.length)).toBe(0);
           // what the RUNTIME reports of the asset (not the source's names): the three artboards, TimmyUI, the four inputs with values
           for (const key of DRAWN) {
@@ -405,7 +406,9 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         expect(derived!, 'the event names its source: the backend event (fed) or the page\'s drawing of it (derived), never neither').toMatch(/derived from the page.s drawing of GET \/api\/connections|GET \/api\/connections: ollama-local/);
         if (native) {
           // connected has NO success pose on the asset (none is authored, by design): State stays 0, the HTML label alone says connected, the event says why
-          expect(await nativeOf(o.page, 'connection-ollama-local', 'connection', 'connected')).toMatch(/^State 0 \(no success pose is authored: State stays 0 Idle; the label says connected\)/);
+          // (the note rides on the move; a word that reached the card before its file loaded was "kept until the file loads" and applied
+          // on load — the native State 0 and the facts row below say the same either way)
+          expect(await nativeOf(o.page, 'connection-ollama-local', 'connection', 'connected')).toMatch(/^State 0( \(no success pose is authored: State stays 0 Idle; the label says connected\))?$/);
           expect(await inputValue(o.page, 'connection-ollama-local', 'State')).toBe(0);
           expect(await o.page.locator('[data-inspect-component="connection-ollama-local"] .tr-facts').innerText()).toContain('connected has NO success pose');
         }
