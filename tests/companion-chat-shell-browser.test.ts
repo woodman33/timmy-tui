@@ -180,6 +180,14 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       ]);
       expect(await page.$$eval('#cx-turns > .cx-turn.is-timmy .cx-receipt', (els) => els.map((e) => [e.getAttribute('href'), e.classList.contains('is-verified')]))).toEqual([[`#logs?receipt=${ids.a1}`, true], ['#logs?receipt=7f7f7f7f', false], [`#logs?receipt=${ids.stop}`, true]]);
       expect(await page.$('#cx-turns .cx-activity')).toBeNull();
+      // (R11 round 7) a receipt link is the way to Runs & receipts: the click fires timmy:open-receipt with the id, the address
+      // names it, the logs page is shown; key 2 brings Chat back (the link never leaves the page or reloads it)
+      await page.evaluate(() => { (window as unknown as { __receipts: unknown[] }).__receipts = []; document.addEventListener('timmy:open-receipt', (e) => (window as unknown as { __receipts: unknown[] }).__receipts.push((e as CustomEvent).detail)); });
+      await page.click(`#cx-turns > .cx-turn.is-timmy .cx-receipt[data-cx-receipt="${ids.a1}"]`);
+      await page.waitForFunction(() => document.body.dataset.dest === 'logs' && !(document.getElementById('ws-logs') as HTMLElement).hidden, null, { timeout: 10_000 });
+      expect(await page.evaluate(() => ({ events: (window as unknown as { __receipts: unknown[] }).__receipts, hash: location.hash }))).toEqual({ events: [{ id: ids.a1, from: 'chat' }], hash: `#logs?receipt=${ids.a1}` });
+      await page.keyboard.press('2');
+      await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
       // Enter on the line opens the activity: the tools as grouped lines (the receipt's outcomes, the result's first line), the receipt's facts
       await page.focus('#cx-turns > .cx-turn.is-timmy .cx-evidence');
       await page.keyboard.press('Enter');

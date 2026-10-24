@@ -143,7 +143,11 @@ function mountConsoleIn(host, size) {
   try {
     // (H174's CONTRACT of 06:37: size 'card' = 320 px / 'wide' = the host's width; the band's own CSS sets the face's height from
     // the window, in the artboard's proportions; no heading of the mount's — the band's head row is the heading)
-    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size, heading: null, label: 'Agent console: the turn’s state' });
+    // (H174's RIVE CONTRACT v2, 14:18: the same call + `identity` { project, session } and `caption` — the page's words, read
+    // by the v2 asset's Tag/Caption runs, ignored by the v1 bindings; the turn's id reaches the Tag from the 'turn' event itself)
+    const conv = cx.view && cx.view.conversation;
+    const identity = { project: cx.project && cx.project.name ? cx.project.name : undefined, session: conv && conv.session ? conv.session : undefined };
+    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size, heading: null, label: 'Agent console: the turn’s state', identity, caption: 'LIVE / THE TURN’S EVENTS' });
     // (until his mount is on this page: the bindings' component with the asset's documented names; bound to this page's activity feed)
     return R.component({ host, component: 'console', asset: TIMMY_UI_ASSET, artboard: 'AgentConsole', stateMachine: 'TimmyUI', role: 'img', heading: null, label: 'Agent console: the turn’s state', text: '>_', binds: ['activity'], size });
   } catch (e) { return null; }
@@ -200,6 +204,7 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
 }
 
 let consoleHandle = null;
+let consoleIdentitySaid = ''; // (RIVE CONTRACT v2: the project/session words last told to the console)
 const CONSOLE_FOLD_KEY = 'cx-console-fold';
 const COMPACT_VIEW = '(max-width: 760px), (max-height: 760px)';
 /** A phone's width or a short window: the band starts folded there (the conversation keeps its height) until this viewer opens it. */
@@ -258,6 +263,13 @@ function drawConsole() {
       let sized = 0;
       window.addEventListener('resize', () => { clearTimeout(sized); sized = setTimeout(() => { try { if (consoleHandle && consoleHandle.rive && typeof consoleHandle.rive.resizeDrawingSurfaceToCanvas === 'function') consoleHandle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ } }, 150); });
     } catch (e) { /* no media queries here */ }
+  }
+  // (RIVE CONTRACT v2: the identity words follow the conversation — a new conversation is another session; told only on a change)
+  const conv = cx.view && cx.view.conversation;
+  const idWords = `${cx.project && cx.project.name ? cx.project.name : ''}\u0000${conv && conv.session ? conv.session : ''}`;
+  if (idWords !== consoleIdentitySaid && consoleHandle && typeof consoleHandle.setIdentity === 'function') {
+    consoleIdentitySaid = idWords;
+    try { consoleHandle.setIdentity({ project: cx.project && cx.project.name ? cx.project.name : undefined, session: conv && conv.session ? conv.session : undefined }); } catch (e) { /* the handle's own */ }
   }
   band.hidden = false;
   syncConsoleClass();
@@ -888,15 +900,21 @@ function drawHead() {
     adoptScaffold();
     const r = routeOf(cx.view);
     const model = r && r.ready ? r.model : cx.view ? 'none chosen' : 'not known yet';
+    // (the band's Records cell: what the conversation's answers carry — sealed receipts counted, verified ones said as such;
+    // a conversation not read yet claims nothing)
+    const conv = cx.view && cx.view.conversation;
+    const withReceipt = conv ? conv.turns.filter((t) => t.kind === 'timmy' && t.receipt && t.receipt.id) : [];
+    const verified = withReceipt.filter((t) => t.receipt.verified).length;
+    const records = !cx.view ? 'not read yet' : !withReceipt.length ? 'no receipt yet · local' : `${withReceipt.length} receipt${withReceipt.length === 1 ? '' : 's'}${verified ? ` · ${verified} verified` : ''} · local`;
     // (the contract's five states: reading is said as content — nothing claimed until the view is read)
     const state = w.state === 'reading' ? 'content' : w.state;
-    const said = JSON.stringify([w.kicker, w.title, w.line, state, a.id, a.words, Boolean(a.off), Boolean(a.pending), model]);
+    const said = JSON.stringify([w.kicker, w.title, w.line, state, a.id, a.words, Boolean(a.off), Boolean(a.pending), model, records]);
     if (said !== headSaid) {
       headSaid = said;
       try {
         S.page('chat', { kicker: w.kicker, title: w.title, intro: w.line, primary: { label: a.words, run: () => actPrimary(primaryAction()), disabled: Boolean(a.off), why: a.off ? 'Reading the project’s conversation first' : (a.pending ? 'Stop requested; not confirmed yet' : '') }, context: 'models', dock: 'CHAT TOOLS' });
         if (typeof S.state === 'function') S.state('chat', state, state === 'error' || state === 'approval' ? { words: w.line, next: a.off ? undefined : { label: a.words, run: () => actPrimary(primaryAction()) } } : undefined);
-        if (typeof S.band === 'function') S.band('chat', { model });
+        if (typeof S.band === 'function') S.band('chat', { model, records });
       } catch (e) { /* the shell's own; the chat's head below says the same */ }
     }
   }
@@ -1622,6 +1640,10 @@ function openReceipt(id) {
   try { history.replaceState(null, '', `#logs?receipt=${encodeURIComponent(id)}`); } catch (e) { /* the address stays */ }
   try { document.dispatchEvent(new CustomEvent('timmy:open-receipt', { detail: { id, from: 'chat' } })); } catch (e) { /* nobody listens yet */ }
   document.body.classList.remove('rail-open');
+  // (SHELL CONTRACT v1 §2.3: on the scaffold the page is reached through the shell — go('runs') is Runs & receipts; the legacy
+  // tab switch stays for an older shell)
+  const S = shell();
+  if (S && typeof S.go === 'function') { try { S.go('runs', 'chat-receipt'); return; } catch (e) { /* the shell's own; the tab switch below */ } }
   showWorkspaceTab('logs');
 }
 

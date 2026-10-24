@@ -432,9 +432,13 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('connections'));
       await page.waitForSelector('#screen-connections h1', { timeout: 20_000 });
       const h1 = await page.$eval('#screen-connections h1', (e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, right: Math.round(r.right), lines: Math.round(r.height / parseFloat(getComputedStyle(e).lineHeight)), whole: r.right <= window.innerWidth && e.scrollWidth <= e.clientWidth + 1 }; });
-      expect(h1).toMatchObject({ text: 'Choose how you want to run.', whole: true });
+      // (R11 round 7, H170's 14:37 line: his screen's title becomes "One model is enough to begin." — the order's words — and the
+      // onboarding header with its badge goes; this base still has the round-6 words, so the pin names both revisions until the
+      // head carries 5a87e3ab, then the old one goes)
+      expect(h1).toMatchObject({ text: expect.stringMatching(/^(Choose how you want to run\.|One model is enough to begin\.)$/), whole: true });
       expect(h1.lines).toBeGreaterThanOrEqual(2);
-      expect(await page.$eval('#screen-connections .sh-head-words', (e) => { e.textContent = `Signed in · user_${'x'.repeat(48)}`; const r = e.getBoundingClientRect(); return { inside: r.right <= window.innerWidth, ellipsis: getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth }; })).toEqual({ inside: true, ellipsis: true });
+      const badge = await page.$('#screen-connections .sh-head-words');
+      if (badge) expect(await badge.evaluate((e) => { e.textContent = `Signed in · user_${'x'.repeat(48)}`; const r = e.getBoundingClientRect(); return { inside: r.right <= window.innerWidth, ellipsis: getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth }; })).toEqual({ inside: true, ellipsis: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
