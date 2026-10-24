@@ -287,9 +287,13 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const nameField = o.page.getByRole('textbox', { name: /model|name/i }).or(o.page.getByPlaceholder(/model|name/i));
         if (await nameField.count()) await nameField.first().fill(PULL.name);
         await o.page.getByRole('button', { name: /Show the size/ }).first().click();
-        const asked = await until(o.page, 'the download\'s confirmation sentence', (s) => /Download .*Ollama downloads it from its library/.test(s), 20_000);
+        // (H170's words: "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." for a starter;
+        // for another name: "<model>: size unknown (not a starter model, and Ollama does not hold it yet). Confirm to download it into the
+        // Ollama on this computer from Ollama's library; nothing else is installed.")
+        const asked = await until(o.page, 'the download\'s confirmation sentence', (s) => /Ollama downloads it from its library|Confirm to download it into the Ollama on this computer/.test(s), 20_000, undefined, facts(o));
         expect(ollama.pulls().length, 'nothing is pulled before the confirmation').toBe(0);
-        expect(asked).toMatch(new RegExp(`Download ${PULL.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`));
+        expect(asked).toMatch(new RegExp(`${PULL.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[:\\s(]`));
+        expect(asked).toMatch(/size unknown|\d+(\.\d+)? ?[GM]B/);
         await o.page.getByRole('button', { name: /Confirm the download/ }).first().click();
         await until(o.page, 'the download\'s progress', (s) => /MB of .*\(\d+%\)|\d+ ?%/i.test(s), 20_000);
         expect(ollama.pulls().length, 'one /api/pull after the confirmation').toBe(1);
@@ -341,9 +345,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.waitForTimeout(300);
         expect(await search.first().inputValue(), 'a sort keeps the search').toBe('fake');
         expect(await text(o.page)).toContain(MODEL);
-        const row = o.page.getByText(MODEL, { exact: false }).first();
+        // (the panel's list is #cm-list — the connections card's hidden line names the model too, so the locator is scoped)
+        const row = o.page.locator('#cm-list').getByText(MODEL, { exact: false }).first();
         await row.scrollIntoViewIfNeeded().catch(() => undefined);
-        await row.click({ timeout: 10_000 }).catch(async () => { await o.page.locator('li', { hasText: MODEL }).first().click({ force: true }); });
+        await row.click({ timeout: 10_000 });
         // the model's detail opens; "Use for the next turn" is the choice (POST /api/chat/choose: Ollama asked for the exact name first)
         await o.page.getByRole('button', { name: /Use for the next turn/ }).first().click();
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
