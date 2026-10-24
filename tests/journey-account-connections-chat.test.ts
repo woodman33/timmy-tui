@@ -45,8 +45,8 @@ const FAKE_ANSWER = 'FAKE answer: the time was read by a tool (no model behind t
 /** FAKE: the Ollama cloud key pasted on the connections screen; its value must reach no screen and no DOM afterwards */
 const FAKE_CLOUD_KEY = `FAKE-ollama-cloud-key-${'j'.repeat(24)}`;
 const DRAFT = 'FIXTURE draft typed before the page was reopened';
-/** the page's test seam for a session (C1/C3, proposed 19:36 PT): the same call the Clerk flow makes once signed in */
-const SESSION_SEAM = 'window.timmyAccount.useSession(token)';
+/** the page's session seam (H171's shell contract, 19:37 PT): the same call H173's account screen makes after a Clerk sign-in */
+const SESSION_SEAM = 'window.TimmyShell.session.set(token, user); TimmyShell.land()';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/chromium', '/usr/bin/google-chrome'].find((p): p is string => Boolean(p) && existsSync(p!));
 if (!browserPath) console.warn('journey-account-connections-chat: no Chromium found, so the journey is skipped here (said, not passed)');
@@ -111,21 +111,28 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('request', (r) => { try { if (new URL(r.url()).hostname !== '127.0.0.1') left.push(r.url()); } catch { /* data: */ } });
-  await page.goto(server.url.replace('/#t=', `/?${o.tab ? `tab=${o.tab}&` : ''}#t=`));
-  if (o.session) await useSession(page, o.session);
+  await page.goto(server.url);
+  if (o.session) await useSession(page, o.session, o.tab as 'chat' | undefined);
   return { page, errors, left, close: () => context.close() };
 }
 
-/** The session given to the page through its test seam (C1/C3): the same call the Clerk flow makes once signed in; the server still verifies it. */
-async function useSession(page: Page, token: string): Promise<void> {
-  const ok = await page.evaluate(async (t) => {
-    const w = window as unknown as { timmyAccount?: { useSession?: (token: string) => unknown } };
-    if (!w.timmyAccount?.useSession) return 'absent';
-    await w.timmyAccount.useSession(t);
+/**
+ * The session given to the page as H173's account screen gives it after a Clerk sign-in (H171's shell: session.set(token, user),
+ * then land() runs the landing rule); the server still verifies every request's token. Nothing of the verifier is bypassed.
+ */
+async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat'): Promise<void> {
+  await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }).catch(() => undefined);
+  const ok = await page.evaluate(async ([t, id, target]) => {
+    const w = window as unknown as { TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
+    if (!w.TimmyShell?.session?.set) return 'absent';
+    await w.TimmyShell.session.set(t, { id });
+    if (target && w.TimmyShell.go) await w.TimmyShell.go(target); else await w.TimmyShell.land?.();
     return 'ok';
-  }, token);
-  expect(ok, `the page's session seam ${SESSION_SEAM} (C1/C3: H173/H171)`).toBe('ok');
+  }, [token, USER, go ?? ''] as const);
+  expect(ok, `the page's session seam ${SESSION_SEAM} (H171's shell contract, 19:37; H173 sets it the same way)`).toBe('ok');
 }
+/** Which screen the shell shows (body[data-screen], H171's contract). */
+const screenOf = (page: Page): Promise<string> => page.evaluate(() => document.body.getAttribute('data-screen') ?? '');
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
 const html = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.outerHTML);
@@ -163,6 +170,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const o = await open(unconfigured!, size);
       try {
         const t = await until(o.page, 'the account screen', (s) => /Create your Timmy account|Welcome back to Timmy/.test(s));
+        expect(await screenOf(o.page), 'body[data-screen]').toBe('account');
         expect(t).toMatch(/CLERK_PUBLISHABLE_KEY/);
         expect(t).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
         for (const name of [/Continue with Google/, /Continue with GitHub/]) {
@@ -188,7 +196,8 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const session = identity.token(USER);
       const o = await open(configured!, size, { session });
       try {
-        const t = await until(o.page, 'the connections screen', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s));
+        const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s));
+        expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
         // the state words are H170's provider states: never "free", never "connected" for a selection
         expect(t).not.toMatch(/\bfree\b/i);
@@ -213,6 +222,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // Continue → the chat
         await o.page.getByRole('button', { name: /^Continue$|Continue to chat|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/.test(s));
+        expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
         expect(chat).toMatch(/Local logs · cloud sync off|Local logs/);
         expect(o.errors, 'page errors').toEqual([]);
       } finally { await o.close(); }
@@ -273,7 +283,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const before = await html(o.page);
         expect(before).not.toContain(FAKE_CLOUD_KEY);
         await o.page.reload();
-        await useSession(o.page, session);
+        await useSession(o.page, session, 'chat');
         const again = await until(o.page, 'the chat again', (s) => /Message Timmy/.test(s) && s.includes(FAKE_ANSWER), 30_000);
         expect(again).toContain(MODEL);
         expect(again).toContain('FAKE: what time is it?');

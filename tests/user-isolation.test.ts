@@ -194,6 +194,8 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
       const a = await call(r.method, path, r.method === 'GET' || r.method === 'DELETE' ? {} : { body: {} });
       expect(a.status, `${r.method} ${r.path} without a session: ${a.text.slice(0, 160)}`).toBe(401);
       expect(a.text.trim().length, `${r.method} ${r.path}: 401 with words`).toBeGreaterThan(0);
+      // (H171's shell tells this 401 from the launch token's by its body: { needs: 'session', words })
+      expect(a.json?.needs, `${r.method} ${r.path}: the 401's body names what it needs: ${a.text.slice(0, 160)}`).toBe('session');
     }
   });
 
