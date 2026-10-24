@@ -753,11 +753,18 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
 
+  // R11 round 5 (the lead, after H172's gate on 17ee8ed4): the tab panels' and the journey's reads are the SHOWN project's,
+  // through the same principal boundary as the frame — a signed-in page's project id is unknown to the operator's follower,
+  // so GET /api/journey/recent?project=<the user's id> and GET /api/panel/voxvision/records?project=<id> answered 404 on
+  // every poll of a signed-in page. The token first, then the principal (the user's verified session, or this computer's
+  // operator when no identity provider is configured), then that principal's project; wired below with the identity.
+  let scopedProjectFor = (req: express.Request): ActiveProject | null => projectFor(req);
+  const withScopedToken: express.RequestHandler = (req, res, next) => withToken(req, res, (err?: unknown) => (err ? next(err) : userScope(req, res, next)));
   // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
-  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p), ...(options.inventory ? { inventory: options.inventory } : {}) });
+  mountPanels(app, { withToken: withScopedToken, projectFor: (req) => scopedProjectFor(req), projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p), ...(options.inventory ? { inventory: options.inventory } : {}) });
   // R10 (H164): the journey's routes (/api/journey/…), token-checked, for the shown project; the route of the page's own Send
   // read from the environment its /chat reads
-  mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
+  mountJourneyRoutes(app, { withToken: withScopedToken, projectFor: (req) => scopedProjectFor(req), projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
@@ -816,6 +823,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     if (!u || u.operator) return projectFor(req);
     const p = userProjectOf(req);
     return p ? { name: p.name, root: p.root, env: identity.envOf(req) } : null;
+  };
+  // (R11 round 5, the lead) the panels' and the journey's project, by the same rule: the user's own, else the operator's
+  scopedProjectFor = (req) => {
+    const u = (req as express.Request & { user?: Principal }).user;
+    return !u || u.operator ? projectFor(req) : userProjectOf(req);
   };
   // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models,
   // /choose) — for the user's project under the user's env when the request carries a session

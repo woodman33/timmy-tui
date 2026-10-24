@@ -129,6 +129,18 @@ export async function openWorkspaceTab(page: Page, id: string): Promise<void> {
       if (await page.locator(menu).isVisible()) { await page.click(menu); break; }
     }
   }
+  // R11 round 4 (H169, re-aiming the browser tests after H171's rail): the preview's rail lists no Control Room, Fleet & Clef
+  // or Home (chat-shell.js DESTS: `find: true`, the finder finds them; they keep their keys 7, 8 and 1), so a destination
+  // without a visible item is opened by its key, as a person who knows it does (the composer blurred first: keys open no
+  // tab while typing)
+  if (!(await item.isVisible())) {
+    const key = TAB_KEYS.find(([, tab]) => tab === id)?.[0];
+    if (!key) throw new Error(`openWorkspaceTab: no control and no key for the destination ${id}`);
+    await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur?.(); });
+    await page.keyboard.press(key);
+    await page.waitForFunction((tab) => document.body.dataset.dest === tab, id, { timeout: 10_000 });
+    return;
+  }
   await item.click();
 }
 
