@@ -31,6 +31,14 @@
   <link rel="stylesheet" href="/rive-components.css">
   <!-- R11 round 4 (H173): the account screen's own layout (src/companion/client/account.css) -->
   <link rel="stylesheet" href="/account.css">
+  <!-- R11 round 7: the pages' own sheets (one owner each; the lead's 0b068f2e serves them): VoxVision and Tools (H170), Canvas and
+       Motion & 3D (H176), Files and Settings (H173) -->
+  <link rel="stylesheet" href="/panel-vox.css">
+  <link rel="stylesheet" href="/panel-tools.css">
+  <link rel="stylesheet" href="/panel-studio.css">
+  <link rel="stylesheet" href="/panel-create.css">
+  <link rel="stylesheet" href="/panel-files.css">
+  <link rel="stylesheet" href="/panel-settings.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body class="shell" data-dest="chat" data-page="chat" data-screen="chat">
@@ -828,6 +836,10 @@
   <script src="/companion.js"></script>
   <!-- R11 round 4 (H171): the shell's screens and what they share (window.TimmyShell), before the screens' own scripts -->
   <script src="/shell.js"></script>
+  <!-- R11 round 7 (H173): the Files and Settings pages (panel-files.js, panel-settings.js: each registers its page with TimmyShell
+       at load and draws into its data-panel-host) -->
+  <script src="/panel-files.js"></script>
+  <script src="/panel-settings.js"></script>
   <!-- R11 round 5 (H174): window.TimmyRive — the Rive components' runtime bindings (the runtime itself is loaded by it only when
        GET /assets/mark.json says the companion serves it; no .riv → the state word, never an error) -->
   <script src="/rive-bindings.js"></script>
