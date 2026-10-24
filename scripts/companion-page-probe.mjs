@@ -38,10 +38,15 @@ const CONNECTED = 'COMPANION SOCKET · CONNECTED';
 /** Whether a policy is the strict one the page is served with (src/companion/page.ts pagePolicy). */
 export function strictPolicy(csp, port) {
   const d = new Map(String(csp ?? '').split(';').map((x) => x.trim()).filter(Boolean).map((x) => { const [k, ...v] = x.split(/\s+/); return [k, v.join(' ')]; }));
-  return d.get('default-src') === "'none'" && d.get('script-src') === "'self'" && d.get('style-src') === "'self' 'unsafe-inline'"
+  // R11 round 6: scripts from itself only — plus, exactly, the keyword that lets the Rive runtime compile its own WebAssembly
+  // ('wasm-unsafe-eval' is a keyword, not a host, and not 'unsafe-eval': src/companion/page.ts pagePolicy adds it only while a
+  // .riv is served beside the runtime). Anything else in script-src, 'unsafe-eval' above all, still fails the rule.
+  const script = d.get('script-src');
+  const scriptsOk = script === "'self'" || script === "'self' 'wasm-unsafe-eval'";
+  return d.get('default-src') === "'none'" && scriptsOk && d.get('style-src') === "'self' 'unsafe-inline'"
     && d.get('img-src') === "'self' data:" && d.get('font-src') === "'self'"
     && d.get('object-src') === "'none'" && d.get('frame-ancestors') === "'none'" && d.get('base-uri') === "'none'"
-    && d.get('connect-src') === `'self' ws://127.0.0.1:${port}` && !/unsafe-eval|\*|https?:|blob:/.test(String(csp));
+    && d.get('connect-src') === `'self' ws://127.0.0.1:${port}` && !/unsafe-eval|\*|https?:|blob:/.test(String(csp).replace(/'wasm-unsafe-eval'/g, ''));
 }
 
 /** Whether a log companion page's policy runs only its own scripts: by this answer's nonce, or (its chat mirror) from itself. */
