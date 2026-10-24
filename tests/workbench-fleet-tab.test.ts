@@ -253,8 +253,10 @@ describe('tab 8: Cloudflare and the services', () => {
     // beside the fleet at 160 (the whole width: src/workbench/layout.ts OWN_COLUMNS): the mark and the name on a row, the
     // frame's words under the name, where the column has the rows. R10 (H169): with Ollama Cloud's row (the lead's decision of
     // 2026-10-22) the frame has ten connections, one more than the column holds with their words at 160x45; there each is its
-    // mark and name on one row (serviceRows' "short of rows"), and from 160x46 the words are under the names again
-    expect(text(fleetView(ctxAt(160, 46), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +answered (just now|\d+ min ago)/);
+    // mark and name on one row (serviceRows' "short of rows"), and from 160x47 the words are under the names again (R11 round
+    // 7, H177: the page head's description row above the body moved that edge up a row, from 160x46)
+    expect(text(fleetView(ctxAt(160, 47), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +answered (just now|\d+ min ago)/);
+    expect(text(fleetView(ctxAt(160, 46), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +○ configured +Timmy Studio/);
     expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +○ configured +Timmy Studio/);
     // beside an open drawer (i at 120 columns: 78 cells), with rows to spare: the name on its row, the mark and the words
     // under it; short of rows, the name and the mark on one row

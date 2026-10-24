@@ -2,8 +2,10 @@
  * R5 (H131): where the Workbench's zones sit at a terminal's size, as the operator's reference layouts lay them out (codex-ui-
  * references 01, 02, 11, 12, 13, 14; the R5 order of 2026-10-15): from the top,
  *
- *   row 1     TIMMY, the project, and the ten tabs as boxed labels (3 rows; 1 row on a short terminal)
- *   row 2     Workflow actions: the tab's numbered actions, the one primary next step amber, the run state and Stop
+ *   row 1     TIMMY, the project, the route and what runs and waits; then the grouped destinations (R11 round 7, H177:
+ *             src/workbench/destinations.ts, the Chat screen's rail groups, the shown one amber; 1 row on a short terminal)
+ *   row 2     the page head: its title and one-line description, the tab's numbered actions with the one primary next step
+ *             amber, the selected step's words, the run state and Stop
  *   body      two columns: Home (connection cards | a preview) and Chat (transcript | event log, under its pipeline row) at
  *             ≈48% | ≈52% from 100 columns; every other tab its Workbench workspace with Context (Tools, Inspector, Files) as
  *             a column from 120 columns, a drawer below ([i]); R5 (H136): a body that draws its own columns (OWN_COLUMNS)
@@ -45,7 +47,7 @@ export interface Layout {
   tabs: Rect;
   /** row 1's height: 2 (R10 H167: the status row, then the tabs) or 1 (a short terminal) */
   tabRows: 1 | 2;
-  /** row 2: the workflow actions (the region 'top') */
+  /** row 2: the page head and the workflow actions (the region 'top') */
   top: Rect;
   /** whether row 2 has its detail row (the selected action, the run state and Stop): false on a short terminal, where the
    *  run state and Stop move to Activity's first row */
@@ -154,10 +156,13 @@ export function layoutFor(a: LayoutAsk): Layout {
   // (R10 H167; H168's F8: the status row, with the route, from 20 rows: at 80x24 too; below, one row of keys)
   const tabRows: 1 | 2 = rows >= TAB_BOX_ROWS ? 2 : 1;
   const topDetail = rows >= 24;
-  const topH = topDetail ? 4 : 3;
+  // (R11 round 7, H177: the head's description row above the actions, at every height)
+  const topH = (topDetail ? 4 : 3) + 1;
   // (under 30 rows the status row takes the row a log line had, so the body keeps every row it had: at 80x24 a workspace's
-  // list shows 11 rows, as before the status row was there)
-  const logLines = a.quietLog ? 0 : rows >= 40 ? 4 : rows >= 30 ? 3 : rows >= 28 ? 2 : 1;
+  // list shows 11 rows, as before the status row was there. R11 round 7, H177: under 25 rows the page head's description
+  // row takes the last log line's: the quiet records are Activity's own row there, which says the newest event ("last: …")
+  // and expands with [a])
+  const logLines = a.quietLog ? 0 : rows >= 40 ? 4 : rows >= 30 ? 3 : rows >= 28 ? 2 : rows >= 25 ? 1 : 0;
   // (and Activity & log expanded gives it one event row under 30 rows, for the same reason)
   const activityRows = Math.max(2, Math.min(8, Math.floor(rows / 4)) - (tabRows === 2 && rows < 30 ? 1 : 0));
   const tabs: Rect = { x: 0, y: 0, w: columns, h: Math.min(rows, tabRows) };

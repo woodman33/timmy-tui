@@ -11,6 +11,7 @@ import { glyphsFor } from '../src/workbench/frame.js';
 import type { BuildInfo } from '../src/build-info.js';
 import { openTarget, type JourneyRoute, type RecentWork, type WorkItem as JourneyWorkItem } from '../src/journey/index.js';
 import { companionWhat, diagnosticsLines, fileWhat, handoffWords, headerRows, homeConnections, homeSideView, homeWorkView, inWords, plainWords, recentWork, representation, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
+import { destinationsRow, RAIL } from '../src/workbench/destinations.js';
 import { layoutFor } from '../src/workbench/layout.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import { bottomView, pageActions } from '../src/workbench/views.js';
@@ -76,28 +77,57 @@ describe('the route from H164\'s routeNow (R10 H167)', () => {
   });
 });
 
-describe('the header (R10 H167): two rows, exactly the width, the tabs in their places', () => {
-  it('row 1 says TIMMY, the project, the route and what runs and waits; row 2 the ten tabs, the active one bracketed, ◌ said in words', () => {
+describe('the header (R10 H167; R11 round 7 H177): two rows, exactly the width, the grouped destinations in their places', () => {
+  it('row 1 says TIMMY, the project, the route and what runs and waits; row 2 the destinations in the rail\'s groups, the shown one marked ▸, ◌ on an unfinished page and said in words where the row has room', () => {
     for (const width of [180, 160, 122, 100]) {
       const h = headerRows(data(), 'home', width, g);
       expect(h.lines).toHaveLength(2);
       for (const l of h.lines) expect(lineCells(l), `${width}`).toBe(width);
-      const [status, tabs] = h.lines.map(plain);
+      const [status, dests] = h.lines.map(plain);
       // (from 122 columns the route is whole; narrower, its short form (H168's F8), and what runs and waits stays whole)
       if (width >= 122) expect(status).toMatch(/^TIMMY · tray {3}next turn: qwen3:8b · this computer \(Ollama\) · no charge/);
       else expect(status).toMatch(/^TIMMY · tray {3}next: qwen3:8b · here · no charge/);
       expect(status).toMatch(/nothing runs · nothing waits on you$/);
-      expect(tabs).toMatch(/^\[1[^\]]*\]/);
-      expect(tabs.match(/\[/g) ?? [], `one active tab at ${width}`).toHaveLength(1);
-      expect(h.hits.map((x) => x.page)).toEqual(TABS.map((t) => t.id));
+      // one shown destination (Home's is Models & accounts), marked ▸ and nothing else; every destination present, in the
+      // rail's order; the keys stay the pages' (where the form has room for them); no brackets (those are the buttons')
+      expect(dests.match(/▸/g) ?? [], `one shown destination at ${width}`).toHaveLength(1);
+      expect(dests).toMatch(/▸(?:1 )?Models/);
+      expect(dests).not.toMatch(/\[|Home|Fleet/);
+      const order = ['Chat', 'Files', 'Workflows', 'Runs', 'Canvas', 'Vision', 'Motion & 3D', 'Models', 'Tools', 'Control'];
+      let at = -1;
+      for (const name of order) { const i = dests.indexOf(name, at + 1); expect(i, `${name} at ${width}`).toBeGreaterThan(at); at = i; }
+      // the hits: one a destination, in the rail's order, each naming its page and its destination
+      expect(h.hits.map((x) => x.dest)).toEqual(RAIL.map((r) => r.id));
+      expect(h.hits.map((x) => x.page)).toEqual(RAIL.map((r) => r.page));
+      // the unfinished pages' mark on their destinations (Runs & receipts, Motion & 3D, Control Room; never Files), and the
+      // row reaches the edge (Ink trims a row that ends in air)
+      for (const [name, marked] of [['Runs', true], ['Motion & 3D', true], ['Control', true], ['Files', false]] as const) {
+        const cell = h.hits[RAIL.findIndex((r) => r.short === name || r.wide === name)];
+        expect(dests.slice(cell.x0, cell.x1 + 1).includes('◌'), `${name} marked at ${width}`).toBe(marked);
+      }
+      expect(dests.trimEnd().length, `the row reaches its edge at ${width}`).toBe(width);
     }
-    // short labels at 122 (the operator's size), whole labels from 180, keys and the active tab's name at 100
-    expect(plain(headerRows(data(), 'home', 122, g).lines[1])).toMatch(/\[1 Home\] +2 Chat +3 Workflows/);
-    expect(plain(headerRows(data(), 'chat', 180, g).lines[1])).toContain('[2 Chat & Intent]');
+    // the plan's names with the group labels and the keys from 176 columns; the rail's short names with keys at 160; the
+    // short names alone at 122 (the operator's size), with the group labels; rules between the groups at 100; the legend
+    // where the row has room for it
+    expect(plain(headerRows(data(), 'home', 180, g).lines[1])).toMatch(/^ {2}2 Chat +WORK +0 Files +3 Workflows +0 Runs & receipts ◌ +4 Canvas +CREATE +5 Vision +6 Motion & 3D ◌ +CONNECT ▸1 Models & accounts {4}9 Tools & integrations +7 Control Room ◌$/);
+    expect(plain(headerRows(data(), 'home', 160, g).lines[1])).toMatch(/^ {2}2 Chat +WORK +0 Files +3 Workflows +0 Runs ◌ +4 Canvas +CREATE +5 Vision +6 Motion & 3D ◌ +CONNECT ▸1 Models {4}9 Tools +7 Control ◌ +◌ unfinished$/);
+    expect(plain(headerRows(data(), 'home', 122, g).lines[1])).toMatch(/^ {2}Chat +WORK +Files +Workflows +Runs ◌ +Canvas +CREATE +Vision +Motion & 3D ◌ +CONNECT ▸Models {4}Tools +Control ◌$/);
+    expect(plain(headerRows(data(), 'home', 100, g).lines[1])).toMatch(/^ {2}Chat +│ +Files +Workflows +Runs ◌ +Canvas +│ +Vision +Motion & 3D ◌ +│ +▸Models {4}Tools +Control ◌$/);
+    // Chat shown; a page's second destination (Files, 0 again) shown by its workspace; Fleet & Clef (8) folds under Control Room
+    expect(plain(headerRows(data(), 'chat', 180, g).lines[1])).toMatch(/^ ▸2 Chat /);
+    expect(plain(headerRows(data(), 'logs', 122, g, 'files').lines[1])).toMatch(/▸Files +Workflows +Runs ◌/);
+    expect(plain(headerRows(data(), 'logs', 122, g, 'logs').lines[1])).toMatch(/Files +Workflows +▸Runs ◌/);
+    expect(plain(headerRows(data(), 'fleet', 122, g, 'fleet').lines[1])).toMatch(/Tools +▸Control ◌$/);
+    // a short terminal's one row: TIMMY and the project before the grouped keys and the shown destination's name
+    const one = destinationsRow({ page: 'workflows', workspace: 'workflows', width: 80, g, prefix: [{ text: 'TIMMY', role: 'strong' }, { text: ' · ', role: 'secondary' }, { text: 'tray', role: 'strong' }] });
+    // (no room for the legend beside TIMMY and the project: the shown destination's name ends the row)
+    expect(plain(one.line)).toMatch(/^TIMMY · tray +2 +│ +0 ◌ +▸3 +4 +│ +5 +6 ◌ +│ +1 +9 +7 ◌ +Workflows$/);
+    expect(one.form).toBe('keys');
   });
 
-  it('every tab keeps its cells whichever tab is active and whatever waits; what waits is ⚠ on its tab and the count on row 1', () => {
-    for (const width of [180, 160, 122, 100]) {
+  it('every destination keeps its cells whichever is shown and whatever waits; what waits is ⚠ on its page\'s destinations (Models & accounts, Control Room) and the count on row 1', () => {
+    for (const width of [180, 160, 122, 100, 80]) {
       let first = '';
       for (const active of TABS.map((t) => t.id)) {
         for (const waiting of [0, 3]) {
@@ -107,11 +137,16 @@ describe('the header (R10 H167): two rows, exactly the width, the tabs in their 
           const cells = JSON.stringify(h.hits.map((x) => [x.x0, x.x1]));
           first ||= cells;
           expect(cells, `${width}, ${active}, ${waiting}`).toBe(first);
+          expect(lineCells(h.lines[1]), `${width}, ${active}, ${waiting}`).toBe(width);
+          const row = plain(h.lines[1]);
+          const over = (dest: string): string => { const x = h.hits.find((k) => k.dest === dest)!; return row.slice(x.x0, x.x1 + 1); };
           if (waiting) {
-            expect(plain(h.lines[0])).toContain('⚠ 3 waiting on you');
-            const home = h.hits[0];
-            expect([...plain(h.lines[1])].slice(home.x0, home.x1 + 1).join('')).toContain('⚠');
-          }
+            expect(plain(h.lines[0])).toMatch(/⚠ 3 waiting/);
+            for (const dest of ['connections', 'control']) expect(over(dest), `⚠ over ${dest} at ${width}`).toContain('⚠');
+          } else for (const dest of ['connections', 'control']) expect(over(dest)).not.toContain('⚠');
+          // (the Control Room's ◌ gives way to ⚠ while something waits: what waits on you comes first)
+          // (in the keys form Files shares its page's cell with Runs & receipts, whose ◌ it is)
+          for (const dest of ['chat', 'workflows', 'studio', 'voxvision', 'tools']) expect(over(dest), `nothing marked over ${dest} at ${width}`).not.toMatch(/[⚠◌]/);
         }
       }
     }
@@ -378,11 +413,16 @@ describe('Chat\'s quiet log keeps a row for a notice; tab 3\'s next step after a
     const chat = layoutFor({ columns: 160, rows: 45, body: 'hub', pipeline: true, quietLog: true });
     expect(chat).toMatchObject({ logLines: 0, quietLog: true });
     expect(chat.bottom.h).toBe(5);
-    // 80x24 and 100x28: the status row took the row a log line had, so the body is as tall as it was with one header row
-    for (const [columns, rows, was] of [[80, 24, 2], [100, 28, 3]] as const) {
+    // 80x24 and 100x28: the status row took the row a log line had, so the body is as tall as it was with one header row;
+    // R11 round 7 (H177): under 25 rows the page head's description row takes the last log line's too (Activity's own row says
+    // the newest event), so at 80x24 a workspace's list keeps its 11 rows
+    // (from 25 rows the log keeps its lines and the body gives the description its row: 13 inner rows at 100x28, 21 at 122x37)
+    for (const [columns, rows, logLines, bodyInner] of [[80, 24, 0, 11], [100, 28, 2, 13], [122, 37, 3, 21]] as const) {
       const l = layoutFor({ columns, rows });
       expect(l.tabRows).toBe(2);
-      expect(l.logLines).toBe(was - 1);
+      expect(l.logLines).toBe(logLines);
+      expect(l.top.h, `the page head at ${columns}x${rows}`).toBe(5);
+      expect((l.center?.h ?? 0) - 2, `the body's inner rows at ${columns}x${rows}`).toBe(bodyInner);
     }
     const long = 'Not sent yet: one turn at a time per project, and a turn is being answered in the REPL. What you typed stays here; Enter sends it once that turn has ended (RUNNING NOW 0).';
     const u = ui({ page: 'chat', workspace: 'chat', flash: { text: long, role: 'secondary', at: NOW - 1000 }, settings: { settings: { reducedMotion: true } }, activityOpen: false } as unknown as Partial<Ui>);

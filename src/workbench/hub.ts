@@ -28,6 +28,7 @@ import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
+import { unfinishedMark } from './destinations.js';
 import { turnEndWords as stopTableEndWords } from '../contracts/stop-words.js';
 import { clock, count, cut, fit, lineCells, pickRanked, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
@@ -66,15 +67,18 @@ export function pageOf(ws: WorkspaceId): TabId {
  *  same object the frame carries). */
 export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) }));
 
-/** R7 (H150; the operator's order of 2026-10-16): the mark of a tab that is unfinished (its word beside it where it fits). */
-export const unfinishedMark = (g: Pick<Glyphs, 'unicode'>): string => (g.unicode ? '◌' : '~');
+/** R7 (H150; the operator's order of 2026-10-16): the mark of a tab that is unfinished (its word beside it where it fits).
+ *  R11 round 7 (H177): defined with the destinations (src/workbench/destinations.ts), which draw it on the header. */
+export { unfinishedMark };
 
 /** A tab's short label: the first word of the frame's label ("Chat & Intent": Chat). */
 export const shortLabel = (label: string): string => label.split(/\s+/)[0] ?? label;
 
 // ── row 1: TIMMY, the project, the tabs ────────────────────────────────────────
 
-export interface PageHit { x0: number; x1: number; y0: number; y1: number; page: TabId }
+/** Where a page's cell is on the header (a click opens it); R11 round 7 (H177): `dest` names the destination of that cell
+ *  (src/workbench/destinations.ts), which the click opens where a page has two (Files and Runs & receipts). */
+export interface PageHit { x0: number; x1: number; y0: number; y1: number; page: TabId; dest?: string }
 
 /**
  * How the tabs' labels are said: their full labels, their first words, or their keys (with the active tab's name in a slot of
@@ -95,6 +99,8 @@ function labelIn(t: WorkspaceFrame['tabs'][number], form: TabForm): string {
 /**
  * Row 1 as `rows` rows (3: boxed labels; 1: a short terminal), exactly `width` cells each, and where each tab is (for a
  * click). The project's name is cut before a form is given up, but never below its first few letters.
+ * R11 round 7 (H177): the frame draws the grouped destinations instead (src/workbench/destinations.ts destinationsRow, at
+ * every height); the ten tabs' bar stays as the frame's own form, drawn by nothing in the Workbench now.
  *
  * R5 (H131; defect 4, "a stable tab header"): every tab's cell has the same width in a form whichever tab is active; what
  * waits on you is drawn without moving anything: on a boxed tab, in its box's top edge (⚠ and the count); on a one-row bar,
@@ -277,7 +283,7 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   if (cmd === 'timmy setup' || cmd === '/setup' || /^timmy init(?:\s|$)/.test(cmd)) {
     return { kind: 'setup', which: 'init', words: /--chat local\b/.test(cmd)
       ? 'Enter shows what timmy init asks, and chooses the local model here: what Ollama lists now (no key, no charge)'
-      : 'Enter shows the setup to run in a shell (timmy init) and what it asks; a key is typed there, hidden' };
+      : 'Enter shows the setup to run in a shell and what it asks; a key is typed there, hidden' };
   }
   if (cmd === '/setup chat') return { kind: 'setup', which: 'chat', words: 'Enter shows how to set the chat\'s Ollama address (the REPL\'s /setup chat, or timmy init in a shell)' };
   const run = /^\/run (\S+) (\S+)$/.exec(cmd);
@@ -321,16 +327,24 @@ function fillShares(words: readonly string[], room: number, g: Glyphs, first: re
   return texts;
 }
 
+/**
+ * R11 round 7 (H177; the order: "short verb-led controls", "technical syntax behind Details"): a button says its label's verb
+ * clause; what a colon introduces ("Set up chat: an OpenRouter key (asked hidden) or a local model") is the words row's, under
+ * the selected button, before what Enter does. A count in brackets stays on the button ("Answer what waits on you (3)").
+ */
+export const leadOf = (label: string): string => label.split(': ')[0] ?? label;
+export const tailOf = (label: string): string => label.split(': ').slice(1).join(': ');
+
 export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focused: boolean, width: number, g: Glyphs): { line: Line; hits: ActionHit[] } {
   if (!acts.length) return { line: [S('Nothing to do on this tab yet.', 'secondary')], hits: [] };
   const glyph = (a: WorkspaceAction): string => (a.primary ? `${g.next} ` : '');
   const text = (a: WorkspaceAction, room?: number): string => {
-    const label = room === undefined ? a.label : cut(a.label, Math.max(4, room), g.ellipsis);
+    const label = room === undefined ? leadOf(a.label) : cut(leadOf(a.label), Math.max(4, room), g.ellipsis);
     return `${glyph(a)}${a.n} ${label}`;
   };
   // each box: its marker cell, [ , its text, ]
   const overhead = acts.reduce((n, a) => n + 1 + 2 + lineCells([S(`${glyph(a)}${a.n} `)]), 0) + (acts.length - 1);
-  const need = acts.map((a) => lineCells([S(a.label)]));
+  const need = acts.map((a) => lineCells([S(leadOf(a.label))]));
   const full = need.reduce((n, w) => n + w, 0);
   // R5 (H131; the QA round's defect 15): where the labels do not all fit, the primary next step keeps its whole label first,
   // and the others share what is left, a short one keeping its whole label and leaving the rest to the longer ones
@@ -402,10 +416,15 @@ export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POS
   // inspector's ([i]) and the box Enter opens for a command to copy
   const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : SHORT_WORDS[route.kind] ?? route.words;
   const effect = EFFECT_WORDS[a.effect] ?? a.effect;
+  // R11 round 7 (H177): the label's clause after its colon (leadOf / tailOf: the button says the verb) comes first, whole
+  const tail = tailOf(a.label);
+  const lead: Line = tail ? [S(tail, 'text'), sep] : [];
+  // (where the row is short, what Enter does comes before the label's clause: what happens next is said first)
   const forms: Line[] = [
-    ...(route.kind === 'composer' ? [] : [[S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
-    [S(route.words, 'text')],
-    [S(short, 'text')],
+    ...(route.kind === 'composer' ? [] : [[...lead, S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
+    [...lead, S(route.words, 'text')],
+    [...lead, S(short, 'text')],
+    ...(tail ? [[S(route.words, 'text')], [S(short, 'text')]] : []),
   ];
   return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
 }

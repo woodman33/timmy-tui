@@ -11,6 +11,7 @@ import { TABS, type WorkspaceConnection } from '../src/contracts/workspace.js';
 import { workbenchHelp } from '../src/workbench/cli.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { connectionCard, freeOnlyOf, tabBar, tookWords } from '../src/workbench/hub.js';
+import { destinationsRow } from '../src/workbench/destinations.js';
 import type { ViewCtx } from '../src/workbench/views.js';
 
 const g = glyphsFor(true);
@@ -34,17 +35,23 @@ describe('the QA of e7f853e: three labels (R5 H131)', () => {
     expect(freeOnlyOf({ id: 'ollama', detail: 'key from settings' })).toBeNull();
   });
 
-  it('defect 21: the help says grey (#8E8E93), never dim, and the tab forms at the widths tabBar draws them', () => {
+  it('defect 21: the help says grey (#8E8E93), never dim, and the destinations\' forms at the widths destinationsRow draws them', () => {
     const help = workbenchHelp();
-    expect(help).toContain('one that cannot run now grey (#8E8E93; selected, it says why)');
+    expect(help).toContain('one that cannot run now grey (#8E8E93;');
+    expect(help).toContain('selected, it says why)');
     expect(help).not.toMatch(/\bdim\b/);
     expect(help).not.toMatch(/Under 120 columns/);
-    expect(help).toContain('full labels at 156 columns or more, short labels at 109 to');
-    expect(help).toContain('155 (120 among them) and keys at 108 or fewer (100 among them)');
-    // the numbers, as tabBar draws row 1 for a project named tray1
-    const tabs = TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: 0 }));
-    const form = (w: number) => tabBar(tabs, 'home', 'tray1', w, 3, g).form;
-    expect([form(160), form(156), form(155), form(120), form(109), form(108), form(100)]).toEqual(['full', 'full', 'short', 'short', 'short', 'keys', 'keys']);
+    // R11 round 7 (H177): the grouped destinations' forms, at the widths the help names
+    expect(help).toContain('their names with their keys and the group names (from 176 columns)');
+    expect(help).toContain('the rail\'s shorter names with keys (163), the short names with keys (134), the short names alone (114, so at 122)');
+    expect(help).toContain('short names with a rule between the groups (100), or the keys alone with the shown destination\'s name (80)');
+    const tabs = TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) }));
+    const form = (width: number) => destinationsRow({ tabs, page: 'home', workspace: 'connections', width, g }).form;
+    expect([form(180), form(176), form(175), form(163), form(162), form(134), form(133), form(122), form(114), form(113), form(100), form(99), form(80), form(60)])
+      .toEqual(['full', 'full', 'wide', 'wide', 'short', 'short', 'words', 'words', 'words', 'rules', 'rules', 'keys', 'keys', 'keys']);
+    // (the ten tabs' bar keeps its own forms; the frame no longer draws it)
+    const bar = (w: number) => tabBar(tabs, 'home', 'tray1', w, 3, g).form;
+    expect([bar(160), bar(155), bar(108)]).toEqual(['full', 'short', 'keys']);
   });
 
   it('defect 24: the job\'s or the turn\'s own time and the operation\'s, each labelled; what lies between is not said to be a wait on you', () => {

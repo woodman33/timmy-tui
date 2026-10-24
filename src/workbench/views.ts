@@ -23,7 +23,7 @@ import { evidenceLine, evidenceRows, toolRows, toolRuns } from './chat-evidence.
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
-import { FAMILY_ROWS, findWorkspaces, GROUP_LABEL, NAV, navItem, NOT_IN_TIMMY, type WorkspaceId } from './nav.js';
+import { FAMILY_ROWS, findWorkspaces, GROUP_LABEL, GROUPS, NAV, navItem, NOT_IN_TIMMY, type WorkspaceId } from './nav.js';
 import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
@@ -121,13 +121,16 @@ export function navView(c: ViewCtx): View & { prompt: number } {
   const q = ui.input.field === 'search' ? ui.input.text.trim().toLowerCase() : '';
   const shown = NAV.filter((n) => !q || n.label.toLowerCase().includes(q) || n.title.toLowerCase().includes(q));
   const waiting = data.decisions.total;
-  const groups: Array<'create' | 'operate' | 'library'> = ['create', 'operate', 'library'];
+  // R11 round 7 (H177): the rail's groups (src/workbench/nav.ts GROUPS: Chat alone, then WORK, CREATE, CONNECT), as the Chat
+  // screen's rail and the header group the destinations
   const roomy = height >= 28;
-  for (const [gi, gr] of groups.entries()) {
+  let drawn = 0;
+  for (const gr of GROUPS) {
     const inGroup = shown.filter((n) => n.group === gr);
     if (!inGroup.length) continue;
-    if (gi && roomy) lines.push(blank);
-    lines.push(heading(GROUP_LABEL[gr]));
+    if (drawn && roomy) lines.push(blank);
+    drawn += 1;
+    if (GROUP_LABEL[gr]) lines.push(heading(GROUP_LABEL[gr]));
     for (const n of inGroup) {
       const active = n.id === ui.workspace;
       // Control Room's count: what waits on you first, then what runs; the longest words that fit whole (never cut)
@@ -147,14 +150,6 @@ export function navView(c: ViewCtx): View & { prompt: number } {
     }
   }
   if (q && !shown.length) lines.push(...para(`No workspace matches "${ui.input.text}". Enter searches All tools for it.`, c.width));
-  // Connections at the foot
-  const foot = NAV.find((n) => n.group === 'foot')!;
-  const footKey = tabOf(pageOf(foot.id)).key;
-  const footPad = Math.max(1, c.width - 2 - lineCells([S(foot.label)]) - 1);
-  const footLines = [blank, row([S(foot.label, ui.workspace === foot.id ? 'strong' : 'text'), S(' '.repeat(footPad)), S(footKey, 'secondary')], ui.workspace === foot.id, g)];
-  while (lines.length < height - footLines.length) lines.push(blank);
-  items.push({ line: lines.length + 1, item: { kind: 'action', key: `nav:${foot.id}`, action: foot.id } });
-  lines.push(...footLines);
   return { lines, items, prompt };
 }
 

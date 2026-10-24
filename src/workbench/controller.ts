@@ -1501,7 +1501,8 @@ export class Controller {
     if (id === 'find') { this.search(); return; }
     const r = RAIL.find((x) => x.id === id);
     if (!r) return;
-    if (r.id === 'chat') { this.ui.focus = 'center'; this.emit(); return; }
+    // (R11 round 7, H177: from the tabbed pages' header, Chat opens the Chat screen; on it, Chat gives the conversation the keyboard)
+    if (r.id === 'chat') { if (!this.chatShell()) this.selectWorkspace('chat'); this.ui.focus = 'center'; this.emit(); return; }
     if (r.ws) this.selectWorkspace(r.ws); else this.selectPage(r.page);
     this.ui.focus = 'center';
     this.emit();
@@ -3094,9 +3095,10 @@ export class Controller {
       else if (hint === 'y') this.say('A click never stops a turn: press y to ask it to stop, or n to keep it.', 'secondary');
       return;
     }
-    // R5 (H131): a tab of row 1 opens it (as its key does; a box open in the body closes, nothing runs)
+    // R5 (H131): a tab of row 1 opens it (as its key does; a box open in the body closes, nothing runs). R11 round 7 (H177):
+    // the row is the grouped destinations: a cell opens its destination (Files and Runs & receipts are two of one page)
     const page = f.pages.find((p) => y >= p.y0 && y <= p.y1 && x >= p.x0 && x <= p.x1);
-    if (page) { this.selectPage(page.page); return; }
+    if (page) { if (page.dest) this.openRail(page.dest); else this.selectPage(page.page); return; }
     if (o?.kind === 'settings') {
       // a checkbox or a preset is changed by its click, as Space would (a setting, never a run)
       const d = f.regions.center;

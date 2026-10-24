@@ -115,23 +115,23 @@ describe('the state in three words, from the ladder\'s evidence (never inferred,
 describe('the screen at 122x37 and 80x24: the header, the honesty row, the groups, one row a capability, the chip never cut', () => {
   it('122x37: TOOLS & INTEGRATIONS · what this installation has; nothing here was run to make this list; the rows with their chips, what was found and the next step', () => {
     const t = body(text(frame(data(), ui())));
-    expect(t[8]).toBe('TOOLS & INTEGRATIONS · what this installation has');
-    expect(t[9]).toBe('nothing here was run to make this list · 13 tools · checked 2 min ago · [r] checks again');
-    expect(t[10]).toBe('available the files are here  · configured a key or an address is set  · exercised a receipt of a real run (green)');
-    expect(t[12]).toBe('CHAT · 3 capabilities');
+    expect(t[9]).toBe('TOOLS & INTEGRATIONS · what this installation has');
+    expect(t[10]).toBe('nothing here was run to make this list · 13 tools · checked 2 min ago · [r] checks again');
+    expect(t[11]).toBe('available the files are here  · configured a key or an address is set  · exercised a receipt of a real run (green)');
+    expect(t[13]).toBe('CHAT · 3 capabilities');
     // (the address of the REPL's Ollama is never on the row: inWords)
-    expect(t[13]).toBe('▸ REPL (timmy)                configured  local fake-qwen3:8b · Ollama on this computer (no model key needed)');
-    expect(t[14]).toBe(`  OpenRouter                  exercised   receipt d2d756db · key from providers.json; answered · last run ${clockOf('2026-10-22T23:35:00Z')}`);
+    expect(t[14]).toBe('▸ REPL (timmy)                configured  local fake-qwen3:8b · Ollama on this computer (no model key needed)');
+    expect(t[15]).toBe(`  OpenRouter                  exercised   receipt d2d756db · key from providers.json; answered · last run ${clockOf('2026-10-22T23:35:00Z')}`);
     // (the next step's column holds its short form with where it is set; the whole is the details')
-    expect(t[15]).toBe('  Local spatial review                    needs a local Ollama model         Ollama and a model: Models & accounts');
-    expect(t[17]).toBe('WORK · 2 capabilities');
-    expect(t[18]).toBe(`  Workflows (/workflows)      exercised   receipt f7a8f9c4 · upmd on PATH · last run ${clockOf('2026-10-22T22:10:00Z')}`);
-    expect(t[19]).toBe('  Receipts (timmy receipts)   available   5 receipts, chain verified');
-    expect(t[21]).toBe('CREATE · 2 capabilities');
-    expect(t[23]).toBe('  Blender                                 blender is not on PATH             install it; the command is in its details');
-    expect(t[25]).toBe('CONNECT · 6 capabilities');
-    expect(t[26]).toBe('  Trigger.dev jobs                        no key                             a key (TRIGGER_SECRET_KEY): the .env file');
-    expect(t[27]).toBe('  Composio                    configured  key set; not contacted');
+    expect(t[16]).toBe('  Local spatial review                    needs a local Ollama model         Ollama and a model: Models & accounts');
+    expect(t[18]).toBe('WORK · 2 capabilities');
+    expect(t[19]).toBe(`  Workflows (/workflows)      exercised   receipt f7a8f9c4 · upmd on PATH · last run ${clockOf('2026-10-22T22:10:00Z')}`);
+    expect(t[20]).toBe('  Receipts (timmy receipts)   available   5 receipts, chain verified');
+    expect(t[22]).toBe('CREATE · 2 capabilities');
+    expect(t[24]).toBe('  Blender                                 blender is not on PATH             install it; the command is in its details');
+    expect(t[26]).toBe('CONNECT · 6 capabilities');
+    expect(t[27]).toBe('  Trigger.dev jobs                        no key                             a key (TRIGGER_SECRET_KEY): the .env file');
+    expect(t[28]).toBe('  Composio                    configured  key set; not contacted');
     // the chip column (cells 30-39 of the body) holds one of the three words or nothing, on every capability's row
     const f = frame(data(), ui());
     const region = f.regions.center!;
@@ -145,8 +145,9 @@ describe('the screen at 122x37 and 80x24: the header, the honesty row, the group
       const chip = cols(plain(f.screen[y]), 32, 41).trim();
       expect(chip === '' || CHIP.test(chip), `row ${y}: "${chip}"`).toBe(true);
     }
-    // (the rows in view: the body's 22 rows hold the header, three whole groups and CONNECT's first three)
-    expect(seen).toBe(10);
+    // (the rows in view: the body's 21 rows (R11 round 7, H177: the page head's description row above) hold the header,
+    // three whole groups and CONNECT's first two)
+    expect(seen).toBe(9);
     // green only on the exercised rows' chips; nothing else green
     const greens = f.screen.flatMap((l) => l.filter((s) => s.role === 'live').map((s) => s.text.trim()));
     expect(greens).toEqual(['exercised', 'exercised']);
@@ -154,21 +155,22 @@ describe('the screen at 122x37 and 80x24: the header, the honesty row, the group
     // (a setting's name on its row says where it is set; the command that sets it is not drawn)
     expect(t.join('\n')).not.toMatch(/127\.0\.0\.1|brew install|\bset TRIGGER_SECRET_KEY|\bexport [A-Z]|ollama pull/);
     // the finder's and the search's rows are the tab's own
-    expect(t[7]).toBe('[/] Search the tools by name, kind or what they need  · a workspace: g, then /');
+    expect(t[8]).toBe('[/] Search the tools by name, kind or what they need  · a workspace: g, then /');
   });
 
   it('80x24: the list scrolls to the selection; the chip whole on every row; the next step beside what was found where the row has one', () => {
     const f = frame(data(), ui({ cursor: { 'center:tools': 5 } }), 80, 24);
     const t = text(f).map((r) => cols(r, 2, 77));
     // (the search's row stays at the top while the list scrolls; the range counts the rows below it)
-    expect(t[6]).toMatch(/^ ◆ tray \/ All tools · capabilities ━+ 6–15 of 28$/);
-    expect(t[7]).toBe('[/] Search the tools  · a workspace: g, then /');
-    expect(t[8]).toBe('  REPL (timmy)          configured  local fake-qwen3:8b · Ollama on this…');
-    expect(t[9]).toBe('  OpenRouter            exercised   receipt d2d756db · key from…');
+    // (R11 round 7, H177: the body's crumb is "project / Tools & integrations"; the page head above carries the title)
+    expect(t[7]).toMatch(/^ ◆ tray \/ Tools & integrations ━+ 6–15 of 28$/);
+    expect(t[8]).toBe('[/] Search the tools  · a workspace: g, then /');
+    expect(t[9]).toBe('  REPL (timmy)          configured  local fake-qwen3:8b · Ollama on this…');
+    expect(t[10]).toBe('  OpenRouter            exercised   receipt d2d756db · key from…');
     // (80 columns: where the step is set, alone, where its forms do not fit)
-    expect(t[10]).toBe('  Local spatial review              needs a local…        Models & accounts');
-    expect(t[13]).toBe('  Workflows…            exercised   receipt f7a8f9c4 · upmd on PATH · last…');
-    expect(t[17]).toBe('▸ Image observations…   available   OpenCV measurements (workers/look)…');
+    expect(t[11]).toBe('  Local spatial review              needs a local…        Models & accounts');
+    expect(t[14]).toBe('  Workflows…            exercised   receipt f7a8f9c4 · upmd on PATH · last…');
+    expect(t[18]).toBe('▸ Image observations…   available   OpenCV measurements (workers/look)…');
     const region = f.regions.center!;
     let seen = 0;
     for (const it of region.items) {
@@ -185,19 +187,22 @@ describe('the screen at 122x37 and 80x24: the header, the honesty row, the group
   it('Enter on a row: its details in the right pane (the Inspector): the state and its meaning, what was found, the next step and where it is set, the receipt, then each rung\'s own evidence', () => {
     const open = (i: number) => text(frame(data(), ui({ rightOpen: true, focus: 'right', tab: 'inspector', cursor: { 'center:tools': i } }))).map((r) => cols(r, 84, 119));
     const or = open(1);
-    expect(or[9]).toBe('CAPABILITY');
-    expect(or[10]).toBe('OpenRouter');
-    expect(or[11]).toBe('State      exercised');
-    expect(or.slice(12, 15)).toEqual(['           a receipt of a real run', '           exists, on a chain that', '           verified']);
-    expect(or[15]).toBe('Found      key from providers.json;');
-    expect(or.slice(18, 20)).toEqual([`Receipt    d2d756db · ${clockOf('2026-10-22T23:35:00Z')}`, '']);
-    expect(or.join(' ').replace(/\s+/g, ' ')).toMatch(/Rung exercised Found a key at providers\.json \(a setting\) Answered HTTP 200 \(asked: GET \/api\/v1\/key, \d\d:\d\d:\d\d\) Exercised a chat turn, answered and sealed; \d\d:\d\d:\d\d; receipt d2d756db;/);
+    expect(or[10]).toBe('CAPABILITY');
+    expect(or[11]).toBe('OpenRouter');
+    expect(or[12]).toBe('State      exercised');
+    expect(or.slice(13, 16)).toEqual(['           a receipt of a real run', '           exists, on a chain that', '           verified']);
+    expect(or[16]).toBe('Found      key from providers.json;');
+    expect(or.slice(19, 21)).toEqual([`Receipt    d2d756db · ${clockOf('2026-10-22T23:35:00Z')}`, '']);
+    // (R11 round 7, H177: the drawer is a row shorter under the page head; its last rows, the receipt among them, are below
+    // the fold it names: "1–19 of 22")
+    expect(or.join(' ').replace(/\s+/g, ' ')).toMatch(/Rung exercised Found a key at providers\.json \(a setting\) Answered HTTP 200 \(asked: GET \/api\/v1\/key, \d\d:\d\d:\d\d\) Exercised a chat turn, answered and sealed; \d\d:\d\d:\d\d;/);
+    expect(or.join(' ')).toMatch(/1–19 of 22/);
     const bl = open(6);
-    expect(bl[10]).toBe('Blender');
-    expect(bl[11]).toBe('State      –');
-    expect(bl[12]).toBe('           nothing of it is here');
-    expect(bl[13]).toBe('Found      blender is not on PATH');
-    expect(bl.slice(14, 17)).toEqual(['Next       install it on this', '           computer; the command is', '           in its details']);
+    expect(bl[11]).toBe('Blender');
+    expect(bl[12]).toBe('State      –');
+    expect(bl[13]).toBe('           nothing of it is here');
+    expect(bl[14]).toBe('Found      blender is not on PATH');
+    expect(bl.slice(15, 18)).toEqual(['Next       install it on this', '           computer; the command is', '           in its details']);
     expect(bl.join(' ').replace(/\s+/g, ' ')).toMatch(/Rung needs setup Not found blender is not on PATH Command brew install --cask blender/);
     // a key's place is said, not set: the step names where
     const tr = open(7);

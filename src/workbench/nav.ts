@@ -1,8 +1,12 @@
 /**
- * R4 (H110): the Workbench's navigation, as the operator's terminal reference lays it out (TERMINAL-REFERENCE.txt, 2026-10-11):
- * CREATE (Chat, Studio, VoxVision, 3D Create, Motion), OPERATE (Workflows, Control Room, God's Eye View, REA), LIBRARY (Files,
- * Templates, All tools), and Connections at the foot. Each workspace has a title, one line saying what this terminal view
- * shows, and the family of tools it gathers. The words are Timmy's own: nothing here is the browser prototype's sample text.
+ * R4 (H110): the Workbench's navigation. R11 round 7 (H177; the operator's order of 2026-10-24 and the lead's D3): grouped as
+ * the Chat screen's rail groups the destinations (src/workbench/destinations.ts): Chat; WORK (Files, Workflows, Runs & receipts,
+ * Canvas); CREATE (Vision, Motion & 3D); CONNECT (Models & accounts, Tools & integrations, Control Room), each page's other
+ * workspaces after it (Motion after 3D Create; God's Eye View, REA, Templates and Fleet & Clef under CONNECT). Each workspace
+ * has a title (its page head's), one line saying what this terminal view shows (the page head's description, kept to 76
+ * cells so an 80-column terminal shows it whole), and the family of tools it gathers. The words are Timmy's own: nothing here
+ * is the browser prototype's sample text. Before round 7 the groups were the terminal reference's CREATE, OPERATE, LIBRARY and
+ * Connections at the foot.
  */
 
 export type WorkspaceId =
@@ -11,16 +15,16 @@ export type WorkspaceId =
   | 'files' | 'templates' | 'tools'
   | 'connections';
 
-export type GroupId = 'create' | 'operate' | 'library' | 'foot';
+export type GroupId = 'chat' | 'work' | 'create' | 'connect';
 
 export interface NavItem {
   id: WorkspaceId;
   group: GroupId;
   /** its name in the navigation */
   label: string;
-  /** the top's title */
+  /** the page head's title: the destination's name as the rail says it, then what the page is */
   title: string;
-  /** one line: what this view shows here, in the terminal */
+  /** one line: what this view shows here, in the terminal (the page head's description; at most 76 cells) */
   purpose: string;
   /** what the bottom row calls this task's controls */
   task: string;
@@ -31,26 +35,31 @@ export interface NavItem {
 }
 
 export const NAV: readonly NavItem[] = [
-  { id: 'chat', group: 'create', label: 'Chat', title: 'Chat · conversation', task: 'Conversation', purpose: 'Talk to Timmy about this project; the route says where a message would go and what it costs.' },
-  { id: 'studio', group: 'create', label: 'Studio', title: 'Studio · boards and cards', task: 'Studio outline', purpose: 'The project\'s Studio cards in outline, by operation; Studio · Show opens the rich canvas.', rail: 'Canvas', also: ['Canvas'] },
-  { id: 'voxvision', group: 'create', label: 'VoxVision', title: 'VoxVision · 2D and 3D inspection', task: 'Inspection', purpose: 'All of Timmy\'s vision tools with their real status, and this project\'s VoxVision records.', rail: 'Vision', also: ['Vision'] },
+  { id: 'chat', group: 'chat', label: 'Chat', title: 'Chat · conversation', task: 'Conversation', purpose: 'Talk to Timmy about this project; the route says where it goes and its cost.' },
+  { id: 'files', group: 'work', label: 'Files', title: 'Files · the project tree', task: 'Files', purpose: 'Every project file by kind: source, references, workflows, results, records.' },
+  { id: 'workflows', group: 'work', label: 'Workflows', title: 'Workflows · plan and run', task: 'Workflow', purpose: 'Each workflow document\'s blocks, which need you, and how each last ended.' },
+  { id: 'logs', group: 'work', label: 'Logs & Receipts', title: 'Runs & receipts · events, operations and the chain', task: 'Logs and receipts', purpose: 'The event log newest first, each operation to its receipt, and the chain.', rail: 'Runs & receipts', also: ['Runs & receipts', 'Logs & records'] },
+  { id: 'studio', group: 'work', label: 'Studio', title: 'Canvas · Studio boards and cards', task: 'Studio outline', purpose: 'This project\'s Studio cards in outline, by operation; s opens the canvas.', rail: 'Canvas', also: ['Canvas'] },
+  { id: 'voxvision', group: 'create', label: 'VoxVision', title: 'Vision · VoxVision, 2D and 3D inspection', task: 'Inspection', purpose: 'Every vision tool with its status as observed, and this project\'s records.', rail: 'Vision', also: ['Vision'] },
   // R5 (H131; the QA of e7f853e, defect 23): the pane says the tab's own name (6 3D & Motion), and which of its two views
-  { id: 'create3d', group: 'create', label: '3D Create', title: '3D & Motion · scenes, CAD and compositions', task: 'Scenes and CAD', purpose: 'The 3D, CAD and motion apps Timmy drives, what each needs, and this project\'s runs of them.', rail: 'Motion & 3D', also: ['Motion & 3D'] },
-  { id: 'motion', group: 'create', label: 'Motion', title: '3D & Motion · compositions and renders first', task: 'Compositions', purpose: 'After Effects as Timmy drives it, what it needs, and this project\'s renders.', also: ['Motion & 3D'] },
-  { id: 'workflows', group: 'operate', label: 'Workflows', title: 'Workflows · plan and run', task: 'Workflow', purpose: 'Each workflow document\'s named blocks, which need you, and how each one last ended.' },
-  { id: 'control', group: 'operate', label: 'Control Room', title: 'Control Room · jobs, chat turns and decisions', task: 'Jobs, chat turns and decisions', purpose: 'What runs, what ended and what waits on you, each with its job and operation, and every surface\'s chat turns by their receipts.' },
-  { id: 'overview', group: 'operate', label: 'God\'s Eye View', title: 'God\'s Eye View · the project at a glance', task: 'Overview', purpose: 'What needs you first, then agents, workflows, apps, artifacts and history, each with its source.' },
-  { id: 'rea', group: 'operate', label: 'REA', title: 'REA · analysis', task: 'Analysis', purpose: 'REA\'s registered capabilities and this project\'s REA records, as this revision has them.' },
+  { id: 'create3d', group: 'create', label: '3D Create', title: 'Motion & 3D · scenes, CAD and compositions', task: 'Scenes and CAD', purpose: 'The 3D, CAD and motion apps Timmy drives, what each needs, their runs here.', rail: 'Motion & 3D', also: ['Motion & 3D'] },
+  { id: 'motion', group: 'create', label: 'Motion', title: 'Motion & 3D · compositions and renders first', task: 'Compositions', purpose: 'After Effects as Timmy drives it, what it needs, and this project\'s renders.', also: ['Motion & 3D'] },
+  { id: 'connections', group: 'connect', label: 'Connections', title: 'Models & accounts · connections and recent work', task: 'Connections', purpose: 'Chat\'s keys and servers as last observed, and this project\'s recent work.', rail: 'Models & accounts', also: ['Models & accounts', 'Models & keys'] },
+  { id: 'overview', group: 'connect', label: 'God\'s Eye View', title: 'God\'s Eye View · the project at a glance', task: 'Overview', purpose: 'What needs you first, then agents, workflows, apps, artifacts and history.' },
+  { id: 'tools', group: 'connect', label: 'All tools', title: 'Tools & integrations · capabilities', task: 'Tool library', purpose: 'Every capability Timmy registers, its rung, and the step that sets it up.', rail: 'Tools & integrations', also: ['Tools & integrations', 'Tools & MCP'] },
+  { id: 'rea', group: 'connect', label: 'REA', title: 'REA · analysis', task: 'Analysis', purpose: 'REA\'s registered capabilities and this project\'s REA records, as they are.' },
+  { id: 'templates', group: 'connect', label: 'Templates', title: 'Templates · public starters', task: 'Templates', purpose: 'Public project starters and Studio board templates; none holds private work.' },
+  { id: 'control', group: 'connect', label: 'Control Room', title: 'Control Room · jobs, chat turns and decisions', task: 'Jobs, chat turns and decisions', purpose: 'What runs, what ended and what waits on you; every surface\'s chat turns.' },
   // R5 (H134): tab 8's and tab 0's bodies (src/workbench/fleet-tab.ts, src/workbench/logs-tab.ts)
-  { id: 'fleet', group: 'operate', label: 'Fleet & Clef', title: 'Fleet & Clef · plans, recommendations and services', task: 'Fleet and Clef', purpose: 'The project\'s fleet plans with their counts, Clef-Omni\'s mode and decisions, Cloudflare and the services, each as it is.' },
-  { id: 'logs', group: 'operate', label: 'Logs & Receipts', title: 'Logs & Receipts · events, operations and the chain', task: 'Logs and receipts', purpose: 'The event log newest first, the selected operation from intent to receipt, its raw output, and the receipt chain as verified.', rail: 'Runs & receipts', also: ['Runs & receipts', 'Logs & records'] },
-  { id: 'files', group: 'library', label: 'Files', title: 'Files · the project tree', task: 'Files', purpose: 'Every project file by kind: editable source, references, workflows, results and run records.' },
-  { id: 'templates', group: 'library', label: 'Templates', title: 'Templates · public starters', task: 'Templates', purpose: 'Public project starters and Studio board templates; none holds private work.' },
-  { id: 'tools', group: 'library', label: 'All tools', title: 'All tools · capabilities', task: 'Tool library', purpose: 'Every capability Timmy registers, its rung, and the step that sets it up.', rail: 'Tools & integrations', also: ['Tools & integrations', 'Tools & MCP'] },
-  { id: 'connections', group: 'foot', label: 'Connections', title: 'Connections · this computer', task: 'Connections', purpose: 'This Workbench\'s Companion and Studio servers, the chat route and where receipts are kept.', rail: 'Models & accounts', also: ['Models & accounts', 'Models & keys'] },
+  { id: 'fleet', group: 'connect', label: 'Fleet & Clef', title: 'Fleet & Clef · plans, recommendations and services', task: 'Fleet and Clef', purpose: 'Fleet plans with their counts, Clef-Omni\'s decisions, Cloudflare, services.' },
 ];
 
-export const GROUP_LABEL: Readonly<Record<GroupId, string>> = { create: 'CREATE', operate: 'OPERATE', library: 'LIBRARY', foot: '' };
+/** The groups in the rail's order, with their labels (the Chat group has none: Chat stands alone above WORK). */
+export const GROUPS: readonly GroupId[] = ['chat', 'work', 'create', 'connect'];
+export const GROUP_LABEL: Readonly<Record<GroupId, string>> = { chat: '', work: 'WORK', create: 'CREATE', connect: 'CONNECT' };
+
+/** The widest a workspace's one-line description is (an 80-column terminal's page head shows it whole). */
+export const PURPOSE_CELLS = 76;
 
 export const navItem = (id: WorkspaceId): NavItem => NAV.find((n) => n.id === id) ?? NAV[0];
 
