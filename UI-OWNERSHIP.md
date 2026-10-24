@@ -31,7 +31,7 @@ the regions become accessible sheets/navigation without trapping focus or hiding
 | Terminal Workbench | **H177** | `src/workbench/**` (the palette values unchanged), `tests/workbench-*.test.ts` | H175 tokens (semantic names only) | H168 |
 | Journeys, captures, recordings, the installed-package mode | **H172** | `tests/journey-*.test.ts`, `tests/user-isolation.test.ts` (unchanged unless told), the capture journeys and sidecars | every lane | H168 |
 | Independent visual/interaction review | **H168** | nothing (read-only; findings go to the writers) | every lane | — |
-| Integration, merges, gates, freeze, Mac, the deliverable | **lead** | `UI-OWNERSHIP.md`, `DESIGN.md`, `scripts/review/**`, the licence lines of `companion/studio-canvas/src/canvas.js`, merges | — | H168 |
+| Integration, merges, gates, freeze, Mac, the deliverable | **lead** | `UI-OWNERSHIP.md`, `DESIGN.md`, `scripts/review/**`, the licence lines of `companion/studio-canvas/src/canvas.js`, merges; this round also `src/companion/server.ts` CLIENT_FILES, `scripts/copy-runtime-assets.mjs`, the policy/tab parts of `tests/companion-page-browser.test.ts`, `tests/helpers/companion-page-kit.ts`, and the project-route mirror of `src/companion/client/companion.js` (`projectRoute` / `readProjectRoute` / `drawProjectRoute` only) | — | H168 |
 
 A file not listed is not written this round without the lead naming its writer here first.
 
