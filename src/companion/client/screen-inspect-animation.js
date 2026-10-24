@@ -166,6 +166,12 @@
     });
   }
 
+  /**
+   * Redraws the cards from the handles as they are. A redraw never makes a handle twice (handleFor reuses made[key]) and never
+   * loads a file again: a handle that settled on its words (a file that failed) stays on its words through every redraw, so a
+   * binding event — or a runtime's load error — cannot feed a redraw that asks for the file again (H172's note). Redraws asked
+   * for in one frame are one redraw.
+   */
   function redraw() {
     const host = hostEl;
     if (!host) return;
@@ -173,6 +179,14 @@
     if (!cards) return;
     cards.replaceChildren();
     for (const c of components()) card(c.key, c, cards);
+  }
+  /** The redraw a binding event asks for: one per frame, however many events arrive in it. */
+  let redrawAsked = false;
+  function redrawSoon() {
+    if (redrawAsked) return;
+    redrawAsked = true;
+    const go = () => { redrawAsked = false; if (hostEl && !hostEl.hidden) redraw(); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go); else go();
   }
 
   document.addEventListener('click', (ev) => {
@@ -191,7 +205,7 @@
     }
     if (t.closest('[data-inspect-close]')) { close(); }
   });
-  if (window.TimmyRive) window.TimmyRive.on(() => { if (hostEl && !hostEl.hidden) redraw(); });
+  if (window.TimmyRive) window.TimmyRive.on(() => redrawSoon());
 
   // ── where the view lives ──
   let own = null;

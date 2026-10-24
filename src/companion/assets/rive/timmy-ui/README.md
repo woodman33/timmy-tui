@@ -1,8 +1,11 @@
 # Timmy's native Rive UI controls (the operator's asset; a proposed native UI, not a final design)
 
 `timmy-ui.riv` is the compiled, self-contained Rive runtime asset the operator built with his Rive tooling (R11 round 5, received
-2026-10-24): native vector/text UI components with real state-machine inputs, pointer listeners and timelines — not CSS, not an
-HTML rendering. Beside it, its editable source: `scene.rml` (the Rive source), `rive.yaml`, `create-controls.py` (the generator
+from his package on 2026-10-24; sha256 `9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6`, 405,278 bytes): native
+vector/text UI components with real state-machine inputs, pointer listeners and timelines — not CSS, not an HTML rendering. The
+repo's `.gitignore` keeps `*.riv` out except under `src/companion/assets/rive/` (`!src/companion/assets/rive/**/*.riv`): a received
+asset like this one is committed; nothing compiled here ever is (no Rive tooling runs in the build). The earlier commit f5d70969
+said the asset was carried in; it was not — the ignore rule held it back — and the commit that adds it says so. Beside it, its editable source: `scene.rml` (the Rive source), `rive.yaml`, `create-controls.py` (the generator
 that wrote the source; its one line that copied the font from a folder of the operator's computer is replaced by a comment: the
 font is kept here), `Montserrat.ttf` with its license `OFL.txt` (SIL Open Font License, retained).
 
