@@ -114,9 +114,9 @@ function writeRegistry(file: string, projects: RegistryEntry[]): void {
 /**
  * The user's project registry and roots (see the module's words). `env` is the user's (userEnv): its TIMMY_HOME is the
  * user's home, and the registry and the projects folder are read under it. The default project is made and registered when
- * the user has none, so a signed-in user always has a project to open.
+ * the user has none, so a signed-in user always has a project to open ({ make: false } reads only: roots then may be empty).
  */
-export function userProjects(user: UserRef, env: Env): UserProjects {
+export function userProjects(user: UserRef, env: Env, o: { make?: boolean } = {}): UserProjects {
   const id = checkId(user);
   const home = resolve(timmyHome(env));
   if (basename(home) !== id || basename(dirname(home)) !== USERS_DIR) throw new Error('Refused: userProjects takes the user\'s own env (userEnv), whose TIMMY_HOME is the user\'s home.');
@@ -138,6 +138,7 @@ export function userProjects(user: UserRef, env: Env): UserProjects {
     const real = realOrNull(e.path);
     if (real && real !== realProjects && under(real, realProjects) && isDir(real)) roots.add(real);
   }
+  if (roots.size === 0 && o.make === false) return { registry, roots: [], default: '' };
   if (roots.size === 0) {
     const root = join(projectsDir, DEFAULT_PROJECT.folder);
     ensure0700(root);
@@ -224,7 +225,7 @@ export function isOwnedRoot(user: UserRef, root: unknown, env: Env): boolean {
   try { checkId(user); } catch { return false; }
   if (typeof root !== 'string' || !root.trim() || root.includes('\0') || !isAbsolute(root)) return false;
   let own: UserProjects;
-  try { own = userProjects(user, env); } catch { return false; }
+  try { own = userProjects(user, env, { make: false }); } catch { return false; }
   // the path as named: a link anywhere in it is resolved by realpath; a path that does not exist is nobody's
   let st;
   try { st = lstatSync(root); } catch { return false; }
