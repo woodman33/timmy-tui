@@ -1,58 +1,66 @@
-# Timmy's native Rive UI controls (the operator's asset; a proposed native UI, not a final design)
+# Timmy's native Rive UI (RIVE CONTRACT v2 — the source; the compiled asset's version is named in CONTRACT.json)
 
-`timmy-ui.riv` is the compiled, self-contained Rive runtime asset the operator built with his Rive tooling (R11 round 5, received
-from his package on 2026-10-24; sha256 `9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6`, 405,278 bytes): native
-vector/text UI components with real state-machine inputs, pointer listeners and timelines — not CSS, not an HTML rendering. The
-repo's `.gitignore` keeps `*.riv` out except under `src/companion/assets/rive/` (`!src/companion/assets/rive/**/*.riv`): a received
-asset like this one is committed; nothing compiled here ever is (no Rive tooling runs in the build). The earlier commit f5d70969
-said the asset was carried in; it was not — the ignore rule held it back — and the commit that adds it says so. Beside it, its editable source: `scene.rml` (the Rive source), `rive.yaml`, `create-controls.py` (the generator
-that wrote the source; its one line that copied the font from a folder of the operator's computer is replaced by a comment: the
-font is kept here), `Montserrat.ttf` with its license `OFL.txt` (SIL Open Font License, retained).
+`timmy-ui.riv` is the compiled, self-contained Rive runtime asset the product serves at `/assets/rive/timmy-ui/timmy-ui.riv`
+(both the companion and the Studio; the listing `GET /api/rive/assets` names it with its sha256). It is built by the Rive CLI
+on the operator's machine from the editable source beside it — nothing compiles in this repo's build — and committed with
+its records (`VERIFY.txt`, `BUILD.txt`) and its sha256 in `CONTRACT.json`. The repo's `.gitignore` keeps `*.riv` out except
+under `src/companion/assets/rive/` (`!src/companion/assets/rive/**/*.riv`). The round-5 asset (the operator's own build,
+contract v1, sha256 `9fd9ae7c…`, 405,278 bytes) stays the served file until the v2 build lands; `CONTRACT.json`
+`asset.contractOfTheServedFile` says which one is served.
 
-| What | Value |
+## The source (R11 round 7, H174: the operator's order "Make the native UI coherent")
+
+| File | What |
 |---|---|
-| File | `timmy-ui.riv` · 405,278 bytes · sha256 `9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6` |
-| Artboards | `AgentConsole` 640 × 380 (native text, status illustrations, a working ring, a preview-only action) · `ProviderCard` 400 × 260 (the connection-state panel) · `ActionButton` 240 × 72 (native text, hover outline, pressed wash, click) |
-| State machine | `TimmyUI`, one on each artboard |
-| Inputs | `State` Number: 0 Idle · 1 Working/Checking · 2 Approval · 3 Stopped · 4 Failed — `Hover` Bool — `Pressed` Bool — `ReducedMotion` Bool (zero-duration state transitions; the runtime settles each pose and stops moving) |
-| API | the state-machine-inputs API of `@rive-app/canvas` 2.37.8 (the runtime the companion serves at `/vendor/rive/`) |
-| Listeners | native pointer listeners set Hover / Pressed; the native inspect button sets State = 1 on a click |
-| By design | "No green success state, fake receipt or model response is authored." The asset's states are interaction previews until a verified backend event sets them. |
+| `create-controls.py` | the generator (Python 3.12+): writes `scene.rml` and `rive.yaml`; the artboards, their text runs, the state machine, the materials |
+| `scene.rml` | the Rive markup the CLI compiles (`rive . --verify`, `rive . --once`) |
+| `rive.yaml` | what the companion's listing reads: artboards, preview artboards, state machine, inputs, font, the runs per artboard |
+| `Outfit.ttf` + `Outfit-OFL.txt` | the embedded font: Outfit (variable, wght 100–900; SIL OFL 1.1, no Reserved Font Name declared), made by `make-font.py` from `@fontsource-variable/outfit`'s latin WOFF2 — the same font this product serves for its HTML (DESIGN.md B11 D2: one UI face across HTML and the native faces). Montserrat (v1) is dropped. |
+| `make-font.py` | the reproducible font step (fontTools; Brotli through Node's zlib when the module is absent); prints the TTF's sha256 |
+| `Montserrat.ttf` + `OFL.txt` | v1's font, kept only while `scripts/copy-runtime-assets.mjs` (the packaging allowlist, not this folder's) names them — the v2 source does not use them; they go when that list names the v2 files |
+| `CONTRACT.json` | the contract: version, the served asset's identity, artboards, runs, inputs, materials, the consumers' API |
 
-## How the page's vocabularies map onto it (`src/companion/client/rive-bindings.js`, `TIMMY_UI`)
+## What changed from v1 to v2 (the order's "Make the native UI coherent")
+
+- **The ProviderCard's subtitle runs named apart.** v1 baked `OpenRouter · Ollama · Cloudflare` five times under one name
+  (one per state group) — the runtime could address one. v2 has ONE `ProviderName` run outside the state groups (the page
+  sets the card's own provider), `ProviderState` (the state word) and `ProviderDetail` (one line); the per-state headlines
+  are `HeadlineIdle` … `HeadlineFailed`.
+- **The ActionButton's native caption.** One `Caption` run = the button's own label (a mount's `label`, a Canvas
+  welcome's label); v1's per-state baked labels ("Connect provider →", "Checking…", …) are gone. The right-hand mark is a
+  vector (chevron, dots, diamond, square, ×): no glyph fonts.
+- **Preview separated at source.** The production artboards (`AgentConsole`, `ProviderCard`, `ActionButton`,
+  `ActionButtonGlacier`) bake NO "PREVIEW / NOT A LIVE JOB" caption, NO "Inspect interaction" pill and NO state-changing
+  listener. The Inspect view's variants (`AgentConsolePreview`, `ProviderCardPreview`, `ActionButtonPreview`) bake the
+  caption, the pill and the `Inspect click` listener (State → 1). v1's runtime workarounds (the caption overwrite, the
+  scaled pill) apply to a v1 file only and retire with the v2 build.
+- **Reduced motion settles.** `ReducedMotion` still makes every transition instant AND the Working pose takes the
+  `WorkingStill` state (the ring at rest) — nothing keeps moving; the words carry the state.
+- **Materials.** The Card Lab direction: a raised → surface gradient panel with a 1-px top light and the border; text /
+  secondary / muted; the focus amber for the Working ring, Approval and Failed; a quiet grey for Stopped; the primary
+  action's light gradient (amber start → accent with the ink H175 measured for the HTML's primary button, #402E14; `ActionButtonGlacier` the Glacier pair, ink #1D3848). Never `#28FE14` on
+  a native face: no observed-live claim is drawn.
+- **Sizes unchanged** (640 × 380 · 400 × 260 · 240 × 72): the consumers' aspect rules stand.
+
+## The state machine and the page's vocabularies (`src/companion/client/rive-bindings.js`, `TIMMY_UI`)
+
+`TimmyUI` on every artboard: `State` Number (0 Idle · 1 Working/Checking · 2 Approval/NEEDS-YOU · 3 Stopped · 4 Failed; no
+success value), `Hover`, `Pressed`, `ReducedMotion` Bool.
 
 | Component | Artboard | This page's word → native input |
 |---|---|---|
-| Agent / tool activity (the chat turn's SSE, fed by chat-shell.js) | `AgentConsole` | idle → State 0 · working → 1 · awaiting (approval) → 2 · **stopping → 1** (no stopping pose: the turn still runs while Stop is asked; the backend's `cancelled` makes it) · stopped → 3 · failed → 4 |
-| Provider connection (GET /api/connections) | `ProviderCard` | disconnected → State 0 · checking → 1 · **connected → 0** (no success pose is authored: the native card stays Idle and the HTML label beside it says "connected" — the Inspect view says so) · failed → 4 |
-| Welcome / guide (the person's click, Enter or Space) | `ActionButton` | the press → Pressed true, released on the next frame; the pointer over it → Hover; Enter / Space held → Pressed |
-| Canvas selection (tldraw) | any | selected → Hover (the native outline stands for the selection) · expanded → no native input (HTML only) |
-| prefers-reduced-motion | any | ReducedMotion → true on load |
+| Agent / tool activity (the chat turn's SSE, fed by chat-shell.js) | `AgentConsole` | idle → State 0 · working → 1 · awaiting (approval) → 2 · **stopping → 1** (STOP REQUESTED: the turn still runs until the backend says `cancelled`, which makes 3) · stopped → 3 · failed → 4 |
+| Provider connection (GET /api/connections) | `ProviderCard` | disconnected → State 0 · checking → 1 · **connected → 0** (no success pose is authored: the card stays Idle and `ProviderState` / the HTML label say "connected") · failed → 4 |
+| An action (the person's click, Enter or Space) | `ActionButton` / `ActionButtonGlacier` | the press → Pressed true, released on the next frame; the pointer over it → Hover |
+| Canvas selection (tldraw) | any | selected → Hover · expanded → no native input (HTML only) |
+| prefers-reduced-motion | any | ReducedMotion → true on load (verified: no continuous movement under it) |
 
-Every binding event records the word AND the native input it set (`State 1`, `Pressed true`): the Inspect animation view lists
-them with the backend source that set each state. The three drafted folders beside this one (`welcome/`, `connection/`,
-`activity/`) keep the earlier hand-written sources as drafts; the page draws this asset.
+Every binding event records the word AND the native input it set; the Inspect view lists them with the backend source
+that set each state, the identity the feed named (project / session / turn), and the receipt a `done` event attached.
 
-## The baked words on the faces (text runs), and what the page sets them to (R11 round 6, the operator's 07:06 bar)
+## The feed's identity (round 7)
 
-`create-controls.py` names each text run after its text (`TextValueRun name="…"`), so the runtime can set them
-(`@rive-app/canvas` `setTextRunValue` / `getTextRunValue`; `rive-bindings.js` `RUNS`, `CAPTION`, `applyRuns`):
-
-| Run (its name) | Artboards | What the page sets, and when |
-|---|---|---|
-| `PREVIEW  /  NOT A LIVE JOB` | AgentConsole, ProviderCard | the face's caption follows the SOURCE of its state: a preview (the Inspect view's labelled playback) → `PREVIEW  /  NOT A LIVE JOB`; the backend feed (the turn's SSE, GET /api/connections) → `LIVE  /  THE TURN’S EVENTS` or `LIVE  /  GET /api/connections`; a Canvas shape before any event on its page → `AS SAVED  /  NOT A LIVE JOB`. A live face never reads PREVIEW, a preview never reads LIVE. |
-| `Inspect interaction` | AgentConsole, ProviderCard | `""` — the baked face button means nothing in the product (the HTML beside the face carries the controls). |
-| `Connect provider` | ActionButton (its Idle label) | the button's own label (a mount's `label`; a Canvas welcome's label). |
-| `OpenRouter  ·  Ollama  ·  Cloudflare` | ProviderCard, **five runs under this one name** (one per state group) | **left as baked**: the runtime addresses a run by name and reaches one of the five, so it cannot put the card's own provider on every state. The source must give the five distinct names (e.g. `Provider · Idle` … `Provider · Failed`) — then the page sets each to the card's provider (`OpenRouter`, `Ollama · local`, `Ollama · cloud`, `Cloudflare`). The Inspect view's "Face words" row says so per card. |
-
-The amber pill under "Inspect interaction" (the Shape `Primary action`, the listener's hit area) is a control that means
-nothing in the product: the runtime has no opacity on a node, so the page scales it to nothing (`artboard.node('Primary
-action').scaleX = scaleY = 0`; said per card in the Inspect view's "Face words" row as `pill … hidden`). The Checking pose's
-bars are drawn through where that pill was authored (the asset's own drawing order); with the pill gone they stand alone.
-
-The state machine also bakes a listener `Inspect click` (the hit area → `State = 1`) that would put a live face in
-Working/Checking with no backend event. The page keeps that from happening twice over: the face's canvas takes no pointer
-events (`rive-components.css`; the host's own button or img keeps the click, the keyboard and the focus), and every frame the
-bindings put a `State` the feed did not set back to the fed value (`guardState`, counted on the handle's `restored`). The
-HTML word beside the face never follows a listener-made change. An ActionButton's press shows the asset's Pressed wash
-through the page's own `Pressed` input, not through the listener.
+A `turn` event names the console's current turn (`data.id`); a `needs-you` or `done` whose `data.turn` is another turn's
+is ignored as stale (recorded, never applied); `done.receipt` is attached to the handle (the Chat shows the link); a new
+`turn` event starts the new turn; `TimmyRive.reconcile(word, { turn, source })` applies a re-read state after a reconnect.
+A reopened Canvas shape says AS SAVED / NOT A LIVE JOB until a feed event reaches it on its page.

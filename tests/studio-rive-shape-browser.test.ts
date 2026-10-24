@@ -7,7 +7,7 @@
  * the shape keeps it with the board (props.state); the welcome shape's trigger is the person's click only. Nothing animates
  * here, and the shape says why.
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
+import { riveAssetsDir } from '../src/companion/rive-assets.js';
 import { grant, nameProject } from './helpers/canvas-auth.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
@@ -22,6 +23,8 @@ const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '
   .find((p): p is string => Boolean(p) && existsSync(p!));
 
 type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void; createShape: (s: unknown) => void; createBindings: (b: unknown[]) => void; getBindingsToShape: (id: string, type: string) => unknown[]; getShapePageBounds: (id: string) => { x: number; y: number; w: number; h: number } | undefined; getCurrentPageShapes: () => Array<{ id: string; type: string; props: Record<string, unknown> }>; licenseManager?: { state: { get: () => string }; isDevelopment: boolean } }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string; handles: () => unknown[] } };
+/** RIVE CONTRACT v2: which file is SERVED (CONTRACT.json beside it) — the reads of its runs and artboards follow that file, never a guess. */
+const SERVED_V2 = (JSON.parse(readFileSync(join(riveAssetsDir(), 'timmy-ui', 'CONTRACT.json'), 'utf8')) as { asset: { contractOfTheServedFile: number } }).asset.contractOfTheServedFile >= 2;
 /** The capture of the welcome shape at 100 %: written beside the report when H174_CAPS names that folder, else skipped. */
 const CAP_DIR = process.env.H174_CAPS || '';
 const CAP_WELCOME = CAP_DIR ? join(CAP_DIR, 'studio-welcome-face-100pct.png') : '';
@@ -52,26 +55,35 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
     rmSync(root, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
-  async function open(): Promise<{ page: Page; context: BrowserContext; errors: string[] }> {
+  async function open(): Promise<{ page: Page; context: BrowserContext; errors: string[]; failed: string[] }> {
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     const errors: string[] = [];
+    // every request this page makes that fails or answers ≥ 400 — status, method and the exact URL (the 404 after placeRive
+    // reported in round 6 is traced here to its URL and asker, not guessed)
+    const failed: string[] = [];
+    page.on('response', (r) => { if (r.status() >= 400) failed.push(`${r.status()} ${r.request().method()} ${r.url()} (asked by ${r.request().resourceType()})`); });
+    page.on('requestfailed', (r) => failed.push(`FAILED ${r.method()} ${r.url()} (${r.failure()?.errorText ?? '?'})`));
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('crash', () => errors.push('the page CRASHED (the renderer died)'));
     page.on('framenavigated', (f) => { if (f === page.mainFrame() && !/#code=/.test(f.url()) && navigations.push(f.url()) > 1) errors.push(`the page navigated again: ${f.url()}`); });
     const navigations: string[] = [];
     await page.goto(`${base}/#code=${await grant(port(), server!.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-    return { page, context, errors };
+    return { page, context, errors, failed };
   }
   const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 
   it('places a connection shape: ProviderCard drawn by the runtime beside the state word, selected (→ Hover) and expanded from tldraw, FAKE backend words kept with the board (checking → State 1; connected → State 0, no success pose)', async () => {
-    const { page, context, errors } = await open();
+    const { page, context, errors, failed } = await open();
     try {
+      const failedBefore = failed.length;
       const id = await page.evaluate(() => (window as unknown as Win).timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local' }));
       expect(typeof id).toBe('string');
       await page.waitForSelector('[data-timmy-rive-shape][data-component="connection"]', { timeout: 20_000 });
+      await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().some((x) => x.component === 'connection:ollama-local' && x.state !== 'loading'), null, { timeout: 30_000 });
+      // the round-6 finding "a 404 after placeRive": no request this placing makes fails or answers ≥ 400 (the URLs otherwise)
+      expect(failed.slice(failedBefore), 'requests failing after placeRive').toEqual([]);
       const shape = page.locator('[data-timmy-rive-shape][data-component="connection"]');
       expect(await shape.getAttribute('data-state')).toBe('disconnected');
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected');
@@ -85,7 +97,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       expect(info[0].component).toBe('connection:ollama-local');
       expect(info[0].state).toBe('drawn');
       expect(info[0].contract).toBe('TimmyUI');
-      expect(info[0].runtime.artboardNames).toEqual(['AgentConsole', 'ProviderCard', 'ActionButton']);
+      expect(info[0].runtime.artboardNames).toEqual(SERVED_V2 ? ['AgentConsole', 'ProviderCard', 'ActionButton', 'ActionButtonGlacier', 'AgentConsolePreview', 'ProviderCardPreview', 'ActionButtonPreview'] : ['AgentConsole', 'ProviderCard', 'ActionButton']);
       expect(info[0].runtime.stateMachineNames).toEqual(['TimmyUI']);
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-note]')).toBe('');
       const served = await page.evaluate(async () => ({ rt: (await fetch('/vendor/rive/rive.js')).status, list: await (await fetch('/api/rive/assets')).json() }));
@@ -151,8 +163,9 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       expect(box!.height).toBeGreaterThanOrEqual(60);
       expect(Math.abs(box!.width / box!.height - 240 / 72)).toBeLessThan(0.15);
       await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().find((x) => x.component === 'welcome')!.state === 'drawn', null, { timeout: 20_000 });
-      const runs = await page.evaluate(() => { const R = (window as unknown as Win).TimmyRive; const hd = (R.handles() as Array<{ component: string; rive: { getTextRunValue: (n: string) => string | undefined } | null }>).find((x) => x.component === 'welcome')!; return { idle: hd.rive!.getTextRunValue('Connect provider'), arrow: hd.rive!.getTextRunValue('→') }; });
-      expect(runs).toEqual({ idle: 'Welcome / guide', arrow: '→' });
+      // the face's own label run: v2's Caption (one run, the shape's label); v1's baked Idle label overwritten
+      const runs = await page.evaluate((v2) => { const R = (window as unknown as Win).TimmyRive; const hd = (R.handles() as Array<{ component: string; rive: { getTextRunValue: (n: string) => string | undefined } | null }>).find((x) => x.component === 'welcome')!; return v2 ? { caption: hd.rive!.getTextRunValue('Caption') } : { idle: hd.rive!.getTextRunValue('Connect provider'), arrow: hd.rive!.getTextRunValue('→') }; }, SERVED_V2);
+      expect(runs).toEqual(SERVED_V2 ? { caption: 'Welcome / guide' } : { idle: 'Welcome / guide', arrow: '→' });
       const wider = await page.evaluate(() => { const W = window as unknown as Win & { timmyCanvas: { editor: { getCurrentPageShapes: () => Array<{ id: string; type: string; props: { component?: string; w: number; h: number } }>; updateShape: (s: { id: string; type: string; props: { w: number } }) => unknown } } }; const ed = W.timmyCanvas.editor; const sh = ed.getCurrentPageShapes().find((x) => x.type === 'timmy-rive' && x.props.component === 'welcome')!; ed.updateShape({ id: sh.id, type: sh.type, props: { w: sh.props.w * 1.5 } }); return sh.props.w * 1.5; });
       await page.waitForTimeout(250);
       const box2 = await face.boundingBox();

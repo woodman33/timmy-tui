@@ -1,0 +1,10 @@
+rive inspect of timmy-ui.riv (build of 4e8d4905, Rive CLI 1.1.1) — a summary of INSPECT.json (903 KB, kept beside the review material, not in the repo)
+schema 1; default artboard AgentConsole; 7 artboards:
+  AgentConsole: 640×380, x 0, y 0, defaultStateMachineId 0:13
+  ProviderCard: 400×260, x 0, y 0, defaultStateMachineId 0:100
+  ActionButton: 240×72, x 0, y 0, defaultStateMachineId 0:183
+  ActionButtonGlacier: 240×72, x 0, y 0, defaultStateMachineId 0:231
+  AgentConsolePreview: 640×380, x 0, y 0, defaultStateMachineId 0:279
+  ProviderCardPreview: 400×260, x 0, y 0, defaultStateMachineId 0:369
+  ActionButtonPreview: 240×72, x 0, y 0, defaultStateMachineId 0:455
+problems: 21 — 21× warning artboards-overlap

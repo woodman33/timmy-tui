@@ -85,26 +85,45 @@
    * README names it for the source.
    */
   const RUNS = Object.freeze({
+    // v1 (the round-5 build): the baked runs the runtime overwrites, and the pill it scales away
     caption: 'PREVIEW  /  NOT A LIVE JOB',   // AgentConsole, ProviderCard
     inspect: 'Inspect interaction',           // AgentConsole, ProviderCard: the baked face button, meaningless here → ''
     actionIdle: 'Connect provider',           // ActionButton: its Idle label → the button's own label
     provider: 'OpenRouter  ·  Ollama  ·  Cloudflare', // ProviderCard ×5 under one name: not addressable (left as baked)
     pill: 'Primary action',                   // AgentConsole, ProviderCard: the amber pill under "Inspect interaction" (a Shape; the listener's hit area)
+    // v2 (RIVE CONTRACT v2, CONTRACT.json): one name each, the page's words
+    v2: Object.freeze({ caption: 'Caption', tag: 'Tag', title: 'Title', providerName: 'ProviderName', providerState: 'ProviderState', providerDetail: 'ProviderDetail' }),
   });
   const CAPTION = Object.freeze({
     preview: 'PREVIEW  /  NOT A LIVE JOB',
     activity: 'LIVE  /  THE TURN’S EVENTS',
     connection: 'LIVE  /  GET /api/connections',
   });
+  /** The provider's own words on a card (the id → its name), unless the page gave them (mountProviderCard's providerName). */
+  const PROVIDER_NAMES = Object.freeze({ openrouter: 'OpenRouter', 'ollama-local': 'Ollama · local', 'ollama-cloud': 'Ollama · cloud', cloudflare: 'Cloudflare' });
+  const providerNameOf = (id) => PROVIDER_NAMES[id] || String(id || '');
   /** The caption a face should carry now: the last state event's source decides (a preview says PREVIEW, a feed says LIVE). */
   function captionOf(handle) {
-    if (handle.artboard !== 'AgentConsole' && handle.artboard !== 'ProviderCard') return null;
+    if (!/^(AgentConsole|ProviderCard)/.test(handle.artboard || '')) return null;
     if (handle.stateSource === 'preview') return CAPTION.preview;
     if (handle.stateSource === 'fed') return handle.binds.some((b) => b.startsWith('connection')) ? CAPTION.connection : CAPTION.activity;
     if (handle.caption) return handle.caption;
     return handle.binds.some((b) => b.startsWith('connection')) ? CAPTION.connection : handle.binds.includes('activity') ? CAPTION.activity : CAPTION.preview;
   }
-  /** Writes the runs on a drawn handle and records what each reads back (handle.runs, for the Inspect view and the tests). */
+  /** The identity words a console's Tag carries: the turn the feed named (and the project / session the mount was given). */
+  function tagOf(handle) {
+    const id = handle.identity || {};
+    const parts = [];
+    if (id.turn) parts.push(`turn ${id.turn}`);
+    if (id.project) parts.push(`project ${id.project}`);
+    else if (id.session) parts.push(`session ${id.session}`);
+    return parts.length ? parts.join(' · ') : null;
+  }
+  /**
+   * Writes the runs on a drawn handle and records what each reads back (handle.runs, for the Inspect view and the tests). The
+   * file's contract is read from the artboard itself: a `Caption` run = v2 (CONTRACT.json; the words go to their named runs); none
+   * = the round-5 v1 build, whose baked PREVIEW caption and "Inspect interaction" pill are overwritten / scaled away here.
+   */
   function applyRuns(handle) {
     const r = handle.rive;
     if (!r || !r.artboard) return;
@@ -117,8 +136,26 @@
       try { reads = run.text; } catch (e) { reads = undefined; }
       return { name, set: value, reads };
     };
+    const has = (name) => { try { return Boolean(r.artboard.textRun(name)); } catch (e) { return false; } };
     const runs = {};
-    if (handle.artboard === 'AgentConsole' || handle.artboard === 'ProviderCard') {
+    const v2 = has(RUNS.v2.caption);
+    handle.contract = v2 ? 2 : 1;
+    const art = handle.artboard || '';
+    if (v2) {
+      if (/^(AgentConsole|ProviderCard)/.test(art)) {
+        // a preview artboard keeps its baked PREVIEW caption; a production one carries the source of its state
+        runs.caption = put(RUNS.v2.caption, /Preview$/.test(art) ? null : captionOf(handle));
+        const tag = tagOf(handle);
+        runs.tag = put(RUNS.v2.tag, tag);
+        if (/^ProviderCard/.test(art)) {
+          runs.providerName = put(RUNS.v2.providerName, typeof handle.providerName === 'string' ? handle.providerName : providerNameOf(handle.providerId));
+          runs.providerState = put(RUNS.v2.providerState, handle.binds.some((b) => b.startsWith('connection')) ? (handle.word || '') : null);
+          runs.providerDetail = put(RUNS.v2.providerDetail, typeof handle.providerDetail === 'string' ? handle.providerDetail : null);
+        }
+      } else if (/^ActionButton/.test(art)) {
+        runs.caption = put(RUNS.v2.caption, /Preview$/.test(art) ? null : (typeof handle.faceLabel === 'string' ? handle.faceLabel : (handle.word || '')));
+      }
+    } else if (art === 'AgentConsole' || art === 'ProviderCard') {
       runs.caption = put(RUNS.caption, captionOf(handle));
       runs.inspect = put(RUNS.inspect, '');
       // the baked amber pill under that text (the Shape "Primary action", the listener's hit area) is a control that means
@@ -127,8 +164,8 @@
       try { pill = r.artboard.node(RUNS.pill) || null; } catch (e) { pill = null; }
       if (pill) { try { pill.scaleX = 0; pill.scaleY = 0; } catch (e) { pill = null; } }
       runs.pill = { name: RUNS.pill, hidden: Boolean(pill), note: pill ? 'scaled to 0 by the runtime (artboard.node)' : 'not reachable through the runtime: drawn as baked' };
-      if (handle.artboard === 'ProviderCard') runs.provider = { name: RUNS.provider, set: null, reads: put(RUNS.provider, null).reads, note: 'five runs share this name (one per state group): the runtime addresses one; left as baked — the source must name them apart' };
-    } else if (handle.artboard === 'ActionButton') {
+      if (art === 'ProviderCard') runs.provider = { name: RUNS.provider, set: null, reads: put(RUNS.provider, null).reads, note: 'five runs share this name (one per state group): the runtime addresses one; left as baked — the v2 source names them apart' };
+    } else if (art === 'ActionButton') {
       runs.actionIdle = put(RUNS.actionIdle, typeof handle.faceLabel === 'string' ? handle.faceLabel : (handle.word || ''));
     }
     handle.runs = runs;
@@ -180,19 +217,30 @@
   /** The fetch the page gives (TimmyShell.fetch carries the launch token + session); plain fetch for the assets, which need none. */
   const plainFetch = (url) => (typeof fetch === 'function' ? fetch(url, { cache: 'no-store', credentials: 'omit' }) : Promise.reject(new Error('no fetch')));
 
-  /** GET /assets/mark.json once: whether the companion serves the runtime, and its words for a page without the animation. */
+  /**
+   * The T mark's facts once: from the listing (GET /api/rive/assets carries `mark` since R11 round 7, on the companion and the
+   * Studio alike), else GET /assets/mark.json (the companion's; an older server). The Studio serves no /assets/mark.json: asking
+   * it first was the 404 after every placeRive (traced in studio-rive-shape-browser), so it is asked only when no listing answers.
+   */
   function askWords() {
     if (wordsAsked) return wordsAsked;
-    wordsAsked = plainFetch(WORDS_PATH).then(async (r) => {
-      const b = r.status === 200 ? await r.json().catch(() => null) : null;
-      words = b && typeof b === 'object' ? { mark: b.mark === true, runtime: b.runtime === true, words: typeof b.words === 'string' ? b.words : FALLBACK_WORDS } : { mark: false, runtime: false, words: FALLBACK_WORDS };
-      return words;
-    }).catch(() => { words = { mark: false, runtime: false, words: FALLBACK_WORDS }; return words; });
+    const read = (b) => ({ mark: b.mark === true, runtime: b.runtime === true, words: typeof b.words === 'string' ? b.words : FALLBACK_WORDS });
+    const none = { mark: false, runtime: false, words: FALLBACK_WORDS };
+    wordsAsked = listing().then((l) => {
+      if (l.answered && l.mark) { words = { mark: l.mark.riv === true, runtime: l.runtime, words: typeof l.mark.words === 'string' ? l.mark.words : FALLBACK_WORDS }; return words; }
+      if (l.answered) { words = { mark: false, runtime: l.runtime, words: FALLBACK_WORDS }; return words; }
+      return plainFetch(WORDS_PATH).then(async (r) => {
+        const b = r.status === 200 ? await r.json().catch(() => null) : null;
+        words = b && typeof b === 'object' ? read(b) : none;
+        return words;
+      }).catch(() => { words = none; return words; });
+    });
     return wordsAsked;
   }
 
   let runtimeWhy = '';
   let listingAsked = null;
+  let listingInfo = null; // the served native file's facts from the listing (contract, artboards, previewArtboards, runs)
   /**
    * GET /api/rive/assets (through the shell's fetch, which carries the launch token, on the companion; plain on the Studio, whose
    * listing is open): whether any component has its .riv, and whether that server serves the runtime (the Studio has no
@@ -203,8 +251,14 @@
     const f = W.TimmyShell && typeof W.TimmyShell.fetch === 'function' ? W.TimmyShell.fetch.bind(W.TimmyShell) : (typeof companion !== 'undefined' && companion && companion.fetch ? companion.fetch : plainFetch);
     listingAsked = f(LISTING_PATH).then(async (r) => {
       const b = r.status === 200 ? await r.json().catch(() => null) : null;
-      return { any: Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: Boolean(b && b.runtime === true) };
-    }).catch(() => ({ any: false, runtime: false }));
+      const native = b && Array.isArray(b.components) ? b.components.find((c) => c && c.component === 'timmy-ui') : null;
+      const meta = native && native.meta && typeof native.meta === 'object' ? native.meta : {};
+      // what the SERVED native file is (CONTRACT.json beside it, read by the server as meta.served — the source's rive.yaml may be
+      // a contract ahead of the compiled file): the contract, its artboards, its preview artboards
+      const served = meta.served && typeof meta.served === 'object' ? meta.served : { contract: 1, artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], previewArtboards: [] };
+      listingInfo = { contract: Number(served.contract) || 1, artboards: Array.isArray(served.artboards) ? served.artboards : [], previewArtboards: Array.isArray(served.previewArtboards) ? served.previewArtboards : [], sourceContract: Number(meta.contract) || 1, runs: meta.runs && typeof meta.runs === 'object' ? meta.runs : {} };
+      return { answered: Boolean(b && b.ok === true), any: Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: Boolean(b && b.runtime === true), mark: b && b.mark && typeof b.mark === 'object' ? b.mark : null };
+    }).catch(() => ({ answered: false, any: false, runtime: false, mark: null }));
     return listingAsked;
   }
 
@@ -353,7 +407,10 @@
       canvas, rive: null, state: 'loading', why: '', still: still(), values: {}, events: [], label: o.label || null, root: o.root || null, fallback: o.fallback || null,
       binds: Array.isArray(o.binds) ? o.binds.slice() : [], word: o.word || 'idle', sources: Array.isArray(o.sources) ? o.sources : [],
       hostEl: o.hostEl || null, caption: typeof o.caption === 'string' ? o.caption : null, faceLabel: typeof o.faceLabel === 'string' ? o.faceLabel : null,
-      stateSource: null, fedState: undefined, restored: 0, runs: null,
+      stateSource: null, fedState: undefined, restored: 0, runs: null, contract: null,
+      identity: o.identity && typeof o.identity === 'object' ? { ...o.identity } : null, receipt: null, stale: 0,
+      providerId: o.providerId || null, providerName: typeof o.providerName === 'string' ? o.providerName : null, providerDetail: typeof o.providerDetail === 'string' ? o.providerDetail : null,
+      artboardPick: { preview: Boolean(o.preview), theme: o.theme },
     };
     // on the list BEFORE anything of it can emit (applySeen below): a re-entered component() for the same host finds it
     handles.push(handle);
@@ -371,6 +428,10 @@
     runtime().then((rv) => {
       if (!rv) { toWords(runtimeWhy || 'the companion serves no Rive runtime'); return; }
       const patience = setTimeout(() => { if (handle.state === 'loading') toWords(`the file did not load within ${LOAD_PATIENCE_MS / 1000} s`); }, LOAD_PATIENCE_MS);
+      // the listing has answered by now (runtime() waits for it): the served file's own artboard for this face (a v2 file's
+      // preview variant for the Inspect view, its Glacier button for that theme; a v1 file's three)
+      if (handle.artboard) handle.artboard = artboardFor(handle.artboard, handle.artboardPick);
+      if (handle.root && handle.artboard) handle.root.dataset.riveArtboard = handle.artboard; // (data-artboard stays the base name: the CSS keys on it)
       try {
         // (an asset with a native ReducedMotion input keeps playing so its zero-duration transitions settle each pose; the
         // runtime is paused only for an asset without one: see onLoad)
@@ -475,7 +536,7 @@
     handle.place = place;
     handle.size = o.size || 'card';
     if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
-    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } if (handle.artboard === 'ActionButton') { handle.faceLabel = String(words); if (handle.rive) applyRuns(handle); } };
+    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } if (/^ActionButton/.test(handle.artboard || '')) { handle.faceLabel = String(words); if (handle.rive) applyRuns(handle); } };
     handle.unmount = () => {
       try { if (handle.observer) handle.observer.disconnect(); } catch (e) { /* gone */ }
       try { if (handle.rive) { handle.rive.cleanup(); handle.rive = null; } } catch (e) { /* gone */ }
@@ -496,10 +557,14 @@
    */
   function mountConsole(host, o = {}) {
     const handle = component({
-      host, component: o.name || 'console', asset: NATIVE_ASSET, artboard: 'AgentConsole', stateMachine: TIMMY_UI.stateMachine, role: 'img',
+      host, component: o.name || 'console', asset: NATIVE_ASSET, artboard: 'AgentConsole', stateMachine: TIMMY_UI.stateMachine, role: 'img', theme: o.theme,
       label: o.label || 'Agent activity', heading: o.heading === undefined ? 'AGENT ACTIVITY' : o.heading, text: ARTBOARD.AgentConsole.text, binds: ['activity'], word: o.word || 'idle', size: o.size,
+      caption: typeof o.caption === 'string' ? o.caption : undefined, identity: o.identity,
     });
-    return finishMount(handle, o, o.place || 'chat');
+    finishMount(handle, o, o.place || 'chat');
+    /** The feed's identity this console follows (project / session from the screen; the turn from the 'turn' event). */
+    handle.setIdentity = (id) => { handle.identity = { ...(handle.identity || {}), ...(id || {}) }; if (handle.rive) applyRuns(handle); };
+    return handle;
   }
 
   /**
@@ -510,11 +575,15 @@
   function mountProviderCard(host, providerId, o = {}) {
     const id = String(providerId || '');
     const handle = component({
-      host, component: o.name || `provider:${id}`, asset: NATIVE_ASSET, artboard: 'ProviderCard', stateMachine: TIMMY_UI.stateMachine, role: 'img',
+      host, component: o.name || `provider:${id}`, asset: NATIVE_ASSET, artboard: 'ProviderCard', stateMachine: TIMMY_UI.stateMachine, role: 'img', theme: o.theme,
       label: o.label || `Connection to ${id}`, heading: o.heading === undefined ? null : o.heading, text: ARTBOARD.ProviderCard.text, binds: [`connection:${id}`], word: o.word || 'disconnected', size: o.size,
+      caption: typeof o.caption === 'string' ? o.caption : undefined, providerId: id, providerName: typeof o.providerName === 'string' ? o.providerName : undefined, providerDetail: typeof o.detail === 'string' ? o.detail : undefined,
     });
     handle.provider = id;
-    return finishMount(handle, o, o.place || 'connections');
+    finishMount(handle, o, o.place || 'connections');
+    /** The card's own words on its face (v2: the ProviderName / ProviderDetail runs): the screen's title and one line. */
+    handle.setProvider = (w) => { if (w && typeof w.name === 'string') handle.providerName = w.name; if (w && typeof w.detail === 'string') handle.providerDetail = w.detail; if (handle.rive) applyRuns(handle); };
+    return handle;
   }
 
   /**
@@ -526,7 +595,7 @@
   function mountActionButton(host, o = {}) {
     const words = String(o.label || 'Action');
     const handle = component({
-      host, component: o.name || 'action', asset: NATIVE_ASSET, artboard: 'ActionButton', stateMachine: TIMMY_UI.stateMachine, role: 'button',
+      host, component: o.name || 'action', asset: NATIVE_ASSET, artboard: 'ActionButton', stateMachine: TIMMY_UI.stateMachine, role: 'button', theme: o.theme,
       label: words, heading: o.heading === undefined ? null : o.heading, text: o.text || words, binds: [], word: words, size: o.size,
       triggerInput: 'welcome',
       // the screen's own action gets the person's DOM event (trusted; the binding event is recorded on the handle)
@@ -547,6 +616,25 @@
 
   /** Every handle bound to `bind` ('connection:<id>' or 'activity'). */
   const bound = (bind) => handles.filter((x) => x.binds.includes(bind));
+
+  /** The page's theme family ('amber' | 'glacier'; H175's data-theme on <html>, else amber). */
+  function themeOf(o) {
+    if (o && (o.theme === 'glacier' || o.theme === 'amber')) return o.theme;
+    try { const t = document.documentElement.dataset.theme; return t === 'glacier' ? 'glacier' : 'amber'; } catch (e) { return 'amber'; }
+  }
+  /**
+   * The artboard a mount asks the SERVED file for: the listing says which contract the file is (its rive.yaml `contract`, read by
+   * rive-assets.ts) and which artboards it has; a v2 file offers ActionButtonGlacier for the Glacier theme and the preview
+   * variants for the Inspect view; a v1 file has the three production artboards only.
+   */
+  function artboardFor(base, o = {}) {
+    const l = listingInfo || {};
+    const boards = Array.isArray(l.artboards) ? l.artboards : [];
+    const previews = Array.isArray(l.previewArtboards) ? l.previewArtboards : [];
+    if (o.preview && previews.includes(`${base}Preview`)) return `${base}Preview`;
+    if (base === 'ActionButton' && themeOf(o) === 'glacier' && boards.includes('ActionButtonGlacier')) return 'ActionButtonGlacier';
+    return base;
+  }
 
   /** H170's providerStates word → the connection vocabulary. */
   function connectionWordOf(stateWord) {
@@ -585,12 +673,45 @@
     lastSeen.activity = { word, source: src };
     return bound('activity').map((x) => set(x, 'activity', word, src));
   }
+  /**
+   * The turn feed's identity (R11 round 7): a 'turn' event names the current turn (data.id); a 'needs-you' or 'done' that names
+   * ANOTHER turn (data.turn) is stale — recorded on every console as such, never applied; 'done' attaches its receipt (data.receipt)
+   * to the consoles and the feed. A later 'turn' starts the next turn. The identity and the receipt show in the Inspect view.
+   */
+  const feed = { turn: null, receipt: null, stale: 0 };
   function fromSse(event, data, source) {
+    const src = source || `SSE ${event}${data && data.status ? ` (${data.status})` : ''}`;
+    const named = data && typeof data === 'object' ? (event === 'turn' ? data.id : data.turn) : null;
+    if (event === 'turn' && typeof named === 'string' && named) {
+      feed.turn = named; feed.receipt = null;
+      for (const x of bound('activity')) { x.identity = { ...(x.identity || {}), turn: named }; x.receipt = null; if (x.rive) applyRuns(x); }
+    } else if ((event === 'needs-you' || event === 'done') && typeof named === 'string' && named && feed.turn && named !== feed.turn) {
+      // another turn's event (a late stream, a reconnect's replay): ignored, said
+      feed.stale += 1;
+      for (const x of bound('activity')) { x.stale = (x.stale || 0) + 1; x.events.push({ input: 'activity', value: null, at: now(), source: src, did: `ignored: names turn ${named}, this console follows turn ${feed.turn}`, native: null, stale: true }); if (x.events.length > MAX_EVENTS) x.events.splice(0, x.events.length - MAX_EVENTS); }
+      return [];
+    }
+    if (event === 'done' && data && typeof data === 'object' && data.receipt) {
+      const receipt = typeof data.receipt === 'string' ? data.receipt : (data.receipt && typeof data.receipt === 'object' && (data.receipt.id || data.receipt.hash)) || null;
+      if (receipt) { feed.receipt = receipt; for (const x of bound('activity')) x.receipt = receipt; }
+    }
     const word = activityWordOf(event, data);
     if (!word) return [];
-    return feedActivity(word, source || `SSE ${event}${data && data.status ? ` (${data.status})` : ''}`);
+    return feedActivity(word, src);
   }
+  /** STOP REQUESTED: the word 'stopping' (State 1: the turn still runs) until the backend's 'done' says cancelled → stopped. */
   const stopping = (source) => feedActivity('stopping', source || 'POST /api/chat/stop');
+  /**
+   * After a reconnect the screen re-reads the turn's state and applies it here: a word of the activity vocabulary for the turn
+   * named (another turn's is ignored, said); the source names the read (e.g. 'GET /api/chat/turn/<id>').
+   */
+  function reconcile(word, o = {}) {
+    const w = String(word || '');
+    if (!VOCAB.activity.includes(w)) return [];
+    if (o.turn && feed.turn && o.turn !== feed.turn) { feed.stale += 1; return []; }
+    if (o.turn && !feed.turn) { feed.turn = o.turn; for (const x of bound('activity')) { x.identity = { ...(x.identity || {}), turn: o.turn }; if (x.rive) applyRuns(x); } }
+    return feedActivity(w, o.source || 'reconciled after a reconnect');
+  }
 
   /**
    * The vocabularies derived from what the screens draw, until their owners feed the events themselves: H170's cards carry
@@ -675,6 +796,7 @@
       word: x.word, values: { ...x.values }, binds: x.binds.slice(), events: x.events.slice(), runtime: report(x), sources: x.sources.slice(),
       nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null, place: x.place || 'inspect', disabled: Boolean(x.disabled),
       runs: x.runs ? JSON.parse(JSON.stringify(x.runs)) : null, stateSource: x.stateSource, fedState: x.fedState, restored: x.restored || 0,
+      fileContract: x.contract, identity: x.identity ? { ...x.identity } : null, receipt: x.receipt || null, stale: x.stale || 0,
     }));
   }
 
@@ -682,8 +804,9 @@
   const preview = (handle, input, value) => set(handle, input, value, 'PREVIEW — not an execution, no progress, no receipt');
 
   W.TimmyRive = Object.freeze({
-    VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, RUNS, CAPTION, nativeOf,
-    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf, absentWords,
+    VERSION: 'r11-r7', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, RUNS, CAPTION, nativeOf,
+    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, reconcile, watchPage, connectionWordOf, activityWordOf, absentWords, providerNameOf, themeOf,
+    feed: () => ({ ...feed }), served: () => (listingInfo ? JSON.parse(JSON.stringify(listingInfo)) : null),
     mountConsole, mountProviderCard, mountActionButton, NATIVE_ASSET, ARTBOARD,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     reducedMotion: still,

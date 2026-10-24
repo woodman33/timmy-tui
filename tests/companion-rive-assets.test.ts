@@ -8,12 +8,13 @@
  * FAKE; nothing is compiled) exercises the with-.riv branch in a temp folder.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { MARK_ABSENT, markDir } from '../src/companion/page.js';
 import { listRiveComponents, mountRiveAssets, readRiveMeta, RIVE_ASSET_ABSENT, RIVE_COMPONENT_ABSENT, RIVE_NO_RIV, RIVE_WITH_RIV, riveAssetsDir, riveRuntimeHere } from '../src/companion/rive-assets.js';
 
 function raw(port: number, path: string, headers: Record<string, string> = {}): Promise<{ status: number; type: string; body: string }> {
@@ -34,6 +35,7 @@ const listen = (app: express.Express): Promise<{ server: Server; port: number }>
 
 describe('the Rive components\' assets (R11 round 5, H174)', () => {
   let temp = '';
+  let markTemp = '';
   let fake: { server: Server; port: number };
   let repo: { server: Server; port: number };
   const FAKE_RIV = Buffer.from('FAKE .riv bytes written by tests/companion-rive-assets.test.ts: not a compiled Rive file');
@@ -50,7 +52,10 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     // the listing behind a guard: a header the test's guard asks for
     const guarded = express();
     const withToken: express.RequestHandler = (req, res, next) => { if (req.headers.authorization === 'Bearer test-token') next(); else res.status(401).json({ ok: false, error: 'the test\'s guard refused' }); };
-    mountRiveAssets(guarded, { withToken, dir: temp });
+    // the T mark's facts travel with the listing (a FAKE mark folder with the file; the companion's own folder on `own`)
+    const markTemp = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'h174-rive-mark-')); // outside the components' folder
+    writeFileSync(join(markTemp, 'timmy-mark.riv'), FAKE_RIV);
+    mountRiveAssets(guarded, { withToken, dir: temp, markDir: markTemp });
     guarded.use((_req, res) => { res.status(404).type('text/plain').send('nothing here'); });
     fake = await listen(guarded);
     const own = express();
@@ -80,6 +85,10 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     expect(w.meta).toEqual({ name: 'welcome', artboard: 'TimmyWelcome', stateMachine: 'Welcome', inputs: ['welcome', 'selected', 'expanded'] });
     expect(w.words).toBe(RIVE_WITH_RIV);
     expect(r.body).not.toContain(temp);
+    // R11 round 7: the mark's facts in the listing — the Studio serves no /assets/mark.json, and asking it was the 404 after placeRive
+    expect(b.mark).toEqual({ riv: true, words: 'The T mark is drawn by its Rive file.' });
+    const ownListing = JSON.parse((await raw(repo.port, '/api/rive/assets')).body);
+    expect(ownListing.mark).toEqual({ riv: existsSync(join(markDir(), 'timmy-mark.riv')), words: existsSync(join(markDir(), 'timmy-mark.riv')) ? 'The T mark is drawn by its Rive file.' : MARK_ABSENT });
   });
 
   it('serves a component\'s files by exact name with their types; 404 in words for a missing file or component; nothing for a path, a dot segment or another extension', async () => {
@@ -115,13 +124,29 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     const b = JSON.parse(r.body);
     expect(b.components.map((c: { component: string }) => c.component)).toEqual(['activity', 'connection', 'timmy-ui', 'welcome']);
     const native = b.components.find((c: { component: string }) => c.component === 'timmy-ui');
-    expect(native.riv).toEqual({ name: 'timmy-ui.riv', bytes: 405278, sha256: '9fd9ae7c0981' });
-    expect(native.sources).toEqual(['OFL.txt', 'README.md', 'create-controls.py', 'rive.yaml', 'scene.rml']); // Montserrat.ttf is kept, not served
-    expect(native.meta).toMatchObject({ artboard: 'AgentConsole', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] });
+    // the served .riv is the one CONTRACT.json names (v1's round-5 build until the v2 build lands: its sha256 and bytes there)
+    const contract = JSON.parse(readFileSync(join(riveAssetsDir(), 'timmy-ui', 'CONTRACT.json'), 'utf8'));
+    expect(contract.version).toBe(2);
+    expect(native.riv).toEqual({ name: 'timmy-ui.riv', bytes: contract.asset.bytes, sha256: String(contract.asset.sha256).slice(0, 12) });
+    // (Outfit.ttf is kept, not served; OFL.txt is v1's licence, kept while the packaging allowlist names it)
+    expect(native.sources).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'OFL.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'problems.log', 'rive.log', 'rive.yaml', 'scene.rml']);
+    // RIVE CONTRACT v2's meta (CONTRACT.json's `meta` block — rive.yaml is the CLI's four-line one): the four production artboards, the
+    // three preview artboards, the font, the runs per artboard
+    expect(native.meta).toMatchObject({ artboard: 'AgentConsole', contract: '2', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton', 'ActionButtonGlacier'], previewArtboards: ['AgentConsolePreview', 'ProviderCardPreview', 'ActionButtonPreview'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'], font: 'Outfit.ttf' });
+    expect(native.meta.runs).toEqual({ AgentConsole: ['Title', 'Tag', 'Caption'], ProviderCard: ['Title', 'Tag', 'Caption', 'ProviderName', 'ProviderState', 'ProviderDetail'], ActionButton: ['Caption'], ActionButtonGlacier: ['Caption'] });
+    // what the SERVED file is (CONTRACT.json): a page asks it for its own artboards — v1's three until the v2 build lands
+    const servedContract = Number(contract.asset.contractOfTheServedFile);
+    expect(native.meta.served).toEqual(servedContract >= 2
+      ? { contract: servedContract, artboards: native.meta.artboards, previewArtboards: native.meta.previewArtboards, sha256: contract.asset.sha256 }
+      : { contract: 1, artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], previewArtboards: [], sha256: contract.asset.sha256 });
     expect(native.words).toBe(RIVE_WITH_RIV);
-    const ttf = await raw(repo.port, '/assets/rive/timmy-ui/Montserrat.ttf');
+    const ttf = await raw(repo.port, '/assets/rive/timmy-ui/Outfit.ttf');
     expect(ttf.status).toBe(404);
     expect(ttf.body).toBe('nothing here');
+    const contractServed = await raw(repo.port, '/assets/rive/timmy-ui/CONTRACT.json');
+    expect(contractServed.status).toBe(200);
+    expect(contractServed.type).toMatch(/application\/json/);
+    expect(JSON.parse(contractServed.body).version).toBe(2);
     const nativeRiv = await raw(repo.port, '/assets/rive/timmy-ui/timmy-ui.riv');
     expect(nativeRiv.status).toBe(200);
     expect(nativeRiv.type).toContain('application/octet-stream');
