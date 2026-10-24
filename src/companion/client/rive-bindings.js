@@ -303,6 +303,7 @@
   function fromProviderState(id, stateWord, source) {
     const word = connectionWordOf(stateWord);
     const src = source || `GET /api/connections: ${id} "${stateWord}"`;
+    lastSeen[`connection:${id}`] = { word, source: src };
     const out = [];
     for (const x of bound(`connection:${id}`)) out.push(set(x, 'connection', word, src));
     for (const x of bound('connection')) out.push(set(x, 'connection', word, src));
@@ -317,13 +318,23 @@
     if (event === 'done') { const s = data && data.status; return s === 'cancelled' ? 'stopped' : s === 'failed' ? 'failed' : 'idle'; }
     return null;
   }
+  /**
+   * Whether the page's own code has FED the activity (H171's chat-shell.js: TimmyRive.fromSse per SSE event of POST /api/chat/turn,
+   * TimmyRive.stopping on Stop): from then on the feed is the truth and the derivation (watchPage) steps back for the activity;
+   * on a page where the feed never spoke, the derivation stays the fallback. The Inspect view's events show which source set each state.
+   */
+  let activityFed = false;
+  function feedActivity(word, src) {
+    activityFed = true;
+    lastSeen.activity = { word, source: src };
+    return bound('activity').map((x) => set(x, 'activity', word, src));
+  }
   function fromSse(event, data, source) {
     const word = activityWordOf(event, data);
     if (!word) return [];
-    const src = source || `SSE ${event}${data && data.status ? ` (${data.status})` : ''}`;
-    return bound('activity').map((x) => set(x, 'activity', word, src));
+    return feedActivity(word, source || `SSE ${event}${data && data.status ? ` (${data.status})` : ''}`);
   }
-  const stopping = (source) => bound('activity').map((x) => set(x, 'activity', 'stopping', source || 'POST /api/chat/stop'));
+  const stopping = (source) => feedActivity('stopping', source || 'POST /api/chat/stop');
 
   /**
    * The vocabularies derived from what the screens draw, until their owners feed the events themselves: H170's cards carry
@@ -351,9 +362,10 @@
         if (seen[`c:${id}`] === st) continue;
         seen[`c:${id}`] = st;
         const source = `derived from the page's drawing of GET /api/connections: ${id} data-state="${st}"`;
-        lastSeen[`connection:${id}`] = { word: connectionWordOf(st), source };
         fromProviderState(id, st, source);
       }
+      // the activity: the feed's, once it spoke (H171's chat-shell.js); derived from the drawing only until then
+      if (activityFed) return;
       // the page's own turn in flight (#cx-own: li.cx-turn.is-timmy with its state class) comes first; the saved conversation's
       // turns (#cx-turns) carry no state class and say nothing of what runs now
       const own = [...document.querySelectorAll('#cx-own li.cx-turn.is-timmy')];
@@ -392,9 +404,10 @@
     watching.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state', 'class'] });
     // Stop: the composer's button while it reads Stop (#cx-send.is-stop: the page's own turn, or another surface's), by a trusted
     // click or the form's submit (Enter in the composer)
-    const stopPressed = (ev) => { if (!ev.isTrusted) return; const t = ev.target && ev.target.closest ? ev.target.closest('#cx-send.is-stop, [data-cx="stop"], [data-cx="stop-other"]') : null; if (t) stopping("derived from the page's Stop button (POST /api/chat/stop)"); };
+    const derivedStop = (source) => { if (activityFed) return; lastSeen.activity = { word: 'stopping', source }; for (const x of bound('activity')) set(x, 'activity', 'stopping', source); };
+    const stopPressed = (ev) => { if (!ev.isTrusted) return; const t = ev.target && ev.target.closest ? ev.target.closest('#cx-send.is-stop, [data-cx="stop"], [data-cx="stop-other"]') : null; if (t) derivedStop("derived from the page's Stop button (POST /api/chat/stop)"); };
     document.addEventListener('click', stopPressed, true);
-    document.addEventListener('submit', (ev) => { if (!ev.isTrusted) return; const f = ev.target; const b = f && f.querySelector ? f.querySelector('#cx-send.is-stop') : null; if (b) stopping("derived from the page's Stop (the composer submitted while it reads Stop; POST /api/chat/stop)"); }, true);
+    document.addEventListener('submit', (ev) => { if (!ev.isTrusted) return; const f = ev.target; const b = f && f.querySelector ? f.querySelector('#cx-send.is-stop') : null; if (b) derivedStop("derived from the page's Stop (the composer submitted while it reads Stop; POST /api/chat/stop)"); }, true);
     look();
     return watching;
   }
@@ -413,7 +426,7 @@
   W.TimmyRive = Object.freeze({
     VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS,
     component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf, absentWords,
-    words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
+    words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     reducedMotion: still,
     /** For a page that unloads: the runtimes let go. */
     cleanup: () => { for (const x of handles) { try { if (x.rive) x.rive.cleanup(); } catch (e) { /* gone */ } } },
