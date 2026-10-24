@@ -82,7 +82,10 @@ beforeAll(async () => {
   for (const k of ['TIMMY_STORE', 'OLLAMA_HOST', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete base[k];
   Object.assign(process.env, base);
   for (const k of ['TIMMY_STORE', 'OLLAMA_HOST', 'TIMMY_REPO', 'TIMMY_MCP_HOME', 'CLERK_JWT_KEY', 'CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY']) delete process.env[k];
-  if (browserPath) browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+  // no name but 127.0.0.1 resolves; and no proxy: a container's HTTPS_PROXY in the environment would carry the browser's
+  // requests out (Chromium reads it, --no-proxy-server notwithstanding — H173's finding, 21:22), so the variables are not handed down
+  const browserEnv = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && !/proxy/i.test(k))) as Record<string, string>;
+  if (browserPath) browser = await chromium.launch({ headless: true, executablePath: browserPath, env: browserEnv, args: ['--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
   unconfigured = await startCompanionServer(PORTS.unconfigured, { token: TOKEN, chatEnv: base, workspace: { env: base, shareMs: 0 } });
   const withIdentity = identity.env(base);
   Object.assign(process.env, { CLERK_JWT_KEY: withIdentity.CLERK_JWT_KEY, CLERK_PUBLISHABLE_KEY: withIdentity.CLERK_PUBLISHABLE_KEY });
