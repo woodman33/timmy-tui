@@ -259,11 +259,30 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(JSON.stringify(kept)).not.toMatch(/[0-9a-f]{64}|sk-or-/);
       expect(kept.origins.flatMap((o) => o.localStorage.map((e) => e.name)).sort()).toEqual(expect.arrayContaining(['timmy.shell.screen']));
       await context.close();
-      ({ context, page, errors } = await land(withRoute, { width: 1440, height: 900 }, kept));
+      ({ context, page, errors } = await openPage(browser, { origin: urlOf(withRoute) }, { width: 1440, height: 900 }, kept));
+      // R11 round 5 (the reopen's race, seen once as a 60 s wait for the project's name): companion.js opens the socket as it
+      // loads, before chat-shell.js is fetched; the socket's welcome can arrive in between, and only companion.js hears it.
+      // Here chat-shell.js is held back 1.5 s so the welcome ALWAYS comes first: the shell must still name the project (the
+      // frame it reads as soon as the socket is up, then the project companion.js already took), restore the draft by project
+      // and read the conversation — without waiting for a hello that was answered before it loaded
+      let welcomeAt = 0;
+      let shellAt = 0;
+      page.on('websocket', (ws) => ws.on('framereceived', (f) => { if (!welcomeAt && /"type":"welcome"/.test(String(f.payload))) welcomeAt = Date.now(); }));
+      await page.route('**/chat-shell.js', async (route) => { await new Promise((r) => setTimeout(r, 1500)); shellAt = Date.now(); await route.continue(); });
+      await page.goto(`${urlOf(withRoute)}/#t=${tokenOf(withRoute)}`);
+      await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
       // no identity provider: the landing rule opens the workspace (a remembered screen counts only when signed in)
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
-      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 60_000 });
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 15_000 });
+      expect(welcomeAt).toBeGreaterThan(0);
+      expect(shellAt).toBeGreaterThan(0);
+      expect(welcomeAt).toBeLessThan(shellAt); // (the race as staged: the welcome before the shell's script was served)
+      // the shell's own project (not only the rail's words): the welcome companion.js took is the shell's project too
+      // (`cx` is a top-level const of chat-shell.js: a global lexical binding, reached by its name)
+      // @ts-expect-error -- declared by the page's classic script
+      expect(await page.evaluate(() => (cx as { project: { name: string; id: string } | null }).project)).toMatchObject({ name: 'fresh', id: expect.stringMatching(/^[0-9a-f]{16}$/) });
+      expect(await text(page, '.cx-crumb')).toBe('fresh / Chat');
       await page.waitForFunction(() => (document.getElementById('cx-input') as HTMLTextAreaElement | null)?.value === 'A draft that survives the reopen.', null, { timeout: 10_000 });
       expect(await page.inputValue('#cx-input')).toBe('A draft that survives the reopen.');
       // Send (H169's POST /api/chat/turn) as this computer's operator (no identity provider here): the turn runs in the

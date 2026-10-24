@@ -741,8 +741,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     const project = projectFor(req);
     if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
     const { requestTurnStop, surfaceWords, TURN_ID } = await import('../agent/chat-turn.js');
-    const id = req.body && typeof req.body === 'object' ? (req.body as { turn?: unknown }).turn : undefined;
-    if (typeof id !== 'string' || !TURN_ID.test(id)) { res.status(400).json({ ok: false, error: 'Not stopped: the request names no chat turn ({turn: <its id>, as the frame gives it}).' }); return; }
+    // (R11 round 5, H171: the turn's id under either name — { turn } as the frame gives it, or { id } as H169's contract C3 has
+    // the Chat send it; the operator's page sent { id } alone and was answered 400 here while its turn ran on)
+    const named = req.body && typeof req.body === 'object' ? (req.body as { turn?: unknown; id?: unknown }) : {};
+    const id = named.turn ?? named.id;
+    if (typeof id !== 'string' || !TURN_ID.test(id)) { res.status(400).json({ ok: false, error: 'Not stopped: the request names no chat turn ({ turn: <its id>, as the frame gives it } or { id }).' }); return; }
     const r = requestTurnStop(project.root, id, 'companion');
     if (!r.ok) { res.status(409).json({ ok: false, error: `Not stopped: ${r.why}.` }); return; }
     res.json({ ok: true, words: `Stop asked of the turn being answered in ${surfaceWords(r.surface)}: it stops there at once, and its receipt says it was stopped, asked from this page.` });

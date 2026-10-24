@@ -111,8 +111,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
     ids = project(root);
     ollama = await startFakeOllama({
       models,
-      // (R11 step 2: three chunks 250 ms apart, so the turn streams long enough for its indicator to be read)
-      chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 })],
+      // (R11 step 2: three chunks 250 ms apart, so the turn streams long enough for its indicator to be read; R11 round 5: a
+      // second turn that never answers, stopped from the page — the activity component's feed on Stop)
+      chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 }), () => ({ hang: true })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
     writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: MODELS }));
@@ -134,6 +135,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
 
   it('Chat first and open by default; the saved conversation with each answer\'s model; the route; the Models rail; a sent message streamed as this page\'s own turn; drawers, keys and the other destinations', async () => {
     const { context, page, errors } = await openPage(browser, { origin }, { width: 1440, height: 900 });
+    // (an action on an element that is not there fails here with its line, instead of holding the case to its own timeout)
+    page.setDefaultTimeout(30_000);
     try {
       await page.goto(`${origin}/#t=${token}`);
       await landWorkspace(page);
@@ -294,6 +297,24 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // so the page is this computer's operator (the lead's ruling of 21:48; H173's operator principal): the turn runs in the
       // companion's own project and env, the FAKE Ollama answers, and the answer streams as this page's turn with its
       // indicator and evidence line (with a provider configured, Send needs a session: tests/companion-shell-r4-browser)
+      // R11 round 5 (H174's seam): an agent-activity component bound to the `activity` vocabulary, made by TimmyRive.component
+      // as the Inspect view makes its own (no .riv on this container: the words stand, the binding events are recorded all the
+      // same). Its REAL feed is this page's turn: each SSE event of POST /api/chat/turn, and Stop — never only the page's drawing
+      await page.waitForFunction(() => typeof (window as unknown as { TimmyRive?: unknown }).TimmyRive !== 'undefined', null, { timeout: 10_000 });
+      await page.evaluate(() => {
+        const host = document.createElement('div');
+        host.id = 'activity-test-host';
+        host.style.cssText = 'position:fixed;left:-9999px;top:0';
+        document.body.append(host);
+        (window as unknown as { TimmyRive: { component(o: Record<string, unknown>): unknown } }).TimmyRive.component({ host, component: 'activity-test', asset: '/assets/rive/activity/activity.riv', artboard: 'Activity', stateMachine: 'Activity', role: 'img', label: 'Agent activity (test)', binds: ['activity'], word: 'idle' });
+      });
+      type Fed = Array<[string, string]>;
+      const fedEvents = (): Promise<Fed> => page.evaluate(() => {
+        const R = (window as unknown as { TimmyRive: { inspect(): Array<{ component: string; events: Array<{ input: string; value: unknown; source: string }> }> } }).TimmyRive;
+        const x = R.inspect().find((c) => c.component === 'activity-test');
+        return (x ? x.events : []).filter((e) => e.input === 'activity' && /^POST \/api\/chat\/(turn|stop)/.test(e.source)).map((e) => [String(e.value), e.source] as [string, string]);
+      });
+      expect(await fedEvents()).toEqual([]);
       await page.fill('#cx-input', 'Sketch the first screen.');
       await page.focus('#cx-input');
       expect(await page.isDisabled('#cx-send')).toBe(false);
@@ -314,6 +335,85 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const chainIds = await page.$$eval('#cx-turns .cx-turn.is-timmy .cx-evidence', (els) => els.map((e) => /receipt ([0-9a-f]{8})/.exec(e.textContent ?? '')?.[1] ?? ''));
       expect(chainIds.at(-1)).toMatch(/^[0-9a-f]{8}$/);
       expect(ollama.chats().at(-1)?.messages?.at(-1)).toMatchObject({ role: 'user', content: 'Sketch the first screen.' });
+      // the activity component was fed the turn's OWN events (the source names the request and the SSE event), in order: route
+      // → working, turn → working, done (answered) → idle; a delta is fed only when it changes the word (after `awaiting`, an
+      // answer resuming), so the streamed answer's deltas — the same word as the turn's — are not repeated into the component's
+      // event list; nothing "derived from the page's drawing" is among them, and every value is a word of the vocabulary
+      const fed = await fedEvents();
+      expect(fed[0]).toEqual(['working', 'POST /api/chat/turn · SSE route']);
+      expect(fed[1]).toEqual(['working', 'POST /api/chat/turn · SSE turn']);
+      expect(fed.filter((e) => e[1] === 'POST /api/chat/turn · SSE delta')).toHaveLength(0);
+      expect(fed.at(-1)).toEqual(['idle', 'POST /api/chat/turn · SSE done (answered)']);
+      expect(fed).toHaveLength(3);
+      expect(fed.every((e) => ['idle', 'working', 'awaiting', 'stopping', 'stopped', 'failed'].includes(e[0]))).toBe(true);
+      expect(fed.some((e) => /derived/.test(e[1]))).toBe(false);
+      // (and the component's label beside it says the word: the HTML carrier of the state, canvas or no canvas)
+      expect(await text(page, '#activity-test-host [data-rive-status="activity-test"]')).toBe('idle');
+      // the drawing of H169's `done` facts: `cost` is the REPL's sentence (a string), the numbers beside it (costUsd,
+      // costMeasured) — the Spend line of this page's own turn shows the sentence (H169's finding: the page read t.cost.words
+      // of a string and showed nothing). Checked by calling the page's own ownTurn on a `done` of that shape
+      const spend = await page.evaluate(() => {
+        const W = window as unknown as { costOfDone(d: unknown): unknown; ownTurn(t: unknown, i: number): DocumentFragment };
+        // (openActivity is a top-level const of chat-shell.js: a global lexical binding, reached by its name, not a window property)
+        // @ts-expect-error -- declared by the page's classic script
+        const opened: Set<string> = openActivity;
+        const cost = W.costOfDone({ status: 'answered', cost: '$0.0012 (as OpenRouter reported)', costUsd: 0.0012, costMeasured: true, steps: 1, receipt: `sha256_${'ab'.repeat(32)}` });
+        opened.add('own:7');
+        const frag = W.ownTurn({ id: 't1', you: 'q', answer: 'a', model: 'fake-qwen3:8b', state: 'answered', at: new Date().toISOString(), started: Date.now() - 1200, ended: Date.now(), where: 'this computer', tools: [], needs: null, receipt: `sha256_${'ab'.repeat(32)}`, steps: 1, cost }, 7);
+        opened.delete('own:7');
+        const dds = [...frag.querySelectorAll('.cx-facts dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]);
+        return { cost, spend: dds.find((d) => d[0] === 'Spend')?.[1] ?? null, none: W.costOfDone({ status: 'answered' }), local: W.costOfDone({ cost: 'no charge: Ollama on this computer, local weights', costUsd: 0, costMeasured: true }) };
+      });
+      expect(spend.cost).toEqual({ words: '$0.0012 (as OpenRouter reported)', usd: 0.0012, measured: true });
+      expect(spend.spend).toBe('$0.0012 (as OpenRouter reported)');
+      expect(spend.none).toBeNull();
+      expect(spend.local).toEqual({ words: 'no charge: Ollama on this computer, local weights', usd: 0, measured: true });
+      // Stop: a second turn the FAKE never answers; the composer's Send reads Stop while it runs; pressed, the component is
+      // fed `stopping` (POST /api/chat/stop by the turn's id) and then `stopped` (this page stopped reading); the turn is
+      // this page's stopped turn, then the chain's (its receipt says cancelled)
+      await page.fill('#cx-input', 'And then?');
+      await page.focus('#cx-input');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#cx-own li.cx-turn.is-timmy.is-streaming[data-turn-id]', { timeout: 30_000 });
+      await page.waitForSelector('#cx-send.is-stop', { timeout: 10_000 });
+      expect(await page.getAttribute('#cx-send', 'aria-label')).toBe('Stop');
+      const stopAnswer = page.waitForResponse((r) => r.url().includes('/api/chat/stop'), { timeout: 15_000 });
+      stopAnswer.catch(() => undefined);
+      await page.click('#cx-send.is-stop', { timeout: 10_000 });
+      console.error('[h171 mark] Stop clicked');
+      // the companion took the stop (200, its words), by the turn's id
+      const stopRes = await stopAnswer;
+      const stopBody = await stopRes.json().catch(() => null) as { ok?: boolean; words?: string; error?: string } | null;
+      console.error('[h171 mark] stop answered', stopRes.status(), JSON.stringify(stopBody));
+      expect({ status: stopRes.status(), body: stopBody }).toMatchObject({ status: 200, body: { ok: true, words: expect.stringMatching(/^Stop asked of the turn being answered in the companion/) } });
+      await page.waitForFunction(() => document.querySelector('#cx-own li.cx-turn.is-timmy.is-stopped') !== null || [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].some((li) => li.classList.contains('is-stopped')), null, { timeout: 30_000 });
+      // the turn ENDED where it ran, not only on this page: the companion's hold is released (the frame's activity names no
+      // chat turn, so the composer reads Send again, not Stop), and the project's conversation holds the stopped turn with
+      // its receipt — the FAKE never answered, so nothing was written before the stop. (Found by this pin: the operator's page
+      // sent { id } to a Stop route that took { turn } only, was told 400, and its turn ran on while the page said stopped.)
+      const composerState = () => page.evaluate(() => ({
+        send: document.getElementById('cx-send')?.className, label: document.getElementById('cx-send')?.getAttribute('aria-label'),
+        // (cx and workspace are top-level consts of the page's classic scripts: global lexical bindings, reached by name)
+        // @ts-expect-error -- declared by the page's classic scripts
+        running: Boolean(cx.running), chatTurn: (workspace as { frame: { activity?: { chatTurn?: unknown } } | null }).frame?.activity?.chatTurn ?? null,
+      }));
+      let composer = await composerState();
+      console.error('[h171 mark] composer after the stop', JSON.stringify(composer));
+      for (let i = 0; i < 60 && (composer.send?.includes('is-stop') || composer.label !== 'Send message'); i++) { await page.waitForTimeout(500); composer = await composerState(); }
+      console.error('[h171 mark] composer settled', JSON.stringify(composer));
+      expect(composer).toMatchObject({ send: expect.not.stringContaining('is-stop'), label: 'Send message', running: false, chatTurn: null });
+      await page.waitForFunction(() => document.querySelectorAll('#cx-own .cx-turn').length === 0 && [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].slice(-1).every((li) => li.classList.contains('is-stopped') && /receipt [0-9a-f]{8}/.test(li.querySelector('.cx-evidence')?.textContent ?? '')), null, { timeout: 30_000 });
+      console.error('[h171 mark] chain has the stopped turn');
+      const stoppedLast = await page.$eval('#cx-turns li.cx-turn.is-timmy:last-of-type', (li) => ({ text: (li.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), meta: (li.querySelector('.cx-meta')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
+      expect(stoppedLast.text).toBe('Nothing was written before the stop.');
+      expect(stoppedLast.meta).toMatch(/^■ stopped by you/);
+      const afterStop = (await fedEvents()).slice(fed.length);
+      expect(afterStop[0]).toEqual(['working', 'POST /api/chat/turn · SSE route']);
+      const stopAt = afterStop.findIndex((e) => e[0] === 'stopping');
+      expect(stopAt).toBeGreaterThan(0);
+      expect(afterStop[stopAt][1]).toMatch(/^POST \/api\/chat\/stop \{ id: [A-Za-z0-9_-]+ \} \(this page's Stop\)$/);
+      expect(afterStop.slice(stopAt + 1).map((e) => e[0])).toEqual(['stopped']);
+      expect(await text(page, '#activity-test-host [data-rive-status="activity-test"]')).toBe('stopped');
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
       // R11 step 1 (the operator's first-use failure): a local model chosen on the page. Enter on its row: Ollama is asked
@@ -432,6 +532,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.keyboard.press('Escape');
       expect(await page.isVisible('#cx-drawer')).toBe(false);
       expect(errors).toEqual([]);
+    } catch (e) {
+      // (said on stderr too: a close that cannot finish would otherwise hide this behind the case's own timeout)
+      console.error('[companion-chat-shell-browser] the first case failed:', e instanceof Error ? e.message.split('\n').slice(0, 12).join('\n') : String(e));
+      throw e;
     } finally {
       await context.close();
     }

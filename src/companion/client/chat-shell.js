@@ -9,7 +9,7 @@
 // The page's Send is POST /api/chat/turn (R11 round 4, H169's agent turn): the project's conversation, with the project's
 // tools and a sealed receipt, as the turn's evidence line says. Nothing here sends a key, a prompt or a request elsewhere.
 
-/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged, helloMessage, wsConnection */
+/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged, helloMessage, wsConnection, mirrorProject */
 
 const cx = {
   /** the destination shown ('chat', or one of the workspace's tabs) */
@@ -73,6 +73,46 @@ const SIGN_IN_TO_SEND = 'Sign in to send: the turn runs in your own Timmy home.'
 // every read and write of the Chat's user data goes through the shell's fetch (the session rides on it; a 401 that needs a
 // session is answered once and stops the polls until a session is set); a page without the shell keeps the token fetch
 const userFetch = (url, init) => (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.fetch === 'function' ? TimmyShell.fetch(url, init) : companion.fetch(url, init));
+/**
+ * H169's `done` facts as the turn sends them (src/companion/chat-run.ts; src/agent/chat-session.ts): `cost` is the REPL's
+ * SENTENCE (a string: "no charge: …", "$0.0012 (as OpenRouter reported)", "cost unknown (at least $…)"), and the numbers
+ * ride beside it as `costUsd` (a number, or null when nothing was reported) and `costMeasured` (whether that number is the
+ * whole charge). The page keeps { words, usd, measured }; an older shape ({ words, usd }) is read too. Null when none came.
+ */
+function costOfDone(d) {
+  if (!d || typeof d !== 'object') return null;
+  const words = typeof d.cost === 'string' ? d.cost : d.cost && typeof d.cost === 'object' && typeof d.cost.words === 'string' ? d.cost.words : '';
+  const usd = typeof d.costUsd === 'number' && Number.isFinite(d.costUsd) ? d.costUsd
+    : d.cost && typeof d.cost === 'object' && typeof d.cost.usd === 'number' && Number.isFinite(d.cost.usd) ? d.cost.usd : null;
+  const measured = typeof d.costMeasured === 'boolean' ? d.costMeasured : Boolean(d.cost && typeof d.cost === 'object' && d.cost.measured);
+  return words || usd !== null ? { words, usd, measured } : null;
+}
+/**
+ * R11 round 5 (H174's seam, his CONTRACT of 23:52): the agent-activity component's REAL feed is this page's turn — each SSE
+ * event of POST /api/chat/turn goes to TimmyRive.fromSse (route/turn/delta/tool → working, needs-you → awaiting, done →
+ * idle / stopped / failed, error → failed) and Stop to TimmyRive.stopping, each with the source that names the request. The
+ * drawing of the turn is not what moves the animation; the events are. Without rive-bindings.js nothing is fed and nothing
+ * else changes (the words beside the component stand).
+ */
+let riveLastWord = '';
+function riveFeed(event, data, source) {
+  const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+  if (!R || typeof R.fromSse !== 'function') return;
+  try {
+    // (a streamed answer is many `delta` events, every one "working" — the word route and turn already fed: a delta is fed only
+    // when it changes the word, as after `awaiting` when the answer resumes; every other event is fed as it comes)
+    const word = typeof R.activityWordOf === 'function' ? R.activityWordOf(event, data) : null;
+    if (event === 'delta' && word && word === riveLastWord) return;
+    if (word) riveLastWord = word;
+    R.fromSse(event, data, source);
+  } catch (e) { /* the component's own: never the turn's */ }
+}
+function riveStopping(source) {
+  const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+  if (!R || typeof R.stopping !== 'function') return;
+  riveLastWord = 'stopping';
+  try { R.stopping(source); } catch (e) { /* the component's own */ }
+}
 const sessionNeeded = () => Boolean(typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.sessionNeeded === 'function' && TimmyShell.sessionNeeded());
 
 /**
@@ -164,12 +204,19 @@ function toggleFind(open) {
   if (had) { const btn = $('rail-find-btn'); if (btn && shown(btn)) btn.focus(); else input.blur(); }
 }
 
+/**
+ * The project the workspace frame (GET /api/workspace, read as soon as the socket is up) was answered for: what the rail and the
+ * crumb name until the socket's welcome says which project this page shows (R11 round 5: the frame is asked, not waited for).
+ */
+const frameProject = () => (typeof workspace !== 'undefined' && workspace && workspace.frame && workspace.frame.project && typeof workspace.frame.project.name === 'string' ? workspace.frame.project : null);
+
 function railProject() {
   const p = cx.project;
+  const named = p || frameProject();
   const name = $('rail-project-name');
-  if (name) name.textContent = p ? String(p.name) : 'not known yet';
+  if (name) name.textContent = named ? String(named.name) : 'not known yet';
   const crumb = $('cx-proj');
-  if (crumb) crumb.textContent = p ? String(p.name) : 'project not known yet';
+  if (crumb) crumb.textContent = named ? String(named.name) : 'project not known yet';
   const menu = $('rail-project-menu');
   if (!menu || menu.hidden) return;
   const f = workspace.frame;
@@ -401,11 +448,13 @@ function evidence(key, model, rc, tools, extra) {
     add('Model', model || 'not recorded');
     add('Ran on', rc.where);
     add('Time', seconds(rc.ms));
-    add('Spend', rc.cost ? (rc.cost.usd === 0 ? 'none' : `$${rc.cost.usd.toFixed(4)}${rc.cost.measured ? ' (the whole charge reported)' : ' (a lower bound, not the whole charge)'}`) : 'not recorded');
+    // (this page's own turn: the REPL's sentence from `done` (its `cost` words) says the spend; a saved turn: its receipt's number)
+    add('Spend', extra && extra.cost ? extra.cost : rc.cost && typeof rc.cost.usd === 'number' ? (rc.cost.usd === 0 ? 'none' : `$${rc.cost.usd.toFixed(4)}${rc.cost.measured ? ' (the whole charge reported)' : ' (a lower bound, not the whole charge)'}`) : 'not recorded');
     if (typeof rc.files === 'number') add('Files written', rc.files === 0 ? 'none' : String(rc.files));
   } else {
     add('Receipt', 'not sealed yet: the turn’s receipt is read back from the project’s conversation when it ends');
     if (extra && extra.cost) add('Spend', extra.cost);
+    else if (extra && extra.own) add('Spend', 'not reported: the turn ended before its facts came');
   }
   act.append(h('p', { class: 'cx-act-k' }, 'Receipt'), facts);
   return [btn, act];
@@ -926,6 +975,7 @@ async function sendNow() {
   // the route snapshotted as the turn starts: a later change applies to the next turn, never this one
   const turn = { id: '', you: text, answer: '', model: r.model, label: r.label, state: 'streaming', words: '', at: new Date().toISOString(), started: Date.now(), ended: 0, where: routeWhere(r), tools: [], needs: null, receipt: null, steps: null };
   cx.own.push(turn);
+  riveLastWord = '';
   const controller = new AbortController();
   cx.running = controller;
   cx.follow = true;
@@ -940,8 +990,11 @@ async function sendNow() {
     if (res.status === 404) { turn.state = 'failed'; turn.words = 'this companion has no POST /api/chat/turn yet (the agent turn’s server side); nothing was sent'; }
     else if (res.status === 401) { turn.state = 'failed'; turn.words = 'sign in first: the turn runs in your own Timmy home'; }
     else if (!res.ok || !res.body) { let words = `the companion answered HTTP ${res.status}`; try { const b = await res.json(); if (b && (b.words || b.error)) words = b.words || b.error; } catch (e) { /* no body */ } turn.state = 'failed'; turn.words = words; }
+    if (turn.state === 'failed') riveFeed('error', { words: turn.words }, `POST /api/chat/turn answered HTTP ${res.status}: ${turn.words}`);
     else {
       await readSse(res.body, (event, data) => {
+        // (R11 round 5: the activity component's feed — the event itself, before the page draws it)
+        riveFeed(event, data, `POST /api/chat/turn · SSE ${event}${data && typeof data === 'object' && typeof data.status === 'string' ? ` (${data.status})` : ''}`);
         if (event === 'route' && data) { if (typeof data.label === 'string') turn.label = data.label; if (typeof data.model === 'string' && data.model) turn.model = data.model; }
         else if (event === 'turn' && data) { if (typeof data.id === 'string') turn.id = data.id; redraw(); }
         else if (event === 'delta' && data) { turn.answer += typeof data === 'string' ? data : (data.text || ''); redraw(); }
@@ -954,16 +1007,18 @@ async function sendNow() {
         } else if (event === 'needs-you' && data) { turn.needs = { id: String(data.id || turn.id), words: String(data.words || 'Timmy needs you'), options: Array.isArray(data.options) ? data.options : [] }; redraw(); }
         else if (event === 'error') { turn.state = 'failed'; turn.words = (data && (data.words || data.error)) || 'the companion said the turn failed'; }
         else if (event === 'done') {
-          if (turn.state === 'streaming') turn.state = 'answered';
-          if (data) { if (typeof data.model === 'string' && data.model) turn.model = data.model; turn.receipt = data.receipt || null; turn.steps = typeof data.steps === 'number' ? data.steps : null; turn.cost = data.cost || null; }
+          // (a `done` whose status is cancelled is a turn stopped — from another surface, or this page's Stop that the
+          // companion saw before this read ended — never an answer)
+          if (turn.state === 'streaming') turn.state = data && typeof data === 'object' && data.status === 'cancelled' ? 'stopped' : 'answered';
+          if (data && typeof data === 'object') { if (typeof data.model === 'string' && data.model) turn.model = data.model; turn.receipt = data.receipt || null; turn.steps = typeof data.steps === 'number' ? data.steps : null; turn.cost = costOfDone(data); }
           turn.needs = null;
         }
       }, controller.signal);
       if (turn.state === 'streaming') turn.state = 'answered';
     }
   } catch (e) {
-    if (controller.signal.aborted) turn.state = 'stopped';
-    else { turn.state = 'failed'; turn.words = 'the companion did not answer the request'; }
+    if (controller.signal.aborted) { turn.state = 'stopped'; riveFeed('done', { status: 'cancelled' }, 'POST /api/chat/turn: this page stopped reading the turn (its Stop)'); }
+    else { turn.state = 'failed'; turn.words = 'the companion did not answer the request'; riveFeed('error', { words: turn.words }, 'POST /api/chat/turn: no answer from the companion'); }
   } finally {
     turn.ended = Date.now();
     turn.needs = null;
@@ -1007,9 +1062,18 @@ async function readSse(body, on, signal) {
 /** Stop: the companion is asked to stop the turn by its id (POST /api/chat/stop), and this page stops reading. */
 function stopNow() {
   const t = cx.own[cx.own.length - 1];
+  // (R11 round 5: the activity component hears the Stop as it is asked — H174's TimmyRive.stopping)
+  if (cx.running) riveStopping(t && t.id ? `POST /api/chat/stop { id: ${t.id} } (this page's Stop)` : 'POST /api/chat/turn: this page stops reading (its Stop; the turn has no id yet)');
   if (t && t.id) {
     const fetcher = typeof TimmyShell !== 'undefined' ? TimmyShell.fetch : companion.fetch;
-    fetcher('/api/chat/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id }) }).catch(() => undefined);
+    // (as stopOther sends it: the turn's id under both names — H169's /api/chat/stop { id } for a signed-in page, and the
+    // operator's /api/chat/stop { turn } of the shown project (server.ts), which answered the page's { id } alone with 400
+    // and left the turn running: R11 round 5, found by the Stop pin)
+    fetcher(`/api/chat/stop${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, turn: t.id, ...(cx.project && cx.project.root ? { project: { root: cx.project.root } } : {}) }) })
+      // the companion's answer is read (never left unread) and, when it did NOT stop the turn, said in the chat's note: a Stop
+      // that only stopped this page's reading while the turn ran on is what the pin above found
+      .then(async (r) => { const b = await r.json().catch(() => null); if (!r.ok) chatNote(`Not stopped where it runs: ${b && (b.error || b.words) ? b.error || b.words : `the companion answered HTTP ${r.status}`}`, 'failed'); })
+      .catch((err) => chatNote(`Not stopped where it runs: the companion could not be reached (${err && err.message ? err.message : String(err)}).`, 'failed'));
   }
   if (cx.running) cx.running.abort();
 }
@@ -1819,6 +1883,10 @@ $('cx-scroll')?.addEventListener('scroll', () => {
   try { models = localStorage.getItem('timmy.chat.models') || 'open'; } catch (e) { models = 'open'; }
   if (models === 'closed' && !narrow()) toggleModels(false);
   $('cx-models-toggle')?.setAttribute('aria-expanded', modelsShown() ? 'true' : 'false');
+  // R11 round 5 (the reopen's race): companion.js opens the socket as it loads, before this script is fetched; its welcome
+  // can arrive meanwhile, and companion.js then takes the project (takeProject → the header) while this shell is not here to
+  // hear it — so the project it already took is taken now (the rail, the crumb, the draft by project, the view)
+  if (typeof mirrorProject !== 'undefined' && mirrorProject && !cx.project) projectHeader(mirrorProject);
   drawRail();
   restoreDraft();
   onDest(workspace.tab);

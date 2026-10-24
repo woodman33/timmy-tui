@@ -155,6 +155,12 @@ describe('the companion\'s workspace routes: GET /api/workspace and POST /api/wo
       expect(r.headers.get('cache-control')).toBe('no-store');
       expect((await r.json()).words).toMatch(/^Stop asked of the turn being answered in the REPL: /);
       expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ schema: 'timmy.chat-turn-stop/1', by: 'companion' });
+      // (R11 round 5, H171: the Chat sends the turn's id as H169's contract C3 names it, { id }; the operator's page is answered
+      // here, so this route takes that name too — it answered { id } alone with 400 and left the turn running)
+      rmSync(file, { force: true });
+      const byId = await stop({ id: t.hold.id });
+      expect(byId.status).toBe(200);
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ schema: 'timmy.chat-turn-stop/1', by: 'companion' });
     } finally {
       t.hold.release();
       rmSync(file, { force: true });
