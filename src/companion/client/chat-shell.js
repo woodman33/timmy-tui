@@ -1209,7 +1209,12 @@ async function sendNow() {
           if (had) Object.assign(had, { status: data.status || had.status, receipt: data.receipt || had.receipt });
           else turn.tools.push({ name, status: data.status || 'started', receipt: data.receipt || '' });
           redraw();
-        } else if (event === 'needs-you' && data) { turn.needs = { id: String(data.id || turn.id), words: String(data.words || 'Timmy needs you'), options: Array.isArray(data.options) ? data.options : [] }; redraw(); }
+        } else if (event === 'needs-you' && data) {
+          // (R11 round 6, the operator's bar on rapid events: a duplicate ask — the same id again, in a burst — changes nothing
+          // once this page answered it: the box stays answered, no button comes back, nothing is sent twice)
+          const askId = String(data.id || turn.id);
+          if (!(turn.needs && turn.needs.id === askId && (turn.needs.answered || asksSent.has(askId)))) { turn.needs = { id: askId, words: String(data.words || 'Timmy needs you'), options: Array.isArray(data.options) ? data.options : [] }; redraw(); }
+        }
         else if (event === 'error') { turn.state = 'failed'; turn.words = (data && (data.words || data.error)) || 'the companion said the turn failed'; }
         else if (event === 'done') {
           // (a `done` whose status is cancelled is a turn stopped — from another surface, or this page's Stop that the
@@ -1321,14 +1326,19 @@ function stopNow() {
 }
 
 /** NEEDS-YOU answered: the choice goes to the companion (POST /api/chat/answer); the turn goes on in the same stream. */
+/** The asks this page answered (sent): an ask is answered ONCE — a second press, a twin's and a face's, or a burst of clicks sends nothing more. */
+const asksSent = new Set();
 async function answerNeedsYou(id, choice) {
+  if (asksSent.has(id)) return;
+  asksSent.add(id);
   const fetcher = typeof TimmyShell !== 'undefined' ? TimmyShell.fetch : companion.fetch;
   const t = cx.own.find((x) => x.needs && x.needs.id === id);
   if (t) { t.needs = { ...t.needs, answered: choice }; drawStreaming(); }
   try {
     const r = await fetcher('/api/chat/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, choice }) });
+    // (not taken: the ask waits no more, or another account's — a second send would not be taken either; the words say it)
     if (!r.ok && t) { t.needs = { ...t.needs, answered: '', failed: `the answer was not taken (HTTP ${r.status})` }; drawStreaming(); }
-  } catch (e) { if (t) { t.needs = { ...t.needs, answered: '', failed: 'the answer was not sent' }; drawStreaming(); } }
+  } catch (e) { asksSent.delete(id); if (t) { t.needs = { ...t.needs, answered: '', failed: 'the answer was not sent' }; drawStreaming(); } } // (not sent at all: it may be sent again)
 }
 
 
