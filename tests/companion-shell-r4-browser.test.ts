@@ -8,12 +8,14 @@
  * nowhere in the DOM. The turn itself is H169's POST /api/chat/turn (its own test); here the page says plainly when the
  * companion has no such route.
  */
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser, BrowserContext, Page } from 'playwright';
 type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
+import { IDENTITY_ENV } from '../src/companion/identity/config.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { browserPath, launchBrowser, openPage } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
@@ -31,6 +33,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
   let withRoute: CompanionServer;
   let noRoute: CompanionServer;
   let phone: CompanionServer; // the same home (a ready route) on a project of its own, untouched by the turn sent above
+  let configured: CompanionServer; // an identity provider CONFIGURED (a FAKE instance: its public PEM is CLERK_JWT_KEY), no Clerk dist
   const urlOf = (c: CompanionServer): string => `http://127.0.0.1:${c.port}`;
   const tokenOf = (c: CompanionServer): string => /#t=([0-9a-f]{64})$/.exec(c.url)![1];
 
@@ -61,11 +64,22 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
     mkdirSync(join(root3, '.timmy'), { recursive: true });
     process.env.TIMMY_REPO = root3;
     phone = await startCompanionServer(0, { chatEnv: env, workspace: { env } });
+    // a configured companion: the identity's env names (tests/identity-session.test.ts's FAKE instance shape); the page gets
+    // no session here (nothing signs in: no Clerk dist), so every user-data route answers 401 { needs: 'session' }
+    const HOST = 'fake-identity.clerk.accounts.invalid';
+    const PK = `pk_test_${Buffer.from(`${HOST}$`).toString('base64')}`;
+    const PEM = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }) as string;
+    const root4 = join(box, 'fresh-configured');
+    mkdirSync(join(root4, '.timmy'), { recursive: true });
+    const env4 = { ...env, [IDENTITY_ENV.publishable]: PK, [IDENTITY_ENV.jwtKey]: PEM };
+    process.env.TIMMY_REPO = root4;
+    configured = await startCompanionServer(0, { chatEnv: env4, workspace: { env: env4 }, identity: { clerkDir: join(box, 'no-clerk') } });
     if (kept.TIMMY_REPO === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = kept.TIMMY_REPO;
   }, LONG);
   afterAll(async () => {
     await withRoute?.shutdown();
     await phone?.shutdown();
+    await configured?.shutdown();
     await noRoute?.shutdown();
     await ollama?.close();
     await browser?.close();
@@ -288,6 +302,31 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.click('#cx-models-toggle');
       await page.waitForSelector('#cx-models:visible', { timeout: 5_000 });
       expect(await texts(page, '#cx-models .cm-provider')).toEqual(['OpenRouter', 'Ollama local', 'Ollama cloud', 'Cloudflare']);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  }, LONG);
+
+  it('on a CONFIGURED companion with no session the page lands on the account screen: GET /api/identity read, no refusal words, no project frame; the user-data routes\' 401 { needs: "session" } is never read as the launch token refused (the lead\'s 23:33 blocker)', async () => {
+    const { context, page, errors } = await openPage(browser, { origin: urlOf(configured) }, { width: 1440, height: 900 });
+    const got: Array<{ url: string; status: number }> = [];
+    page.on('response', (r) => { const u = new URL(r.url()); if (u.origin === urlOf(configured) && u.pathname.startsWith('/api/')) got.push({ url: u.pathname, status: r.status() }); });
+    try {
+      await page.goto(`${urlOf(configured)}/#t=${tokenOf(configured)}`);
+      await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
+      await page.waitForTimeout(1500);
+      const state = await page.evaluate(() => ({ screen: document.body.dataset.screen, refused: (window as unknown as { companion?: { refused?: boolean } }).companion?.refused ?? null, identity: (window as unknown as { TimmyShell?: { identity(): unknown } }).TimmyShell?.identity() ?? null }));
+      expect(JSON.stringify({ ...state, got })).toMatch(/"screen":"account"/);
+      expect(await page.isVisible('#screen-account')).toBe(true);
+      // the identity was read (the shell's landing), and the page never said its token was refused
+      expect(got.some((g) => g.url === '/api/identity' && g.status === 200)).toBe(true);
+      const face = await page.evaluate(() => document.body.innerText);
+      expect(face).not.toContain('not the companion’s');
+      expect(face).not.toContain('loads nothing');
+      expect(await text(page, '#screen-account h2')).toBe('Create your Timmy account');
+      // a user-data route asked before the shell was here (the frame's first read) answered 401 needs:session — once, not a loop
+      const sessions = got.filter((g) => g.status === 401);
+      for (const g of sessions) expect(['/api/workspace', '/api/chat/view', '/api/chat/models', '/api/chat/route', '/api/connections']).toContain(g.url.replace(/\?.*$/, ''));
+      expect(sessions.length).toBeLessThan(12);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, LONG);

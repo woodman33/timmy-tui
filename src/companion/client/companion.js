@@ -66,7 +66,17 @@ const companion = (() => {
       o.headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + token });
       o.credentials = 'omit';
       o.cache = 'no-store';
-      return fetch(path, o).then((r) => { if (r.status === 401) c.refuse(); return r; });
+      // (R11 round 4, the lead's 23:33 blocker: a 401 whose body says { needs: 'session' } is a user-data route asking for a
+      // signed-in account on a configured companion — the shell's landing shows the account screen for it; only a 401 that is
+      // NOT one refuses the page as the launch token's refusal. The frame's first read runs before shell.js is here.)
+      return fetch(path, o).then(async (r) => {
+        if (r.status !== 401) return r;
+        let body = null;
+        try { body = await r.clone().json(); } catch (e) { body = null; }
+        if (body && body.needs === 'session') return r;
+        c.refuse();
+        return r;
+      });
     },
     // Whether the companion still takes this token (asked when the socket closes); true when it cannot be asked.
     check: () => c.fetch('/api/auth').then((r) => r.status !== 401, () => true),

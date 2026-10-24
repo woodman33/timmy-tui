@@ -155,7 +155,9 @@
     fetch(url, init) {
       // (the lead's gate-2 ruling 2: one 401 that needs a session stops every later ask until a session is set — the page's
       // polls get this refusal back without a request, so a hidden chat screen never loops on the companion)
-      if (needsSession && !sessionToken) return Promise.resolve(new Response(JSON.stringify({ ok: false, needs: 'session', error: needsWords, words: needsWords }), { status: 401, headers: { 'content-type': 'application/json' } }));
+      // (GET /api/identity and /api/identity/me are how the page learns whether an account is possible and who is signed in:
+      // never withheld; the user-data reads — the view, the models, the frame — are what the refusal stops)
+      if (needsSession && !sessionToken && !/^\/api\/identity(\/|\?|$)/.test(String(url))) return Promise.resolve(new Response(JSON.stringify({ ok: false, needs: 'session', error: needsWords, words: needsWords }), { status: 401, headers: { 'content-type': 'application/json' } }));
       const o = Object.assign({}, init || {});
       const headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + launchToken() });
       if (sessionToken) headers['X-Timmy-Session'] = sessionToken;
