@@ -124,7 +124,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
-import { companionHeaders, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountMark, mountRive, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
@@ -419,6 +419,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files, at /web/fonts/
   // before the built web code's own (src/companion/page.ts)
   mountTheme(app);
+  // R11 round 4 (H171, step 3): the Rive runtime and the T mark's files, from this computer (no CDN)
+  mountRive(app);
+  mountMark(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
