@@ -231,9 +231,13 @@ export async function closeProject(p: PageProject | undefined): Promise<void> {
  */
 export async function landWorkspace(page: Page): Promise<void> {
   await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
+  // R11 round 7 (the lead, SHELL CONTRACT v1 §2.3): current() answers the PAGE id now, not the screen's — a page opened at a tab's
+  // address (?tab=create&mesh=…, ?tab=voxvision…) is a workspace page already and stays; only the two screens outside the
+  // workspace (account, connections) are sent to Chat, as before
   await page.evaluate(() => {
     const shell = (window as unknown as { TimmyShell?: { current(): string; go(id: string): void } }).TimmyShell;
-    if (shell && shell.current() !== 'chat') shell.go('chat');
+    const screens = new Set(['account', 'connections']);
+    if (shell && screens.has(shell.current())) shell.go('chat');
   });
 }
 
