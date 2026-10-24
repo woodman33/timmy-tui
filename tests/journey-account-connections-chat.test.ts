@@ -122,6 +122,12 @@ async function open(server: CompanionServer, size: { width: number; height: numb
     const headers = r.request().headers();
     r.text().then((body) => refused.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname} (session header: ${headers['x-timmy-session'] ? 'yes' : 'no'}): ${body.slice(0, 160)}`), () => refused.push(`${r.status()} ${r.request().method()} ${r.url()}`));
   });
+  // the socket: every hello the page sent (with or without a session; never the token) and every refusal the companion answered
+  page.on('websocket', (ws) => {
+    ws.on('framesent', (f) => { const t = String(f.payload); if (t.includes('"type":"hello"')) refused.push(`ws hello sent (session: ${/"session":"/.test(t) ? 'yes' : 'no'})`); });
+    ws.on('framereceived', (f) => { const t = String(f.payload); if (t.includes('"type":"session"') && t.includes('"ok":false')) refused.push(`ws ${t.slice(0, 220)}`); });
+    ws.on('close', () => refused.push('ws closed'));
+  });
   await page.goto(server.url);
   const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined) : '';
   return { page, errors, left, refused, seam, close: () => context.close() };
