@@ -1,0 +1,34 @@
+/* R11 round 4 (H173): the ACCOUNT screen's own layout (account.js), on the shell's classes (companion.css .sh-*) and the
+   theme's variables (/timmy-theme.css). The preview's layout: the hero at the left, the card at the right; one column at
+   phone width, the card first (captures 06/07). Black ground, structure greys, amber for the one next step, green only for
+   the observed fact (the session this companion verified). */
+.ac-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 440px); gap: 48px; align-items: center; }
+.ac-hero { max-width: 420px; padding: 24px 0 24px 16px; }
+.ac-kicker { font-family: var(--timmy-font-mono); letter-spacing: 0.16em; }
+.ac-title { margin: 22px 0 0; font-size: 56px; line-height: 1.02; font-weight: var(--timmy-weight-heading); letter-spacing: -0.02em; color: var(--timmy-text); }
+.ac-title-dim { color: var(--timmy-text-secondary); }
+.ac-lede { margin-top: 26px; font-size: 18px; line-height: 1.45; color: var(--timmy-text-secondary); }
+.ac-start { display: flex; align-items: center; gap: 22px; margin-top: 48px; padding-top: 30px; border-top: 1px solid var(--timmy-line); }
+.ac-start-k { font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.ac-card { width: 100%; }
+.ac-card .sh-sub { margin-bottom: 22px; }
+.ac-social-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ac-social { gap: 10px; }
+.ac-social-k { font-weight: var(--timmy-weight-strong); }
+.ac-center { text-align: center; margin-top: 10px; }
+.ac-center-row { justify-content: center; }
+.ac-form .sh-btn-primary { margin-top: 24px; }
+.ac-error { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; }
+.ac-switch { margin-top: 22px; }
+.ac-state { margin-top: 14px; }
+@media (max-width: 960px) {
+  .ac-main { grid-template-columns: 1fr; gap: 24px; align-items: start; }
+  .ac-hero { order: 2; padding-left: 0; }
+  .ac-card { order: 1; }
+}
+@media (max-width: 720px) {
+  .ac-main { padding: 20px 16px; }
+  .ac-hero { display: none; }
+  .ac-social-row .sh-btn { white-space: normal; line-height: 1.25; }
+  .ac-title { font-size: 40px; }
+}
