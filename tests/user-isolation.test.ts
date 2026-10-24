@@ -12,6 +12,7 @@
  * The route names are C1-C3's (R11-R4-COMMON): an owner who changes one posts it in the handoff first, and this file follows.
  * Until an owner's piece lands, its case fails with words naming it.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,6 +203,19 @@ function filesUnder(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? filesUnder(join(dir, d.name)) : [join(dir, d.name)]));
 }
+/** The operator's side of the Timmy home (everything but users/): each file with its content, to tell what a user's action wrote there. */
+function operatorSide(): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const f of filesUnder(timmyHome)) if (!f.startsWith(join(timmyHome, 'users') + '/')) out.set(f.replace(timmyHome, '<home>'), createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 16));
+  return out;
+}
+/** What changed on the operator's side between two snapshots, in words (added, changed, removed files). */
+function changedOutside(before: Map<string, string>, after: Map<string, string>): string[] {
+  const out: string[] = [];
+  for (const [f, h] of after) { if (!before.has(f)) out.push(`added ${f}`); else if (before.get(f) !== h) out.push(`changed ${f}`); }
+  for (const f of before.keys()) if (!after.has(f)) out.push(`removed ${f}`);
+  return out;
+}
 
 // ── the checks ────────────────────────────────────────────────────────────────
 
@@ -339,9 +353,14 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     aProject = { id, root, name: 'FAKE-a-project' };
     // A's chat asks the FAKE Ollama (OLLAMA_HOST in the companion's env; A's providers.json records it too, as a setup would), then the model chosen
     pointAtFakeOllama(A);
+    // A's choice and turn write under A's home only: the operator's side of the Timmy home (everything but users/) stays as it is
+    const operatorBefore = operatorSide();
     const chosen = await call('POST', ROUTES.chatChoose, { session: identity.token(A), query: { project: id }, body: { source: 'ollama-local', model: MODEL } });
     expect(chosen.status, `POST ${ROUTES.chatChoose}?project=<A's id>: ${chosen.text.slice(0, 300)} (H171's chat-view behind identity.withUser, the user's project resolved by id — H173's userProjectFor)`).toBe(200);
     expect(chosen.json?.ok, chosen.text.slice(0, 300)).toBe(true);
+    expect(changedOutside(operatorBefore, operatorSide()), `A's choice of a model wrote on the OPERATOR's side of the Timmy home (the user's env, never process.env — chat-view chooseModel → applySetup): ${chosen.text.slice(0, 200)}`).toEqual([]);
+    const aSetup = filesUnder(userHome(A)).filter((f) => /setup\.json$/.test(f));
+    expect(aSetup.length, `A's choice is recorded under A's home (${userHome(A).replace(timmyHome, '<home>')}/setup.json)`).toBeGreaterThan(0);
     // (H169's body: { message, project: { root } }; a root that is not this account's → 400 before any stream)
     const turn = await sse(ROUTES.chatTurn, { session: identity.token(A), body: { message: 'FAKE: what time is it?', project: { root } }, until: (e) => e.event === 'done' || e.event === 'error', ms: 60_000 });
     expect(turn.status, `POST ${ROUTES.chatTurn}: ${turn.text.slice(0, 300)} (H169's SSE)`).toBe(200);
@@ -351,6 +370,7 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     const done = turn.events.find((e) => e.event === 'done')!.data;
     expect(typeof done.receipt, JSON.stringify(done)).toBe('string');
     expect(ollama.chats().length, 'the FAKE Ollama answered A\'s turn (two requests: the tool call, then the answer)').toBeGreaterThanOrEqual(2);
+    expect(changedOutside(operatorBefore, operatorSide()), 'A\'s turn wrote nothing on the operator\'s side of the Timmy home').toEqual([]);
     // B's list has nothing of A's: only B's own default project (C1: "Untitled project" made under B's home when B has none)
     const bList = await call('GET', ROUTES.projects, { session: identity.token(B) });
     expect(bList.status, `B's GET ${ROUTES.projects}: ${bList.text.slice(0, 200)}`).toBe(200);

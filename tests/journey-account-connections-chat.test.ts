@@ -104,7 +104,7 @@ afterAll(async () => {
 
 // ── the page ──────────────────────────────────────────────────────────────────
 
-interface Opened { page: Page; errors: string[]; left: string[]; close: () => Promise<void> }
+interface Opened { page: Page; errors: string[]; left: string[]; refused: string[]; seam: string; close: () => Promise<void> }
 
 /** The page at a size, with the launch token in its address; what leaves 127.0.0.1 and every page error recorded. */
 async function open(server: CompanionServer, size: { width: number; height: number }, o: { session?: string; tab?: string } = {}): Promise<Opened> {
@@ -112,19 +112,26 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   const page = await context.newPage();
   const errors: string[] = [];
   const left: string[] = [];
+  const refused: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('request', (r) => { try { if (new URL(r.url()).hostname !== '127.0.0.1') left.push(r.url()); } catch { /* data: */ } });
+  // every 401/403 the page met: which request, whether it carried a session (for a failure's words; the tokens' values never kept)
+  page.on('response', (r) => {
+    if (r.status() !== 401 && r.status() !== 403) return;
+    const headers = r.request().headers();
+    r.text().then((body) => refused.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname} (session header: ${headers['x-timmy-session'] ? 'yes' : 'no'}): ${body.slice(0, 160)}`), () => refused.push(`${r.status()} ${r.request().method()} ${r.url()}`));
+  });
   await page.goto(server.url);
-  if (o.session) await useSession(page, o.session, o.tab as 'chat' | undefined);
-  return { page, errors, left, close: () => context.close() };
+  const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined) : '';
+  return { page, errors, left, refused, seam, close: () => context.close() };
 }
 
 /**
  * The session given to the page as H173's account screen gives it after a Clerk sign-in (H171's shell: session.set(token, user),
  * then land() runs the landing rule); the server still verifies every request's token. Nothing of the verifier is bypassed.
  */
-async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat'): Promise<void> {
+async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat'): Promise<string> {
   await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }).catch(() => undefined);
   // as a person would: the page's own landing settles first (body[data-screen] chosen, its first requests answered) and the
   // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
@@ -138,15 +145,21 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
     else return 'absent';
     if (target && w.TimmyShell?.go) await w.TimmyShell.go(target); else await w.TimmyShell?.land?.();
     return 'ok';
-  }, [token, USER, go ?? ''] as const);
+  }, [token, USER, go ?? ''] as const).catch((e: unknown) => `threw: ${e instanceof Error ? e.message : String(e)}`);
   expect(ok, `the page's session seam ${SESSION_SEAM} (H171's shell contract, 19:37; H173 sets it the same way)`).toBe('ok');
+  // what the page holds after the seam, for a failure's words (never the token's value)
+  return page.evaluate(() => {
+    const w = window as unknown as { timmyAccount?: { state?: () => unknown }; TimmyShell?: { session?: { get?: () => string; user?: () => unknown }; current?: () => string } };
+    const st = w.timmyAccount?.state ? JSON.stringify(w.timmyAccount.state()) : 'no timmyAccount.state';
+    return `session ${w.TimmyShell?.session?.get?.() ? 'held' : 'EMPTY'}; user ${JSON.stringify(w.TimmyShell?.session?.user?.() ?? null)}; screen ${w.TimmyShell?.current?.() ?? '?'}; account ${st.slice(0, 300)}`;
+  }).catch(() => 'state unreadable');
 }
 /** Which screen the shell shows (body[data-screen], H171's contract). */
 const screenOf = (page: Page): Promise<string> => page.evaluate(() => document.body.getAttribute('data-screen') ?? '');
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
 const html = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.outerHTML);
-async function until(page: Page, what: string, test: (t: string) => boolean, ms = 20_000, refuse?: (t: string) => string | null): Promise<string> {
+async function until(page: Page, what: string, test: (t: string) => boolean, ms = 20_000, refuse?: (t: string) => string | null, more?: () => string): Promise<string> {
   const end = Date.now() + ms;
   let last = '';
   for (;;) {
@@ -154,11 +167,13 @@ async function until(page: Page, what: string, test: (t: string) => boolean, ms 
     if (test(last)) return last;
     // (innerText carries the page's text-transform: a label drawn in capitals reads in capitals here — callers match /i)
     const why = refuse?.(last);
-    if (why) throw new Error(`${why}; the page read:\n${last.slice(0, 1500)}`);
-    if (Date.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}; the page read:\n${last.slice(0, 2500)}`);
+    if (why) throw new Error(`${why}; ${more?.() ?? ''}; the page read:\n${last.slice(0, 1500)}`);
+    if (Date.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}; ${more?.() ?? ''}; the page read:\n${last.slice(0, 2500)}`);
     await page.waitForTimeout(100);
   }
 }
+/** The opened page's facts for a failure: the seam's state after adoption, every request the server refused. */
+const facts = (o: Opened) => (): string => `after the seam: ${o.seam}; refused: ${o.refused.length ? o.refused.join(' | ') : 'none'}`;
 /** The page's own sentence for a connections screen with no answer from GET /api/connections: the owner piece named. */
 const noConnections = (t: string): string | null => (/could not be read from the companion/.test(t) ? 'the connections screen has nothing to show: GET /api/connections answered nothing (H170\'s routes; their mount line in server.ts is H171\'s)' : null);
 
@@ -223,7 +238,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const session = identity.token(USER);
       const o = await open(configured!, size, { session });
       try {
-        const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections);
+        const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections, facts(o));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
         expect(t).toMatch(/Choose how you want to run\./);
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
@@ -266,7 +281,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const session = identity.token(USER);
       const o = await open(configured!, size, { session, tab: 'chat' });
       try {
-        const first = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
+        const first = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s), 20_000, undefined, facts(o));
         // the screen is the USER's: the WORKSPACE box and the top line name the user's own project (C1: "Untitled project", the
         // default made under the user's home), never the operator's active project (this checkout's folder, the follower's view)
         expect(first, 'the user\'s project named (H171: the project box reads GET /api/projects when a session exists; the chat view the user\'s project)').toMatch(/Untitled project/);
@@ -344,7 +359,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
   it('4. at 390x844 the rail folds, Connections and Models are buttons, nothing is cut, no page errors', async () => {
     const o = await open(configured!, { width: 390, height: 844 }, { session: identity.token(USER), tab: 'chat' });
     try {
-      await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
+      await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s), 20_000, undefined, facts(o));
       expect(await o.page.getByRole('button', { name: /Models/ }).count()).toBeGreaterThan(0);
       expect(await o.page.getByRole('button', { name: /Connections|Models & accounts/ }).count()).toBeGreaterThan(0);
       // the rail folded: its items are not laid out at once
