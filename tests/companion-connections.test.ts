@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CARD_WORDS, mountConnections, SCREEN_WORDS, type ConnectionsEvent, type ConnectionsUser } from '../src/companion/connections.js';
+import { CARD_WORDS, mountConnections, SCREEN_WORDS, type ConnectionsEvent, type ConnectionsUser, COST_WORDS, OFFER_WORDS } from '../src/companion/connections.js';
 import { freeBytes, modelsDir, STARTER_MODELS, units } from '../src/setup/ollama-local.js';
 
 /** The free-disk words confirmPull says on this box (a real measurement of the disk that holds Ollama's models, or none). */
@@ -225,10 +225,19 @@ describe('the Connections routes: the four providers under the signed-in user\'s
   it('GET /api/connections: the preview\'s words, four independent cards, each with H170\'s state word; nothing asked of any provider', async () => {
     const j = await jsonOf(await realFetch(`${base}/api/connections`, as('alice')));
     expect(j.ok).toBe(true);
-    expect(j.schema).toBe('timmy.connections-screen/1');
+    expect(j.schema).toBe('timmy.connections-screen/2');
     expect(j.screen).toEqual(SCREEN_WORDS);
-    expect(SCREEN_WORDS.title).toBe('Choose how you want to run.');
+    // R11 round 7: the order's words — one model is enough; the records line; the download offer said before anything is downloaded
+    expect(SCREEN_WORDS.title).toBe('One model is enough to begin.');
+    expect(SCREEN_WORDS.kicker).toBe('CONNECT A PROVIDER');
+    expect(SCREEN_WORDS.records).toBe('Local records continue when cloud sync is unavailable.');
     expect(SCREEN_WORDS.footer).toBe('A Cloudflare account is optional. Provider selections are not connections.');
+    // the summary band: the user's own route (none here: no key, no chosen model), the records (local; cloud logs off), nothing usable yet
+    const sum = j.summary as { route: { ready: boolean; kind: string; label: string; note: string }; records: { local: true; cloudLogs: boolean; words: string; line: string }; usable: string[] };
+    expect(sum.route.ready).toBe(false);
+    expect(sum.route.note.length).toBeGreaterThan(10);
+    expect(sum.records).toEqual({ local: true, cloudLogs: false, words: 'Local by default', line: SCREEN_WORDS.records });
+    expect(sum.usable).toEqual([]);
     const c = j.cards as Array<Record<string, unknown>>;
     expect(c.map((x) => [x.id, x.title, x.subtitle, x.action])).toEqual([
       ['openrouter', 'OpenRouter', 'One account. Many model providers.', 'Connect with OpenRouter'],
@@ -238,6 +247,17 @@ describe('the Connections routes: the four providers under the signed-in user\'s
     ]);
     expect(c[1].buttons).toEqual(['Install Ollama', 'Download a local model']);
     expect(c.map((x) => x.state)).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
+    // R11 round 7: each card's situation (the order's four and the two in between) with its verb-led action, in words
+    expect(c.map((x) => [x.situation, x.situationWords, x.verb])).toEqual([
+      ['no-account', 'No account', 'Connect with OpenRouter'],
+      ['no-model', 'No downloaded model', 'Install Ollama'],
+      ['no-account', 'No account', 'Save an Ollama key'],
+      ['no-account', 'No account', 'Set up Cloudflare'],
+    ]);
+    expect(c.map((x) => x.model)).toEqual([true, true, true, false]);
+    expect(c.map((x) => x.cost)).toEqual([COST_WORDS.openrouter, COST_WORDS['ollama-local'], COST_WORDS['ollama-cloud'], COST_WORDS.cloudflare]);
+    expect((c[1].local as Record<string, unknown>).offer).toEqual(OFFER_WORDS);
+    expect(OFFER_WORDS.hardware).toMatch(/a rule of thumb .* not a measurement of this computer/);
     // the process's own keys never count for a user: the env keys of userEnv's base are struck out
     expect(c[0].key).toBeUndefined();
     expect(c[2].key).toBeUndefined();
