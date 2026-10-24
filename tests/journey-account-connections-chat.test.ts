@@ -381,7 +381,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await composer.first().fill('FAKE: what time is it?');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         const answered = await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
-        expect(answered).toMatch(/get_current_time/);
+        // the tool line (the turn's activity: p.cx-act-line[data-tool]) — drawn with the turn, folded into the answer's activity once
+        // the receipt is read back, so it is found in the DOM, not in the visible text alone (gate 19: the text had the answer first)
+        await o.page.waitForSelector('[data-tool="get_current_time"]', { state: 'attached', timeout: 10_000 }).catch(async () => { throw new Error(`the tool line get_current_time is not on the page after the answer; the page read:\n${(await text(o.page)).slice(0, 1500)}`); });
         const evidenceLine = answered.split('\n').find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l) && l.includes(MODEL)) ?? answered.split('\n').find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l)) ?? '';
         const evidence = /receipt\W{0,3}(?:sha256_)?([0-9a-f]{8})/i.exec(evidenceLine);
         expect(evidence, `the evidence line with its receipt (the lines: ${answered.split('\n').filter((l) => /receipt/i.test(l)).join(' | ').slice(0, 400)})`).toBeTruthy();
