@@ -149,8 +149,12 @@
     const r = spec(p);
     const kicker = s.querySelector(':scope > .page-head .page-kicker');
     if (kicker) {
+      // the kicker's NUMBER is the rail's order (contract §2.2: one numbering product-wide, the shell's); the verb phrase is the
+      // page's own — a registration that wrote another number keeps its words and takes the rail's number
       const m = /^(\d+)\s*\/\s*(.+)$/.exec(r.kicker || '');
-      kicker.replaceChildren(...(m ? [h('span', { class: 'page-kicker-n' }, m[1]), h('span', { class: 'page-kicker-sep', 'aria-hidden': 'true' }, ' / '), h('span', { class: 'page-kicker-verb' }, m[2])] : [h('span', { class: 'page-kicker-verb' }, r.kicker || p.label)]));
+      const verb = m ? m[2] : (r.kicker || p.verb || p.label);
+      const n = p.n || (m ? m[1] : '');
+      kicker.replaceChildren(...(n ? [h('span', { class: 'page-kicker-n' }, n), h('span', { class: 'page-kicker-sep', 'aria-hidden': 'true' }, ' / '), h('span', { class: 'page-kicker-verb' }, verb)] : [h('span', { class: 'page-kicker-verb' }, verb)]));
     }
     const title = s.querySelector(':scope > .page-head .page-title');
     if (title) { text(title, r.title); title.id = title.id || `page-title-${p.id}`; s.setAttribute('aria-labelledby', title.id); }
