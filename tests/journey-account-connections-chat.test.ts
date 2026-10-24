@@ -243,15 +243,23 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await until(o.page, 'the chat screen', (s) => /Message Timmy/.test(s));
         // the right panel (a button on a phone)
         if (size.width < 600) await o.page.getByRole('button', { name: /Models/ }).first().click();
-        await until(o.page, 'the Models panel', (s) => /Sort|All makers|All capabilities|Any cost|Any context/.test(s));
-        for (const control of [/Sort/, /All makers/, /All capabilities/, /Any cost/, /Any context/]) expect(await o.page.getByRole('combobox', { name: control }).or(o.page.getByRole('button', { name: control })).count(), `the control ${control}`).toBeGreaterThan(0);
-        // the local source lists the FAKE model; a filter set, then a sort: the filter stays
-        const search = o.page.getByRole('searchbox').or(o.page.getByPlaceholder(/Search models/));
-        if (await search.count()) { await search.first().fill('fake'); }
+        await until(o.page, 'the Models panel', (s) => /All makers|All capabilities|Any cost|Any context/.test(s));
+        // the five controls (H171, 19:58): selects labelled Sort / Maker / Capability / Cost / Context, their first options
+        const controls: Array<[string, string]> = [['Sort', 'Newest first'], ['Maker', 'All makers'], ['Capability', 'All capabilities'], ['Cost', 'Any cost'], ['Context', 'Any context']];
+        for (const [label, first] of controls) {
+          const select = o.page.getByRole('combobox', { name: label });
+          expect(await select.count(), `the ${label} control`).toBeGreaterThan(0);
+          expect(await select.first().locator('option').first().textContent(), `${label}'s first option`).toBe(first);
+        }
+        // the local source lists the FAKE model; a search typed, then a sort: the search stays (a sort never resets a filter)
+        const search = o.page.getByPlaceholder(/Search models/);
+        expect(await search.count(), 'the search box').toBeGreaterThan(0);
+        await search.first().fill('fake');
         await until(o.page, 'the FAKE model in the list', (s) => s.includes(MODEL), 20_000);
-        const sort = o.page.getByRole('combobox', { name: /Sort/ });
-        if (await sort.count()) { await sort.first().selectOption({ index: 1 }).catch(() => undefined); }
-        if (await search.count()) expect(await search.first().inputValue(), 'a sort keeps the search').toBe('fake');
+        await o.page.getByRole('combobox', { name: 'Sort' }).first().selectOption({ index: 1 });
+        await o.page.waitForTimeout(300);
+        expect(await search.first().inputValue(), 'a sort keeps the search').toBe('fake');
+        expect(await text(o.page)).toContain(MODEL);
         await o.page.getByText(MODEL, { exact: false }).first().click();
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
@@ -261,7 +269,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         const answered = await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
         expect(answered).toMatch(/get_current_time/);
-        const evidence = /receipt ([0-9a-f]{8})/.exec(answered);
+        const evidence = /receipt\W{0,3}(?:sha256_)?([0-9a-f]{8})/i.exec(answered);
         expect(evidence, 'the evidence line with its receipt').toBeTruthy();
         expect(ollama.chats().length).toBeGreaterThanOrEqual(2);
         // the receipt verifies in the user's project chain
