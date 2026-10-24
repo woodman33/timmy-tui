@@ -271,7 +271,6 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(beforeSeam, `the socket told the session-less page it needs a session: ${JSON.stringify(o.frames).slice(0, 400)}`).toContain('session:false:session');
         expect(beforeSeam.filter((f) => /^(welcome|bus\.tail|event|project|integrations)$/.test(f)), `no project frame before a session (the frames: ${JSON.stringify(beforeSeam).slice(0, 400)})`).toEqual([]);
         expect(o.frames.slice(o.frames.indexOf('--seam--')), 'the user\'s own frames once the session is verified (a welcome)').toContain('welcome');
-        expect(t).toMatch(/Choose how you want to run\./);
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
         // the state words are H170's provider states: never "free", never "connected" for a selection
         expect(t).not.toMatch(/\bfree\b/i);
@@ -299,6 +298,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(ollama.pulls()[0].aborted, 'the FAKE /api/pull saw the abort').toBe(true);
         const cancelled = await until(o.page, 'the download cancelled, said', (s) => /Cancelled/.test(s), 10_000);
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
+        // the screen's own heading (SCREEN_WORDS: the kicker, the title "Choose how you want to run.", the lead) is on the page
+        expect(cancelled, 'the connections screen\'s title (H170\'s SCREEN_WORDS.title, drawn in #cx-title — H171 noted the id is also the Chat\'s)').toMatch(/Choose how you want to run\./i);
+        expect(cancelled).toMatch(/CONNECT YOUR MODELS & TOOLS/i);
         // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
@@ -339,6 +341,8 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(await search.first().inputValue(), 'a sort keeps the search').toBe('fake');
         expect(await text(o.page)).toContain(MODEL);
         await o.page.getByText(MODEL, { exact: false }).first().click();
+        // the model's detail opens; "Use for the next turn" is the choice (POST /api/chat/choose: Ollama asked for the exact name first)
+        await o.page.getByRole('button', { name: /Use for the next turn/ }).first().click();
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
         // a turn: the REAL agent through H169's SSE; the FAKE model calls one tool, then answers
