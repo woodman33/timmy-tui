@@ -18,7 +18,7 @@
  * token on the page's face.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -431,16 +431,38 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(afterStop[stopAt][1]).toMatch(/^POST \/api\/chat\/stop \{ id: [A-Za-z0-9_-]+ \} \(this page's Stop\)$/);
       expect(afterStop.slice(stopAt + 1).map((e) => e[0])).toEqual(['stopped']);
       expect(await text(page, '#activity-test-host [data-rive-status="activity-test"]')).toBe('stopped');
+      // (H172's GATE 38 observation, R11 round 6: on a project WITH a saved conversation, New conversation asks the companion for a
+      // conversation of its own — POST /api/chat/new, H169's route (the REPL's /new) — and the chat's read then answers an EMPTY
+      // newest conversation: the welcome is drawn with its three starters, the primary one the native button, the composer
+      // focused, and the saved conversation is no longer the center's; a companion without the route answers 404 and the page
+      // says plainly what its New conversation is then — the fallback path, kept as the other half of this pin)
+      const newConv = page.waitForResponse((r) => /\/api\/chat\/new$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST', { timeout: 15_000 });
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
-      // (H172's GATE 38 observation, R11 round 6: on a project WITH a saved conversation, New conversation on this page puts the
-      // page's turns away; the saved conversation stays and the next turn continues it — said plainly on the page, with why no
-      // conversation of its own starts here (this companion has no POST /api/chat/new); the welcome is not drawn: the
-      // conversation is not empty)
-      await page.waitForFunction(() => (document.getElementById('cx-note')?.textContent ?? '').startsWith('New conversation on this page:'), null, { timeout: 10_000 });
-      expect(await text(page, '#cx-note')).toMatch(/^New conversation on this page: its own turns are put away and the composer is clear; the project’s saved conversation \(\d+ messages\) stays and the next turn continues it — a conversation of its own is the REPL’s \/new today \(this companion has no POST \/api\/chat\/new yet\)\.$/);
-      expect(await page.$$eval('#cx-turns > .cx-turn', (els) => els.length)).toBeGreaterThan(0);
-      expect(await page.evaluate(() => document.body.dataset.chatState)).not.toBe('empty');
+      const newStatus = (await newConv).status();
+      expect([200, 404], `POST /api/chat/new answered ${newStatus}: 200 when the companion has the route, 404 without it`).toContain(newStatus);
+      if (newStatus === 200) {
+        await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 20_000 });
+        expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent?.trim()]))).toEqual([['plan', 'Plan a project'], ['image', 'Inspect an image'], ['workflow', 'Build a workflow']]);
+        await page.waitForFunction(() => ['drawn', 'words'].includes(document.querySelector('#cx-empty .cx-way-twin')?.getAttribute('data-rive') ?? ''), null, { timeout: 15_000 });
+        expect(await page.$$eval('#cx-turns > .cx-turn', (els) => els.length)).toBe(0);
+        expect((await text(page, '#cx-note')).startsWith('New conversation on this page:'), 'the "no route yet" words never show when the route answered').toBe(false);
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
+        expect(await text(page, '#cx-note')).toBe('New conversation: the project’s next turn starts a conversation of its own (the saved one is kept in .sessions).');
+        console.warn('[companion-chat-shell-browser] New conversation: the companion has POST /api/chat/new — the welcome drawn on the empty conversation of its own');
+        // (the cases after this one read the SAVED conversation as the project's newest: the empty conversation this step started —
+        // H169's route writes it as an empty newest .sessions file — is removed again, the fixture's own file; the page's next read
+        // shows the saved turns again)
+        const sessions = join(box, 'tray', '.sessions');
+        for (const f of readdirSync(sessions)) { if (f.endsWith('.jsonl') && statSync(join(sessions, f)).size === 0) rmSync(join(sessions, f)); }
+        await page.waitForFunction(() => document.querySelectorAll('#cx-turns .cx-turn.is-timmy').length > 0 && document.body.dataset.chatState !== 'empty', null, { timeout: 15_000 });
+      } else {
+        await page.waitForFunction(() => (document.getElementById('cx-note')?.textContent ?? '').startsWith('New conversation on this page:'), null, { timeout: 10_000 });
+        expect(await text(page, '#cx-note')).toMatch(/^New conversation on this page: its own turns are put away and the composer is clear; the project’s saved conversation \(\d+ messages\) stays and the next turn continues it — a conversation of its own is the REPL’s \/new today \(this companion has no POST \/api\/chat\/new yet\)\.$/);
+        expect(await page.$$eval('#cx-turns > .cx-turn', (els) => els.length)).toBeGreaterThan(0);
+        expect(await page.evaluate(() => document.body.dataset.chatState)).not.toBe('empty');
+        console.warn('[companion-chat-shell-browser] New conversation: this companion has no POST /api/chat/new — the page said so (the fallback path)');
+      }
       // R11 step 1 (the operator's first-use failure): a local model chosen on the page. Enter on its row: Ollama is asked
       // for that exact name (/api/show, no model run), the setup's answer is written, the draft is kept, the composer has
       // the keyboard, the route line, the chip and the status row say the next turn's model

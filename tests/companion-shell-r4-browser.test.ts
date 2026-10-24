@@ -375,10 +375,18 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // New conversation puts this page's turns away and clears the draft
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
-      // (H172's GATE 38 observation: the turn folded into the project's saved conversation, so the conversation is not empty and
-      // no welcome comes; the page says what its New conversation is, and why no conversation of its own starts here)
-      await page.waitForFunction(() => (document.getElementById('cx-note')?.textContent ?? '').startsWith('New conversation on this page:'), null, { timeout: 10_000 });
-      expect(await text(page, '#cx-note')).toContain('the project’s saved conversation (2 messages) stays and the next turn continues it');
+      // (H172's GATE 38 observation: the turn folded into the project's saved conversation; New conversation asks the companion for
+      // a conversation of its own (POST /api/chat/new, H169's) → the welcome on the empty one; without the route the page says
+      // what its New conversation is and why no conversation of its own starts here)
+      await page.waitForFunction(() => document.body.dataset.chatState === 'empty' || (document.getElementById('cx-note')?.textContent ?? '').startsWith('New conversation on this page:'), null, { timeout: 20_000 });
+      const fresh = await page.evaluate(() => document.body.dataset.chatState === 'empty');
+      if (fresh) {
+        // (H169's POST /api/chat/new answered: the welcome on the conversation of its own, the three starters, the composer's keyboard)
+        expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => e.getAttribute('data-cx-start')))).toEqual(['plan', 'image', 'workflow']);
+        expect(await page.$$eval('#cx-turns > .cx-turn', (els) => els.length)).toBe(0);
+        expect(await text(page, '#cx-note')).toBe('New conversation: the project’s next turn starts a conversation of its own (the saved one is kept in .sessions).');
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
+      } else expect(await text(page, '#cx-note')).toContain('the project’s saved conversation (2 messages) stays and the next turn continues it');
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, LONG);
