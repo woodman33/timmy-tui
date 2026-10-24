@@ -112,6 +112,11 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     const f = frame(data(), ui());
     const c = center(text(f));
     expect(c[4]).toBe('CHAT / tray');
+    // (R11 round 7, H177: the page's one-line description under its title, grey, the hierarchy's "current task" row)
+    // (62 cells: whole in the Chat screen's center at 80x24 too)
+    expect(c[5]).toBe('Talk to Timmy about this project; the route and its cost show.');
+    expect(f.screen[5].find((s) => s.text.startsWith('Talk to Timmy'))?.role).toBe('secondary');
+    expect(c[6]).toBe('');
     expect(c[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(c[8]).toBe('Summarise the newest run in one line.');
     expect(c[10]).toMatch(/^TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d$/);
@@ -863,20 +868,26 @@ describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, 
     const t = text(f);
     const c = center(t);
     expect(cols(t[4], 20, 89)).toMatch(/^CHAT \/ tray +15 workspaces$/);
+    // (R11 round 7, H177: the workspaces in the rail's order and groups: Chat; Files, Workflows, Runs & receipts, Canvas; Vision,
+    // Motion & 3D (3D Create, then Motion); Models & accounts, God's Eye View, Tools & integrations, REA, Templates, Control
+    // Room, Fleet & Clef)
     expect(c[11]).toBe('> Chat  · Conversation');
-    expect(c[12]).toBe('  Canvas  Studio  · Studio outline');
-    expect(c[14]).toBe('  Motion & 3D  3D Create  · Scenes and CAD');
-    expect(c[21]).toBe('  Runs & receipts  Logs & Receipts · Logs & records  · Logs and…');
-    expect(c[24]).toBe('  Tools & integrations  All tools · Tools & MCP  · Tool library');
-    expect(c[25]).toBe('  Models & accounts  Connections · Models & keys  · Connections');
+    expect(c[12]).toBe('  Files  · Files');
+    expect(c[14]).toBe('  Runs & receipts  Logs & Receipts · Logs & records  · Logs and…');
+    expect(c[15]).toBe('  Canvas  Studio  · Studio outline');
+    expect(c[17]).toBe('  Motion & 3D  3D Create  · Scenes and CAD');
+    expect(c[19]).toBe('  Models & accounts  Connections · Models & keys  · Connections');
+    expect(c[21]).toBe('  Tools & integrations  All tools · Tools & MCP  · Tool library');
     // the lead amber on the first row only; the other names grey
-    expect(f.screen[12].find((s) => s.text === 'Canvas')?.role).toBe('text');
-    expect(f.screen[12].find((s) => s.text.includes('Studio'))?.role).toBe('secondary');
+    expect(f.screen[15].find((s) => s.text === 'Canvas')?.role).toBe('text');
+    expect(f.screen[15].find((s) => s.text.includes('Studio'))?.role).toBe('secondary');
     // typed: one match, counted as one
     expect(cols(text(frame(data(), ui({ ...find, input: { field: 'search', text: 'recei' } } as Partial<Ui>)))[4], 20, 89)).toMatch(/ 1 workspace$/);
     const n = text(frame(data(), ui(find), 80, 24));
     expect(cols(n[4], 16, 79)).toMatch(/^CHAT \/ tray +1–4 of 15 workspaces$/);
     expect(cols(n[11], 16, 79)).toBe('> Chat  · Conversation');
+    // (R11 round 7, H177: the description whole in the center's 62 cells at 80x24, under CHAT / project, on the conversation)
+    expect(cols(text(frame(data(), ui(), 80, 24))[5], 16, 79)).toBe('Talk to Timmy about this project; the route and its cost show.');
   });
 });
 

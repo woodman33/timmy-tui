@@ -50,10 +50,11 @@ function terminal(label: string) {
   return { tmux, screen, waitFor, keys, capture };
 }
 
-/** The page box's rows (tab 6's body), between its side borders: the rows of the region whose title names 3D & Motion. */
+/** The page box's rows (tab 6's body), between its side borders: the rows of the region whose crumb names Motion & 3D (R11
+ *  round 7, H177: "project / destination"). */
 function pageRows(screen: string): string[] {
   const lines = screen.split('\n');
-  const top = lines.findIndex((l) => /^[┏╭]/.test(l) && / \/ 3D & Motion/.test(l));
+  const top = lines.findIndex((l) => /^[┏╭]/.test(l) && / \/ Motion & 3D/.test(l));
   const bottom = lines.findIndex((l, i) => i > top && /^[┗╰]/.test(l));
   if (top < 0 || bottom < 0) return [];
   return lines.slice(top + 1, bottom).map((l) => { const side = l[0]; const end = l.indexOf(side, 1); return (side === '┃' || side === '│') && end > 0 ? l.slice(1, end) : ''; });
@@ -141,7 +142,7 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
     const t = terminal(SOCKET);
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '30', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Home · recent work[\s\S]*Activity & log/.test(s), 90_000);
+    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Models & accounts[\s\S]*Activity & log/.test(s), 90_000);
     const seen: Record<string, string[]> = {};
     for (const [cols, rows] of [[100, 30], [60, 16]] as const) {
       const size = `${cols}x${rows}`;
@@ -151,7 +152,7 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
       }
       // tab 6 afresh (from Home), its meshes measured: the first mesh whole in view, the cursor's mark on it
       await t.keys('1');
-      await t.waitFor(`Home at ${size}`, (s) => /\/ Home · recent work/.test(s));
+      await t.waitFor(`Home at ${size}`, (s) => /\/ Models & accounts/.test(s));
       await t.keys('6');
       const mesh = await t.waitFor(`tab 6 at ${size}, its first mesh in view with the cursor on it`, (s) => firstMeshRows(s), 30_000);
       seen[size] = mesh;
@@ -167,8 +168,8 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
       expect(keyLine, `${size}: the key line`).toContain("[Enter] its measurements in Context · [c] it chosen in the companion's view you can turn");
 
       // Enter, with the keyboard in the body: Context opens on the Inspector; ↓ scrolls it to the measurements
-      for (let k = 0; k < 6 && !/┏━ ◆ tray1 \/ 3D & Motion/.test(t.screen()); k++) await t.keys('Tab');
-      await t.waitFor(`the body with the keyboard at ${size}`, (s) => /┏━ ◆ tray1 \/ 3D & Motion/.test(s));
+      for (let k = 0; k < 6 && !/┏━ ◆ tray1 \/ Motion & 3D/.test(t.screen()); k++) await t.keys('Tab');
+      await t.waitFor(`the body with the keyboard at ${size}`, (s) => /┏━ ◆ tray1 \/ Motion & 3D/.test(s));
       await t.keys('Enter');
       await t.waitFor(`Context's drawer on the Inspector at ${size}`, (s) => drawerRows(s).some((r) => /▸ Inspector|▸Inspector/.test(r)));
       for (let k = 0; k < 6 && !/┏━ ◆ Context \(drawer\)/.test(t.screen()); k++) await t.keys('Tab');
@@ -181,7 +182,7 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
       expect(ctx, `${size}: the measurements in Context`).toMatch(/Triangles 28/);
       t.capture(`h160-tab6-${size}-enter-context`, /Triangles\s+28/);
       await t.keys('Escape');
-      await t.waitFor(`the drawer closed at ${size}`, (s) => !/Context \(drawer\)/.test(s) && /◆ tray1 \/ 3D & Motion/.test(s));
+      await t.waitFor(`the drawer closed at ${size}`, (s) => !/Context \(drawer\)/.test(s) && /◆ tray1 \/ Motion & 3D/.test(s));
 
       // c: the companion on tab 6 with this mesh chosen (the launch page the FAKE opener was given carries the address)
       const before = openedPages().length;

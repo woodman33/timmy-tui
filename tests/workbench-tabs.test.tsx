@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
-import { TABS, type ConnectionState, type TabId } from '../src/contracts/workspace.js';
+import { TABS, tabOf, type ConnectionState, type TabId } from '../src/contracts/workspace.js';
 import { CONNECTIONS_SCHEMA, writeConnections, type ConnectionsRecord } from '../src/ops/workspace-frame.js';
 import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
 import { copyStarter } from '../src/project/starters.js';
@@ -23,7 +23,9 @@ import { WorkbenchApp } from '../src/workbench/app.js';
 import { Controller } from '../src/workbench/controller.js';
 import type { SetupDeps } from '../src/workbench/setup-paths.js';
 import { glyphsFor, screenText } from '../src/workbench/frame.js';
-import { frameTabs, tabBar, workspaceOfPage } from '../src/workbench/hub.js';
+import { frameTabs, workspaceOfPage } from '../src/workbench/hub.js';
+import { destinationOf, destinationsRow } from '../src/workbench/destinations.js';
+import { navItem } from '../src/workbench/nav.js';
 import type { Frame } from '../src/workbench/screen.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
 import { lineCells, plain, type Role, type Seg } from '../src/workbench/text.js';
@@ -163,11 +165,13 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
       await press(f.r, t.key);
       expect(c.ui.page, `the key ${t.key}`).toBe(t.id);
       expect(c.ui.workspace, `the key ${t.key}`).toBe(workspaceOfPage(t.id));
-      // R10 (H167): the header's tabs row: the active tab bracketed (amber), with its label from the frame (its first word at
-      // 160 columns); one active tab
-      const label = c.data.frame!.tabs.find((x) => x.id === t.id)!.label;
-      expect(f.lines()[1], `row 2 with ${t.key} active`).toMatch(new RegExp(`\\[${t.key} (?:${escape(label)}|${escape(label.split(/\s+/)[0])})\\]`));
-      expect(f.lines()[1].match(/\[/g) ?? [], 'one active tab').toHaveLength(1);
+      // R10 (H167): the header's destinations row (R11 round 7, H177: the rail's groups, the rail's short names with the keys
+      // at 160 columns): the shown destination marked ▸ (amber) with its page's key; one shown; Fleet & Clef (8) under
+      // Control Room's cell (7), as D3 folds it
+      const shown = destinationOf(workspaceOfPage(t.id), t.id)!;
+      expect(f.lines()[1], `row 2 with ${t.key} active`).toContain(`▸${tabOf(shown.page).key} ${shown.short}`);
+      expect(f.lines()[1].match(/▸/g) ?? [], 'one shown destination').toHaveLength(1);
+      expect(f.lines()[1]).not.toMatch(/\[/);
     }
     // the same key again: the tab's next workspace, then back to its first
     await press(f.r, '6');
@@ -196,34 +200,32 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
     expect(c.ui.page).toBe('control');
   }, 60_000);
 
-  it('row 1 keeps every tab where it is, at every size, whichever tab is active and whatever waits (the QA round\'s defect 4): the same cells, the waiting count in the top edge (boxes) or a cell of its own (one row)', () => {
+  it('row 1 keeps every destination where it is, at every size, whichever is shown and whatever waits (the QA round\'s defect 4; R11 round 7, H177: the grouped destinations): the same cells, ⚠ in the cell kept for it', () => {
     const g = glyphsFor(true);
-    for (const [w, rows] of [[180, 3], [160, 3], [120, 3], [100, 3], [80, 1], [60, 1], [70, 3], [60, 3]] as const) {
+    for (const w of [180, 160, 134, 122, 120, 100, 80, 60] as const) {
       let first = '';
       let form = '';
       for (const active of TABS.map((t) => t.id)) {
         for (const waiting of [0, 1, 12]) {
           const tabs = frameTabs(undefined).map((t) => ({ ...t, waiting: t.id === 'control' || t.id === 'home' ? waiting : 0 }));
-          const bar = tabBar(tabs, active, 'tray-stable', w, rows, g);
+          const row = destinationsRow({ tabs, page: active, workspace: workspaceOfPage(active), width: w, g });
           const where = `${w} columns, ${active} active, ${waiting} waiting`;
-          const cellsAt = JSON.stringify(bar.hits.map((h) => [h.x0, h.x1]));
+          const cellsAt = JSON.stringify(row.hits.map((h) => [h.x0, h.x1]));
           first ||= cellsAt;
-          form ||= bar.form;
+          form ||= row.form;
           expect(cellsAt, where).toBe(first);
-          expect(bar.form, where).toBe(form);
-          expect(bar.lines).toHaveLength(rows);
-          for (const l of bar.lines) expect(lineCells(l), where).toBe(w);
-          const text = bar.lines.map(plain);
-          // what waits is drawn over its own tab, and nowhere else; the labels' row never carries it on a boxed bar
-          for (const h of bar.hits) {
-            // a boxed tab's top edge, or a one-row bar's cell (its last cell is kept for the mark)
-            const over = text[0].slice(h.x0, h.x1 + 1);
+          expect(row.form, where).toBe(form);
+          expect(lineCells(row.line), where).toBe(w);
+          const text = plain(row.line);
+          // what waits is drawn over its page's destinations (Models & accounts, Control Room), and nowhere else
+          for (const h of row.hits) {
+            const over = text.slice(h.x0, h.x1 + 1);
             const waits = waiting > 0 && (h.page === 'control' || h.page === 'home');
-            expect(over.includes(g.warn), `${where}: the mark over ${h.page}`).toBe(waits);
-            // the count with it where the box has room for both (and an edge cell before them)
-            if (waits && rows === 3 && waiting === 1 && h.x1 - h.x0 - 1 >= 3) expect(over, where).toContain(`${g.warn}1`);
+            expect(over.includes(g.warn), `${where}: the mark over ${h.dest}`).toBe(waits);
           }
-          if (rows === 3) expect(text[1], where).not.toContain(g.warn);
+          // one shown destination, marked with the cursor; the count is the status row's (never on this row)
+          expect(text.match(/▸/g) ?? [], where).toHaveLength(1);
+          expect(text, where).not.toMatch(/\d+ waiting/);
         }
       }
     }
@@ -396,12 +398,14 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
         const rows = screenText(f.screen);
         expect(rows, `${t.label} at ${w}x${h}`).toHaveLength(h);
         for (const [y, row] of rows.entries()) expect(visibleWidth(row), `${t.label} at ${w}x${h}, row ${y + 1}`).toBe(w);
-        // R10 (H167): the header, two rows from 30 rows: TIMMY and the project on its first, the tabs on its second (the active
-        // one bracketed: its label, its first word, or its key with its name at the row's end)
+        // R10 (H167): the header, two rows from 30 rows: TIMMY and the project on its first, the destinations on its second
+        // (R11 round 7, H177: the shown one marked ▸: the rail's short name with its key at 160, the name alone at 120 and
+        // 100); then the page head with the workspace's title and its key, the body and Activity & log
         expect(rows[0], `row 1 of ${t.label} at ${w}x${h}`).toContain(`TIMMY · ${p.name}`);
-        const label = t.label;
-        expect(rows[1], `the active tab at ${w}x${h}`).toMatch(new RegExp(`\\[${t.key}(?: ${escape(label)}| ${escape(label.split(/\s+/)[0])})?\\]`));
-        expect(rows.join('\n'), `Workflow actions at ${w}x${h}`).toContain('Workflow actions');
+        const shown = destinationOf(workspaceOfPage(t.id), t.id)!;
+        expect(rows[1], `the shown destination at ${w}x${h}`).toMatch(new RegExp(`▸(?:${tabOf(shown.page).key} )?${escape(shown.short)}`));
+        expect(rows[1].match(/▸/g) ?? [], `one shown destination at ${w}x${h}`).toHaveLength(1);
+        expect(rows[2], `the page head at ${w}x${h}`).toMatch(new RegExp(`^[╭┏][─━] (?:◆ )?${escape(navItem(workspaceOfPage(t.id)).title)} [─━]+ \\[${t.key}\\]`));
         expect(rows.join('\n'), `Activity & log at ${w}x${h}`).toContain('Activity & log');
       }
     }

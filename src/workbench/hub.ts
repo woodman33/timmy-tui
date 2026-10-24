@@ -3,9 +3,8 @@
  * src/ops/workspace-frame.ts buildWorkspaceFrame, the frame the browser companion and Studio draw too), laid out as the
  * operator's references lay them out (codex-ui-references 01, 02, 11, 12, 13 and 14):
  *
- *   row 1        TIMMY, the project, the ten tabs as boxed labels; the active one amber (a heavy box), a waiting count in
- *                its box's top edge (⚠ and the number); full labels where they fit, else their first words, else the keys
- *                with the active tab's name at the end; every cell keeps its place whichever tab is active
+ *   row 1        TIMMY, the project, the route and what runs and waits; then the destinations in the rail's groups (R11 round
+ *                7, H177: src/workbench/destinations.ts), the shown one amber; every cell keeps its place whichever is shown
  *   row 2        the tab's workflow actions as numbered boxes: the one primary next step amber (filled, ▶), one not available
  *                now quiet, its `why` said when it is selected; Enter runs it through a path the Workbench has, else shows
  *                the command to copy (src/workbench/controller.ts runAction)
@@ -16,8 +15,8 @@
  *                log, newest at the top
  *   the log      Activity & log's newest lines, from the frame's log
  *
- * The tabs, the actions' labels and commands, and the connections' words are the frame's, never made here; the short labels
- * are the frame's labels' first words. Pure: the same frame and state always draw the same rows.
+ * The tabs, the actions' labels and commands, and the connections' words are the frame's, never made here. Pure: the same
+ * frame and state always draw the same rows.
  */
 import type { ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
@@ -28,6 +27,7 @@ import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
+import { unfinishedMark } from './destinations.js';
 import { turnEndWords as stopTableEndWords } from '../contracts/stop-words.js';
 import { clock, count, cut, fit, lineCells, pickRanked, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
@@ -66,137 +66,19 @@ export function pageOf(ws: WorkspaceId): TabId {
  *  same object the frame carries). */
 export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) }));
 
-/** R7 (H150; the operator's order of 2026-10-16): the mark of a tab that is unfinished (its word beside it where it fits). */
-export const unfinishedMark = (g: Pick<Glyphs, 'unicode'>): string => (g.unicode ? '◌' : '~');
+/** R7 (H150; the operator's order of 2026-10-16): the mark of a tab that is unfinished (its word beside it where it fits).
+ *  R11 round 7 (H177): defined with the destinations (src/workbench/destinations.ts), which draw it on the header. */
+export { unfinishedMark };
 
-/** A tab's short label: the first word of the frame's label ("Chat & Intent": Chat). */
-export const shortLabel = (label: string): string => label.split(/\s+/)[0] ?? label;
+// ── row 1: TIMMY, the project, the destinations ────────────────────────────────
 
-// ── row 1: TIMMY, the project, the tabs ────────────────────────────────────────
+/** Where a page's cell is on the header (a click opens it); R11 round 7 (H177): `dest` names the destination of that cell
+ *  (src/workbench/destinations.ts), which the click opens where a page has two (Files and Runs & receipts). */
+export interface PageHit { x0: number; x1: number; y0: number; y1: number; page: TabId; dest?: string }
 
-export interface PageHit { x0: number; x1: number; y0: number; y1: number; page: TabId }
-
-/**
- * How the tabs' labels are said: their full labels, their first words, or their keys (with the active tab's name in a slot of
- * its own at the row's end). R5 (H131; the QA round's defect 4): the form is chosen by the width and the project's name alone,
- * never by which tab is active or which carries a badge, so the tabs keep their place and their width whichever is active.
- */
-export type TabForm = 'full' | 'short' | 'keys';
-const FORMS: readonly TabForm[] = ['full', 'short', 'keys'];
-
-function labelIn(t: WorkspaceFrame['tabs'][number], form: TabForm): string {
-  switch (form) {
-    case 'full': return `${t.key} ${t.label}`;
-    case 'short': return `${t.key} ${shortLabel(t.label)}`;
-    default: return t.key;
-  }
-}
-
-/**
- * Row 1 as `rows` rows (3: boxed labels; 1: a short terminal), exactly `width` cells each, and where each tab is (for a
- * click). The project's name is cut before a form is given up, but never below its first few letters.
- *
- * R5 (H131; defect 4, "a stable tab header"): every tab's cell has the same width in a form whichever tab is active; what
- * waits on you is drawn without moving anything: on a boxed tab, in its box's top edge (⚠ and the count); on a one-row bar,
- * in a cell every tab keeps for it (⚠ alone). The keys form says the active tab's name in a slot of its own at the end,
- * as wide as the longest name it may hold.
- */
-export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: string, width: number, rows: 1 | 3, g: Glyphs): { lines: Line[]; hits: PageHit[]; form: TabForm } {
-  const brand = 'TIMMY';
-  const sep = ` ${g.sep} `;
-  // a one-row bar keeps one cell in every tab for ⚠, and its brackets mark the active tab
-  const cellW = (t: WorkspaceFrame['tabs'][number], form: TabForm): number => lineCells([S(labelIn(t, form))]) + 2 + (rows === 1 ? 1 : 0);
-  // the keys form's slot for the active tab's name: as wide as the longest (a name that does not fit is cut)
-  const slotW = Math.max(...tabs.map((t) => lineCells([S(t.label)])));
-  const fits = (form: TabForm, name: string): { gap: number; slot: number } | null => {
-    const prefix = lineCells([S(`${brand}${name ? `${sep}${name}` : ''} `)]);
-    const cells = tabs.reduce((n, t) => n + cellW(t, form), 0);
-    const slot = form === 'keys' ? Math.min(slotW, Math.max(0, width - prefix - cells - tabs.length - 1)) : 0;
-    const extra = form === 'keys' ? (slot ? slot + 1 : 0) : 0;
-    if (prefix + cells + (tabs.length - 1) + extra <= width) return { gap: 1, slot };
-    if (prefix + cells + extra <= width) return { gap: 0, slot };
-    return null;
-  };
-  // the fullest form that fits with the whole name, then with the name cut (to 12, then 6 letters), then without it
-  const names = [project, cut(project, 12, g.ellipsis), cut(project, 6, g.ellipsis), ''];
-  let form: TabForm = 'keys';
-  let name = '';
-  let gap = 0;
-  let slot = 0;
-  outer: for (const n of names) {
-    for (const f of FORMS) {
-      const ok = fits(f, n);
-      if (ok) { form = f; name = n; gap = ok.gap; slot = ok.slot; break outer; }
-    }
-  }
-  // the tabs reach the row's end, as the references' do: what is left is shared out evenly inside the cells, around their
-  // labels, and the rest goes between TIMMY's name and the first tab (the same whichever tab is active)
-  const slotRoom = slot ? slot + 1 : 0;
-  const used = lineCells([S(`${brand}${name ? `${sep}${name}` : ''} `)]) + tabs.reduce((n, t) => n + cellW(t, form), 0) + gap * (tabs.length - 1) + slotRoom;
-  const spare = Math.max(0, width - used);
-  const per = 2 * Math.floor(spare / (2 * tabs.length));
-  const lead = spare - per * tabs.length;
-  const prefixSegs: Seg[] = [S(brand, 'strong'), ...(name ? [S(sep, 'secondary'), S(name, 'strong')] : []), S(' '.repeat(1 + lead))];
-  const prefixW = lineCells(prefixSegs);
-  const half = ' '.repeat(per / 2);
-  const hits: PageHit[] = [];
-  const activeName = tabs.find((t) => t.id === active)?.label ?? '';
-  const slotSegs: Seg[] = slot ? [S(' '), S(cut(activeName, slot, g.ellipsis).padStart(slot), 'focus')] : [];
-  if (rows === 1) {
-    const line: Line = [...prefixSegs];
-    let x = prefixW;
-    tabs.forEach((t, i) => {
-      const on = t.id === active;
-      const label = labelIn(t, form);
-      // (R7 H150: an unfinished tab's ◌ in the cell every tab keeps, where nothing waits there: what waits on you comes first)
-      const mark = t.waiting > 0 ? g.warn : t.unfinished ? unfinishedMark(g) : ' ';
-      const segs: Seg[] = [S(`${on ? '[' : ' '}${half}${label}${half}${on ? ']' : ' '}`, on ? 'focus' : 'text'), S(mark, t.waiting > 0 ? 'attention' : 'secondary')];
-      const w = lineCells(segs);
-      hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: t.id });
-      line.push(...segs);
-      x += w;
-      if (i < tabs.length - 1 && gap) { line.push(S(' ')); x += 1; }
-    });
-    line.push(...slotSegs);
-    return { lines: [line], hits, form };
-  }
-  const top: Line = [S(' '.repeat(prefixW))];
-  const mid: Line = [...prefixSegs];
-  // R7 (H150; the operator's order of 2026-10-16): the unfinished tabs' mark, said in words once under TIMMY where it fits
-  // (each such tab's box carries the mark in its bottom edge, and the word too where its box has room)
-  const legend = `${unfinishedMark(g)} unfinished`;
-  const legendFits = tabs.some((t) => t.unfinished) && prefixW >= lineCells([S(legend)]) + 1;
-  const bot: Line = [legendFits ? S(legend.padEnd(prefixW), 'secondary') : S(' '.repeat(prefixW))];
-  let x = prefixW;
-  tabs.forEach((t, i) => {
-    const on = t.id === active;
-    const b = boxOf(g, on);
-    const edge: Role = on ? 'focus' : 'border';
-    const label = labelIn(t, form);
-    const inner = lineCells([S(label)]) + per;
-    // what waits on you there, in the top edge (one edge cell first where the box has room for it, then ⚠ and the count; ⚠
-    // alone where the count does not fit: a cut number would say another count)
-    const before = inner >= 2 ? 1 : 0;
-    const room = Math.max(0, inner - before);
-    const counted = `${g.warn}${t.waiting}`;
-    const badge = t.waiting <= 0 ? '' : lineCells([S(counted)]) <= room ? counted : lineCells([S(g.warn)]) <= room ? g.warn : '';
-    const badgeW = lineCells([S(badge)]);
-    top.push(...(badge
-      ? [S(`${b.tl}${b.h.repeat(before)}`, edge), S(badge, 'attention'), S(`${b.h.repeat(Math.max(0, inner - before - badgeW))}${b.tr}`, edge)]
-      : [S(`${b.tl}${b.h.repeat(inner)}${b.tr}`, edge)]));
-    mid.push(S(b.v, edge), S(`${half}${label}${half}`, on ? 'focus' : 'text'), S(b.v, edge));
-    if (t.unfinished && inner >= 3) {
-      const word = inner >= lineCells([S(legend)]) + 2 ? legend : unfinishedMark(g);
-      const w = lineCells([S(word)]);
-      bot.push(S(`${b.bl}${b.h}`, edge), S(word, 'secondary'), S(`${b.h.repeat(Math.max(0, inner - 1 - w))}${b.br}`, edge));
-    } else bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
-    hits.push({ x0: x, x1: x + inner + 1, y0: 0, y1: 2, page: t.id });
-    x += inner + 2;
-    if (i < tabs.length - 1 && gap) { for (const l of [top, mid, bot]) l.push(S(' ')); x += 1; }
-  });
-  if (slot) { mid.push(...slotSegs); top.push(S(' '.repeat(slot + 1))); bot.push(S(' '.repeat(slot + 1))); }
-  return { lines: [top, mid, bot], hits, form };
-}
+// (R11 round 7, H177: row 1 is the grouped destinations, drawn by src/workbench/destinations.ts destinationsRow for
+// src/workbench/home-journey.ts headerRows and src/workbench/screen.ts; the ten-tab bar that stood here since R5 is gone with
+// the lead's ruling of 2026-10-24: it was drawn by nothing.)
 
 // ── row 2: the workflow actions ────────────────────────────────────────────────
 
@@ -277,7 +159,7 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   if (cmd === 'timmy setup' || cmd === '/setup' || /^timmy init(?:\s|$)/.test(cmd)) {
     return { kind: 'setup', which: 'init', words: /--chat local\b/.test(cmd)
       ? 'Enter shows what timmy init asks, and chooses the local model here: what Ollama lists now (no key, no charge)'
-      : 'Enter shows the setup to run in a shell (timmy init) and what it asks; a key is typed there, hidden' };
+      : 'Enter shows the setup to run in a shell and what it asks; a key is typed there, hidden' };
   }
   if (cmd === '/setup chat') return { kind: 'setup', which: 'chat', words: 'Enter shows how to set the chat\'s Ollama address (the REPL\'s /setup chat, or timmy init in a shell)' };
   const run = /^\/run (\S+) (\S+)$/.exec(cmd);
@@ -321,16 +203,24 @@ function fillShares(words: readonly string[], room: number, g: Glyphs, first: re
   return texts;
 }
 
+/**
+ * R11 round 7 (H177; the order: "short verb-led controls", "technical syntax behind Details"): a button says its label's verb
+ * clause; what a colon introduces ("Set up chat: an OpenRouter key (asked hidden) or a local model") is the words row's, under
+ * the selected button, before what Enter does. A count in brackets stays on the button ("Answer what waits on you (3)").
+ */
+export const leadOf = (label: string): string => label.split(': ')[0] ?? label;
+export const tailOf = (label: string): string => label.split(': ').slice(1).join(': ');
+
 export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focused: boolean, width: number, g: Glyphs): { line: Line; hits: ActionHit[] } {
   if (!acts.length) return { line: [S('Nothing to do on this tab yet.', 'secondary')], hits: [] };
   const glyph = (a: WorkspaceAction): string => (a.primary ? `${g.next} ` : '');
   const text = (a: WorkspaceAction, room?: number): string => {
-    const label = room === undefined ? a.label : cut(a.label, Math.max(4, room), g.ellipsis);
+    const label = room === undefined ? leadOf(a.label) : cut(leadOf(a.label), Math.max(4, room), g.ellipsis);
     return `${glyph(a)}${a.n} ${label}`;
   };
   // each box: its marker cell, [ , its text, ]
   const overhead = acts.reduce((n, a) => n + 1 + 2 + lineCells([S(`${glyph(a)}${a.n} `)]), 0) + (acts.length - 1);
-  const need = acts.map((a) => lineCells([S(a.label)]));
+  const need = acts.map((a) => lineCells([S(leadOf(a.label))]));
   const full = need.reduce((n, w) => n + w, 0);
   // R5 (H131; the QA round's defect 15): where the labels do not all fit, the primary next step keeps its whole label first,
   // and the others share what is left, a short one keeping its whole label and leaving the rest to the longer ones
@@ -402,10 +292,15 @@ export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POS
   // inspector's ([i]) and the box Enter opens for a command to copy
   const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : SHORT_WORDS[route.kind] ?? route.words;
   const effect = EFFECT_WORDS[a.effect] ?? a.effect;
+  // R11 round 7 (H177): the label's clause after its colon (leadOf / tailOf: the button says the verb) comes first, whole
+  const tail = tailOf(a.label);
+  const lead: Line = tail ? [S(tail, 'text'), sep] : [];
+  // (where the row is short, what Enter does comes before the label's clause: what happens next is said first)
   const forms: Line[] = [
-    ...(route.kind === 'composer' ? [] : [[S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
-    [S(route.words, 'text')],
-    [S(short, 'text')],
+    ...(route.kind === 'composer' ? [] : [[...lead, S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
+    [...lead, S(route.words, 'text')],
+    [...lead, S(short, 'text')],
+    ...(tail ? [[S(route.words, 'text')], [S(short, 'text')]] : []),
   ];
   return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
 }
@@ -591,7 +486,8 @@ export function previewView(c: ViewCtx): View {
   else {
     const kinds = data.files.groups.map((gr) => [gr.kind, own(gr)] as const).filter(([, n]) => n).map(([k, n]) => count(n, k === 'other' ? 'other file' : KIND_WORD[k]));
     lines.push(...wrapSegs([S(kinds.join(` ${g.sep} `), 'text')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
-    lines.push(...wrapSegs([S(`in ${data.project.shown} ${g.sep} 0 Logs & Receipts lists them`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
+    // (R11 round 7, H177: the folder is the Inspector's ([i] About); Files (0, then 0 again) lists them)
+    lines.push(...wrapSegs([S(`Files lists them (0, then 0 again) ${g.sep} the folder: [i]`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
   }
   if (logs) lines.push(...wrapSegs([S(`not counted: ${count(logs, 'log')} Timmy writes itself (logs/*.log)`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
   lines.push(blank);

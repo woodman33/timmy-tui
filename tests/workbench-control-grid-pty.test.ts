@@ -149,12 +149,12 @@ describe('`timmy workbench` in a terminal: tab 7 Control Room\'s panes as a 2×2
     const t = terminal('wbGrid');
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Home · recent work[\s\S]*Activity & log/.test(s));
+    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Models & accounts[\s\S]*Activity & log/.test(s));
     // 7: the Control Room (row 2's actions keep the keyboard, as after any tab key); Tab gives it to the panes
     await t.keys('7');
-    await t.waitFor('the Control Room', (s) => /tray1 \/ Control Room · jobs/.test(s));
+    await t.waitFor('the Control Room', (s) => /tray1 \/ Control Room/.test(s));
     await t.keys('Tab');
-    await t.waitFor('the Control Room with the keyboard', (s) => /◆ tray1 \/ Control Room · jobs/.test(s));
+    await t.waitFor('the Control Room with the keyboard', (s) => /◆ tray1 \/ Control Room/.test(s));
     // the grid: the running ones (the newest first) side by side, the newest ended ones on the row of panes below
     const top = await t.waitFor('the two running panes side by side', (s) => { const y = rowWith(s, job.nap, job.talk); return y >= 0 ? y + 1 : null; }) - 1;
     const below = await t.waitFor('the two ended panes side by side below them', (s) => { const y = rowWith(s, job.b, job.a); return y > top ? y : null; });
@@ -181,7 +181,8 @@ describe('`timmy workbench` in a terminal: tab 7 Control Room\'s panes as a 2×2
     const rows = txt.replace(/\n$/, '').split('\n');
     expect(rows, 'one frame, as many rows as the terminal').toHaveLength(45);
     expect(Math.max(...rows.map((l) => [...l].length)), 'no row wider than the terminal').toBeLessThanOrEqual(160);
-    expect(txt.split('Workflow actions').length - 1, 'one frame').toBe(1);
+    // (one frame: Activity & log is drawn once a screen; R11 round 7, H177: the actions panel is the page head now)
+    expect(txt.split('Activity & log').length - 1, 'one frame').toBe(1);
     expect(txt.includes(box), 'a folder of this machine').toBe(false);
     expect(txt.includes(hostname()), 'this machine\'s name').toBe(false);
     await t.keys('C-c');

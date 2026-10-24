@@ -23,7 +23,7 @@ import { evidenceLine, evidenceRows, toolRows, toolRuns } from './chat-evidence.
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
-import { FAMILY_ROWS, findWorkspaces, GROUP_LABEL, NAV, navItem, NOT_IN_TIMMY, type WorkspaceId } from './nav.js';
+import { FAMILY_ROWS, findWorkspaces, GROUP_LABEL, GROUPS, NAV, navItem, NOT_IN_TIMMY, type WorkspaceId } from './nav.js';
 import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
@@ -121,13 +121,16 @@ export function navView(c: ViewCtx): View & { prompt: number } {
   const q = ui.input.field === 'search' ? ui.input.text.trim().toLowerCase() : '';
   const shown = NAV.filter((n) => !q || n.label.toLowerCase().includes(q) || n.title.toLowerCase().includes(q));
   const waiting = data.decisions.total;
-  const groups: Array<'create' | 'operate' | 'library'> = ['create', 'operate', 'library'];
+  // R11 round 7 (H177): the rail's groups (src/workbench/nav.ts GROUPS: Chat alone, then WORK, CREATE, CONNECT), as the Chat
+  // screen's rail and the header group the destinations
   const roomy = height >= 28;
-  for (const [gi, gr] of groups.entries()) {
+  let drawn = 0;
+  for (const gr of GROUPS) {
     const inGroup = shown.filter((n) => n.group === gr);
     if (!inGroup.length) continue;
-    if (gi && roomy) lines.push(blank);
-    lines.push(heading(GROUP_LABEL[gr]));
+    if (drawn && roomy) lines.push(blank);
+    drawn += 1;
+    if (GROUP_LABEL[gr]) lines.push(heading(GROUP_LABEL[gr]));
     for (const n of inGroup) {
       const active = n.id === ui.workspace;
       // Control Room's count: what waits on you first, then what runs; the longest words that fit whole (never cut)
@@ -147,14 +150,6 @@ export function navView(c: ViewCtx): View & { prompt: number } {
     }
   }
   if (q && !shown.length) lines.push(...para(`No workspace matches "${ui.input.text}". Enter searches All tools for it.`, c.width));
-  // Connections at the foot
-  const foot = NAV.find((n) => n.group === 'foot')!;
-  const footKey = tabOf(pageOf(foot.id)).key;
-  const footPad = Math.max(1, c.width - 2 - lineCells([S(foot.label)]) - 1);
-  const footLines = [blank, row([S(foot.label, ui.workspace === foot.id ? 'strong' : 'text'), S(' '.repeat(footPad)), S(footKey, 'secondary')], ui.workspace === foot.id, g)];
-  while (lines.length < height - footLines.length) lines.push(blank);
-  items.push({ line: lines.length + 1, item: { kind: 'action', key: `nav:${foot.id}`, action: foot.id } });
-  lines.push(...footLines);
   return { lines, items, prompt };
 }
 
@@ -532,7 +527,8 @@ function filesView(c: ViewCtx): View {
   if (!data.files.total) return { lines: blankGuides(c, 'No files yet.'), items };
   const cur = cursorOf(c.ui, 'center:files', data.files.total);
   let i = 0;
-  lines.push([S(`${count(data.files.total, 'file')} in ${data.project.shown}`, 'secondary'), S(data.files.truncated ? ' (the first 2,000 are listed)' : '', 'secondary')]);
+  // (R11 round 7, H177; the order: paths behind Details: the project's folder is the Inspector's ([i] About), not this row's)
+  lines.push([S(`${count(data.files.total, 'file')} in this project`, 'secondary'), S(` ${g.sep} `, 'secondary'), key('i'), S(' its folder', 'secondary'), S(data.files.truncated ? ' (the first 2,000 are listed)' : '', 'secondary')]);
   for (const gr of data.files.groups) {
     lines.push(blank);
     lines.push(heading(`${gr.title} (${gr.files.length})`));
@@ -991,7 +987,8 @@ function toolsSearch(ui: Ui): ToolsSearch {
 const KEY_COLUMN = 17;
 
 export const HELP: ReadonlyArray<[string, string]> = [
-  ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace. Row 1 says their full labels where they fit, else their first words, else their keys with the open tab\'s name at the end; a tab never moves, and ⚠ with a count over a tab is what waits on you there'],
+  // R11 round 7 (H177): the destinations in the rail's groups; the keys stay the pages'
+  ['1 … 9  0', 'the pages, by their keys: 1 Models & accounts (Home), 2 Chat, 3 Workflows, 4 Canvas (Studio), 5 Vision, 6 Motion & 3D, 7 Control Room, 8 Fleet & Clef (under Control Room), 9 Tools & integrations, 0 Runs & receipts (0 again: Files); not while a field has the keyboard; a page\'s key again shows its next workspace. Row 1 says the destinations in their groups (Chat · WORK · CREATE · CONNECT), the shown one ▸ amber: their names with their keys where they fit, else the names alone, else the keys with the shown name at the end; a cell never moves, and ⚠ over a destination is what waits on you on its page'],
   ['Tab / Shift+Tab', 'the next or previous zone: the body\'s columns, Activity & log, the workflow actions (the one with the keyboard has a heavy amber border and ◆)'],
   ['↑ ↓ or k j', 'move within the zone; PgUp PgDn a page'],
   ['← →', 'the workflow actions (row 2); Context\'s tabs (Tools, Inspector, Files)'],
@@ -1005,7 +1002,7 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['C  S', 'stop serving the Companion  ·  Studio (only what this Workbench started)'],
   [',', 'Quick settings (saved in Timmy\'s settings folder): open the Companion or Studio at start, and more'],
   ['x', 'Stop current: what row 2 names, a job of this project, else the chat turn being answered (this Workbench\'s stops here; another surface\'s is asked to stop there, as its own key would)'],
-  ['i  g', 'Context (Tools, Inspector, Files) as a drawer  ·  the navigation (CREATE, OPERATE, LIBRARY) as a drawer'],
+  ['i  g', 'Context (Tools, Inspector, Files) as a drawer  ·  the navigation (Chat, WORK, CREATE, CONNECT: every workspace) as a drawer'],
   ['z', 'focus mode: the body\'s list alone, with the tabs, the actions and the log; z or Esc leaves it'],
   ['a  A', 'Activity & log: expand or collapse  ·  all operations or the selected one'],
   ['f', 'Files tab: related files only, or all of them'],

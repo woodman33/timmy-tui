@@ -59,8 +59,9 @@ export interface PanelSpec {
   /** the rows inside, before fitting (more than fit are left out: the caller scrolls) */
   lines: Line[];
   focused: boolean;
-  /** words at the right of the top edge (a count, a state) */
-  note?: string;
+  /** words at the right of the top edge (a count, a state); R11 round 7 (H177): or segments (the page head's key hint in the
+   *  text's colour, its "unfinished" quiet) */
+  note?: string | Line;
   /** a row for the bottom edge (a hint) */
   footer?: string;
   /** R5 (H131): words drawn at the right of the bottom edge (row 2's run state and Stop current), kept whole first */
@@ -79,15 +80,17 @@ export function panel(p: PanelSpec, r: Rect, g: Glyphs): Line[] {
   const title = `${p.focused ? `${g.focus} ` : ''}${p.title}`;
   // R5 (H131; the QA round's defect 7, "no clipped content without an overflow line"): a note (a range, 1–N of M) is kept
   // before the title's tail: the title is cut to what the note leaves, down to its first few letters
-  const note = p.note && lineCells([{ text: ` ${p.note} ` }]) + 3 + Math.min(8, lineCells([{ text: title }])) <= inner ? ` ${p.note} ` : '';
+  const noteSegs: Line = typeof p.note === 'string' ? [{ text: p.note, role: 'secondary' }] : p.note ?? [];
+  const noteW = noteSegs.length ? lineCells(noteSegs) + 2 : 0;
+  const note: Line = noteSegs.length && noteW + 3 + Math.min(8, lineCells([{ text: title }])) <= inner ? [{ text: ' ' }, ...noteSegs, { text: ' ' }] : [];
   const head: Line = [{ text: `${b.tl}${b.h} `, role: edge }];
-  const titleRoom = Math.max(0, inner - 3 - lineCells([{ text: note }]));
+  const titleRoom = Math.max(0, inner - 3 - lineCells(note));
   const t = fit([{ text: title, role: p.focused ? 'focus' : 'strong' }], Math.min(titleRoom, lineCells([{ text: title }])), g.ellipsis);
   head.push(...t, { text: ' ', role: edge });
   const used = 3 + lineCells(t) + 1;
-  const fill = Math.max(0, inner + 2 - used - lineCells([{ text: note }]) - 1);
+  const fill = Math.max(0, inner + 2 - used - lineCells(note) - 1);
   head.push({ text: b.h.repeat(fill), role: edge });
-  if (note) head.push({ text: note, role: 'secondary' });
+  if (note.length) head.push(...note);
   head.push({ text: b.tr, role: edge });
   const rows: Line[] = [fit(head, r.w, g.ellipsis)];
   const body = r.h - 2;
