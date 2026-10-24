@@ -190,7 +190,7 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
       // so it is brought into view again then — H168's R65)
       try { if (handle.rive && typeof handle.rive.resizeDrawingSurfaceToCanvas === 'function') requestAnimationFrame(() => handle.rive.resizeDrawingSurfaceToCanvas()); } catch (e) { /* drawn at its size */ }
       const ask = wrap.closest('.cx-needs');
-      if (ask) requestAnimationFrame(() => { try { if (ask.isConnected) ask.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* where it is */ } });
+      if (ask) requestAnimationFrame(() => { try { if (ask.isConnected) scrollAskIntoView(ask); } catch (e) { /* where it is */ } });
       return true;
     }
     if (st === 'words') { host.remove(); htmlBtn.hidden = false; wrap.dataset.rive = 'words'; return true; }
@@ -241,6 +241,22 @@ function consoleForAsk() {
   if (open && phone && !band.classList.contains('is-folded') && band.dataset.autoFoldedFor !== askId) { band.dataset.autoFoldedFor = askId; band.dataset.autoFolded = '1'; setConsoleFold(true, false); }
   else if (!open && band.dataset.autoFolded) { delete band.dataset.autoFolded; delete band.dataset.autoFoldedFor; setConsoleFold(consoleFolded(), false); }
 }
+/** An ask's box brought into view WHOLE: on the scaffold's phone the page scrolls as a document under a sticky topbar, a sticky
+ *  composer and the sticky dock, which scrollIntoView does not know — the box is placed in the band between them (its top
+ *  first when it is taller than the band); elsewhere the nearest scroll box does it. */
+function scrollAskIntoView(box) {
+  box.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (!scaffoldAdopted) return;
+  const composer = $('cx-composer');
+  const top = document.getElementById('shell-top');
+  const coverTop = Math.max(0, ...[top, document.querySelector('.nav-rail')].filter(Boolean).map((e) => (getComputedStyle(e).position === 'sticky' || getComputedStyle(e).position === 'fixed' ? e.getBoundingClientRect().bottom : 0)));
+  const coverBottom = composer && getComputedStyle(composer).position === 'sticky' ? composer.getBoundingClientRect().top : window.innerHeight;
+  const b = box.getBoundingClientRect();
+  if (b.top >= coverTop + 4 && b.bottom <= coverBottom - 4) return;
+  const want = b.height + 8 <= coverBottom - coverTop ? Math.min(b.top, coverBottom - b.height - 8) : coverTop + 8;
+  window.scrollBy({ top: b.top - Math.max(want, coverTop + 8), left: 0, behavior: 'auto' });
+}
+
 /** The console band: shown with the composer (never on the first run's or a setup's panel), mounted once, folded as chosen. */
 function drawConsole() {
   const band = $('cx-console');
@@ -296,77 +312,8 @@ function redraw(root, kids) {
 
 // ── the left menu ──
 
-/**
- * The destinations in the terminal's groups (R11 step 3; H167's rail labels): Chat, the one item under no label; WORK, CREATE and
- * CONNECT as labels. `id` a tab of this page, `away` one this page does not have (it says where it opens). Each old route stays
- * reachable: Runs & receipts is the Logs page, Canvas is Studio, Vision is VoxVision, Motion & 3D the create page, Models &
- * accounts opens Home at its connections, Tools & integrations the Tools & MCP page; Fleet & Clef (this page's own tab) keeps
- * its place under CONNECT.
- */
-// R11 round 4 (H171; the preview's rail, captures 04/05/09): Chat; WORK Files · Workflows · Runs & receipts; CREATE Canvas
-// (tldraw: the existing Studio canvas) · VoxVision · Motion & 3D; CONNECT Models & accounts (the connections screen) ·
-// Tools & integrations. Control Room and Fleet & Clef keep their keys (7, 8) and the finder finds them.
-const DESTS = [
-  { id: 'chat', label: 'Chat', glyph: '▤' },
-  { group: 'Work' },
-  { away: 'files', label: 'Files', glyph: '▱', where: 'terminal' },
-  { id: 'workflows', label: 'Workflows', glyph: '⇄' },
-  { id: 'logs', label: 'Runs & receipts', glyph: '≡' },
-  { group: 'Create' },
-  { id: 'studio', label: 'Canvas', glyph: '▧' },
-  { id: 'voxvision', label: 'VoxVision', glyph: '◈' },
-  { id: 'create', label: 'Motion & 3D', glyph: '◇' },
-  { group: 'Connect' },
-  { screen: 'connections', label: 'Models & accounts', glyph: '⌁' },
-  { id: 'tools', label: 'Tools & integrations', glyph: '⌘' },
-  { id: 'control', label: 'Control Room', glyph: '▦', find: true },
-  { id: 'fleet', label: 'Fleet & Clef', glyph: '⋔', find: true },
-  // (R10's Home page — the project's newest run image, its strip — keeps its route: the finder finds it)
-  { id: 'home', label: 'Home', glyph: '⌂', find: true },
-];
-
-function drawRail() {
-  const menu = $('rail-menu');
-  if (!menu) return;
-  drawMarks();
-  const tabs = new Map(((workspace.frame && workspace.frame.tabs) || []).map((t) => [String(t.id), t]));
-  const q = (cx.find || '').trim().toLowerCase();
-  const items = [];
-  let group = null;
-  for (const d of DESTS) {
-    if (d.group) { group = h('div', { class: 'rail-sec rail-group', 'data-rail-group': d.group.toLowerCase() }, d.group); items.push(group); continue; }
-    if (q && !d.label.toLowerCase().includes(q) && !(d.id || '').includes(q)) continue;
-    // (a destination the preview's rail does not list is found by the finder only)
-    if (d.find && !q) continue;
-    const t = d.id ? tabs.get(d.id) : null;
-    const waiting = t && t.waiting > 0 ? ` · ${t.waiting}` : '';
-    const title = d.screen ? 'Models & accounts: the connections screen (OpenRouter, Ollama local, Ollama cloud, Cloudflare)' : d.id ? `${d.label}${t && t.label !== d.label ? ` (${t.label}${t.key ? `, key ${t.key}` : ''})` : t && t.key ? ` (key ${t.key})` : ''}${t && t.waiting > 0 ? `: ${t.waiting} waiting on you` : ''}` : 'Files: not on this page; the project’s folder opens in the terminal or your file manager';
-    items.push(h('button', {
-      type: 'button', class: `rail-item${d.away ? ' is-away' : ''}`, 'data-dest': d.id || '', 'data-away': d.away || '', 'data-scroll': d.scroll || '', ...(d.screen ? { 'data-shell-go': d.screen } : {}), title,
-      'aria-current': d.id && d.id === cx.dest ? 'page' : null, ...(t ? { 'aria-keyshortcuts': String(t.key) } : {}),
-    }, h('span', { class: 'rail-glyph', 'aria-hidden': 'true' }, d.glyph), h('span', { class: 'rail-label' }, `${d.label}${waiting}`), d.where ? h('span', { class: 'rail-where' }, d.where) : null));
-    if (group) { group.hidden = false; group = null; }
-  }
-  // a group with nothing under it (the finder left it empty) is not drawn
-  for (let i = 0; i < items.length; i += 1) if (items[i].classList && items[i].classList.contains('rail-group') && (i === items.length - 1 || items[i + 1].classList.contains('rail-group'))) items[i].hidden = true;
-  if (q && !items.some((el) => el.classList.contains('rail-item'))) items.push(h('p', { class: 'rail-none' }, `Nothing named “${cx.find.trim()}” here.`));
-  redraw(menu, items);
-}
-
-/** R11 step 3: the rail's finder (`/` on the Chat screen, or the footer's "/ find"): the destinations filtered by name as you type; Enter opens the first; Esc clears it. */
-function toggleFind(open) {
-  const box = $('rail-find-box');
-  const input = $('rail-find');
-  if (!box || !input) return;
-  const show = open === undefined ? box.hidden : open;
-  box.hidden = !show;
-  $('rail-find-btn')?.setAttribute('aria-expanded', show ? 'true' : 'false');
-  if (show) { input.focus(); input.select(); return; }
-  // (closed: the keyboard leaves the hidden box, so the next key is a page key again)
-  const had = document.activeElement === input;
-  input.value = ''; cx.find = ''; drawRail();
-  if (had) { const btn = $('rail-find-btn'); if (btn && shown(btn)) btn.focus(); else input.blur(); }
-}
+// R11 round 7 (SHELL CONTRACT v1 §3.1): the rail, its groups and the finder are the shell's (shell.js draws #rail-menu from its
+// PAGES; Help & find carries the keys and the finder). The Chat's own DESTS / drawRail / toggleFind of rounds 3–6 are gone.
 
 /**
  * The project the workspace frame (GET /api/workspace, read as soon as the socket is up) was answered for: what the rail and the
@@ -464,18 +411,6 @@ function toggleNewProject(open) {
     cmd ? h('button', { type: 'button', class: 'rail-small-btn', 'data-cx-copy': cmd, title: cmd }, 'Copy the command') : h('span', null, 'Its command shows once the companion answers.'));
 }
 
-function awayNote(kind) {
-  const note = $('rail-away-note');
-  if (!note) return;
-  if (kind === 'files') {
-    const folder = cx.project && cx.project.folder ? cx.project.folder : 'the project’s folder';
-    note.textContent = `Files: this page has no file browser. Home previews the project’s newest files; the whole folder (${folder}) opens in the terminal or your file manager.`;
-    note.hidden = false;
-    return;
-  }
-  note.hidden = true;
-}
-
 /** The destination shown: the rail marks it, and the Chat composition fills the shell when it is Chat. */
 function onDest(id) {
   cx.dest = id;
@@ -501,7 +436,7 @@ const drawFrameBefore = drawFrame;
 // eslint-disable-next-line no-global-assign
 drawFrame = function drawFrameWithShell(...args) {
   const r = drawFrameBefore.apply(this, args);
-  try { drawRail(); if (cx.dest === 'chat') { drawControls(); railProject(); } } catch (e) { /* the shell draws again on its timer */ }
+  try { if (cx.dest === 'chat') { drawControls(); railProject(); } } catch (e) { /* the shell draws again on its timer */ }
   return r;
 };
 // the project the page shows: the rail's selector, the crumb, the draft
@@ -709,9 +644,11 @@ function savedTurn(t, i, tools, session) {
   return li;
 }
 
-function ownTurn(t, i) {
+function ownTurn(t, i, o) {
   const frag = document.createDocumentFragment();
-  frag.append(h('li', { class: 'cx-turn is-you' }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '›'),
+  // (R11 round 7, GATE 04: the companion writes the message to the conversation as the turn starts, so its read-back shows the
+  // YOU bubble above while this page's turn still runs or failed — drawn once: the saved one stands, the own li keeps Timmy's part)
+  if (!(o && o.youSaved)) frag.append(h('li', { class: 'cx-turn is-you' }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '›'),
     h('div', { class: 'cx-who' }, h('strong', null, 'YOU'), h('span', { class: 'cx-when', title: t.at }, clock(t.at))), textBlock(t.you)));
   const who = h('div', { class: 'cx-who' }, h('strong', null, 'TIMMY'), t.model ? h('span', { class: 'cx-model' }, t.model) : h('span', { class: 'cx-model is-unknown' }, 'no model asked'));
   if (t.model && fakeModel(t.model)) who.append(h('span', { class: 'cx-chip' }, 'FAKE model'));
@@ -778,7 +715,7 @@ function needsBlock(t) {
     n.failed ? h('p', { class: 'cx-act-sub' }, `└ ${n.failed}`) : null);
   needsBoxes.set(n.id, { key, box });
   // an ask that opens is brought into view, every option on screen (the conversation scrolls to what matters: H168's R65)
-  if (!n.answered) requestAnimationFrame(() => { try { if (box.isConnected) box.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* where it is */ } });
+  if (!n.answered) requestAnimationFrame(() => { try { if (box.isConnected) scrollAskIntoView(box); } catch (e) { /* where it is */ } });
   return box;
 }
 /** The native buttons of a box that is let go: their runtime instances with them (H174's handle.unmount). */
@@ -845,9 +782,9 @@ function pageWords() {
   if (!companion.token || companion.refused) return { kicker: '01 / CHAT', title: 'Open this page from Timmy.', line: 'Nothing is read without the companion’s token; the note above says how.', state: 'error' };
   if (st === 'reading') return { kicker: '01 / CHAT', title: 'Reading the project’s conversation…', line: cx.viewFailed || 'The companion is asked for the conversation and the next turn’s route.', state: cx.viewFailed ? 'error' : 'reading' };
   if (st === 'first-run' || st === 'setup') return { kicker: '01 / START A CONVERSATION', title: 'How would you like to run chat?', line: 'Choose one; you can add the others later. No account is needed to explore.', state: 'empty' };
-  if (own && own.state === 'streaming' && own.needs && !own.needs.answered) return { kicker: kick, title: 'Timmy needs you.', line: own.needs.words || 'A tool asks before it runs: answer below.', state: 'approval' };
+  if (own && own.state === 'streaming' && own.needs && !own.needs.answered) return { kicker: kick, title: 'Timmy needs you.', line: own.needs.words || 'A tool asks before it runs: answer below.', words: 'A tool asks before it runs', state: 'approval' };
   if (own && own.state === 'streaming') return { kicker: kick, title: own.stopping ? 'Stop requested.' : 'Timmy is answering.', line: own.stopping ? 'Not confirmed yet: the turn’s receipt comes as it stops.' : `${own.model || 'the model'} · ${own.where || 'where it runs is not known yet'} · Stop keeps what was written so far.`, state: 'running' };
-  if (own && own.state === 'failed') return { kicker: kick, title: 'The turn did not finish.', line: own.words || 'No answer came.', state: 'error' };
+  if (own && own.state === 'failed') return { kicker: kick, title: 'The turn did not finish.', line: 'What was written stays below. Retry sends the same message again; Change model picks another route first.', words: own.words || 'No answer came.', state: 'error' };
   if (own && own.state === 'stopped') return { kicker: kick, title: 'Stopped.', line: 'The answer so far is kept; the receipt says it was stopped by you.', state: 'content' };
   if (st === 'no-model') return { kicker: '01 / START A CONVERSATION', title: 'A model is optional until you need an answer.', line: 'Write a draft now; choose a model when you want one.', state: 'empty' };
   if (st === 'empty') return { kicker: '01 / START A CONVERSATION', title: 'What would you like to make?', line: 'Your models, tools and ideas share one workspace.', state: 'empty' };
@@ -877,13 +814,28 @@ function adoptScaffold() {
   const controls = $('cx-controls');
   if (dock && controls && !dock.contains(controls)) dock.appendChild(controls);
   const status = $('cx-status');
-  if (rec && status && !rec.contains(status)) {
+  const older = $('cx-older');
+  if (rec && ((status && !rec.contains(status)) || (older && !rec.contains(older)))) {
     let d = rec.querySelector('details.records');
-    if (!d) { d = h('details', { class: 'records' }, h('summary', null, 'Records')); rec.appendChild(d); }
-    d.appendChild(status);
+    // (D3/D4: the R10 views under the composition — the turn mirror with its export tools and the Streamdown "ask a model"
+    // island — are records; in the work region they took the conversation's height (the probe of 16:03: #cx at 0 px beside a
+    // 690 px block). Moved here, OPEN so the lead's legacy suites still reach the island's switch; bounded and scrolling on
+    // their own; closing them is the viewer's (the fold is not kept: the records stay a page's quiet end))
+    if (!d) { d = h('details', { class: 'records', open: true }, h('summary', null, 'Records · the status row, the turn mirror and the older chat view')); rec.appendChild(d); }
+    if (status && !d.contains(status)) d.appendChild(status);
+    if (older && !d.contains(older)) d.appendChild(older);
   }
   scaffoldAdopted = true;
   document.body.classList.add('cx-on-scaffold');
+  // (§4: the dock's height, for the composer that stays above it on a phone — measured here until the shell sets the variable)
+  if (dock && typeof ResizeObserver === 'function') {
+    try {
+      const tell = () => { const hgt = getComputedStyle(dock).position === 'sticky' ? Math.ceil(dock.getBoundingClientRect().height) : 0; page.style.setProperty('--timmy-ui-dock-height', `${hgt}px`); };
+      new ResizeObserver(tell).observe(dock);
+      window.addEventListener('resize', tell);
+      tell();
+    } catch (e) { /* no observer here: the variable stays unset */ }
+  }
   return true;
 }
 
@@ -908,12 +860,14 @@ function drawHead() {
     const records = !cx.view ? 'not read yet' : !withReceipt.length ? 'no receipt yet · local' : `${withReceipt.length} receipt${withReceipt.length === 1 ? '' : 's'}${verified ? ` · ${verified} verified` : ''} · local`;
     // (the contract's five states: reading is said as content — nothing claimed until the view is read)
     const state = w.state === 'reading' ? 'content' : w.state;
-    const said = JSON.stringify([w.kicker, w.title, w.line, state, a.id, a.words, Boolean(a.off), Boolean(a.pending), model, records]);
+    const said = JSON.stringify([w.kicker, w.title, w.line, w.words || '', state, a.id, a.words, Boolean(a.off), Boolean(a.pending), model, records]);
     if (said !== headSaid) {
       headSaid = said;
       try {
         S.page('chat', { kicker: w.kicker, title: w.title, intro: w.line, primary: { label: a.words, run: () => actPrimary(primaryAction()), disabled: Boolean(a.off), why: a.off ? 'Reading the project’s conversation first' : (a.pending ? 'Stop requested; not confirmed yet' : '') }, context: 'models', dock: 'CHAT TOOLS' });
-        if (typeof S.state === 'function') S.state('chat', state, state === 'error' || state === 'approval' ? { words: w.line, next: a.off ? undefined : { label: a.words, run: () => actPrimary(primaryAction()) } } : undefined);
+        // (the error box under the head carries the reason and the next action; the approval's band cell its short words — the
+        // intro says the rest once)
+        if (typeof S.state === 'function') S.state('chat', state, state === 'error' || state === 'approval' ? { words: w.words || w.line, next: a.off ? undefined : { label: a.words, run: () => actPrimary(primaryAction()) } } : undefined);
         if (typeof S.band === 'function') S.band('chat', { model, records });
       } catch (e) { /* the shell's own; the chat's head below says the same */ }
     }
@@ -1095,7 +1049,9 @@ function drawOwn() {
   const mine = cx.own.filter((t) => !(t.receipt && saved.has(typeof t.receipt === 'string' ? receiptShort(t.receipt) : (t.receipt.id || t.receipt.hash))));
   if (!mine.length) { own.replaceChildren(); consoleForAsk(); return; }
   const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s turns in the project’s conversation' });
-  mine.forEach((t) => list.append(ownTurn(t, cx.own.indexOf(t))));
+  const turns = ((cx.view && cx.view.conversation) || {}).turns || [];
+  const trailing = turns.length ? turns[turns.length - 1] : null;
+  mine.forEach((t) => list.append(ownTurn(t, cx.own.indexOf(t), { youSaved: Boolean(trailing && trailing.kind === 'you' && t === mine[mine.length - 1] && (trailing.text || '').trim() === String(t.you || '').trim()) })));
   own.replaceChildren(h('p', { class: 'cx-divider' }, 'This page’s turns · sealed to the project’s conversation as they end'), list);
   consoleForAsk();
 }
@@ -1152,10 +1108,13 @@ function drawEmpty() {
   // that work today, drawn as the first run's choices; the words are the terminal's (H167's step 2), which the page mirrors
   // R11 round 4 (the preview's welcome, capture 04): the mark, the question, one line, three starters
   box.classList.add('is-welcome');
+  // (R11 round 7, on the scaffold: the page head carries the question and the line — GATE 04's doubled welcome — so the welcome
+  // is the mark, "Start with" and the three starters; the older shell keeps the question here)
   redraw(box, [
     h('span', { class: 'sh-mark is-big cx-welcome-mark', 'aria-hidden': 'true' }, h('canvas', { 'data-timmy-mark': '' }), h('span', { class: 'sh-mark-text' }, 'T')),
-    h('h2', { class: 'cx-title cx-welcome-title' }, 'What would you like to make?'),
-    h('p', { class: 'cx-welcome-line' }, 'Your models, tools and ideas share one workspace.'),
+    ...(scaffoldAdopted
+      ? [h('p', { class: 'cx-start-k cx-welcome-start' }, 'Start with')]
+      : [h('h2', { class: 'cx-title cx-welcome-title' }, 'What would you like to make?'), h('p', { class: 'cx-welcome-line' }, 'Your models, tools and ideas share one workspace.')]),
     h('div', { class: 'cx-ways cx-starters' }, ...starterButtons())]);
   drawMarks();
 }
@@ -1269,7 +1228,7 @@ function startWith(id) {
     return;
   }
   const dest = id === 'image' ? 'voxvision' : id === 'workflow' ? 'workflows' : id === 'canvas' ? 'studio' : '';
-  if (dest) { document.body.classList.remove('rail-open'); showWorkspaceTab(dest); }
+  if (dest) showWorkspaceTab(dest);
 }
 
 /** The page's choice of model, as the companion read it (GET /api/chat/view's `choice`; see src/companion/chat-view.ts pageChoice). */
@@ -1639,7 +1598,6 @@ function retryTurn(i) {
 function openReceipt(id) {
   try { history.replaceState(null, '', `#logs?receipt=${encodeURIComponent(id)}`); } catch (e) { /* the address stays */ }
   try { document.dispatchEvent(new CustomEvent('timmy:open-receipt', { detail: { id, from: 'chat' } })); } catch (e) { /* nobody listens yet */ }
-  document.body.classList.remove('rail-open');
   // (SHELL CONTRACT v1 §2.3: on the scaffold the page is reached through the shell — go('runs') is Runs & receipts; the legacy
   // tab switch stays for an older shell)
   const S = shell();
@@ -2025,9 +1983,12 @@ function setQuery(name, value) {
  * lives in the composer. What waits on you counts on Tools.
  */
 // R11 round 4 (the preview's bottom row, capture 04): Plan / Run · Permissions · Budget · Logs, and Cloudflare optional at the right
-const CONTROLS = [['plan', '▱', 'Plan / Run', false], ['approvals', '◇', 'Permissions', false], ['budget', '$', 'Budget', false], ['logs', '≡', 'Logs', false]];
+// (R11 round 7: Keys — the Chat's keys by task — is a control of the row, minor (in More under 1180 px); the top row's Keys button
+// went with the shell's topbar, `?` is the shell's Help & find)
+const CONTROLS = [['plan', '▱', 'Plan / Run', false], ['approvals', '◇', 'Permissions', false], ['budget', '$', 'Budget', false], ['logs', '≡', 'Logs', false], ['keys', '?', 'Keys', true]];
 const MINOR = [['attachments', '+', 'Attach'], ['tools', '⌘', 'Tools']];
-const MORE_CONTROLS = [['attachments', '+', 'Attach'], ['tools', '⌘', 'Tools'], ['cloudflare', '⌁', 'Cloudflare optional']];
+// (R11 round 7: the Chat's keys-by-task help lives in More — the top row's Keys button went with the shell's topbar; `?` is Help & find)
+const MORE_CONTROLS = [['attachments', '+', 'Attach'], ['tools', '⌘', 'Tools'], ['keys', '?', 'Keys'], ['cloudflare', '⌁', 'Cloudflare optional']];
 // (on a phone More also holds Cloudflare optional, which the row leaves out there)
 
 function controlCounts() {
@@ -2217,19 +2178,8 @@ function drawStatus() {
 document.addEventListener('click', (event) => {
   const at = event.target instanceof Element ? event.target : null;
   if (!at) return;
-  const dest = at.closest('#rail-menu .rail-item');
-  if (dest) {
-    // (Models & accounts: the connections screen; shell.js's [data-shell-go] handler takes it)
-    if (dest.dataset.shellGo) { awayNote(''); document.body.classList.remove('rail-open'); return; }
-    if (dest.dataset.dest) {
-      awayNote(''); document.body.classList.remove('rail-open'); showWorkspaceTab(dest.dataset.dest);
-      // (Models & accounts: Home, at its connections)
-      if (dest.dataset.scroll === 'connections') { const box = document.querySelector('.home-conn-box'); if (box) box.scrollIntoView({ block: 'start' }); }
-      return;
-    }
-    if (dest.dataset.away === 'connections') { awayNote(''); showWorkspaceTab('home'); const box = document.querySelector('.home-conn-box'); if (box) box.scrollIntoView({ block: 'nearest' }); return; }
-    if (dest.dataset.away === 'files') { awayNote('files'); return; }
-  }
+  // (the rail's items are the shell's: its own click handler shows the page — SHELL CONTRACT v1 §3.1)
+  if (at.closest('#rail-menu .rail-item')) return;
   if (at.closest('#rail-project')) { toggleProjectMenu($('rail-project-menu').hidden); return; }
   if (at.closest('#rail-new')) { toggleNewProject($('rail-new-note').hidden); return; }
   // R11 round 4: New conversation: this page's own turns put away and the draft cleared (the project's saved conversation stays)
@@ -2277,7 +2227,6 @@ document.addEventListener('click', (event) => {
   if (at.closest('#cx-chip')) { toggleModels(true); $('cm-search')?.focus(); return; }
   const use = at.closest('[data-cm-use]');
   if (use) { chooseRow(use.dataset.cmUse); return; }
-  if (at.closest('#cx-menu, #ws-menu')) { toggleRail(); return; }
   if (at.closest('#cx-change')) { toggleModels(true); $('cm-search')?.focus(); return; }
   const prov = at.closest('[data-cm-provider]');
   if (prov) { cx.models.provider = prov.dataset.cmProvider; cx.models.sub = prov.dataset.cmSub || 'local'; cx.models.chosenProvider = true; cx.models.answer = null; cx.models.selected = ''; drawModelsRail(); readModels(); document.getElementById(prov.id)?.focus(); return; }
@@ -2295,8 +2244,6 @@ document.addEventListener('click', (event) => {
   if (way) { chooseWay(way.dataset.cxWay); return; }
   const start = at.closest('[data-cx-start]');
   if (start) { startWith(start.dataset.cxStart); return; }
-  if (at.closest('#rail-find-btn')) { toggleFind(); return; }
-  if (at.closest('#rail-help')) { openDrawer('keys', $('rail-help')); return; }
   const ev = at.closest('[data-activity]');
   if (ev) { const k = ev.dataset.activity; if (openActivity.has(k)) openActivity.delete(k); else openActivity.add(k); cx.convKey = ''; drawChat(); document.querySelector(`[data-activity="${CSS.escape(k)}"]`)?.focus({ preventScroll: true }); return; }
   const act = at.closest('[data-cx]');
@@ -2323,7 +2270,6 @@ function newConversation() {
   const input = $('cx-input');
   if (input) { input.value = ''; saveDraft(); }
   drawChat();
-  document.body.classList.remove('rail-open');
   if (input) input.focus();
   // R11 round 6 (H172's GATE 38 observation): on a project WITH a saved conversation this page's New conversation put the page's own
   // turns away and the saved conversation stayed — the next turn continues it (the project's one conversation, every surface's),
@@ -2363,10 +2309,12 @@ function chooseWay(id) {
 const NARROW = '(max-width: 1180px)';
 const PHONE = '(max-width: 760px)';
 const narrow = () => { try { return matchMedia(NARROW).matches; } catch (e) { return false; } };
+/** The shell's phone layout (SHELL CONTRACT v1 §4: ≤ 720 px), where the page's context is a sheet. */
+const sheetView = () => { try { return matchMedia('(max-width: 720px)').matches; } catch (e) { return false; } };
 let modelsFrom = null;
 
 function modelsShown() {
-  if (scaffoldAdopted) { const ctx = document.querySelector('#ws-chat .page-context'); return Boolean(ctx && (!narrow() || ctx.classList.contains('is-open'))); }
+  if (scaffoldAdopted) { const ctx = document.querySelector('#ws-chat .page-context'); return Boolean(ctx && (!sheetView() || ctx.classList.contains('is-open'))); }
   const body = $('cx-body');
   if (!body) return false;
   return narrow() ? body.classList.contains('models-open') : !body.classList.contains('models-closed');
@@ -2379,8 +2327,9 @@ function toggleModels(open) {
   // itself otherwise (always shown; "open" puts the keyboard in its search)
   if (scaffoldAdopted) {
     const S = shell();
-    const show = open === undefined ? !modelsShown() : open;
-    if (narrow() && S && typeof S.sheet === 'function') { try { S.sheet('context', show); } catch (e) { /* the shell's own */ } }
+    // (a desk's column is always there: M and the toggle put the keyboard in its search; a phone's sheet opens and closes)
+    const show = open === undefined ? (sheetView() ? !modelsShown() : true) : open;
+    if (sheetView() && S && typeof S.sheet === 'function') { try { S.sheet('context', show); } catch (e) { /* the shell's own */ } }
     if (show) $('cm-search')?.focus();
     return;
   }
@@ -2400,35 +2349,17 @@ function toggleModels(open) {
   btn.setAttribute('aria-expanded', show ? 'true' : 'false');
 }
 
-/** A drawer of the narrow layout closed by Esc: focus goes back where it was. */
+/** A drawer of the narrow layout closed by Esc: focus goes back where it was (the shell's sheets close on their own Escape). */
 function closeNarrowDrawers() {
   const body = $('cx-body');
-  if (narrow() && body && body.classList.contains('models-open')) {
+  if (!scaffoldAdopted && narrow() && body && body.classList.contains('models-open')) {
     toggleModels(false);
     const back = modelsFrom && document.contains(modelsFrom) ? modelsFrom : $('cx-models-toggle');
     modelsFrom = null;
     back?.focus();
     return true;
   }
-  return closeRail();
-}
-
-let railFrom = null;
-function toggleRail(open) {
-  const show = open === undefined ? !document.body.classList.contains('rail-open') : open;
-  if (show && !document.body.classList.contains('rail-open')) railFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  document.body.classList.toggle('rail-open', show);
-  for (const id of ['cx-menu', 'ws-menu']) $(id)?.setAttribute('aria-expanded', show ? 'true' : 'false');
-  if (show) document.querySelector('#rail-menu .rail-item[aria-current="page"]')?.focus();
-}
-/** The menu drawn over the page closed: focus goes back to what opened it. */
-function closeRail() {
-  if (!document.body.classList.contains('rail-open')) return false;
-  toggleRail(false);
-  const back = railFrom && document.contains(railFrom) && railFrom.getClientRects().length ? railFrom : (cx.dest === 'chat' ? $('cx-menu') : $('ws-menu'));
-  railFrom = null;
-  back?.focus();
-  return true;
+  return false;
 }
 
 document.addEventListener('change', (event) => {
@@ -2485,11 +2416,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
   // R11 step 3: the rail's finder: typing filters the destinations, Enter opens the first, Esc clears it
-  if (at instanceof HTMLInputElement && at.id === 'rail-find') {
-    if (event.key === 'Enter') { event.preventDefault(); const first = document.querySelector('#rail-menu .rail-item'); if (first instanceof HTMLElement) { first.click(); toggleFind(false); } return; }
-    if (event.key === 'Escape') { event.preventDefault(); toggleFind(false); $('rail-find-btn')?.focus(); return; }
-    return;
-  }
   // Enter on a row of Models chooses it for the next turn (the terminal's Enter); the arrows move along the list
   if (at instanceof Element && at.classList.contains('cm-row') && event.key === 'Enter') { event.preventDefault(); chooseRow(at.dataset.model); return; }
   if (event.key === 'Escape') {
@@ -2508,10 +2434,8 @@ document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typingIn(at) || cx.dest !== 'chat') return;
   if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
   if (event.key === 'm' || event.key === 'M') { event.preventDefault(); toggleModels(); return; }
-  if (event.key === '?') { event.preventDefault(); openDrawer('keys', $('cx-keys')); return; }
-  if (event.key === '/') { event.preventDefault(); document.body.classList.add('rail-open'); toggleFind(true); }
+  // (`?` and `/` are the shell's Help & find — SHELL CONTRACT v1 §5; the Keys drawer stays reachable from More)
 });
-$('rail-find')?.addEventListener('input', (event) => { cx.find = event.target instanceof HTMLInputElement ? event.target.value : ''; drawRail(); });
 $('cx-scroll')?.addEventListener('scroll', () => {
   const s = $('cx-scroll');
   cx.follow = s.scrollHeight - s.scrollTop - s.clientHeight < 40;
@@ -2528,7 +2452,7 @@ $('cx-scroll')?.addEventListener('scroll', () => {
   // can arrive meanwhile, and companion.js then takes the project (takeProject → the header) while this shell is not here to
   // hear it — so the project it already took is taken now (the rail, the crumb, the draft by project, the view)
   if (typeof mirrorProject !== 'undefined' && mirrorProject && !cx.project) projectHeader(mirrorProject);
-  drawRail();
+  drawMarks();
   restoreDraft();
   onDest(workspace.tab);
   setInterval(() => { if (!document.hidden && cx.dest === 'chat') readView(); }, CX_VIEW_EVERY_MS);
@@ -2545,7 +2469,7 @@ $('cx-scroll')?.addEventListener('scroll', () => {
   // the frame (tab labels, waiting counts, the project's commands, a turn running elsewhere) is read by companion.js; the
   // rail and the controls follow it
   // (R11 step 3: the composer's Stop and the status row follow the frame's activity too: another surface's turn)
-  setInterval(() => { drawRail(); if (cx.dest === 'chat') { drawControls(); drawComposer(); drawStatus(); railProject(); } }, 3000);
+  setInterval(() => { if (cx.dest === 'chat') { drawControls(); drawComposer(); drawStatus(); railProject(); } }, 3000);
   // R11 round 4: the rail's account block follows the session (H173's account.js sets it); a change re-reads what is the
   // user's (the view, the models, the projects); Sign out is H173's (window.timmyAccount.signOut) or the shell's forgetting
   if (typeof TimmyShell !== 'undefined') {

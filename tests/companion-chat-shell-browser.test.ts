@@ -153,9 +153,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // (R11 step 3: the terminal's groups and labels; every old route still reachable under its new name)
       const menu = await page.$$eval('#rail-menu .rail-item', (els) => els.map((e) => ({ label: e.querySelector('.rail-label')?.textContent?.trim(), current: e.getAttribute('aria-current') })));
       // (R11 round 4: the preview's rail; Control Room and Fleet & Clef keep their keys and the finder finds them)
-      expect(menu.map((m) => m.label?.replace(/ · \d+$/, ''))).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'VoxVision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations']);
+      // (R11 round 7: the rail is the shell's — SHELL CONTRACT v1 §3.1, D3's groups; Control Room listed; Help & find in its foot)
+      expect(menu.map((m) => m.label?.replace(/ · \d+$/, ''))).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'VoxVision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations', 'Control Room']);
       expect(await page.$$eval('#rail-menu .rail-group', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Work', 'Create', 'Connect']);
-      expect(await page.$$eval('#rail-foot .rail-foot-keys button', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(['? Help', '/ find']);
+      expect(await text(page, '#shell-help')).toContain('Help & find');
       expect(menu[0].current).toBe('page');
       expect(menu.filter((m) => m.current === 'page')).toHaveLength(1);
       // the project the companion says this page shows, once its socket has said it
@@ -248,11 +249,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.$eval('#cx-chip-words', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
       expect(await page.isDisabled('#cx-send')).toBe(true);
       expect(await text(page, '#cx-send-why')).toBe('');
-      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 176, 0)');
+      expect(await page.$eval('#cx-send', (b) => ({ image: getComputedStyle(b).backgroundImage, color: getComputedStyle(b).backgroundColor }))).toEqual({ image: 'none', color: 'rgba(0, 0, 0, 0)' }); // (off: no primary material)
       await page.fill('#cx-input', 'a');
       // (no identity provider here: the page is this computer's operator, and Send is amber with a draft and a route)
       expect(await page.isDisabled('#cx-send')).toBe(false);
-      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
+      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundImage)).toContain('linear-gradient'); // (B11: the primary's material, the family gradient; never green)
       await page.focus('#cx-input');
       await page.keyboard.press('Control+j');
       await page.keyboard.type('b');
@@ -535,18 +536,19 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const controls = await page.$$eval('#cx-controls .cx-ctl', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
       // (R11 round 4: the preview's bottom row [Plan / Run] [Permissions] [Budget] [Logs] … [Cloudflare optional]; Attach and Tools
       // in the composer; Stop in the composer)
-      expect(controls.map((c) => c.replace(/^[^A-Za-z]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Plan / Run', 'Permissions', 'Budget', 'Logs', 'Cloudflare optional']);
+      expect(controls.map((c) => c.replace(/^[^A-Za-z]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Plan / Run', 'Permissions', 'Budget', 'Logs', 'Keys', 'Cloudflare optional']); // (round 7: Keys on the row)
       expect(await page.$('#cx-controls [data-cx="stop"], #cx-controls [data-cx="stop-other"]')).toBeNull();
       await page.click('#cx-controls [data-cx-ctl="approvals"]');
       expect(await page.isVisible('#cx-drawer')).toBe(true);
       await page.keyboard.press('Escape');
       expect(await page.isVisible('#cx-drawer')).toBe(false);
       expect(await page.evaluate(() => document.activeElement?.getAttribute('data-cx-ctl'))).toBe('approvals');
-      // M hides and shows Models (not while typing)
-      await page.keyboard.press('m');
-      expect(await page.isVisible('#cx-models')).toBe(false);
+      // (R11 round 7, SHELL CONTRACT v1 §4: on a desk the Models are the page's context column, always there — M puts the keyboard
+      // in its search; on a phone M opens the context sheet)
       await page.keyboard.press('m');
       expect(await page.isVisible('#cx-models')).toBe(true);
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cm-search');
+      await page.keyboard.press('Escape');
       // every text of the composition and the menu is 13 px or more
       const small = await page.evaluate(() => {
         const out: string[] = [];
@@ -563,40 +565,50 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         return out;
       });
       expect(small).toEqual([]);
+      // (B11, the lead's 15:29 rule: green ONLY on an observed state — a verified receipt's mark, the live socket word, a route
+      // the companion checked ready, a verified tool, a live provider state; nothing else on the page wears #28FE14)
+      const green = await page.evaluate(() => {
+        const out: string[] = [];
+        const ok = (el: Element) => Boolean(el.closest('.is-verified, .is-live, [data-state="ready"], .cm-word.is-verified, .cm-word.is-live, .cx-d-state.is-live, .cx-setup-word.is-live, .activity-list, #ws-activity'));
+        for (const el of document.querySelectorAll('#ws-chat *, #shell-rail *, #shell-top *')) {
+          if (!el.getClientRects().length) continue;
+          const cs = getComputedStyle(el);
+          if ([cs.color, cs.backgroundColor, cs.borderColor].some((c) => /^rgb\(40, 254, 20\)$/.test(c)) && !ok(el)) out.push(`${el.tagName.toLowerCase()}.${el.className} ${(el.textContent || '').trim().slice(0, 30)}`);
+        }
+        return out;
+      });
+      expect(green, 'green only on an observed live / passed / sealed state').toEqual([]);
       const face = await page.evaluate(() => document.body.innerText);
       expect(face).not.toContain(token);
-      // the menu opens another destination with its own page (R10's, at its full width: its header and tab row), where Menu
-      // opens the menu over it and Esc closes it again, focus back on Menu; key 2 brings Chat back
-      // (R11 round 4: the preview's rail does not list Home; the finder ("/ find") finds it, as it finds Control Room)
-      await page.click('#rail-find-btn');
-      await page.fill('#rail-find', 'home');
-      await page.click('#rail-menu .rail-item[data-dest="home"]');
-      await page.waitForFunction(() => document.body.dataset.dest === 'home' && !(document.getElementById('ws-home') as HTMLElement).hidden, null, { timeout: 10_000 });
-      expect(await page.isVisible('.ws-header')).toBe(true);
-      expect(await page.isVisible('#shell-rail')).toBe(false);
-      expect(await page.getAttribute('#rail-menu .rail-item[data-dest="home"]', 'aria-current')).toBe('page');
-      await page.click('#ws-menu');
+      // (R11 round 7: every destination is a page of the one shell with the rail present — D3; Home is not in the rail (its
+      // content lives in Chat's first use) and keeps its key 1; the rail stays, marked for the page shown; key 2 brings Chat back)
+      // (the rail's foot button is the other way in — the key `?` opened it above)
+      await page.click('#shell-help');
+      await page.waitForFunction(() => (document.getElementById('shell-help-dialog') as HTMLDialogElement | null)?.open === true, null, { timeout: 5_000 });
+      await page.keyboard.type('home');
+      await page.waitForFunction(() => (document.querySelector('#shell-help-dialog [data-help-run]')?.textContent ?? '').includes('Open Home'), null, { timeout: 5_000 });
+      await page.click('#shell-help-dialog [data-help-run]');
+      await page.waitForFunction(() => document.body.dataset.dest === 'home' && !(document.getElementById('ws-home') as HTMLElement).hidden, null, { timeout: 10_000 }).catch(async () => { throw new Error(`Help & find did not open Home: ${JSON.stringify(await page.evaluate(() => ({ page: document.body.dataset.page, dest: document.body.dataset.dest, hidden: (document.getElementById('ws-home') as HTMLElement).hidden, active: document.activeElement?.tagName })))}`); });
       expect(await page.isVisible('#shell-rail')).toBe(true);
-      expect(await page.evaluate(() => document.activeElement?.getAttribute('data-dest'))).toBe('home');
-      await page.keyboard.press('Escape');
-      expect(await page.isVisible('#shell-rail')).toBe(false);
-      expect(await page.evaluate(() => document.activeElement?.id)).toBe('ws-menu');
+      expect(await page.$$eval('#rail-menu .rail-item[aria-current="page"]', (els) => els.length)).toBe(0);
+      expect(await page.evaluate(() => document.body.dataset.page)).toBe('home');
       await page.keyboard.press('2');
       await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
       expect(await page.isVisible('#shell-rail')).toBe(true);
-      // R11 step 3: "/ find" filters the rail by name and Enter opens the first; "? Help" is the help by task
-      await page.keyboard.press('/');
-      expect(await page.evaluate(() => document.activeElement?.id)).toBe('rail-find');
+      // (R11 round 7: `?` is the shell's Help & find — one overlay, the destinations found by name, Enter opens the first; Escape
+      // closes it with the focus back; the Chat's old `/` finder is gone — SHELL CONTRACT v1 §5)
+      await page.keyboard.press('?');
+      await page.waitForFunction(() => (document.getElementById('shell-help-dialog') as HTMLDialogElement | null)?.open === true, null, { timeout: 5_000 });
       await page.keyboard.type('runs');
-      expect(await page.$$eval('#rail-menu .rail-item .rail-label', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Runs & receipts']);
-      expect(await page.$$eval('#rail-menu .rail-group', (els) => els.filter((e) => !(e as HTMLElement).hidden).map((e) => (e.textContent ?? '').trim()))).toEqual(['Work']);
-      await page.keyboard.press('Enter');
-      await page.waitForFunction(() => document.body.dataset.dest === 'logs', null, { timeout: 10_000 });
+      await page.waitForFunction(() => (document.querySelector('#shell-help-dialog [data-help-run]')?.textContent ?? '').includes('Open Runs & receipts'), null, { timeout: 5_000 });
+      await page.click('#shell-help-dialog [data-help-run]');
+      await page.waitForFunction(() => !(document.getElementById('shell-help-dialog') as HTMLDialogElement).open, null, { timeout: 5_000 });
+      await page.waitForFunction(() => document.body.dataset.dest === 'logs', null, { timeout: 10_000 }).catch(async () => { throw new Error(`Help & find did not open Runs & receipts: ${JSON.stringify(await page.evaluate(() => ({ page: document.body.dataset.page, dest: document.body.dataset.dest, screen: document.body.dataset.screen })))}`); });
       await page.keyboard.press('2');
       await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
-      expect(await page.isVisible('#rail-find-box')).toBe(false);
-      expect(await page.$$eval('#rail-menu .rail-item', (els) => els.length)).toBe(9); // (the preview's nine; Control Room, Fleet and Home by the finder)
-      await page.click('#rail-help');
+      expect(await page.$$eval('#rail-menu .rail-item', (els) => els.length)).toBe(10); // (D3's ten; Home, Fleet & Clef and Settings by key or Help & find)
+      // the Chat's own Help drawer (the keys by task) is the row's Keys control (in More under 1180 px); Escape closes it
+      await page.click('#cx-controls [data-cx-ctl="keys"]');
       expect(await text(page, '#cx-drawer-title')).toBe('Help');
       expect(await page.$$eval('#cx-drawer h4', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Chat', 'Models', 'Moving around', 'Runs']);
       await page.keyboard.press('Escape');
@@ -760,8 +772,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         const sb = document.getElementById('cx-scroll')!.getBoundingClientRect();
         const band = document.getElementById('cx-console')!;
         const box = document.querySelector('#cx-own .cx-needs')!;
-        const r = (e: Element) => { const b = e.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), inside: b.top >= sb.top - 1 && b.bottom <= sb.bottom + 1 && b.top >= 0 && b.bottom <= window.innerHeight }; };
-        return { folded: band.classList.contains('is-folded'), auto: band.dataset.autoFolded ?? null, expanded: document.getElementById('cx-console-toggle')!.getAttribute('aria-expanded'), scroll: { top: Math.round(sb.top), bottom: Math.round(sb.bottom) }, box: r(box), words: r(box.querySelector('p:not(.cx-needs-k)')!), options: [...box.querySelectorAll('.cx-twin')].map((t) => ({ label: t.querySelector('[data-cx-answer]')?.textContent?.trim(), ...r(t) })), overflow: document.documentElement.scrollWidth <= window.innerWidth + 1 };
+        const r = (e: Element) => { const b = e.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), inside: b.top >= sb.top - 1 && b.bottom <= sb.bottom + 1 && b.top >= 0 && b.bottom <= window.innerHeight + 1 }; };
+        const comp = document.getElementById('cx-composer')!;
+        return { adopted: document.body.classList.contains('cx-on-scaffold'), scrollY: Math.round(scrollY), composer: { pos: getComputedStyle(comp).position, top: Math.round(comp.getBoundingClientRect().top), bottom: Math.round(comp.getBoundingClientRect().bottom) }, folded: band.classList.contains('is-folded'), auto: band.dataset.autoFolded ?? null, expanded: document.getElementById('cx-console-toggle')!.getAttribute('aria-expanded'), scroll: { top: Math.round(sb.top), bottom: Math.round(sb.bottom) }, box: r(box), words: r(box.querySelector('p:not(.cx-needs-k)')!), options: [...box.querySelectorAll('.cx-twin')].map((t) => ({ label: t.querySelector('[data-cx-answer]')?.textContent?.trim(), ...r(t) })), overflow: document.documentElement.scrollWidth <= window.innerWidth + 1 };
       });
       expect(view.folded, `the band folded itself for the ask: ${JSON.stringify(view)}`).toBe(true);
       expect(view.auto).toBe('1');
@@ -820,7 +833,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.$eval('#cx-hint-draft', (e) => e.getClientRects().length)).toBe(0);
       await page.fill('#cx-input', 'x');
       expect(await page.isDisabled('#cx-send')).toBe(false);
-      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
+      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundImage)).toContain('linear-gradient'); // (B11: the primary's material, the family gradient; never green)
       expect(await page.$eval('#cx-composer', (f) => { const r = f.getBoundingClientRect(); return r.bottom <= window.innerHeight && r.width > 500; })).toBe(true);
       await page.fill('#cx-input', 'one\ntwo\nthree');
       expect(await page.$eval('#cx-input', (e) => (e as HTMLTextAreaElement).rows)).toBe(3);
@@ -853,13 +866,24 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
           // the welcome opens at its top, the composer in view below it at both sizes
           expect(await page.$eval('#cx-scroll', (e) => e.scrollTop)).toBe(0);
-          expect(await page.$eval('#cx-empty .cx-welcome-title', (e) => e.getBoundingClientRect().top >= 0)).toBe(true);
-          expect(await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().bottom <= window.innerHeight)).toBe(true);
+          expect(await page.$eval('#cx-empty .cx-welcome-mark', (e) => e.getBoundingClientRect().top >= 0)).toBe(true);
+          // (R11 round 7: at a desk the composer is in view; on the phone the shell's head and band take the first screen (627 px
+          // of 844 — said to H175), so the composer is REACHABLE: scrolled to, it sits whole above the sticky dock, not under it)
+          if (size.width > 720) expect(await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().bottom <= window.innerHeight)).toBe(true);
+          else {
+            await page.$eval('#cx-composer', (f) => f.scrollIntoView({ block: 'center' }));
+            expect(await page.evaluate(() => { const r = document.getElementById('cx-composer')!.getBoundingClientRect(); const d = document.querySelector('#ws-chat .page-dock')!.getBoundingClientRect(); return { inView: r.top >= 0 && r.bottom <= window.innerHeight, clearOfDock: r.bottom <= d.top + 1 }; })).toEqual({ inView: true, clearOfDock: true });
+            await page.evaluate(() => window.scrollTo(0, 0));
+          }
           // R11 round 4 (the preview's welcome): the mark, "What would you like to make?", one line, three starters in one row at
           // the desk and stacked on the phone, all above the composer; FAKE is named on the descriptor
           expect(await text(page, '#cx-descriptor')).toContain('FAKE model on this computer');
-          expect(await text(page, '#cx-empty .cx-welcome-title')).toBe('What would you like to make?');
-          expect(await page.$$eval('#cx-empty .cx-welcome-line', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(['Your models, tools and ideas share one workspace.']);
+          // (R11 round 7, on the scaffold: the page head asks the question and says the line — once; the welcome is the mark,
+          // "Start with" and the starters)
+          expect(await text(page, '#ws-chat .page-head .page-title')).toBe('What would you like to make?');
+          expect(await text(page, '#ws-chat .page-head .page-intro')).toBe('Your models, tools and ideas share one workspace.');
+          expect(await text(page, '#cx-empty .cx-welcome-start')).toBe('Start with');
+          expect(await page.$$eval('#cx-empty .cx-welcome-title, #cx-empty .cx-welcome-line', (els) => els.length)).toBe(0);
           const starters = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent?.trim()]));
           expect(starters).toEqual([['plan', 'Plan a project'], ['image', 'Inspect an image'], ['workflow', 'Build a workflow']]);
           await page.evaluate(() => document.fonts.ready);
@@ -910,15 +934,22 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.goto(`${origin}/#t=${token}`);
       await landWorkspace(page);
       await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
-      expect(await page.isVisible('#shell-rail')).toBe(false);
-      expect(await page.isVisible('#cx-models')).toBe(false);
+      // (R11 round 7, SHELL CONTRACT v1 §4: the rail is a top strip with its sheet closed; the Models context is a sheet CLOSED by
+      // default — off the screen, not open over the conversation (GATE 04 R-c); the composer in view above the sticky dock)
+      expect(await page.$eval('#rail-sheet', (e) => getComputedStyle(e).display)).toBe('none');
+      const sheet = await page.$eval('#ws-chat .page-context', (e) => { const r = e.getBoundingClientRect(); return { open: e.classList.contains('is-open'), position: getComputedStyle(e).position, top: Math.round(r.top), inner: window.innerHeight, holdsModels: Boolean(e.querySelector('#cx-models')) }; });
+      expect(sheet).toMatchObject({ open: false, position: 'fixed', holdsModels: true });
+      expect(sheet.top, `the closed sheet is off the screen: ${JSON.stringify(sheet)}`).toBeGreaterThanOrEqual(sheet.inner);
+      // (the composer reachable on the phone: scrolled to, whole above the sticky dock — the first screen is the shell's head and band)
+      await page.$eval('#cx-composer', (f) => f.scrollIntoView({ block: 'center' }));
+      expect(await page.evaluate(() => { const r = document.getElementById('cx-composer')!.getBoundingClientRect(); const d = document.querySelector('#ws-chat .page-dock')!.getBoundingClientRect(); return { inView: r.top >= 0 && r.bottom <= window.innerHeight, clearOfDock: r.bottom <= d.top + 1, sticky: getComputedStyle(document.getElementById('cx-composer')!).position }; })).toEqual({ inView: true, clearOfDock: true, sticky: 'sticky' });
       // the row of controls fits the phone's width: the minor ones are in More
       expect(await page.$eval('#cx-controls', (b) => JSON.stringify({ fits: b.scrollWidth <= b.clientWidth + 1, sw: b.scrollWidth, cw: b.clientWidth, items: [...b.children].map((e) => `${(e as HTMLElement).innerText.replace(/\s+/g, ' ').trim()}:${Math.round(e.getBoundingClientRect().width)}`), styles: [...b.children].map((e) => getComputedStyle(e).display) }))).toMatch(/"fits":true/);
       const said = (sel: string): Promise<string[]> => page.$$eval(sel, (els) => els.filter((e) => e.getClientRects().length).map((e) => (e as HTMLElement).innerText.replace(/[^A-Za-z /]/g, '').trim()));
       // (R11 round 4, capture 09: Plan / Run · Permissions · Budget · Logs · More; Attach, Tools and Cloudflare optional in More)
       expect(await said('#cx-controls .cx-ctl, #cx-controls .cx-more')).toEqual(['Plan / Run', 'Permissions', 'Budget', 'Logs', 'More']);
       await page.click('#cx-more');
-      expect(await said('#cx-drawer [data-cx-ctl]')).toEqual(['Attach', 'Tools', 'Cloudflare optional']);
+      expect(await said('#cx-drawer [data-cx-ctl]')).toEqual(['Attach', 'Tools', 'Keys', 'Cloudflare optional']);
       await page.click('#cx-drawer [data-cx-ctl="attachments"]');
       // (R11 round 7: Attach says what is allowed — a project file by its path, read by the turn's tools — and what is not yet)
       expect(await text(page, '#cx-drawer')).toContain('Allowed: a file inside the project’s folder, named by its path there.');
@@ -933,8 +964,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 20_000 });
       expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · ready \d\d:\d\d$/);
       await page.fill('#cx-input', 'phone draft');
-      // (the chip lives in the Models drawer's NEXT TURN on a phone: the top line's Models button opens it)
-      await page.click('#cx-models-toggle');
+      // (the chip lives in the Models sheet's NEXT TURN on a phone: the head's Models button opens it — SHELL CONTRACT v1 §4)
+      await page.click('#ws-chat .page-head .page-context-btn');
+      await page.waitForSelector('#ws-chat .page-context.is-open', { timeout: 5_000 });
       expect(await page.isVisible('#cx-models')).toBe(true);
       expect(await page.isVisible('#cx-chip')).toBe(true);
       await page.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
@@ -943,8 +975,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.getElementById('cx-route-words')?.textContent?.startsWith('Next turn: fake-llama:1b'), null, { timeout: 20_000 });
       // (the drawer closes and the composer takes the keyboard once the choice's read-back is drawn)
-      await page.waitForFunction(() => !document.getElementById('cx-body')?.classList.contains('models-open') && document.activeElement?.id === 'cx-input', null, { timeout: 10_000 });
-      expect(await page.isVisible('#cx-models')).toBe(false);
+      await page.waitForFunction(() => !document.querySelector('#ws-chat .page-context.is-open') && document.activeElement?.id === 'cx-input', null, { timeout: 10_000 });
+      expect(await page.$eval('#ws-chat .page-context', (e) => e.classList.contains('is-open'))).toBe(false);
       expect(await page.inputValue('#cx-input')).toBe('phone draft');
       expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
       expect(errors).toEqual([]);
@@ -975,7 +1007,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         // the line above the composer says no model is connected, Send is off and says why, the panel's NEXT TURN says no model
         await p2.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
         await p2.waitForFunction(() => (document.getElementById('cx-route-words')?.textContent ?? '').startsWith('No model connected'), null, { timeout: 30_000 });
-        expect(await text(p2, '#cx-empty .cx-welcome-title')).toBe('What would you like to make?');
+        expect(await text(p2, '#ws-chat .page-head .page-title')).toBe('What would you like to make?');
+        expect(await text(p2, '#cx-empty .cx-welcome-start')).toBe('Start with');
         expect(await text(p2, '#cx-change')).toBe('Set up a model →');
         await p2.fill('#cx-input', 'a draft with no model');
         expect(await p2.isDisabled('#cx-send')).toBe(true);
@@ -985,8 +1018,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await p2.keyboard.press('Enter');
         expect(none.chats()).toEqual([]);
         expect(await p2.inputValue('#cx-input')).toBe('a draft with no model');
-        // the Models panel (a drawer at this width): Ollama local lists nothing, said why; no row SELECTED, nobody chose one
-        await p2.click('#cx-models-toggle');
+        // the Models context at 800 × 600 (one column, ≤ 1100: the context sits under the work, in the flow — SHELL CONTRACT v1
+        // §2.2; the head's Models button and the sheet are the phone's, ≤ 720): Ollama local lists nothing, said why; no row SELECTED
         await p2.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
         await p2.waitForFunction(() => { const e = document.querySelector('#cm-list .cm-empty'); return Boolean(e && !/^Reading/.test(e.textContent ?? '')); }, null, { timeout: 20_000 });
         expect(await text(p2, '#cm-desc-state')).toMatch(/^● answered \d\d:\d\d$/);
