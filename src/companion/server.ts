@@ -148,7 +148,7 @@ import { connectSrcFor } from './identity/config.js';
 // (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
 import { isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
 import { verifyHello } from './identity/middleware.js';
-import { sessionTokenOf } from './identity/session.js';
+import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
 import { mountChatRun } from './chat-run.js';
 import { tildePath } from '../utils/home-scrub.js';
@@ -349,7 +349,10 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // pinned it, and whether it said hello (the welcome and the tail are sent then). Every folder a page shows is tailed.
   // R11 round 4 (H171): `user` once a hello's session was verified: the view is that user's project (scope.ts), never the
   // operator's follower; `followed` leaves it where it is, and its project messages carry the project's root for the turn
-  interface PageView { project: ActiveProject; pinned: boolean; hello: boolean; user?: UserRef }
+  // `waiting`: a page of a CONFIGURED companion whose hello carried no session (the lead's gate-2 ruling): it is told once
+  // ({ type: 'session', ok: false, needs: 'session' }) and gets no project frame (no welcome, bus tail, event or project)
+  // until a hello with a session verifies
+  interface PageView { project: ActiveProject; pinned: boolean; hello: boolean; user?: UserRef; waiting?: boolean }
   const views = new Map<import('ws').WebSocket, PageView>();
   const follower = new ProjectFollower({ cwd: process.cwd(), fixed: process.env.TIMMY_REPO || null, onChange: (p) => followed(p) });
   const isBusEvent = (o: any): boolean =>
@@ -401,7 +404,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           // shared between reads is let go first, so a page that reads it again on this event is given the frame after it
           if (event.kind === 'receipt.sealed') workspace.forget(root);
           const msg = JSON.stringify({ type: 'bus', event });
-          for (const [c, v] of views) if (v.project.root === root && c.readyState === 1) c.send(msg);
+          for (const [c, v] of views) if (v.hello && !v.waiting && v.project.root === root && c.readyState === 1) c.send(msg);
         }
       });
     }
@@ -865,6 +868,15 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
             if (!own) { ws.send(JSON.stringify({ type: 'session', ok: false, needs: 'project', words: IDENTITY_NO_PROJECT })); return; }
             view.project = { name: own.name, root: own.root, chosen: true };
             view.pinned = true;
+            view.waiting = false;
+          }
+          // the lead's gate-2 ruling: on a configured companion a hello without a session is told so, once, and waits — no
+          // project frame of any kind until a hello with a session verifies (the page sends one as soon as it is signed in)
+          if (view && !view.user && identity.cfg.configured) {
+            view.waiting = true;
+            view.hello = false;
+            ws.send(JSON.stringify({ type: 'session', ok: false, needs: 'session', words: SESSION_WORDS.absent }));
+            return;
           }
           if (view) {
             view.hello = true;

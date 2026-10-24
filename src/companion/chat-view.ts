@@ -34,7 +34,8 @@
  */
 import type express from 'express';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { runningTurns } from '../agent/chat-turn.js';
 import { ConversationManager } from '../agent/conversation.js';
 import { modelPrice } from '../agent/model-price.js';
@@ -46,6 +47,7 @@ import { chatTurnOf } from '../repl/seal.js';
 import { checkLocalModel } from '../setup/local-model-check.js';
 import { installSteps, ollamaInstalled, STARTER_MODELS } from '../setup/ollama-local.js';
 import { providerStates, type ProviderState as SetupState } from '../setup/providers-state.js';
+import { settingsFile } from '../setup/home.js';
 import { readSetupState } from '../setup/questions.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
 import { readChain, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
@@ -306,7 +308,8 @@ export async function chooseModel(env: Env, root: string, body: unknown): Promis
       const s = readSetupState(env, root);
       // (the Ollama address the chat asks stays what it is: applySetup would record the default on a home with no providers.json)
       const ollama = s.providers.ollama ?? s.recorded?.answers.ollama;
-      const r = applySetup({ chat: 'local', model, ...(ollama ? { ollama } : {}) }, { by: 'timmy watch (the companion page)', repoRoot: root, state: s });
+      // (the lead's gate-2 ruling 1: every path applySetup writes is this env's — a user's choice writes the user's own home)
+      const r = applySetup({ chat: 'local', model, ...(ollama ? { ollama } : {}) }, { by: 'timmy watch (the companion page)', repoRoot: root, state: s, env });
       return { ok: true, state: 'ready', source, model, at: new Date().toISOString(), words: `Next turn: ${model} on this computer.`, written: writtenWords(r.written, env, root) };
     } catch (e) { return { ok: false, state: 'not kept', model, words: `${model} is not chosen: nothing was written (${e instanceof Error ? e.message : String(e)}).` }; }
   }
@@ -320,9 +323,19 @@ export async function chooseModel(env: Env, root: string, body: unknown): Promis
   if (!policy.ok) return { ok: false, state: 'refused', model, words: `${model} is not chosen: ${policyRefusalLines(policy).map((l) => l.trim()).filter(Boolean).join(' ')} Nothing was changed.` };
   if (!providerStates({ env, cwd: root }).some((p) => p.id === 'openrouter' && p.state !== 'not set up')) return { ok: false, state: 'refused', model, words: `${model} runs on OpenRouter: connect OpenRouter first (its key, in the terminal). Nothing was changed.` };
   try {
+    // the choice is written where this env keeps the settings (TIMMY_SETTINGS_DIR: a signed-in user's own home, the lead's
+    // gate-2 ruling 1); the process-wide store (src/utils/config.ts) only when it is that very file
     const { saveConfig, getConfig } = await import('../utils/config.js');
-    saveConfig({ model });
-    const written = [getConfig().path];
+    const file = settingsFile(env);
+    if (file === getConfig().path) saveConfig({ model });
+    else {
+      let body: Record<string, unknown> = {};
+      try { body = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { body = {}; }
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, `${JSON.stringify({ ...body, model, modelChosen: model }, undefined, '\t')}\n`, { mode: 0o600 });
+      if (existsSync(file)) chmodSync(file, 0o600);
+    }
+    const written = [file];
     const rec = saveSettings({ ...readSettings(env).settings, openRouterModel: model }, env);
     if (rec.ok) written.push(rec.path);
     const said = written.map((w) => `<settings>/${w.split('/').pop() ?? w}`);

@@ -9,7 +9,7 @@
 // The page's Send is POST /api/chat/turn (R11 round 4, H169's agent turn): the project's conversation, with the project's
 // tools and a sealed receipt, as the turn's evidence line says. Nothing here sends a key, a prompt or a request elsewhere.
 
-/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged */
+/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged, helloMessage, wsConnection */
 
 const cx = {
   /** the destination shown ('chat', or one of the workspace's tabs) */
@@ -67,6 +67,10 @@ const shown = (el) => el instanceof HTMLElement && document.contains(el) && el.g
 const identityConfigured = () => Boolean(typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.identity === 'function' && TimmyShell.identity() && TimmyShell.identity().configured);
 const signedIn = () => !identityConfigured() || Boolean(TimmyShell.session.user());
 const SIGN_IN_TO_SEND = 'Sign in to send: the turn runs in your own Timmy home.';
+// every read and write of the Chat's user data goes through the shell's fetch (the session rides on it; a 401 that needs a
+// session is answered once and stops the polls until a session is set); a page without the shell keeps the token fetch
+const userFetch = (url, init) => (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.fetch === 'function' ? TimmyShell.fetch(url, init) : companion.fetch(url, init));
+const sessionNeeded = () => Boolean(typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.sessionNeeded === 'function' && TimmyShell.sessionNeeded());
 
 /**
  * A region's children replaced, the keyboard kept where it was: the menu and the controls are drawn again every few seconds
@@ -306,9 +310,11 @@ projectHeader = function projectHeaderWithShell(p) {
 
 function readView(force = false, fresh = false) {
   if (!companion.token || companion.refused) { drawChat(); return Promise.resolve(); }
+  // (the lead's gate-2 ruling 2: after a 401 that needs a session, nothing is asked again until one is set)
+  if (sessionNeeded()) { drawChat(); return Promise.resolve(); }
   if (cx.asking) return cx.asking;
   const q = [projectQuery(''), fresh ? 'fresh=1' : ''].filter(Boolean).join('&');
-  cx.asking = companion.fetch(`/api/chat/view${q ? `?${q}` : ''}`)
+  cx.asking = userFetch(`/api/chat/view${q ? `?${q}` : ''}`)
     .then((r) => r.json().then((body) => ({ r, body })))
     .then(({ r, body }) => {
       if (!r.ok || !body || body.ok !== true) { cx.viewFailed = (body && body.error) || `The companion answered HTTP ${r.status}.`; return; }
@@ -1037,7 +1043,7 @@ async function chooseRow(id) {
   drawChip();
   let body = null;
   try {
-    const r = await companion.fetch(`/api/chat/choose${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, model: id }) });
+    const r = await userFetch(`/api/chat/choose${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, model: id }) });
     body = await r.json().catch(() => null);
     if (!body || typeof body.words !== 'string') body = { ok: false, state: 'not kept', model: id, words: `The companion answered HTTP ${r.status}; nothing was changed.` };
   } catch (err) {
@@ -1112,12 +1118,12 @@ function sourceOf(m) { return m.provider === 'openrouter' ? 'openrouter' : m.pro
 function readModels() {
   const m = cx.models;
   const source = sourceOf(m);
-  if (!source || !companion.token || companion.refused) { drawModelsRail(); return; }
+  if (!source || !companion.token || companion.refused || sessionNeeded()) { drawModelsRail(); return; }
   const seq = ++m.asking;
   const q = new URLSearchParams({ source, sort: m.q.sort });
   for (const k of ['search', 'maker', 'capability', 'cost', 'context']) if (m.q[k]) q.set(k, m.q[k]);
   if (cx.project && cx.project.id) q.set('project', cx.project.id);
-  companion.fetch(`/api/chat/models?${q}`)
+  userFetch(`/api/chat/models?${q}`)
     .then((r) => r.json())
     .then((body) => { if (seq !== m.asking) return; m.answer = body && body.ok ? body : { ok: false, error: (body && body.error) || 'The companion could not read the models.' }; })
     .catch(() => { if (seq === m.asking) m.answer = { ok: false, error: 'The companion did not answer the models’ read.' }; })
@@ -1840,7 +1846,13 @@ $('cx-scroll')?.addEventListener('scroll', () => {
     };
     drawAccount(TimmyShell.session.user());
     TimmyShell.on('identity', () => { drawAccount(TimmyShell.session.user()); drawComposer(); });
-    TimmyShell.on('session', ({ user }) => { drawAccount(user); cx.view = null; cx.userProjects = null; cx.toolsInv = null; cx.models.answer = null; if (cx.dest === 'chat') { readView(true); drawChat(); readModels(); } });
+    TimmyShell.on('session', ({ user }) => {
+      drawAccount(user); cx.view = null; cx.userProjects = null; cx.toolsInv = null; cx.models.answer = null;
+      // the socket hears of the session too: a new hello (the companion's view becomes the user's project; a page that was
+      // waiting without a session gets its project frames now)
+      if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1 && typeof helloMessage === 'function') { try { wsConnection.send(JSON.stringify(helloMessage())); } catch (e) { /* the socket reconnects on its own */ } }
+      if (cx.dest === 'chat') { readView(true); drawChat(); readModels(); }
+    });
     // R11 round 4 (H170's socket event): a connection of this account changed: the models' states and the route are read again
     // eslint-disable-next-line no-global-assign
     onConnectionsChanged = () => { cx.models.answer = null; if (cx.dest === 'chat') { readView(true, true); readModels(); } };
