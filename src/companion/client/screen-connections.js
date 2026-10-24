@@ -11,6 +11,12 @@
 // word is the provider's. Amber marks focus and the ONE primary step; green marks "checked" only; every glyph has its word.
 // While a sign-in is pending (the browser is away on OpenRouter's page), the screen asks the server again every few seconds
 // until the card's state changes: the callback lands on the companion, not on this tab.
+// R11 round 6 (the operator's 06:32 order; H174's 06:37 contract): the native ProviderCard artboard in each card —
+// TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) into a host of the card's width above the state word,
+// mounted ONCE per card for the screen's life (the host outlives a render; handle.unmount() when the screen is destroyed) — and
+// the feed, one line per state change, TimmyRive.fromProviderState(id, state, 'GET /api/connections: ' + id), so the Rive label
+// and the native State come from the backend's event, not from the card's drawing. The card's buttons stay these HTML buttons.
+// Without the module or its mount API the host stays empty and takes no room: the HTML beside it says the state, as before.
 (function () {
   'use strict';
   const PROVIDERS = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];
@@ -53,7 +59,8 @@
 
     // one screen state per draw: a draw after the shell shows the screen again starts afresh (the previous poll stops)
     if (host._cxScreen && typeof host._cxScreen.destroy === 'function') host._cxScreen.destroy();
-    const live = { data: null, pull: null, pullBox: null, said: null, destroyed: false, poll: null };
+    const live = { data: null, pull: null, pullBox: null, said: null, destroyed: false, poll: null, rive: {}, fed: {} };
+    const rive = () => (window.TimmyRive && typeof window.TimmyRive === 'object' ? window.TimmyRive : null);
     host.replaceChildren();
     const main = h('div', { class: 'sh-main cn-main' });
     const head = h('header', { class: 'sh-head' },
@@ -74,6 +81,34 @@
       el.dataset.kind = kind || '';
     };
 
+    /**
+     * The native ProviderCard's host in a card (R11 round 6): one host per provider for the screen's life, mounted once through
+     * H174's TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) — the card's width — and moved into each
+     * redrawn card (a refresh after an action keeps the same runtime instance; its State follows the feed below). No module or no
+     * mount API: the host stays empty (hidden by the sheet) and the HTML state word beside it stands alone.
+     */
+    function riveHost(c) {
+      let r = live.rive[c.id];
+      if (!r) {
+        r = { host: h('div', { class: 'cn-rive', 'data-rive-host': c.id }), handle: null };
+        live.rive[c.id] = r;
+        const tr = rive();
+        if (tr && typeof tr.mountProviderCard === 'function') {
+          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
+        }
+      }
+      return r.host;
+    }
+    /** The feed (R11 round 6): one line per state change, the backend's own event as the source — never the card's drawing. */
+    function feedStates(cards) {
+      for (const c of cards) {
+        if (!c || typeof c.id !== 'string' || live.fed[c.id] === c.state) continue;
+        live.fed[c.id] = c.state;
+        const tr = rive();
+        if (tr && typeof tr.fromProviderState === 'function') { try { tr.fromProviderState(c.id, c.state, 'GET /api/connections: ' + c.id); } catch { /* the HTML says the state */ } }
+      }
+    }
+
     function cardEl(c) {
       const mark = stateMark(c.state);
       return h('article', { class: `sh-card cn-card cn-card-${c.id}`, 'data-provider': c.id, 'data-state': c.state, 'aria-labelledby': `cn-card-${c.id}-title` },
@@ -85,6 +120,7 @@
         h('p', { class: 'cn-card-body' }, c.body),
         actions(c),
         h('footer', { class: 'cn-card-foot' },
+          riveHost(c),
           h('p', { class: `${mark.cls} cn-state` }, h('span', { class: 'cn-state-glyph', 'aria-hidden': 'true' }, mark.glyph), ' ', h('span', { class: 'cn-state-word' }, c.state)),
           h('p', { class: 'sh-note cn-words' }, c.words),
           c.next ? h('p', { class: 'sh-note cn-next' }, h('span', { class: 'cn-next-label' }, 'Next '), c.next) : null,
@@ -254,6 +290,9 @@
             h('button', { type: 'button', class: 'sh-btn-primary', onClick: () => { if (typeof sh.land === 'function') sh.land(); else if (typeof sh.go === 'function') sh.go('chat'); } }, `${s.continue || 'Continue to the workspace'} →`))),
         h('p', { class: 'sh-note cn-note' }, h('span', { class: 'cn-note-mark', 'aria-hidden': 'true' }, '↳ '), s.note || ''));
       foot.replaceChildren(h('span', null, s.footerStrong || ''), h('span', null, s.footer || ''));
+      // every path that applies a provider's state ends here (the first draw, Check, a download, a key, a delete, the socket's
+      // connections event through update()): the feed says each change once, with the backend's event as its source
+      feedStates(data.cards || []);
       // the download box and a card's last status line outlive a render (a refresh after an action keeps what it said)
       if (live.pullBox) { const local = cardOf('ollama-local'); const at = local && local.querySelector('.cn-actions'); if (at) at.after(live.pullBox); }
       if (live.said) { say(cardOf(live.said.id), live.said.words, live.said.kind); live.said = null; }
@@ -279,7 +318,14 @@
     const screen = {
       update(event) { if (event && event.type === 'connections') void refresh(); },
       refresh,
-      destroy() { live.destroyed = true; if (live.poll) { clearTimeout(live.poll); live.poll = null; } if (live.pull) { try { live.pull.reader.cancel(); } catch { /* closed */ } live.pull = null; } },
+      destroy() {
+        live.destroyed = true;
+        if (live.poll) { clearTimeout(live.poll); live.poll = null; }
+        if (live.pull) { try { live.pull.reader.cancel(); } catch { /* closed */ } live.pull = null; }
+        // the four native cards let their runtime instances go (H174's handle.unmount); the next draw mounts afresh
+        for (const r of Object.values(live.rive)) { if (r.handle && typeof r.handle.unmount === 'function') { try { r.handle.unmount(); } catch { /* gone */ } } r.handle = null; }
+        live.rive = {};
+      },
     };
     host._cxScreen = screen;
     void refresh();
