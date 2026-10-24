@@ -62,7 +62,14 @@ const COMPONENTS = ['welcome', 'connection-openrouter', 'connection-ollama-local
 /** The six components the runtime draws when the native asset is here (the mark has no file either way). */
 const DRAWN = ['activity', 'connection-cloudflare', 'connection-ollama-cloud', 'connection-ollama-local', 'connection-openrouter', 'welcome'];
 /** The operator's native asset as H174's README states it (timmy-ui.riv: 405,278 bytes; the listing's sha256 is its first 12 hex). */
-const NATIVE = { name: 'timmy-ui.riv', bytes: 405_278, sha256: '9fd9ae7c0981', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
+/**
+ * The asset's contract across its builds (RIVE CONTRACT v1 = the round-6 asset, 405,278 bytes, sha256 9fd9ae7c…; v2 = H174's round-7
+ * rebuild: ActionButtonGlacier and the Preview artboards added, the runs named): the file's bytes and sha256 are read from the listing
+ * and checked against what is served, never pinned to one build; the three PRODUCTION artboards, TimmyUI and its four inputs are what
+ * every build keeps (asserted as contained, so a build with more artboards passes and is said).
+ */
+const NATIVE = { name: 'timmy-ui.riv', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
+const KNOWN_BUILDS: Record<string, string> = { '9fd9ae7c0981': 'v1 (the round-6 asset, 405,278 bytes)', 'e97d28dc5efd': 'v2 (the Mac build of H174\'s 4e8d4905, 93,211 bytes, 7 artboards)' };
 /** Which path this checkout takes: decided by the first case from GET /api/rive/assets (the file beside its source, and the runtime served). */
 let native: boolean | null = null;
 const pathWords = (): string => native ? `DRAWN: ${NATIVE.name} is beside its source in this checkout and @rive-app/canvas is served from this origin` : 'WORDS ONLY: no .riv beside the sources in this checkout (every state is the word beside its component)';
@@ -264,16 +271,23 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
     const ui = rows.find((c) => c.component === 'timmy-ui')!;
     expect(ui.sources).toEqual(expect.arrayContaining(['scene.rml', 'rive.yaml', 'README.md', 'create-controls.py', 'OFL.txt']));
     expect(ui.meta.stateMachine).toBe(NATIVE.stateMachine);
-    expect(ui.meta.artboards).toEqual(NATIVE.artboards);
-    expect(ui.meta.inputs).toEqual(NATIVE.inputs);
+    expect(ui.meta.artboards, 'the three production artboards (a later build may add more)').toEqual(expect.arrayContaining(NATIVE.artboards));
+    expect(ui.meta.inputs, 'the four inputs').toEqual(expect.arrayContaining(NATIVE.inputs));
     native = ui.riv !== null && r.json.runtime === true;
     console.warn(`journey-rive-inspect: ${pathWords()}${ui.riv ? '' : ' — the .riv is not beside its source (gitignored *.riv; this checkout has not got it)'}${r.json.runtime ? '' : ' — the runtime (@rive-app/canvas) is not served'}`);
     const riv = await fetch(new URL('/assets/rive/timmy-ui/timmy-ui.riv', companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } });
     if (ui.riv) {
-      expect(ui.riv).toEqual({ name: NATIVE.name, bytes: NATIVE.bytes, sha256: NATIVE.sha256 });
+      expect(ui.riv.name).toBe(NATIVE.name);
+      expect(ui.riv.bytes, 'a compiled file (v1 405,278 bytes; v2 93,211)').toBeGreaterThan(10_000);
+      expect(ui.riv.sha256).toMatch(/^[0-9a-f]{12}$/);
       expect(ui.words).toMatch(/\.riv and its editable source are both here/);
       expect(riv.status, 'the .riv served by exact name').toBe(200);
-      expect((await riv.arrayBuffer()).byteLength).toBe(NATIVE.bytes);
+      const bytes = Buffer.from(await riv.arrayBuffer());
+      expect(bytes.byteLength, 'the bytes the listing counts').toBe(ui.riv.bytes);
+      const { createHash } = await import('node:crypto');
+      const sha = createHash('sha256').update(bytes).digest('hex');
+      expect(sha.startsWith(ui.riv.sha256), 'the file the listing names (its sha256)').toBe(true);
+      console.warn(`journey-rive-inspect: the served timmy-ui.riv is ${bytes.byteLength} bytes, sha256 ${sha.slice(0, 12)}… = ${KNOWN_BUILDS[sha.slice(0, 12)] ?? 'a build this test does not know by sha (v2 or later: the contract\'s names are read, not pinned)'}; artboards ${JSON.stringify(ui.meta.artboards)}`);
     } else {
       expect(ui.words).toMatch(/compiled \.riv is not/);
       expect(riv.status, 'no file: 404 in words').toBe(404);
@@ -333,15 +347,15 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
             const h = (await handleOf(o.page, key))!;
             expect(h.state, `${key} drawn`).toBe('drawn');
             expect(h.contract, `${key} on the TimmyUI contract`).toBe('TimmyUI');
-            expect(h.runtime!.artboardNames, `${key}: the artboards the runtime reports`).toEqual(NATIVE.artboards);
+            expect(h.runtime!.artboardNames, `${key}: the artboards the runtime reports (the three production ones; a later build may add more)`).toEqual(expect.arrayContaining(NATIVE.artboards));
             expect(h.runtime!.stateMachineNames).toEqual([NATIVE.stateMachine]);
-            expect(h.runtime!.inputs.map((i) => i.name)).toEqual(NATIVE.inputs);
+            expect(h.runtime!.inputs.map((i) => i.name), `${key}: the four inputs`).toEqual(expect.arrayContaining(NATIVE.inputs));
             expect(h.nativeReduced, `${key}: the asset has its own ReducedMotion input`).toBe(true);
           }
           const factsOf = (key: string): Promise<string> => o.page.locator(`[data-inspect-component="${key}"] .tr-facts`).innerText();
           const act = await factsOf('activity');
           expect(act).toContain('artboard AgentConsole');
-          expect(act).toContain(NATIVE.artboards.join(', '));
+          for (const a of NATIVE.artboards) expect(act, `the facts name the artboard ${a}`).toContain(a);
           expect(act).toMatch(/State · Number · \d/);
           expect(act).toContain('Native contract');
           expect(act).toContain('stopping → State 1 until the backend says cancelled → 3');

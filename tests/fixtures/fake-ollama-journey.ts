@@ -39,6 +39,12 @@ export interface JourneyOptions {
   asks?: { when: RegExp; tool: { name: string; arguments: Record<string, unknown> }; answer: string };
   /** R11 round 6 (the operator's 07:06 bar): a message whose answer is a DENSE stream — `words.length` chunks, one every `everyMs` */
   dense?: { when: RegExp; words: string[]; everyMs: number };
+  /**
+   * R11 round 7 (the error script, for a page's failed / recovery state): a message the FAKE answers with an ERROR — `status`
+   * with Ollama's own error shape `{ error }` (e.g. 500 "llama runner process has terminated") before any chunk; the turn fails
+   * in the REAL agent and the page draws its failed state. The test's own words, labelled FAKE.
+   */
+  fail?: { when: RegExp; status: number; error: string };
 }
 
 export async function startFakeOllamaJourney(o: JourneyOptions): Promise<FakeOllamaJourney> {
@@ -93,10 +99,12 @@ export async function startFakeOllamaJourney(o: JourneyOptions): Promise<FakeOll
       if (req.method === 'POST' && path === '/api/chat') {
         const model = String(body?.model ?? '');
         if (!o.models.some((m) => m.name === model)) return json(404, { error: `model '${model}' not found` });
-        res.writeHead(200, { 'content-type': 'application/x-ndjson' });
-        const chunk = (message: Record<string, unknown>, done: boolean, more: Record<string, unknown> = {}): string => line({ model, created_at: new Date().toISOString(), message, done, ...more });
         const messages: Array<{ role?: string; content?: string }> = Array.isArray(body?.messages) ? body.messages : [];
         const last = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+        // the error script: the whole request answered with Ollama's error shape, no chunk (the agent's turn fails with these words)
+        if (o.fail && o.fail.when.test(String(last))) return json(o.fail.status, { error: o.fail.error });
+        res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+        const chunk = (message: Record<string, unknown>, done: boolean, more: Record<string, unknown> = {}): string => line({ model, created_at: new Date().toISOString(), message, done, ...more });
         // the tool's result for THIS turn: a tool message after the last user message (the project's conversation carries the
         // earlier turns' tool messages too, which must not make a later turn skip its own tool call)
         const lastUserAt = messages.map((m) => m.role).lastIndexOf('user');
