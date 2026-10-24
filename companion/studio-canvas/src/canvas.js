@@ -31,6 +31,8 @@ import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, proj
 import { artifactFollowed, createArtifacts } from './artifacts.js';
 import { createReferences } from './references.js';
 import { createNodes } from './nodes.js';
+// R11 round 5 (H174): the timmy-rive shape (a Rive component on the board, driven by window.TimmyRive)
+import { createRiveShape } from './rive-shape.js';
 // R7 (H151): where Timmy places on the board, clear of every shape. R8 (H158): what a draft lands on, and where it moves clear
 import { freeSpot, landsOn, nearestSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
 
@@ -139,6 +141,9 @@ const cards = createCards({
   // R4 (H109): a card's Run detail
   runDetail: (op, projectId) => showRunDetail(op, projectId),
 });
+
+// R11 round 5 (H174): the Rive component shape, registered beside the cards (its runtime and assets from this page's origin)
+const riveShape = createRiveShape({ React, BaseBoxShapeUtil, HTMLContainer, T, useValue, resizeBox, createShapeId, editor: () => current });
 
 /**
  * R6 (H145): React roots for parts of the side panel drawn by the cards' own React parts (Studio's VoxVision preview), one per
@@ -1548,6 +1553,8 @@ function mount(snapshot, b = canvas) {
             // board's connections as the panel lists them (read only)
             connectNodes: (from, to) => nodes.connect(String(from), String(to)),
             connections: () => nodes.connections(),
+            // R11 round 5 (H174): a Rive component shape placed on the board (welcome | connection | activity; a provider for connection)
+            placeRive: (component, o) => riveShape.place(editor, String(component), placeAt(editor, { w: 240, h: 200 }), o && typeof o === 'object' ? o : {}),
           };
           attachEditor(editor, b);
           followEditor(editor);
@@ -1723,7 +1730,7 @@ async function start() {
   say('Loading the canvas: starting tldraw', 'loading');
   tldrawProps = {
     // R4 (H75): Timmy's drawn cards beside tldraw's own shapes. R6 (H145): and the artifact card
-    shapeUtils: [...cards.utils, artifacts.util],
+    shapeUtils: [...cards.utils, artifacts.util, riveShape.util],
     // R6 (H145): a reference image is shown from its board's copy, read with this page's session (tldraw's own inline upload else)
     assets: references.assetStore(inlineBase64AssetStore),
     licenseKey: config.licenseKey ?? undefined,
