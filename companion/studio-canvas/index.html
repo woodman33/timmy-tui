@@ -503,7 +503,7 @@
   .tr-face { position: relative; display: inline-grid; place-items: center; width: 64px; height: 64px; padding: 0; border: 1px solid var(--timmy-line-strong); border-radius: 10px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 28px; font-weight: var(--timmy-weight-heading); }
   button.tr-face { cursor: pointer; }
   .tr-face:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
-  .tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } /* the asset's baked click listener never sees a pointer */
   .tr-face canvas:not([data-loaded]) { visibility: hidden; }
   .tr-fallback { position: relative; z-index: 1; }
   .tr-fallback[hidden] { display: none; }
@@ -518,7 +518,9 @@
   .tr-shape-select { font: inherit; font-size: 11px; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 1px 4px; }
   .tr-shape-select:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
   .tr-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .tr-shape .tr-component[data-artboard] { grid-template-columns: 1fr; }
+  /* a block grid at the shape's content width: an inline-grid shrank to its words, so a welcome's face (the ActionButton) was a
+     38×9 px pill above the word "ready" (H172's capture at 9447d6f8); the face fills the width at the artboard's aspect */
+  .tr-shape .tr-component[data-artboard] { display: grid; width: 100%; grid-template-columns: 1fr; }
   .tr-shape .tr-component[data-artboard] .tr-face { width: 100%; height: auto; border-radius: 8px; }
   .tr-shape .tr-component[data-artboard="AgentConsole"] .tr-face { aspect-ratio: 640 / 380; }
   .tr-shape .tr-component[data-artboard="ProviderCard"] .tr-face { aspect-ratio: 400 / 260; }

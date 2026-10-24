@@ -32,3 +32,22 @@ font is kept here), `Montserrat.ttf` with its license `OFL.txt` (SIL Open Font L
 Every binding event records the word AND the native input it set (`State 1`, `Pressed true`): the Inspect animation view lists
 them with the backend source that set each state. The three drafted folders beside this one (`welcome/`, `connection/`,
 `activity/`) keep the earlier hand-written sources as drafts; the page draws this asset.
+
+## The baked words on the faces (text runs), and what the page sets them to (R11 round 6, the operator's 07:06 bar)
+
+`create-controls.py` names each text run after its text (`TextValueRun name="…"`), so the runtime can set them
+(`@rive-app/canvas` `setTextRunValue` / `getTextRunValue`; `rive-bindings.js` `RUNS`, `CAPTION`, `applyRuns`):
+
+| Run (its name) | Artboards | What the page sets, and when |
+|---|---|---|
+| `PREVIEW  /  NOT A LIVE JOB` | AgentConsole, ProviderCard | the face's caption follows the SOURCE of its state: a preview (the Inspect view's labelled playback) → `PREVIEW  /  NOT A LIVE JOB`; the backend feed (the turn's SSE, GET /api/connections) → `LIVE  /  THE TURN’S EVENTS` or `LIVE  /  GET /api/connections`; a Canvas shape before any event on its page → `AS SAVED  /  NOT A LIVE JOB`. A live face never reads PREVIEW, a preview never reads LIVE. |
+| `Inspect interaction` | AgentConsole, ProviderCard | `""` — the baked face button means nothing in the product (the HTML beside the face carries the controls). |
+| `Connect provider` | ActionButton (its Idle label) | the button's own label (a mount's `label`; a Canvas welcome's label). |
+| `OpenRouter  ·  Ollama  ·  Cloudflare` | ProviderCard, **five runs under this one name** (one per state group) | **left as baked**: the runtime addresses a run by name and reaches one of the five, so it cannot put the card's own provider on every state. The source must give the five distinct names (e.g. `Provider · Idle` … `Provider · Failed`) — then the page sets each to the card's provider (`OpenRouter`, `Ollama · local`, `Ollama · cloud`, `Cloudflare`). The Inspect view's "Face words" row says so per card. |
+
+The state machine also bakes a listener `Inspect click` (the hit area → `State = 1`) that would put a live face in
+Working/Checking with no backend event. The page keeps that from happening twice over: the face's canvas takes no pointer
+events (`rive-components.css`; the host's own button or img keeps the click, the keyboard and the focus), and every frame the
+bindings put a `State` the feed did not set back to the fed value (`guardState`, counted on the handle's `restored`). The
+HTML word beside the face never follows a listener-made change. An ActionButton's press shows the asset's Pressed wash
+through the page's own `Pressed` input, not through the listener.
