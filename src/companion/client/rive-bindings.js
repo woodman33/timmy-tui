@@ -356,19 +356,33 @@
       }
       // the page's own turn in flight (#cx-own: li.cx-turn.is-timmy with its state class) comes first; the saved conversation's
       // turns (#cx-turns) carry no state class and say nothing of what runs now
-      const own = document.querySelectorAll('#cx-own li.cx-turn.is-timmy');
+      const own = [...document.querySelectorAll('#cx-own li.cx-turn.is-timmy')];
       const saved = document.querySelectorAll('#cx-turns li.cx-turn.is-timmy');
+      const indexOf = (li) => (li && li.dataset.own !== undefined ? Number(li.dataset.own) : -1);
+      const streaming = own.filter((li) => li.classList.contains('is-streaming'));
+      // what was seen so far: the newest own turn seen STREAMING, and the newest seen stopped or failed (a stopped or failed own
+      // turn stays in #cx-own while an answered one folds into the saved conversation once its receipt is read back)
+      for (const li of streaming) seen.streamed = Math.max(seen.streamed === undefined ? -1 : seen.streamed, indexOf(li));
+      for (const li of own) if (li.classList.contains('is-stopped') || li.classList.contains('is-failed')) seen.ended = Math.max(seen.ended === undefined ? -1 : seen.ended, indexOf(li));
+      const stopShown = Boolean(document.querySelector('#cx-send.is-stop'));
       const last = own[own.length - 1] || saved[saved.length - 1];
       let word = null;
       let why = '';
-      if (last) {
+      let key = '';
+      // a turn answered AFTER a stopped (or failed) one: it was SEEN streaming, newer than the stopped li, it is gone from #cx-own
+      // (folded into the saved conversation, sealed), nothing streams and no Stop is offered → idle. Never before a turn was seen
+      // streaming (a turn just started, or one that ran before this page drew it, says nothing here): the is-answered path says idle.
+      if (seen.ended !== undefined && seen.streamed !== undefined && seen.streamed > seen.ended && !streaming.length && !stopShown && !own.some((li) => indexOf(li) === seen.streamed)) {
+        word = 'idle'; why = `the page's newest turn (data-own ${seen.streamed}, seen streaming after the stopped one) folded into the saved conversation (answered, sealed)`; key = `idle:folded:${seen.streamed}`;
+      } else if (last) {
         if (last.classList.contains('is-streaming')) { word = last.querySelector('.cx-needs') ? 'awaiting' : 'working'; why = word === 'awaiting' ? 'li.cx-turn.is-streaming with .cx-needs (needs-you)' : 'li.cx-turn.is-streaming'; }
         else if (last.classList.contains('is-stopped')) { word = 'stopped'; why = 'li.cx-turn.is-stopped'; }
         else if (last.classList.contains('is-failed')) { word = 'failed'; why = 'li.cx-turn.is-failed'; }
         else if (last.classList.contains('is-answered')) { word = 'idle'; why = 'li.cx-turn.is-answered (done)'; }
+        key = `${word}:${last.dataset.own || ''}`;
       }
-      if (word && seen.activity !== `${word}:${last.dataset.own || ''}`) {
-        seen.activity = `${word}:${last.dataset.own || ''}`;
+      if (word && seen.activity !== key) {
+        seen.activity = key;
         const source = `derived from the page's drawing of the turn: ${why}`;
         lastSeen.activity = { word, source };
         for (const x of bound('activity')) set(x, 'activity', word, source);
