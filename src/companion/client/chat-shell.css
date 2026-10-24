@@ -204,7 +204,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-route { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 4px 2px; font-size: 13px; color: var(--timmy-text-secondary); }
 .cx-route .cx-route-words { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cx-route strong { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
-.cx-route .cx-change.is-setup { color: var(--timmy-accent); text-decoration: none; font-weight: var(--timmy-weight-strong); }
+.cx-route .cx-change.is-setup { padding: 3px 10px; border-radius: 3px; background: var(--timmy-accent); color: var(--timmy-accent-ink); text-decoration: none; font-weight: var(--timmy-weight-strong); } /* (with no model connected this is the one primary next step: the amber fill, B10) */
 .cx-route .cx-change { flex-shrink: 0; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .cx-route.is-off strong { color: var(--timmy-text); }
 

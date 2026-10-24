@@ -129,7 +129,12 @@ export async function openWorkspaceTab(page: Page, id: string): Promise<void> {
       if (await page.locator(menu).isVisible()) { await page.click(menu); break; }
     }
   }
+  // R11 round 4 (H171): the preview's rail lists nine destinations; Home, Control Room and Fleet & Clef are found by the
+  // rail's finder ("/ find"), as a person finds them: typed, then clicked; the finder closed again after
+  const found = !(await item.isVisible());
+  if (found) { await page.click('#rail-find-btn'); await page.fill('#rail-find', id); }
   await item.click();
+  if (found) await page.evaluate(() => { const b = document.getElementById('rail-find-btn'); if (b && b.getAttribute('aria-expanded') === 'true') b.click(); });
 }
 
 /** Opens tab `id` with its key and waits until its page has drawn what it reads (no "Reading…" left on it), at most 20 s. */
