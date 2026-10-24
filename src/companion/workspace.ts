@@ -24,9 +24,13 @@
  *
  * What it reads and writes is the environment it is given (CompanionOptions.workspace, a test's), else this process's.
  */
+import type { Application, RequestHandler } from 'express';
+import { closeSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Dirent } from 'node:fs';
+import { basename, extname, isAbsolute, join, posix, resolve, sep } from 'node:path';
 import type { WorkspaceFrame } from '../contracts/workspace.js';
 import { readActiveProject } from '../project/index.js';
-import { scrubHomes } from '../utils/home-scrub.js';
+import { scrubHomes, tildePath } from '../utils/home-scrub.js';
+import { failRequest } from '../utils/server-failure.js';
 import { readSettings, saveSettings, type SaveResult, type SettingsRead, type WorkbenchSettings } from '../workbench/settings.js';
 
 type Env = Record<string, string | undefined>;
@@ -161,4 +165,210 @@ export class CompanionWorkspace {
       return { status: 200, body: { saved_at: saved.at, frame: null, frame_error: `${WORKSPACE_FAILED}: ${words(err)}` } };
     }
   }
+}
+
+// ── R11 round 7 (H173): the project's FILES — read-only, for the Files page and Chat's attachments ───────────────────────
+//
+//   route                                       answers
+//   GET /api/files?project=<id>&path=<rel>      200 the folder at `path` (the project's root when absent) of the project the
+//                                               request is about: { ok, project: { id, name }, where, path, parent, entries,
+//                                               count, truncated, words }; a path with "..", an absolute one, one leading out
+//                                               of the project (a link) or one that is not there: 400 / 404 in words
+//   GET /api/files/file?project=<id>&path=<rel> 200 the file: a text file as JSON { ok, kind: 'text', path, name, size, mtime,
+//                                               text, truncated } (the first 256 KB; more is said); an image as its bytes with
+//                                               its type (png, jpeg, gif, webp; at most 8 MB); anything else 415 in words
+//                                               (kind 'binary': nothing is guessed at); a folder 400
+//
+// The project is identity.projectFor(req) (src/companion/identity/routes.ts): the signed-in user's own by ?project=<id>, else
+// their default; the operator's by the companion's own rule. Every path is relative to THAT project's root and is resolved
+// with links followed: whatever lands outside the root is not the project's and answers 404. Nothing here writes.
+//
+// THE ATTACHMENT SHAPE (for H171's Chat "+ Attach" and H169's turn): a file is named as { project: <id>, path: <rel> } —
+// the same two the routes take; resolveProjectPath(root, path) is how a reader (the turn's) gets the real file or a refusal.
+
+/** What an entry is: a folder, a file (with what the page may show of it), a link that leads out, or something else. */
+export interface FileEntry {
+  name: string;
+  path: string;
+  kind: 'dir' | 'file' | 'other';
+  size?: number;
+  mtime?: string;
+  /** a file's kind for the page: a text it may read, an image it may show, or neither */
+  view?: 'text' | 'image' | 'binary';
+  /** a folder the page lists lazily and names as heavy (node_modules, .git, dist …): shown, not opened by default */
+  heavy?: boolean;
+}
+
+export interface FilesListing {
+  ok: true;
+  project: { id: string; name: string };
+  /** where this project lives: its folder (from ~), and the Timmy home its records are under (from ~) */
+  where: { root: string; home: string };
+  path: string;
+  parent: string | null;
+  entries: FileEntry[];
+  count: number;
+  truncated: boolean;
+  words: string;
+}
+
+export const FILES_LIMIT = 400;
+export const FILE_TEXT_MAX = 256 * 1024;
+export const FILE_IMAGE_MAX = 8 * 1024 * 1024;
+const HEAVY = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache', '__pycache__', '.venv', 'venv', 'target', '.timmy']);
+const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+const TEXT_EXT = new Set(['.txt', '.md', '.markdown', '.json', '.jsonl', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.env.example', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx', '.py', '.rb', '.go', '.rs', '.java', '.kt', '.swift', '.c', '.h', '.cc', '.cpp', '.hpp', '.cs', '.sh', '.bash', '.zsh', '.fish', '.ps1', '.html', '.htm', '.css', '.scss', '.less', '.svg', '.xml', '.csv', '.tsv', '.sql', '.graphql', '.gql', '.proto', '.lock', '.log', '.cast', '.rml', '.usda', '.obj', '.mtl', '.gitignore', '.gitattributes', '.editorconfig', '.npmrc', '.nvmrc', '.prettierrc', '.eslintrc', '.dockerfile', '.tf', '.lua', '.vim', '.el', '.clj', '.ex', '.exs', '.erl', '.hs', '.ml', '.r', '.jl', '.m', '.mm', '.pl', '.php', '.scala', '.dart', '.vue', '.svelte', '.astro', '.mdx', '.rst', '.tex', '.bib', '.ipynb', '.plist', '.pem', '.pub', '.txt~']);
+
+export const FILES_WORDS = Object.freeze({
+  badPath: 'That path is not one inside this project: a relative path, with no "..", names a file or folder of the project\'s.',
+  outside: 'That is not inside this project (a link that leads out, or a path that is not there), so nothing was read.',
+  notFolder: 'That is a file, not a folder; open it with /api/files/file.',
+  notFile: 'That is a folder, not a file; list it with /api/files.',
+  binary: 'This file is neither text nor an image this page shows (or it is larger than the page reads), so it is not opened here. Its size and place are shown; a tool of a turn can still read it.',
+  tooLarge: (max: string) => `This file is larger than ${max}, so it is not opened here.`,
+  empty: 'This project has no files yet. Start a conversation, or add files to its folder.',
+  noProject: 'That project is not one of this account\'s (its id names none of your projects, or the path is outside them), so nothing was read.',
+});
+
+const under = (p: string, dir: string): boolean => p === dir || p.startsWith(dir + sep);
+
+/**
+ * The real file or folder a relative `path` names inside `root` (links followed; the result is under the root, or it is
+ * refused): { real, rel } or { error } in words. '' or '.' is the root itself.
+ */
+export function resolveProjectPath(root: string, path: unknown): { real: string; rel: string } | { error: string; status: 400 | 404 } {
+  if (typeof path !== 'string') return { error: FILES_WORDS.badPath, status: 400 };
+  const slashed = path.replace(/\\/g, '/');
+  if (slashed.includes('\0') || isAbsolute(slashed) || slashed.startsWith('/') || slashed.split('/').some((part) => part === '..')) return { error: FILES_WORDS.badPath, status: 400 };
+  const clean = posix.normalize(slashed.replace(/\/+$/g, '') || '.');
+  const rel = clean === '.' ? '' : clean;
+  let realRoot: string;
+  try { realRoot = realpathSync(root); } catch { return { error: FILES_WORDS.outside, status: 404 }; }
+  let real: string;
+  try { real = realpathSync(resolve(realRoot, ...rel.split('/').filter(Boolean))); } catch { return { error: FILES_WORDS.outside, status: 404 }; }
+  if (!under(real, realRoot)) return { error: FILES_WORDS.outside, status: 404 };
+  return { real, rel };
+}
+
+/** Whether the first bytes of a file read as text: no NUL, and what there is decodes as UTF-8. */
+function looksText(real: string, size: number): boolean {
+  const n = Math.min(size, 8192);
+  if (n === 0) return true;
+  const buf = Buffer.alloc(n);
+  let fd: number | null = null;
+  try { fd = openSync(real, 'r'); const got = readSync(fd, buf, 0, n, 0); const head = buf.subarray(0, got); if (head.includes(0)) return false; try { new TextDecoder('utf-8', { fatal: true }).decode(got < size ? head.subarray(0, Math.max(0, got - 4)) : head); return true; } catch { return false; } }
+  catch { return false; }
+  finally { if (fd !== null) try { closeSync(fd); } catch { /* closed */ } }
+}
+
+/** Which view a file gets: an image by its type, a text by its extension or its bytes, else binary. */
+export function viewOf(real: string, name: string, size: number): FileEntry['view'] {
+  const ext = extname(name).toLowerCase();
+  if (IMAGE_TYPES[ext]) return size <= FILE_IMAGE_MAX ? 'image' : 'binary';
+  if (TEXT_EXT.has(ext) || (!ext && size <= FILE_TEXT_MAX && looksText(real, size))) return 'text';
+  if (size <= FILE_TEXT_MAX && looksText(real, size)) return 'text';
+  return 'binary';
+}
+
+const stamp = (ms: number): string => new Date(ms).toISOString();
+
+/** The folder `rel` of the project at `root`, listed: folders first, then files, by name; at most FILES_LIMIT entries. */
+export function listProjectFolder(root: string, rel: string): { entries: FileEntry[]; truncated: boolean } | { error: string; status: 400 | 404 } {
+  const at = resolveProjectPath(root, rel);
+  if ('error' in at) return at;
+  let st; try { st = statSync(at.real); } catch { return { error: FILES_WORDS.outside, status: 404 }; }
+  if (!st.isDirectory()) return { error: FILES_WORDS.notFolder, status: 400 };
+  let dirents: Dirent[];
+  try { dirents = readdirSync(at.real, { withFileTypes: true }); } catch { return { error: FILES_WORDS.outside, status: 404 }; }
+  const realRoot = realpathSync(root);
+  const rows: FileEntry[] = [];
+  for (const d of dirents) {
+    const name = d.name;
+    const path = at.rel ? `${at.rel}/${name}` : name;
+    const full = join(at.real, name);
+    let kind: FileEntry['kind'] = 'other';
+    let target = full;
+    try {
+      const l = lstatSync(full);
+      if (l.isSymbolicLink()) {
+        // a link: followed; one that leads out of the project is listed as "other" (nothing of it is read)
+        try { target = realpathSync(full); } catch { rows.push({ name, path, kind: 'other' }); continue; }
+        if (!under(target, realRoot)) { rows.push({ name, path, kind: 'other' }); continue; }
+      }
+      const t = statSync(target);
+      if (t.isDirectory()) kind = 'dir'; else if (t.isFile()) kind = 'file';
+      if (kind === 'dir') rows.push({ name, path, kind, mtime: stamp(t.mtimeMs), ...(HEAVY.has(name) ? { heavy: true } : {}) });
+      else if (kind === 'file') rows.push({ name, path, kind, size: t.size, mtime: stamp(t.mtimeMs), view: viewOf(target, name, t.size) });
+      else rows.push({ name, path, kind });
+    } catch { rows.push({ name, path, kind: 'other' }); }
+  }
+  const order = (e: FileEntry): number => (e.kind === 'dir' ? 0 : e.kind === 'file' ? 1 : 2);
+  rows.sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  return { entries: rows.slice(0, FILES_LIMIT), truncated: rows.length > FILES_LIMIT };
+}
+
+/** A text file's contents (the first FILE_TEXT_MAX bytes) or an image's bytes, or why not. */
+export function readProjectFile(root: string, rel: string): { kind: 'text'; name: string; path: string; size: number; mtime: string; text: string; truncated: boolean } | { kind: 'image'; name: string; path: string; size: number; mtime: string; type: string; bytes: Buffer } | { error: string; status: 400 | 404 | 415 } {
+  const at = resolveProjectPath(root, rel);
+  if ('error' in at) return at;
+  let st; try { st = statSync(at.real); } catch { return { error: FILES_WORDS.outside, status: 404 }; }
+  if (st.isDirectory()) return { error: FILES_WORDS.notFile, status: 400 };
+  if (!st.isFile()) return { error: FILES_WORDS.outside, status: 404 };
+  const name = basename(at.real);
+  const view = viewOf(at.real, name, st.size);
+  const common = { name, path: at.rel, size: st.size, mtime: stamp(st.mtimeMs) };
+  if (view === 'image') {
+    const type = IMAGE_TYPES[extname(name).toLowerCase()]!;
+    let fd: number | null = null;
+    try { fd = openSync(at.real, 'r'); const bytes = Buffer.alloc(st.size); const got = readSync(fd, bytes, 0, st.size, 0); return { kind: 'image', ...common, type, bytes: bytes.subarray(0, got) }; }
+    catch { return { error: FILES_WORDS.outside, status: 404 }; }
+    finally { if (fd !== null) try { closeSync(fd); } catch { /* closed */ } }
+  }
+  if (view === 'text') {
+    const n = Math.min(st.size, FILE_TEXT_MAX);
+    let fd: number | null = null;
+    try { fd = openSync(at.real, 'r'); const buf = Buffer.alloc(n); const got = readSync(fd, buf, 0, n, 0); return { kind: 'text', ...common, text: buf.subarray(0, got).toString('utf8'), truncated: st.size > n }; }
+    catch { return { error: FILES_WORDS.outside, status: 404 }; }
+    finally { if (fd !== null) try { closeSync(fd); } catch { /* closed */ } }
+  }
+  return { error: st.size > FILE_TEXT_MAX && !IMAGE_TYPES[extname(name).toLowerCase()] ? `${FILES_WORDS.binary} ${FILES_WORDS.tooLarge('256 KB')}` : FILES_WORDS.binary, status: 415 };
+}
+
+export interface FilesDeps {
+  /** the launch token's check (server.ts withToken), first */
+  withToken: RequestHandler;
+  /** the session's check (identity.withUser): the user, or the operator when no provider is configured */
+  withUser: RequestHandler;
+  /** the project the request is about (identity.projectFor): null → 404 in words */
+  projectFor: (req: Parameters<RequestHandler>[0]) => { id: string; name: string; root: string } | null;
+  /** the user's env (identity.envOf): its Timmy home is "where the records are" */
+  envOf: (req: Parameters<RequestHandler>[0]) => Env;
+}
+
+/** Mounts GET /api/files and GET /api/files/file (see the section's words). */
+export function mountFiles(app: Application, deps: FilesDeps): void {
+  const homeOf = (env: Env): string => tildePath(resolve(env.TIMMY_HOME || join(process.env.HOME || '', 'timmy')));
+  app.get('/api/files', deps.withToken, deps.withUser, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const rel = typeof req.query.path === 'string' ? req.query.path : '';
+    const listed = listProjectFolder(project.root, rel);
+    if ('error' in listed) { failRequest(res, listed.status, listed.error); return; }
+    const at = resolveProjectPath(project.root, rel) as { real: string; rel: string };
+    const parent = at.rel ? posix.dirname(at.rel).replace(/^\.$/, '') : null;
+    const words = listed.entries.length === 0 ? (at.rel ? 'This folder is empty.' : FILES_WORDS.empty) : `${listed.entries.length}${listed.truncated ? ` of more than ${FILES_LIMIT}` : ''} ${listed.entries.length === 1 ? 'item' : 'items'}${listed.truncated ? ' (the first are shown)' : ''}.`;
+    const body: FilesListing = { ok: true, project: { id: project.id, name: project.name }, where: { root: tildePath(project.root), home: homeOf(deps.envOf(req)) }, path: at.rel, parent, entries: listed.entries, count: listed.entries.length, truncated: listed.truncated, words };
+    res.json(body);
+  });
+  app.get('/api/files/file', deps.withToken, deps.withUser, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const rel = typeof req.query.path === 'string' ? req.query.path : '';
+    const got = readProjectFile(project.root, rel);
+    if ('error' in got) { failRequest(res, got.status, got.error); return; }
+    if (got.kind === 'image') { res.set('X-Content-Type-Options', 'nosniff').set('Content-Disposition', 'inline').type(got.type).send(got.bytes); return; }
+    res.json({ ok: true, kind: 'text', name: got.name, path: got.path, size: got.size, mtime: got.mtime, text: got.text, truncated: got.truncated });
+  });
 }

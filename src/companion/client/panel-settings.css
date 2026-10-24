@@ -1,1 +1,44 @@
-/* R11 round 7: H173's sheet (UI-OWNERSHIP.md). This stub ships empty until H173's commit replaces it. */
+/* R11 round 7 (H173): the SETTINGS page's own content on the shell's scaffold (SHELL CONTRACT v1 §2) and the B11 tokens
+   (--timmy-ui-*, §1; the study's values stand in as fallbacks). Four cards on one grid: Start-up, Appearance, Records,
+   Account. No gradient of its own: the cards take the theme sheet's surface material. */
+.page[data-page="settings"] .st-note { font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); color: var(--timmy-ui-text-secondary, #BDCADA); margin: 0; }
+.page[data-page="settings"] .st-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.page[data-page="settings"] .st-card { padding: 20px 22px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-panel, 16px); background: var(--timmy-ui-elev-surface, var(--timmy-ui-surface, #111A23)); box-shadow: var(--timmy-ui-shadow-panel, none); min-width: 0; }
+.page[data-page="settings"] .st-card-title { margin: 0 0 4px; font-size: var(--timmy-ui-size-section, 18px); font-weight: var(--timmy-ui-weight-heading, 600); }
+.page[data-page="settings"] .st-card-intro { margin: 0 0 16px; }
+.page[data-page="settings"] .st-row { padding: 10px 0; border-top: 1px solid var(--timmy-ui-border-quiet, #1E2A36); }
+.page[data-page="settings"] .st-row:first-of-type { border-top: 0; }
+.page[data-page="settings"] .st-switch-label { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 14px; cursor: pointer; }
+.page[data-page="settings"] .st-switch { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.page[data-page="settings"] .st-switch-track { position: relative; display: block; width: 44px; height: 24px; border-radius: var(--timmy-ui-radius-pill, 999px); background: var(--timmy-ui-raised, #1C2936); border: 1px solid var(--timmy-ui-border, #44586B); box-sizing: border-box; transition: background var(--timmy-ui-motion-state, 180ms) var(--timmy-ui-ease, ease); }
+.page[data-page="settings"] .st-switch-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--timmy-ui-text-secondary, #BDCADA); transition: transform var(--timmy-ui-motion-state, 180ms) var(--timmy-ui-ease, ease), background var(--timmy-ui-motion-state, 180ms); }
+.page[data-page="settings"] .st-switch:checked + .st-switch-track { background: var(--timmy-ui-accent, #D6AA64); border-color: var(--timmy-ui-accent, #D6AA64); }
+.page[data-page="settings"] .st-switch:checked + .st-switch-track::after { transform: translateX(20px); background: var(--timmy-ui-accent-ink, #402E14); }
+.page[data-page="settings"] .st-switch:focus-visible + .st-switch-track { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.page[data-page="settings"] .st-switch:disabled + .st-switch-track { opacity: .5; }
+.page[data-page="settings"] .st-switch:disabled ~ .st-switch-words { color: var(--timmy-ui-text-muted, #9AAFC3); }
+.page[data-page="settings"] .st-switch-words { display: flex; flex-direction: column; gap: 2px; }
+.page[data-page="settings"] .st-state { margin: 12px 0 0; font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.page[data-page="settings"] .st-state.is-attn { color: var(--timmy-ui-focus, #FFB000); }
+.page[data-page="settings"] .st-theme { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.page[data-page="settings"] .st-theme-btn { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; font: inherit; font-size: var(--timmy-ui-size-body, 14px); border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-control, 10px); background: var(--timmy-ui-raised, #1C2936); color: var(--timmy-ui-text, #ECF1F5); cursor: pointer; }
+.page[data-page="settings"] .st-theme-btn.is-current { border-color: var(--timmy-ui-accent, #D6AA64); box-shadow: inset 0 0 0 1px var(--timmy-ui-accent, #D6AA64); }
+.page[data-page="settings"] .st-theme-btn:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.page[data-page="settings"] .st-swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--timmy-ui-border, #44586B); }
+.page[data-page="settings"] .st-swatch-amber { background: #D6AA64; }
+.page[data-page="settings"] .st-swatch-glacier { background: #8ABBE3; }
+.page[data-page="settings"] .st-line { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+.page[data-page="settings"] .st-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--timmy-ui-text-secondary, #BDCADA); flex: none; }
+.page[data-page="settings"] .st-who { font-weight: var(--timmy-ui-weight-strong, 600); }
+.page[data-page="settings"] .st-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.page[data-page="settings"] .st-records summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); }
+.page[data-page="settings"] .st-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 10px 0 0; font-size: var(--timmy-ui-size-label, 13px); }
+.page[data-page="settings"] .st-dl dt { color: var(--timmy-ui-text-secondary, #BDCADA); }
+.page[data-page="settings"] .st-dl dd { margin: 0; overflow-wrap: anywhere; }
+.page[data-page="settings"] .st-mono { font-family: var(--timmy-ui-font-mono, var(--timmy-font-mono, monospace)); }
+
+@media (max-width: 960px) { .page[data-page="settings"] .st-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .page[data-page="settings"] .st-card { padding: 16px; }
+  .page[data-page="settings"] .st-dl { grid-template-columns: 1fr; gap: 2px 0; }
+}

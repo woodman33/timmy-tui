@@ -26,7 +26,25 @@ export const IDENTITY_ENV = Object.freeze({
   publishableAlt: 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
   jwtKey: 'CLERK_JWT_KEY',
   secretKey: 'CLERK_SECRET_KEY',
+  /**
+   * R11 round 7 (H173): the social sign-in choices the operator turned ON in the Clerk dashboard (User & authentication →
+   * Social connections), as a comma list of `google`, `github`: the account page shows ONLY those buttons (the dashboard is
+   * the truth; this names what it holds). Unset: no social button. Optional; not needed for configured.
+   */
+  social: 'CLERK_SOCIAL',
 });
+
+/** The social sign-in providers this page knows how to offer (Clerk's oauth_google / oauth_github strategies). */
+export const SOCIAL_PROVIDERS = Object.freeze(['google', 'github'] as const);
+export type SocialProvider = typeof SOCIAL_PROVIDERS[number];
+
+/** One line per environment name for the blocker page: what it is and where it comes from (never a value). */
+export interface SetupStep { name: string; what: string; where: string; optional?: true }
+export const IDENTITY_SETUP: readonly SetupStep[] = Object.freeze([
+  { name: IDENTITY_ENV.publishable, what: 'The Clerk instance\'s publishable key (pk_test_… for a development instance, pk_live_… for production): public by design; the page loads Clerk with it.', where: 'Clerk dashboard → Configure → API keys → Publishable key.' },
+  { name: IDENTITY_ENV.jwtKey, what: 'The instance\'s public key (PEM): this companion verifies every session against it, with no network.', where: 'Clerk dashboard → Configure → API keys → JWKS public key (shown as a PEM). Or set CLERK_SECRET_KEY instead: the instance\'s JWKS is then fetched once (needs the network at the first sign-in).' },
+  { name: IDENTITY_ENV.social, what: 'Which social sign-ins to offer: google, github (a comma list). Only the providers you turned on in the dashboard.', where: 'Clerk dashboard → Configure → SSO connections (Google, GitHub); then this name, e.g. google,github.', optional: true },
+]);
 
 /** How a session token is verified: against the PEM public key (no network), the instance's JWKS, or not at all. */
 export type IdentityVerifier = 'pem' | 'jwks' | 'none';
@@ -50,6 +68,8 @@ export interface IdentityConfig {
   needs: string[];
   /** One line a person reads. */
   words: string;
+  /** The social sign-ins the operator declared on (CLERK_SOCIAL): google, github; none when unset. */
+  social: SocialProvider[];
 }
 
 /** What the page is told (GET /api/identity): the public part only. */
@@ -58,6 +78,10 @@ export interface PageIdentity {
   publishableKey?: string;
   frontendApi?: string;
   needs: string[];
+  /** the social sign-in buttons to show (CLERK_SOCIAL), in order */
+  social: SocialProvider[];
+  /** the blocker page's steps: every name, what it is, where it comes from (IDENTITY_SETUP); `missing` marks the ones to set */
+  setup: Array<SetupStep & { missing: boolean }>;
   words: string;
 }
 
@@ -134,6 +158,7 @@ export function identityConfig(env: Env = process.env): IdentityConfig {
   if (verifier === 'none' && !secretKeySet) needs.push(IDENTITY_ENV.jwtKey);
   if (verifier === 'none' && secretKeySet && jwtRaw) needs.push(IDENTITY_ENV.jwtKey);
   const configured = needs.length === 0 && verifier !== 'none' && Boolean(publishableKey);
+  const social = set(env[IDENTITY_ENV.social]).split(',').map((v) => v.trim().toLowerCase()).filter((v): v is SocialProvider => (SOCIAL_PROVIDERS as readonly string[]).includes(v));
   const words = configured
     ? `Timmy's identity provider is configured: Clerk at ${frontendApi}${isTestInstance(publishableKey!) ? ' (a development instance)' : ''}; sessions are verified ${verifier === 'pem' ? 'against the instance\'s public key (no network)' : 'against the instance\'s JWKS, fetched once'}.`
     : `Timmy's identity provider is not configured, so nothing signs in. Missing: ${needs.join(', ')}. It needs ${IDENTITY_ENV.publishable} and ${IDENTITY_ENV.jwtKey} (or ${IDENTITY_ENV.secretKey}): the publishable key is the Clerk instance's (pk_test_… or pk_live_…, from the dashboard's API keys; ${IDENTITY_ENV.publishableAlt} is also read); ${IDENTITY_ENV.jwtKey} is the instance's public key (PEM, the dashboard's JWKS public key; verification then needs no network); with ${IDENTITY_ENV.secretKey} instead, the instance's JWKS is fetched once.${notes.length ? ` ${notes.join('. ')}.` : ''}`;
@@ -147,6 +172,7 @@ export function identityConfig(env: Env = process.env): IdentityConfig {
     secretKeySet,
     needs,
     words,
+    social: [...new Set(social)],
   };
 }
 
@@ -158,6 +184,8 @@ export function pageIdentity(cfg: IdentityConfig): PageIdentity {
     ...(cfg.frontendApi ? { frontendApi: cfg.frontendApi } : {}),
     needs: [...cfg.needs],
     words: cfg.words,
+    social: [...cfg.social],
+    setup: IDENTITY_SETUP.map((s) => ({ ...s, missing: cfg.needs.includes(s.name) })),
   };
 }
 
