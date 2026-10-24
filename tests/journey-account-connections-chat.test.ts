@@ -445,16 +445,16 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const line = evidenceLine;
         expect(sealed, `the receipt ${evidence![1]} is on the project's runs chain (${root!.replace(box, '<box>')}: ${chain.length} receipts: ${chain.map((r) => `${String(r.kind)} ${String(r.hash).slice(0, 15)}`).join(', ')}); the evidence line: "${line}"; files holding the hash: ${holders.join(', ') || 'none'}; receipts files: ${files().map((f) => f.replace(box, '<box>')).join(', ')}`).toBeTruthy();
         expect(verifyReceiptIn(chain, String(sealed!.hash)).ok).toBe(true);
-        await caps.cap(o.page, size, 'evidence-receipt', ['The REAL turn answered by the FAKE model through the real agent (one tool call, get_current_time): the evidence line with its receipt, sealed on the USER\'s project chain and verified by the test.']);
+        await caps.cap(o.page, size, 'evidence-receipt', ['The REAL turn answered by the FAKE model through the real agent (one tool call, get_current_time): the evidence line with its receipt, sealed on the USER\'s project chain and verified by the test.'], { to: o.page.getByText(/receipt [0-9a-f]{8}/).last(), what: 'the turn\'s receipt line' });
         // Stop: a second, slow turn ended by Stop with its stage
         await composer.first().fill('FAKE: answer slowly please');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         await until(o.page, 'the slow turn running (Stop shown)', (s) => /Stop/.test(s), 20_000);
-        await caps.cap(o.page, size, 'turn-streaming', ['The REAL turn streaming: the FAKE model answers a word every 700 ms; Stop offered.']);
+        await caps.cap(o.page, size, 'turn-streaming', ['The REAL turn streaming: the FAKE model answers a word every 700 ms; Stop offered.'], { to: o.page.locator('#cx-own li').last(), what: 'the running turn (this page\'s own, #cx-own)' });
         await o.page.getByRole('button', { name: /^Stop/ }).first().click();
         const stopped = await until(o.page, 'the turn stopped with its stage', (s) => /stopped|cancelled|ended/i.test(s), 20_000);
         expect(stopped).toMatch(/stopped|cancelled|ended/i);
-        await caps.cap(o.page, size, 'stopped', ['After Stop: the turn ended with its stage said (POST /api/chat/stop by the turn\'s id; the FAKE saw the request cut).']);
+        await caps.cap(o.page, size, 'stopped', ['After Stop: the turn ended with its stage said (POST /api/chat/stop by the turn\'s id; the FAKE saw the request cut).'], { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: /stopped|cancelled|ended/i }).last(), what: 'the stopped turn with its stage' });
         const slow = ollama.chats().at(-1)!;
         const end = Date.now() + 10_000;
         while (!slow.aborted && Date.now() < end) await o.page.waitForTimeout(100);

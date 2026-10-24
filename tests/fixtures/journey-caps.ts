@@ -7,13 +7,17 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 
 export interface Capturer {
   /** The folder, or '' when captures are off. */
   readonly folder: string;
-  /** One capture at a step; `facts` adds the step's own REAL/FAKE lines. */
-  cap(page: Page, size: { width: number; height: number }, step: string, facts?: string[]): Promise<void>;
+  /**
+   * One capture at a step; `facts` adds the step's own REAL/FAKE lines. `reveal` scrolls one element into the viewport first
+   * (a viewport capture shows only what is in view: at 390x844 the newest turn sits below the composer's fold) and the
+   * sidecar says so; a reveal that cannot be made is said in the sidecar, never a failure.
+   */
+  cap(page: Page, size: { width: number; height: number }, step: string, facts?: string[], reveal?: { to: Locator; what: string }): Promise<void>;
 }
 
 /** The checkout's revision, for the sidecar (the folder is usually named after it too). */
@@ -34,12 +38,19 @@ export function capturer(suite: string, common: string[]): Capturer {
   if (folder) { try { mkdirSync(folder, { recursive: true }); } catch { /* said on the first capture */ } }
   return {
     folder,
-    async cap(page, size, step, facts = []) {
+    async cap(page, size, step, facts = [], reveal) {
       if (!folder) return;
       const key = sizeKey(size);
       const n = (counts.get(key) ?? 0) + 1;
       counts.set(key, n);
       const base = join(folder, `${key}-${String(n).padStart(2, '0')}-${step}`);
+      let revealed = '';
+      if (reveal) {
+        revealed = await reveal.to.scrollIntoViewIfNeeded({ timeout: 2_000 }).then(
+          async () => { await page.waitForTimeout(150); return `Scrolled so that ${reveal.what} is in view before the capture.`; },
+          (e: unknown) => `Not scrolled: ${reveal.what} could not be brought into view (${e instanceof Error ? e.message.split('\n')[0] : String(e)}); the capture is the page as it stood.`,
+        );
+      }
       try {
         await page.screenshot({ path: `${base}.png`, fullPage: false });
         writeFileSync(`${base}.txt`, [
@@ -47,6 +58,7 @@ export function capturer(suite: string, common: string[]): Capturer {
           `A viewport capture of the companion page in headless Chromium at ${key} (not the full page).`,
           ...common,
           ...facts,
+          ...(revealed ? [revealed] : []),
           'Nothing animates in this picture: no .riv is in this installation (the Rive source files only); every state is the word beside its component.',
           'Scripted test run, not a person: the clicks and the typed words are the test\'s.',
           '',

@@ -368,7 +368,7 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
       await o.page.getByRole('button', { name: /^Stop/ }).first().click();
       expect(await labelIs(o.page, 'activity', /^stopped$/, 30_000)).toBe('stopped');
       await openInspect(o.page);
-      await caps.cap(o.page, { width: 1440, height: 900 }, 'inspect-fed-events', ['The Inspect view after the REAL turns: the activity card\'s event list — working / idle from the quick turn, working / stopping / stopped from the slow turn ended by Stop — each line naming its source (the backend\'s SSE events and POST /api/chat/stop when the feed spoke; the page\'s drawing otherwise).']);
+      await caps.cap(o.page, { width: 1440, height: 900 }, 'inspect-fed-events', ['The Inspect view after the REAL turns: the activity card\'s event list — working / idle from the quick turn, working / stopping / stopped from the slow turn ended by Stop — each line naming its source (the backend\'s SSE events and POST /api/chat/stop when the feed spoke; the page\'s drawing otherwise).'], { to: o.page.locator('[data-inspect-events="activity"]').first(), what: 'the activity card\'s event list' });
       const ev = await events(o.page, 'activity');
       const fedNow = await activityFed(o.page);
       const src = fedNow ? new RegExp(`${FED_TURN.source}|${FED_STOP.source}`) : new RegExp(`${DERIVED_TURN.source}|${DERIVED_STOP.source}`);
