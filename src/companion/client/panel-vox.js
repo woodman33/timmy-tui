@@ -23,15 +23,15 @@
 // output and refusals preserved; the receipt row says what a seal proves (integrity and authorship) and what it does not (a
 // conclusion); the model-authored-fields row says what the admission rule (AGENTS.md §4: a handle enum observed in this run
 // and a cite(handle_id) call) finds on the record — today, nothing admitted: every model value is a claim, shown as one.
-// When the page's section holds the shell's scaffold the panel registers the page (TimmyShell.page / state) and puts its
-// tools in the dock; without it (an older shell) it draws its own head above the columns. The sheet /panel-vox.css is
-// linked once by this script when the page has not linked it.
+// The page's section is the shell's scaffold (H175's commit 2): the panel registers the page (TimmyShell.page / state —
+// the head is the shell's, the kicker's number the rail's) and puts the record's commands in the dock's tools. The sheet
+// /panel-vox.css is linked once by this script when the page has not linked it.
 (() => {
   'use strict';
   if (typeof TimmyPanels === 'undefined') return;
   if (!document.querySelector('link[href="/panel-vox.css"]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/panel-vox.css'; document.head.append(l); }
   const PAGE_WORDS = Object.freeze({
-    kicker: '04 / OBSERVE & COMPARE',
+    kicker: 'OBSERVE & COMPARE',
     title: 'See the detail. Keep the evidence.',
     intro: 'Choose a source, ask a precise question, and inspect what the tools observed.',
     emptyNext: 'Copy /detect <image> for Timmy’s terminal',
@@ -93,10 +93,14 @@
   /** The page's section and the scaffold's regions in it (SHELL CONTRACT v1 §2.2), when the shell drew them. */
   function scaffoldOf(host) {
     const section = host.closest('section.page') || host.closest('.ws-page') || null;
-    const head = section ? section.querySelector('.page-head') : null;
-    if (!head) return null;
-    return { section, head, dock: section.querySelector('.page-dock'), records: section.querySelector('.page-records'), context: section.querySelector('.page-context') };
+    if (!section) return null;
+    const dock = section.querySelector(':scope > .page-dock');
+    let tools = dock ? dock.querySelector(':scope > .dock-tools') : null;
+    if (dock && !tools) { tools = document.createElement('div'); tools.className = 'dock-tools'; dock.append(tools); }
+    return { section, dock: tools, records: section.querySelector(':scope > .page-records') };
   }
+  /** The rail's number for this page (the shell's), before the kicker's verb phrase. */
+  const kickerOf = (sh) => { const p = sh && sh.PAGES && sh.PAGES.find ? sh.PAGES.find((x) => x.id === 'voxvision') : null; return `${p && p.n ? `${p.n} / ` : ''}${PAGE_WORDS.kicker}`; };
   /** The ONE primary next action: the record's own next command, copied for the terminal; with no record, the command that makes one. */
   function primaryOf() {
     const p = S.preview;
@@ -115,29 +119,11 @@
     const stateWord = S.list === null ? 'content' : (S.list.records && S.list.records.length ? 'content' : 'empty');
     if (sh) {
       const pr = primaryOf();
-      try { sh.page('voxvision', { kicker: PAGE_WORDS.kicker, title: PAGE_WORDS.title, intro: PAGE_WORDS.intro, primary: { label: pr.label, run: pr.run, disabled: pr.disabled, why: pr.why }, context: 'selection', dock: 'VOXVISION TOOLS' }); } catch (e) { /* the shell says */ }
+      // (the primary's title carries the page's rule: a press copies the command; nothing runs from this page)
+      try { sh.page('voxvision', { kicker: kickerOf(sh), title: PAGE_WORDS.title, intro: PAGE_WORDS.intro, primary: { label: pr.label, run: pr.run, disabled: pr.disabled, why: pr.disabled ? pr.why : PAGE_WORDS.nothingRuns }, context: 'selection', dock: 'VOXVISION TOOLS' }); } catch (e) { /* the shell says */ }
       if (typeof sh.state === 'function') { try { sh.state('voxvision', stateWord, stateWord === 'empty' ? { words: 'No VoxVision record in this project yet.', next: { label: PAGE_WORDS.emptyNext, run: () => copyText('/detect <image>') } } : undefined); } catch (e) { /* as above */ } }
     }
-    drawOwnHead();
     drawDock();
-  }
-  /** The panel's own head (kicker · title · intro · the primary), drawn only when the section has no scaffold head of the shell's. */
-  function drawOwnHead() {
-    const el = q('own-head');
-    if (!el) return;
-    const sc = S.ctx && S.host ? scaffoldOf(S.host) : null;
-    el.hidden = Boolean(sc);
-    if (sc) { put(el); return; }
-    const h = S.ctx.h;
-    const pr = primaryOf();
-    const btn = h('button', { type: 'button', class: 'btn-action vox-primary', 'data-vox-primary': '', 'aria-disabled': pr.disabled ? 'true' : 'false', title: pr.disabled ? pr.why : PAGE_WORDS.nothingRuns }, pr.label);
-    btn.addEventListener('click', () => { if (!pr.disabled) pr.run(); });
-    put(el,
-      h('div', { class: 'vox-head-words' },
-        h('p', { class: 'vox-kicker page-kicker' }, PAGE_WORDS.kicker),
-        h('h2', { class: 'vox-title page-title' }, PAGE_WORDS.title),
-        h('p', { class: 'vox-intro page-intro' }, PAGE_WORDS.intro)),
-      h('div', { class: 'vox-head-actions page-primary' }, btn));
   }
   /** The page's tools in the shell's dock (the record's commands, each copied for the terminal; the viewer's command), when the dock is there. */
   function drawDock() {
@@ -155,7 +141,7 @@
     if (!acts.length) sc.dock.append(h('span', { class: 'dock-note vox-dock-note', 'data-vox-dock': 'none' }, 'The record’s commands appear here.'));
   }
 
-  // ── the skeleton: the page's head (when the shell has none), then three columns of boxes ──
+  // ── the skeleton: three columns of boxes (the page's head, band and dock are the shell's) ──
   function skeleton(h) {
     const box = (title, name, o = {}) => h('section', { class: `box${o.fit ? ' box-fit' : ''}${o.cls ? ` ${o.cls}` : ''}`, 'data-vox-box': name },
       h('h2', { class: 'box-title', 'data-vox': `${name}-title` }, title), h('div', { class: `box-body${o.body ? ` ${o.body}` : ''}`, 'data-vox': name }, h('p', { class: 'empty' }, 'Reading…')));
@@ -181,9 +167,7 @@
         box('Pipeline · receipt', 'pipeline', { fit: true, cls: 'vox-pipeline-box' }),
         box('Values', 'values', { cls: 'vox-values-box' }),
         box('Engines on this computer', 'engines', { fit: true, cls: 'vox-engines-box' })));
-    const root = h('div', { class: 'vox-page', 'data-vox': 'root' },
-      h('header', { class: 'vox-own-head page-head', 'data-vox': 'own-head', hidden: true }),
-      cols);
+    const root = h('div', { class: 'vox-page', 'data-vox': 'root' }, cols);
     root.addEventListener('click', onClick);
     root.addEventListener('keydown', onKey);
     return root;

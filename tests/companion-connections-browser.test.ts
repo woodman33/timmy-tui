@@ -120,10 +120,21 @@ __SECTION__
 window.__went = []; window.__landed = 0; window.__toasts = []; window.__pages = []; window.__bands = []; window.__states = [];
 window.TimmyShell = {
   draws: {},
-  page(id, reg) { window.__pages.push({ id, reg: Object.assign({}, reg, { primary: reg.primary ? { label: reg.primary.label, run: typeof reg.primary.run } : null }) }); window.__lastPrimary = reg.primary ? reg.primary.run : null; },
+  // the rail's numbers, as shell.js exposes them (Models & accounts is the eighth destination)
+  PAGES: [{ id: 'chat', n: '01' }, { id: 'connections', n: '08' }],
+  // the registration drawn into the scaffold's head as the real shell draws it (the kicker, the title, the intro, the primary; FAKE here)
+  page(id, reg) {
+    window.__pages.push({ id, reg: Object.assign({}, reg, { primary: reg.primary ? { label: reg.primary.label, run: typeof reg.primary.run } : null }) }); window.__lastPrimary = reg.primary ? reg.primary.run : null;
+    const s = document.getElementById('screen-' + id); if (!s) return;
+    s.querySelector('.page-kicker').textContent = reg.kicker || ''; s.querySelector('.page-title').textContent = reg.title || ''; s.querySelector('.page-intro').textContent = reg.intro || '';
+    const slot = s.querySelector('.page-primary'); slot.replaceChildren();
+    if (reg.primary) { const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-primary page-primary-btn'; b.textContent = reg.primary.label; b.addEventListener('click', () => reg.primary.run()); slot.append(b); }
+    const ctx = s.querySelector('.page-context'); if (ctx) ctx.hidden = !reg.context;
+  },
   band(id, cells) { window.__bands.push({ id, cells }); },
-  state(id, word) { window.__states.push({ id, word }); },
-  mount(id, fn) { this.draws[id] = fn; const host = document.getElementById('screen-' + id); if (host) fn(host, this); },
+  state(id, word, o) { window.__states.push({ id, word, words: o && o.words }); const s = document.getElementById('screen-' + id); if (s) s.dataset.state = word; },
+  // (shell.js 97389f14 hands a mount() page its SECTION; the screen draws into a .page-mount of its own inside .page-work)
+  mount(id, fn) { this.draws[id] = fn; const s = document.getElementById('screen-' + id); if (s) fn(s, this); },
   fetch(url, init) { const o = Object.assign({}, init || {}); o.headers = Object.assign({}, o.headers || {}, { 'X-FAKE-User': 'alice' }); o.cache = 'no-store'; return fetch(url, o); },
   h(tag, attrs, ...children) { const el = document.createElement(tag); if (attrs) for (const [k, v] of Object.entries(attrs)) { if (v === null || v === undefined || v === false) continue; if (k === 'class') el.className = v; else el.setAttribute(k, v === true ? '' : v); } for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c))); return el; },
   go(id) { window.__went.push(id); }, land() { window.__landed += 1; }, toast(words, o) { window.__toasts.push({ words, live: !!(o && o.live) }); },
@@ -132,17 +143,16 @@ window.TimmyShell = {
 </script>
 __RIVE__<script src="/screen-connections.js"></script>
 </body></html>`;
-/** The section as today (the screen draws its own regions), or with the SHELL CONTRACT v1 scaffold already in it (the shell's). */
-const SECTION_PLAIN = '<section class="sh-screen" id="screen-connections" data-screen="connections"></section>';
+/** The page's section with the shell's scaffold (SHELL CONTRACT v1 §2.2 as shell.js writes it; 97389f14 hands the screen the section, the screen keeps its work in a .page-mount of its own inside .page-work). */
 const SECTION_SCAFFOLD = `<section class="sh-screen page ws-page" id="screen-connections" data-screen="connections" data-page="connections" data-ws-page="connections" data-state="content">
-<header class="page-head"><p class="page-kicker">FAKE SHELL HEAD</p><h1 class="page-title" tabindex="-1">One model is enough to begin.</h1><p class="page-intro"></p><div class="page-primary"></div></header>
+<header class="page-head"><div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div><div class="page-head-actions"><div class="page-primary"></div></div></header>
 <div class="page-band"><div class="band-cell"><span class="band-k">Workspace</span><strong class="band-v">FAKE project</strong></div></div>
-<div class="page-body"><div class="page-work"></div><aside class="page-context"></aside></div>
-<div class="page-dock"><span class="dock-label">MODELS &amp; ACCOUNTS TOOLS</span></div>
+<div class="page-body"><div class="page-work"><div class="page-state" hidden></div></div><aside class="page-context" hidden></aside></div>
+<div class="page-dock"><span class="dock-label">MODELS &amp; ACCOUNTS TOOLS</span><div class="dock-tools"></div></div>
 <div class="page-records"></div>
 </section>`;
-/** The page with the FAKE TimmyRive before the screen's script (the integrated page's order), or bare: no TimmyRive at all; with the shell's scaffold when asked. */
-const pageHtml = (rive: boolean, scaffold = false): string => PAGE.replace('__RIVE__', rive ? `${FAKE_RIVE}\n` : '').replace('__SECTION__', scaffold ? SECTION_SCAFFOLD : SECTION_PLAIN);
+/** The page with the FAKE TimmyRive before the screen's script (the integrated page's order), or bare: no TimmyRive at all. */
+const pageHtml = (rive: boolean): string => PAGE.replace('__RIVE__', rive ? `${FAKE_RIVE}\n` : '').replace('__SECTION__', SECTION_SCAFFOLD);
 
 let root = '';
 let browser: Browser | null = null;
@@ -182,7 +192,7 @@ beforeAll(async () => {
     return { PATH: join(root, 'bin'), HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_SETTINGS_DIR: join(home, 'settings'), TIMMY_MCP_HOME: join(home, 'mcp'), OLLAMA_HOST: ollamaOrigin };
   };
   const app = express();
-  app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.send(pageHtml(req.query.bare !== '1', req.query.scaffold === '1')); });
+  app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.send(pageHtml(req.query.bare !== '1')); });
   app.get('/screen-connections.js', (_req, res) => { res.setHeader('Content-Type', 'text/javascript; charset=utf-8'); res.send(readFileSync(join(CLIENT, 'screen-connections.js'), 'utf8')); });
   app.get('/screen-connections.css', (_req, res) => { res.setHeader('Content-Type', 'text/css; charset=utf-8'); res.send(readFileSync(join(CLIENT, 'screen-connections.css'), 'utf8')); });
   mounted = mountConnections(app, { withUser: fakeWithUser, userEnv, fetch: routed, platform: 'linux', signInTimeoutMs: 60_000, confirmTimeoutMs: 60_000 });
@@ -209,22 +219,30 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     page.on('request', (r) => requests.push(r.url()));
     await page.goto(`${base}/`);
     await page.getByRole('heading', { level: 1, name: 'One model is enough to begin.' }).waitFor();
-    // R11 round 7: the page on the scaffold — the kicker, the title, the lead, the primary next action at the right (no route is
-    // ready under this FAKE user: "Set up a model"), the summary band, the work, the context, the dock, the records
-    expect(await page.locator('.cn-kicker').textContent()).toBe('06 / CONNECT A PROVIDER');
-    expect(await page.locator('.cn-lead').textContent()).toBe('Use a local model or connect a cloud account. Add the others when you need them.');
-    expect(await page.locator('.cn-page > *').evaluateAll((els) => els.map((e) => e.className.split(' ').find((c) => c.startsWith('cn-'))))).toEqual(['cn-head', 'cn-band', 'cn-grid', 'cn-dock', 'cn-records', 'cn-note']);
-    expect(await page.locator('.cn-head-actions .cn-primary').textContent()).toBe('Set up a model');
-    expect(await page.locator('.cn-band .cn-cell-k').allTextContents()).toEqual(['Account', 'Model', 'Records']);
-    expect(await page.locator('.cn-band .cn-cell-v').allTextContents()).toEqual(['Signed in · alice', 'Choose a provider', 'Local by default']);
-    expect(await page.locator('.cn-band .cn-cell-n').nth(2).textContent()).toBe('Local records continue when cloud sync is unavailable.');
-    expect(await page.locator('.cn-band .cn-band-action').textContent()).toBe('Install Ollama · Ollama · local');
+    // R11 round 7: the page on the shell's scaffold — the screen registers the kicker (the rail's number, then the verb phrase),
+    // the title, the lead, the ONE primary next action (no route is ready under this FAKE user: "Set up a model"), the Account
+    // cell; the band's Model and Records cells; the state. The head is the shell's (the FAKE draws the registration as it does).
+    type Reg = { id: string; reg: { kicker: string; title: string; intro: string; primary: { label: string; run: string } | null; context: string; band: Array<{ k: string; v: string }>; dock: string } };
+    const pages = await page.evaluate(() => (window as unknown as { __pages: Reg[] }).__pages);
+    expect(pages.at(-1)).toEqual({ id: 'connections', reg: { kicker: '08 / CONNECT A PROVIDER', title: 'One model is enough to begin.', intro: 'Use a local model or connect a cloud account. Add the others when you need them.', primary: { label: 'Set up a model', run: 'function' }, context: 'selection', band: [{ k: 'Account', v: 'Signed in · alice' }], dock: 'MODELS & ACCOUNTS TOOLS' } });
+    expect(await page.evaluate(() => (window as unknown as { __bands: unknown[] }).__bands.at(-1))).toEqual({ id: 'connections', cells: { model: 'Choose a provider', records: 'Local by default' } });
+    expect(await page.evaluate(() => (window as unknown as { __states: Array<{ id: string; word: string }> }).__states.at(-1))).toMatchObject({ id: 'connections', word: 'content' });
+    expect(await page.locator('#screen-connections .page-kicker').textContent()).toBe('08 / CONNECT A PROVIDER');
+    expect(await page.locator('#screen-connections .page-primary button').textContent()).toBe('Set up a model');
+    // the screen draws no head or band of its own; its work is in the mount, its context in the shell's column, its buttons in the
+    // dock's tools, its records in the shell's records region
+    expect(await page.locator('#screen-connections .cn-head, #screen-connections .cn-band, #screen-connections .cn-grid').count()).toBe(0);
+    expect(await page.locator('#screen-connections > *').evaluateAll((els) => els.map((e) => e.className.split(' ')[0]))).toEqual(['page-head', 'page-band', 'page-body', 'page-dock', 'page-records']);
+    expect(await page.locator('.page-work > .page-mount > *').evaluateAll((els) => els.map((e) => e.className.split(' ').find((c) => c.startsWith('cn-'))))).toEqual(['cn-work', 'cn-note']);
+    expect(await page.locator('.page-context .cn-context-title').textContent()).toBe('Choose your model');
+    expect(await page.locator('.page-dock .dock-tools .dock-btn[data-cn-dock]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cn-dock')))).toEqual(['check-all', 'download', 'explore', 'back', 'records']);
+    expect(await page.locator('.page-records .cn-records').count()).toBe(1);
     expect(await page.locator('.cn-card .cn-card-title').allTextContents()).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
     expect(await page.locator('.cn-card .cn-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
     // each card in one of the order's situations, with its verb-led action; the ONE primary is the recommended card's verb
     expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => [e.getAttribute('data-situation'), e.querySelector('.cn-situation')?.textContent, e.querySelector('[data-cn-verb]')?.textContent, e.querySelector('[data-cn-verb]')?.className.includes('sh-btn-primary')]))).toEqual([
       ['no-account', 'No account', 'Connect with OpenRouter ↗', false], ['no-model', 'No downloaded model', 'Install Ollama ↗', true], ['no-account', 'No account', 'Save an Ollama key', false], ['no-account', 'No account', 'Set up Cloudflare', false]]);
-    expect(await page.locator('.sh-btn-primary').count()).toBe(3); // the head's, the recommended card's verb, the context's verb
+    expect(await page.locator('.sh-btn-primary').count()).toBe(2); // the recommended card's verb and the context's verb (the head's primary is the shell's .ui-primary)
     // the context: Choose your model, the chosen provider (the recommended one) with its cost, what a check sends, the offer
     expect(await page.locator('.cn-context-title').textContent()).toBe('Choose your model');
     expect(await page.locator('.cn-pick[aria-pressed="true"]').textContent()).toBe('Ollama · local');
@@ -238,7 +256,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     await page.getByRole('button', { name: '▤ Records', exact: true }).click();
     expect(await page.locator('.cn-records').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
     expect(await page.locator('.cn-record').count()).toBe(6);
-    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', '← Back', 'Explore without a model', 'Set up a model', '⇩ Download a model']) {
+    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', '← Back', '→ Explore without a model', 'Set up a model', '⇩ Download a model']) {
       await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
     }
     // the picker changes the context, not any connection
@@ -297,12 +315,16 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     // RIVE CONTRACT v2's optional setProvider: the card's detail run follows the situation (No account → Existing setup), once per change
     expect(await page.evaluate(() => (window as unknown as { __setProvider: Array<{ providerId: string; p: { name: string; detail: string } }> }).__setProvider)).toEqual([{ providerId: 'ollama-cloud', p: { name: 'Ollama · cloud', detail: 'Existing setup' } }]);
     // the cloud card's situation moved: an existing setup now, its verb "Check again"; the band's Model cell follows the route
-    // (this FAKE user's route stays not ready: no model chosen), so the head's primary stays "Set up a model"
+    // (this FAKE user's route stays not ready: no model chosen), so the registered primary stays "Set up a model"; the
+    // registration was redrawn once per refresh into the same containers (never a second head, dock button or records)
     expect(await page.locator('.cn-card-ollama-cloud').getAttribute('data-situation')).toBe('existing');
     expect(await page.locator('.cn-card-ollama-cloud [data-cn-verb]').textContent()).toBe('Check again');
-    expect(await page.locator('.cn-band .cn-cell-v').nth(1).textContent()).toBe('Choose a provider');
+    expect(await page.evaluate(() => (window as unknown as { __bands: Array<{ cells: { model: string } }> }).__bands.at(-1)!.cells.model)).toBe('Choose a provider');
+    expect(await page.locator('.page-dock .dock-tools .dock-btn[data-cn-dock]').count()).toBe(5);
+    expect(await page.locator('.page-records .cn-records').count()).toBe(1);
+    expect(await page.locator('.page-context .cn-context-card').count()).toBe(1);
     // the steps go where the shell says: Explore → chat; Back → account; the primary (no route ready) selects the recommended card
-    await page.getByRole('button', { name: 'Explore without a model', exact: true }).click();
+    await page.getByRole('button', { name: '→ Explore without a model', exact: true }).click();
     await page.getByRole('button', { name: '← Back', exact: true }).click();
     await page.getByRole('button', { name: 'Set up a model', exact: true }).click();
     expect(await page.evaluate(() => document.activeElement?.getAttribute('data-cn-verb'))).toBe('ollama-cloud');
@@ -379,7 +401,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
       states: await p.locator('.cn-card .cn-state-word').allTextContents(),
       under: await p.locator('.cn-card .cn-words').allTextContents(),
       buttons: await p.getByRole('button').allTextContents(),
-      head: [await p.locator('.cn-kicker').textContent(), await p.locator('h1').textContent(), await p.locator('.cn-lead').textContent()],
+      head: [await p.locator('.page-kicker').textContent(), await p.locator('h1').textContent(), await p.locator('.page-intro').textContent()],
     });
     const bare = await words(page);
     expect(bare.titles).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
@@ -396,46 +418,6 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     await page.close();
   }, 60_000);
 
-  it('on the shell\'s scaffold (SHELL CONTRACT v1 §2, R11 round 7): the screen registers the page (kicker, title, intro, the one primary, the Account cell, the band\'s Model and Records, the state) and fills the shell\'s work, context, dock and records — drawing no head or band of its own', async () => {
-    if (!browser) return;
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    const errors: string[] = [];
-    page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(`${base}/?scaffold=1`);
-    await page.locator('.page-work .cn-card').nth(3).waitFor();
-    type Reg = { id: string; reg: { kicker: string; title: string; intro: string; primary: { label: string; run: string } | null; context: string; band: Array<{ k: string; v: string }>; dock: string } };
-    const pages = await page.evaluate(() => (window as unknown as { __pages: Reg[] }).__pages);
-    expect(pages.length).toBeGreaterThanOrEqual(1);
-    expect(pages.at(-1)).toEqual({ id: 'connections', reg: { kicker: '06 / CONNECT A PROVIDER', title: 'One model is enough to begin.', intro: 'Use a local model or connect a cloud account. Add the others when you need them.', primary: { label: 'Set up a model', run: 'function' }, context: 'selection', band: [{ k: 'Account', v: 'Signed in · alice' }], dock: 'MODELS & ACCOUNTS TOOLS' } });
-    expect(await page.evaluate(() => (window as unknown as { __bands: unknown[] }).__bands.at(-1))).toEqual({ id: 'connections', cells: { model: 'Choose a provider', records: expect.stringMatching(/^Local/) } });
-    expect(await page.evaluate(() => (window as unknown as { __states: unknown[] }).__states.at(-1))).toEqual({ id: 'connections', word: 'content' });
-    // the shell's head and band stand (not redrawn by the screen); the screen's regions are in the shell's containers
-    expect(await page.locator('#screen-connections .page-kicker').textContent()).toBe('FAKE SHELL HEAD');
-    expect(await page.locator('#screen-connections .cn-head, #screen-connections .cn-band').count()).toBe(0);
-    expect(await page.locator('.page-work .cn-card').count()).toBe(4);
-    expect(await page.locator('.page-context .cn-context-title').textContent()).toBe('Choose your model');
-    expect(await page.locator('.page-context .cn-context-card').getAttribute('data-cn-context-for')).toBe('ollama-local');
-    expect(await page.locator('.page-dock .dock-btn[data-cn-dock]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cn-dock')))).toEqual(['check-all', 'download', 'back', 'records']);
-    expect(await page.locator('.page-records .cn-records').count()).toBe(1);
-    // the shell's primary runs the screen's function: the recommended card's verb takes focus
-    await page.evaluate(() => { const run = (window as unknown as { __lastPrimary: () => void }).__lastPrimary; run(); });
-    expect(await page.evaluate(() => document.activeElement?.getAttribute('data-cn-verb'))).toBe('ollama-local');
-    // a refresh (the picker, then Check on the local card against the FAKE) redraws into the same containers once, never twice
-    await page.locator('.page-context .cn-pick[data-cn-pick="openrouter"]').click();
-    expect(await page.locator('.page-context .cn-context-card').getAttribute('data-cn-context-for')).toBe('openrouter');
-    // (the local Ollama was checked by the case above: its verb reads "Check again" and the actions row draws no second Check)
-    expect(await page.locator('.cn-card-ollama-local [data-cn-verb]').textContent()).toBe('Check again');
-    await page.locator('.cn-card-ollama-local [data-cn-verb]').click();
-    await page.locator('.cn-card-ollama-local .cn-say').filter({ hasText: /^Checked just now/ }).waitFor();
-    await page.locator('.cn-card-ollama-local .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
-    expect(await page.locator('.page-work .cn-card').count()).toBe(4);
-    expect(await page.locator('.page-dock .dock-btn[data-cn-dock]').count()).toBe(4);
-    expect(await page.locator('.page-records .cn-records').count()).toBe(1);
-    expect(await page.evaluate(() => (window as unknown as { __bands: Array<{ cells: { model: string } }> }).__bands.at(-1)!.cells.model)).toMatch(/fake-qwen3:8b|Choose a provider/);
-    expect(errors).toEqual([]);
-    await page.close();
-  }, 60_000);
-
   it('390x844: one column, no horizontal overflow, the same words and buttons', async () => {
     if (!browser) return;
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -448,15 +430,11 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     // R11 round 6: the ProviderCard's host stays within its card at a phone width (the component's own size is H174's)
     expect(await page.locator('.cn-card .cn-rive').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); const c = e.closest('.cn-card')!.getBoundingClientRect(); return r.left >= c.left && r.right <= c.right + 0.5; }))).toEqual([true, true, true, true]);
-    // R11 round 7, 390×844: one column — the band's cells stacked, the context under the work, the dock and the records
-    // reachable, the primary in the head's actions; the picker scrolls sideways inside its box
+    // R11 round 7, 390×844: the shell's regions in order; the screen's cards in one column, the context's picker scrolls sideways
+    // inside its box (the context's sheet and the band's stacking are the shell's, not drawn by this FAKE page)
     await expect(page.getByRole('button', { name: /^(Set up a model|Continue to the workspace →)$/ }).count()).resolves.toBe(1);
-    const order = await page.locator('.cn-page > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    const order = await page.locator('#screen-connections > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
     expect(order.every((t, i) => i === 0 || t >= order[i - 1])).toBe(true);
-    const grid = await page.locator('.cn-grid > *').evaluateAll((els) => els.map((e) => ({ x: Math.round(e.getBoundingClientRect().x), top: Math.round(e.getBoundingClientRect().top) })));
-    expect(grid.length).toBe(2);
-    expect(grid[0].x).toBe(grid[1].x);
-    expect(grid[1].top).toBeGreaterThan(grid[0].top);
     expect(await page.locator('.cn-picker').evaluate((e) => e.scrollWidth <= e.clientWidth + 1 || getComputedStyle(e).overflowX === 'auto')).toBe(true);
     await page.close();
   }, 60_000);
