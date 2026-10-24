@@ -347,7 +347,7 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     // H173's routes first (on every tree): A's project list with ?clerk_user_id=<B> is A's; a project made with B's id in the body is A's
     const list = await call('GET', ROUTES.projects, { session: identity.token(A), query: { clerk_user_id: B } });
     expect(list.status, `A's GET ${ROUTES.projects}?clerk_user_id=<B>: ${list.text.slice(0, 200)}`).toBe(200);
-    expect(list.text, 'A\'s projects, not B\'s').toMatch(/fake-a-project/i); // (H173 keeps the name lowercase)
+    expect(list.text, 'A\'s projects, not B\'s: the project A made (the case above) is in A\'s list (H173: made and listed from the one registry under A\'s home; the nested home writes one and reads another)').toMatch(/fake-a-project/i); // (H173 keeps the name lowercase)
     expect(list.text, 'nothing of B\'s in it').not.toContain(B);
     const made = await call('POST', ROUTES.projects, { session: identity.token(A), body: { name: 'FAKE-a-second', clerk_user_id: B } });
     expect(made.status, `A's POST ${ROUTES.projects} with B's id in the body: ${made.text.slice(0, 200)}`).toBe(201);

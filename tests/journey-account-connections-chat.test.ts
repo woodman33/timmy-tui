@@ -25,7 +25,7 @@
  */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
@@ -137,16 +137,21 @@ const screenOf = (page: Page): Promise<string> => page.evaluate(() => document.b
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
 const html = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.outerHTML);
-async function until(page: Page, what: string, test: (t: string) => boolean, ms = 20_000): Promise<string> {
+async function until(page: Page, what: string, test: (t: string) => boolean, ms = 20_000, refuse?: (t: string) => string | null): Promise<string> {
   const end = Date.now() + ms;
   let last = '';
   for (;;) {
     last = await text(page);
     if (test(last)) return last;
+    // (innerText carries the page's text-transform: a label drawn in capitals reads in capitals here — callers match /i)
+    const why = refuse?.(last);
+    if (why) throw new Error(`${why}; the page read:\n${last.slice(0, 1500)}`);
     if (Date.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}; the page read:\n${last.slice(0, 2500)}`);
     await page.waitForTimeout(100);
   }
 }
+/** The page's own sentence for a connections screen with no answer from GET /api/connections: the owner piece named. */
+const noConnections = (t: string): string | null => (/could not be read from the companion/.test(t) ? 'the connections screen has nothing to show: GET /api/connections answered nothing (H170\'s routes; their mount line in server.ts is H171\'s)' : null);
 
 /** The companion's own API as the signed-in user (for the facts the screen is checked against). */
 async function api(server: CompanionServer, method: string, path: string, o: { session?: string; body?: unknown; query?: Record<string, string> } = {}): Promise<{ status: number; json: any; text: string }> {
@@ -187,7 +192,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.waitForTimeout(500);
         const after = await text(o.page);
         expect(after).toMatch(/Create your Timmy account|Welcome back to Timmy/);
-        expect(after).not.toMatch(/Signed in|Sign out/);
+        expect(after).not.toMatch(/Signed in|Sign out/i);
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
       } finally { await o.close(); }
@@ -197,7 +202,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const session = identity.token(USER);
       const o = await open(configured!, size, { session });
       try {
-        const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s));
+        const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections);
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
         expect(t).toMatch(/Choose how you want to run\./);
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
@@ -229,7 +234,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
         // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
-        const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/.test(s));
+        const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
         expect(chat).toMatch(/Local logs · cloud sync off|Local logs/);
         expect(o.errors, 'page errors').toEqual([]);
@@ -240,7 +245,11 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const session = identity.token(USER);
       const o = await open(configured!, size, { session, tab: 'chat' });
       try {
-        await until(o.page, 'the chat screen', (s) => /Message Timmy/.test(s));
+        const first = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
+        // the screen is the USER's: the WORKSPACE box and the top line name the user's own project (C1: "Untitled project", the
+        // default made under the user's home), never the operator's active project (this checkout's folder, the follower's view)
+        expect(first, 'the user\'s project named (H171: the project box reads GET /api/projects when a session exists; the chat view the user\'s project)').toMatch(/Untitled project/);
+        expect(first, `the operator's project (${basename(process.cwd())}) is not shown to a signed-in user (H171)`).not.toContain(basename(process.cwd()));
         // the right panel (a button on a phone)
         if (size.width < 600) await o.page.getByRole('button', { name: /Models/ }).first().click();
         await until(o.page, 'the Models panel', (s) => /All makers|All capabilities|Any cost|Any context/.test(s));
@@ -264,7 +273,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
         // a turn: the REAL agent through H169's SSE; the FAKE model calls one tool, then answers
-        const composer = o.page.getByRole('textbox', { name: /Message Timmy/ }).or(o.page.getByPlaceholder(/Message Timmy/));
+        const composer = o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i));
         await composer.first().fill('FAKE: what time is it?');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         const answered = await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
@@ -300,10 +309,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(before).not.toContain(FAKE_CLOUD_KEY);
         await o.page.reload();
         await useSession(o.page, session, 'chat');
-        const again = await until(o.page, 'the chat again', (s) => /Message Timmy/.test(s) && s.includes(FAKE_ANSWER), 30_000);
+        const again = await until(o.page, 'the chat again', (s) => /Message Timmy/i.test(s) && s.includes(FAKE_ANSWER), 30_000);
         expect(again).toContain(MODEL);
         expect(again).toContain('FAKE: what time is it?');
-        const draft = await o.page.getByRole('textbox', { name: /Message Timmy/ }).or(o.page.getByPlaceholder(/Message Timmy/)).first().inputValue();
+        const draft = await o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i)).first().inputValue();
         expect(draft).toBe(DRAFT);
         expect(await html(o.page)).not.toContain(FAKE_CLOUD_KEY);
         expect(o.errors, 'page errors').toEqual([]);
@@ -314,7 +323,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
   it('4. at 390x844 the rail folds, Connections and Models are buttons, nothing is cut, no page errors', async () => {
     const o = await open(configured!, { width: 390, height: 844 }, { session: identity.token(USER), tab: 'chat' });
     try {
-      await until(o.page, 'the chat screen', (s) => /Message Timmy/.test(s));
+      await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
       expect(await o.page.getByRole('button', { name: /Models/ }).count()).toBeGreaterThan(0);
       expect(await o.page.getByRole('button', { name: /Connections|Models & accounts/ }).count()).toBeGreaterThan(0);
       // the rail folded: its items are not laid out at once
