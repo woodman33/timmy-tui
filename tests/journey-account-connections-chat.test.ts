@@ -116,7 +116,13 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   // every frame the companion's socket sent the page, as `<type>` or `session:<ok>:<needs>` (never a token's value); '--seam--' marks the adoption
   const frames: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    // the browser's own line for a request the server refused: a 401 before a session is the page's first read, by design
+    // (the shell then shows the account screen); a 404 (a resource the page asks for and the companion has not) stays an error
+    if (/Failed to load resource: .* 401 /.test(m.text())) return;
+    errors.push(/Failed to load resource/.test(m.text()) ? `${m.text()} — ${m.location().url}` : m.text());
+  });
   page.on('request', (r) => { try { if (new URL(r.url()).hostname !== '127.0.0.1') left.push(r.url()); } catch { /* data: */ } });
   // every 401/403 the page met: which request, whether it carried a session (for a failure's words; the tokens' values never kept)
   page.on('response', (r) => {
@@ -135,8 +141,8 @@ async function open(server: CompanionServer, size: { width: number; height: numb
     ws.on('close', () => refused.push('ws closed'));
   });
   await page.goto(server.url);
-  const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined) : '';
-  frames.push('--seam--');
+  const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined, () => frames.push('--seam--')) : '';
+  if (!frames.includes('--seam--')) frames.push('--seam--');
   return { page, errors, left, refused, frames, seam, close: () => context.close() };
 }
 
@@ -144,7 +150,7 @@ async function open(server: CompanionServer, size: { width: number; height: numb
  * The session given to the page as H173's account screen gives it after a Clerk sign-in (H171's shell: session.set(token, user),
  * then land() runs the landing rule); the server still verifies every request's token. Nothing of the verifier is bypassed.
  */
-async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat'): Promise<string> {
+async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat', mark?: () => void): Promise<string> {
   await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }).catch(() => undefined);
   // as a person would: the page's own landing settles first (body[data-screen] chosen, its first requests answered) and the
   // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
@@ -154,6 +160,7 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
   // and the account script's Clerk load has ended (its first state, "no session", fires then — gate 4, 22:24: account.js
   // onClerkState clears the shell's session whenever Clerk reports none, so one adopted before that fire is wiped)
   await page.waitForFunction(() => { const a = (window as unknown as { timmyAccount?: { state?: () => { loading?: boolean } } }).timmyAccount; return !a?.state || a.state().loading === false; }, null, { timeout: 15_000 }).catch(() => undefined);
+  mark?.();
   const ok = await page.evaluate(async ([t, id, target]) => {
     const w = window as unknown as { timmyAccount?: { useSession?: (token: string) => unknown }; TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
     if (w.timmyAccount?.useSession) await w.timmyAccount.useSession(t);
@@ -258,9 +265,12 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
         // the socket rule (the lead, 22:3x): a configured companion answers a socket without a session with { type: 'session',
         // ok: false, needs: 'session' } and NOTHING else (no welcome, bus tail, event or project frame) — the frames before the seam
+        // (server.ts: "told once ({ type: 'session', ok: false, needs: 'session' }) and gets no project frame (no welcome, bus tail,
+        // event or project) until a hello with a session verifies"; the state word at connect names no project)
         const beforeSeam = o.frames.slice(0, o.frames.indexOf('--seam--'));
-        expect(beforeSeam.length, `the socket answered the page's hello without a session: ${JSON.stringify(o.frames).slice(0, 400)}`).toBeGreaterThan(0);
-        expect(beforeSeam.filter((f) => f !== 'session:false:session'), `nothing but the refusal before a session (the frames: ${JSON.stringify(beforeSeam).slice(0, 400)})`).toEqual([]);
+        expect(beforeSeam, `the socket told the session-less page it needs a session: ${JSON.stringify(o.frames).slice(0, 400)}`).toContain('session:false:session');
+        expect(beforeSeam.filter((f) => /^(welcome|bus\.tail|event|project|integrations)$/.test(f)), `no project frame before a session (the frames: ${JSON.stringify(beforeSeam).slice(0, 400)})`).toEqual([]);
+        expect(o.frames.slice(o.frames.indexOf('--seam--')), 'the user\'s own frames once the session is verified (a welcome)').toContain('welcome');
         expect(t).toMatch(/Choose how you want to run\./);
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
         // the state words are H170's provider states: never "free", never "connected" for a selection
@@ -317,7 +327,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
           expect(await select.count(), `the ${label} control`).toBeGreaterThan(0);
           expect(await select.first().locator('option').first().textContent(), `${label}'s first option`).toBe(first);
         }
-        // the local source lists the FAKE model; a search typed, then a sort: the search stays (a sort never resets a filter)
+        // the local source lists the FAKE model (the panel opens on OpenRouter's tab: the "Ollama local" tab first); a search typed,
+        // then a sort: the search stays (a sort never resets a filter)
+        await o.page.getByRole('tab', { name: 'Ollama local' }).first().click();
         const search = o.page.getByPlaceholder(/Search models/);
         expect(await search.count(), 'the search box').toBeGreaterThan(0);
         await search.first().fill('fake');
