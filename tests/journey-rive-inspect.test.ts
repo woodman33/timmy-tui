@@ -6,7 +6,8 @@
  * What this container holds, said as it is: the Rive SOURCE of each component (src/companion/assets/rive/<component>/scene.rml,
  * rive.yaml, README.md) and NO .riv — nothing animates here, and the Inspect view must say so ("words only"); the state of every
  * component is the HTML word beside it (aria-live), which follows the page's drawing of the backend's own events (H170's cards,
- * H171's turns), each binding event labelled "derived from the page's drawing of …", never as the event itself.
+ * H171's turns) or, where an owner feeds it (the chat's SSE handler calls TimmyRive.fromSse / stopping), the backend's own event
+ * ("POST /api/chat/turn · SSE <event>", "POST /api/chat/stop { id: … }"); a derived event is labelled so, never as the event itself.
  *
  *  1. GET /api/rive/assets: 401 without the launch token; 401 { needs: 'session' } with the token alone (configured → no operator
  *     fallback); 200 with the session: { ok, runtime, components } — each component's riv null here, its sources named; the
@@ -166,6 +167,17 @@ async function labelIs(page: Page, key: string, word: RegExp, ms = 15_000): Prom
     await page.waitForTimeout(100);
   }
 }
+/**
+ * The source words a binding event may carry: FED by the owner's code with the backend's own event (H171's chat-shell.js:
+ * "POST /api/chat/turn · SSE <event> (<status>)", "POST /api/chat/stop { id: … } (this page's Stop)"), or, until an owner feeds it,
+ * DERIVED from the page's drawing ("derived from the page's drawing of …"). The activity is fed (H171, 582935d9): where the feed
+ * spoke (TimmyRive.activityFed()), its words are the ones asserted — the operator's "real backend events drive operational states".
+ */
+const FED_TURN = /POST \/api\/chat\/turn · SSE (route|turn|delta|tool|needs-you|done|error)/;
+const FED_STOP = /POST \/api\/chat\/stop \{ id: |POST \/api\/chat\/turn: this page stops reading/;
+const DERIVED_TURN = /derived from the page.s drawing of the turn/;
+const DERIVED_STOP = /derived from the page.s Stop button/;
+const activityFed = (page: Page): Promise<boolean> => page.evaluate(() => Boolean((window as unknown as { TimmyRive?: { activityFed?: () => boolean } }).TimmyRive?.activityFed?.()));
 /** The binding events the Inspect view lists for a component: each as "<input = value> · <source>". */
 const events = (page: Page, key: string): Promise<string[]> => page.locator(`[data-inspect-events="${key}"] li`).evaluateAll((lis) => lis.map((li) => `${li.querySelector('code')?.textContent ?? ''} · ${li.getAttribute('data-event-source') ?? ''}`));
 /** The Inspect view opens on the #inspect fragment (until the shell knows the screen); Close clears it. */
@@ -277,7 +289,9 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         const conn = await events(o.page, 'connection-ollama-local');
         const derived = conn.find((e) => /connection = "connected"/.test(e));
         expect(derived, `the connected event: ${conn.join(' | ')}`).toBeTruthy();
-        expect(derived!, 'the event says it is derived from the page\'s drawing, never the backend event itself').toMatch(/derived from the page.s drawing of GET \/api\/connections/);
+        // (the connections are not fed by H170's screen yet: the word is derived from the card's data-state, said so; a fed one would
+        // name GET /api/connections with the provider state itself)
+        expect(derived!, 'the event names its source: the backend event (fed) or the page\'s drawing of it (derived), never neither').toMatch(/derived from the page.s drawing of GET \/api\/connections|GET \/api\/connections: ollama-local/);
         expect(await label(o.page, 'connection-openrouter'), 'the other cards stay as they are').toBe('disconnected');
         await closeInspect(o.page);
         expect(o.left, 'requests that left 127.0.0.1 (Clerk\'s fetches to the FAKE instance aside)').toEqual([]);
@@ -333,8 +347,10 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
       await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
       expect(await labelIs(o.page, 'activity', /^idle$/, 20_000)).toBe('idle');
       const quick = (await recorded()).slice(eventsBefore);
-      expect(quick.some((e) => /^activity = "working" · derived from the page.s drawing of the turn/.test(e)), `the quick turn's "working", recorded as derived from the page's drawing: ${quick.join(' | ')}`).toBe(true);
-      expect(quick.some((e) => /^activity = "idle" · derived from the page.s drawing of the turn/.test(e)), `the quick turn's "idle", recorded: ${quick.join(' | ')}`).toBe(true);
+      const fed = await activityFed(o.page);
+      const turnSource = fed ? FED_TURN : DERIVED_TURN;
+      expect(quick.some((e) => /^activity = "working" · /.test(e) && turnSource.test(e)), `the quick turn's "working", recorded from ${fed ? 'the SSE feed (POST /api/chat/turn)' : 'the page\'s drawing'}: ${quick.join(' | ')}`).toBe(true);
+      expect(quick.some((e) => /^activity = "idle" · /.test(e) && turnSource.test(e)), `the quick turn's "idle", recorded from ${fed ? 'the SSE feed (done)' : 'the page\'s drawing'}: ${quick.join(' | ')}`).toBe(true);
       // then a slow turn: working while it streams; Stop → stopping → stopped. (After a Stop the stopped own turn stays the newest
       // in #cx-own while a later answered turn folds into #cx-turns, so a turn answered AFTER a Stop leaves the label on "stopped" —
       // observed in gate 22, said here, not asserted: the derivation's newest-li rule across the two lists is H174's/H171's call.)
@@ -346,8 +362,12 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
       expect(await labelIs(o.page, 'activity', /^stopped$/, 30_000)).toBe('stopped');
       await openInspect(o.page);
       const ev = await events(o.page, 'activity');
-      for (const word of ['working', 'stopped', 'idle']) expect(ev.some((e) => new RegExp(`activity = "${word}"`).test(e) && /derived from the page.s drawing of the turn|derived from the page.s Stop button/.test(e)), `the ${word} event, said to be derived: ${ev.join(' | ')}`).toBe(true);
-      expect(ev.some((e) => /^activity = "stopping" · /.test(e)), `a stopping event from the page's Stop: ${ev.join(' | ')}`).toBe(true);
+      const fedNow = await activityFed(o.page);
+      const src = fedNow ? new RegExp(`${FED_TURN.source}|${FED_STOP.source}`) : new RegExp(`${DERIVED_TURN.source}|${DERIVED_STOP.source}`);
+      for (const word of ['working', 'stopped', 'idle']) expect(ev.some((e) => new RegExp(`activity = "${word}"`).test(e) && src.test(e)), `the ${word} event from ${fedNow ? 'the backend\'s own events (POST /api/chat/turn SSE, POST /api/chat/stop)' : 'the page\'s drawing'}: ${ev.join(' | ')}`).toBe(true);
+      expect(ev.some((e) => /^activity = "stopping" · /.test(e) && (fedNow ? FED_STOP : DERIVED_STOP).test(e)), `a stopping event from ${fedNow ? 'POST /api/chat/stop' : 'the page\'s Stop button'}: ${ev.join(' | ')}`).toBe(true);
+      // the activity is fed on this tree (H171's chat-shell.js calls TimmyRive.fromSse per SSE event): said as the fact it is
+      expect(fedNow, 'the activity component was fed by the chat\'s own SSE handler (TimmyRive.activityFed())').toBe(true);
       const card = await o.page.locator('[data-inspect-component="activity"]').innerText();
       expect(card, 'the Inspect view shows no receipt and no progress number').not.toMatch(/receipt [0-9a-f]{8}|\d+ ?%|sha256_/i);
       await closeInspect(o.page);
