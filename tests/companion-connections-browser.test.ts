@@ -5,6 +5,9 @@
  * window.TimmyShell (the same mount/fetch/h/go/land/toast surface; a header names the FAKE user, as the FAKE withUser of
  * the route test reads it: C1's real verification is H173's). Nothing is asked of openrouter.ai, ollama.com or Cloudflare:
  * the browser resolves no host but 127.0.0.1. Where no Chromium is found the browser checks are skipped, saying so.
+ * R11 round 6: a FAKE TimmyRive (H174's 06:37 contract surface, below) records what the screen asks of the module — the
+ * ProviderCard mounted once per card, in a host of the card's width above the state word; the feed one line per state change
+ * with the backend's event as its source; the unmount on a redraw — and a bare page (no TimmyRive) draws the same words.
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -79,6 +82,32 @@ function fakeOllamaCom() {
 const listen = (s: Server): Promise<string> => new Promise((r) => s.listen(0, '127.0.0.1', () => r(`http://127.0.0.1:${(s.address() as AddressInfo).port}`)));
 const close = (s: Server): Promise<void> => new Promise((r) => { s.close(() => r()); s.closeAllConnections(); });
 
+/**
+ * FAKE TimmyRive (this test's; R11 round 6): H174's 06:37 contract surface only — mountProviderCard(host, providerId, opts) →
+ * a handle with root/binds/events/unmount(), fromProviderState(id, word, source) recording an event on every handle bound to
+ * 'connection:<id>', inspect() listing the handles — so what THIS screen asks of the module is checked: where it mounts, how
+ * often, what it feeds and with which source. The real module, runtime and timmy-ui.riv are H174's, exercised on the integrated
+ * page by H172's journey; nothing here draws.
+ */
+const FAKE_RIVE = `<script>
+window.__unmounted = 0; window.__mounts = [];
+(() => {
+  const handles = [];
+  window.TimmyRive = {
+    VERSION: 'FAKE (this test)',
+    mountProviderCard(host, providerId, o) {
+      const root = document.createElement('div'); root.className = 'tr-component'; root.dataset.artboard = 'ProviderCard'; root.dataset.fakeRive = 'ProviderCard'; root.textContent = 'FAKE ProviderCard ' + providerId;
+      host.append(root);
+      const handle = { id: 'fake-' + providerId + '-' + window.__mounts.length, component: 'connection', artboard: 'ProviderCard', binds: ['connection:' + providerId], events: [], word: null, root, unmount() { window.__unmounted += 1; const i = handles.indexOf(handle); if (i >= 0) handles.splice(i, 1); root.remove(); } };
+      handles.push(handle); window.__mounts.push({ providerId, o: o || null });
+      return handle;
+    },
+    fromProviderState(id, word, source) { const out = []; for (const x of handles) if (x.binds.includes('connection:' + id)) { x.events.push({ input: 'connection', value: word, source, at: Date.now() }); x.word = word; out.push(x); } return out; },
+    inspect() { return handles.map((x) => ({ id: x.id, component: x.component, artboard: x.artboard, binds: x.binds.slice(), events: x.events.slice(), word: x.word })); },
+  };
+})();
+</script>`;
+
 /** The page of this test: H171's shell stood in by a FAKE TimmyShell with the same surface; the real screen script and sheet. */
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FAKE shell</title>
 <style>:root{--timmy-ground:#000;--timmy-surface:#0c0c0c;--timmy-raised:#161616;--timmy-line:#2a2a2a;--timmy-line-strong:#3a3a3a;--timmy-text:#f2f2f2;--timmy-text-secondary:#a8a8a8;--timmy-accent:#FFB000;--timmy-accent-ink:#000;--timmy-accent-soft:#333;--timmy-silver:#E8E4D9;--timmy-live:#00ff00;--timmy-weight-heading:600;--timmy-weight-strong:600;--timmy-weight-body:400;--timmy-font-mono:monospace}
@@ -97,8 +126,10 @@ window.TimmyShell = {
   session: { user: () => ({ id: 'alice', username: 'alice' }) },
 };
 </script>
-<script src="/screen-connections.js"></script>
+__RIVE__<script src="/screen-connections.js"></script>
 </body></html>`;
+/** The page with the FAKE TimmyRive before the screen's script (the integrated page's order), or bare: no TimmyRive at all. */
+const pageHtml = (rive: boolean): string => PAGE.replace('__RIVE__', rive ? `${FAKE_RIVE}\n` : '');
 
 let root = '';
 let browser: Browser | null = null;
@@ -138,7 +169,7 @@ beforeAll(async () => {
     return { PATH: join(root, 'bin'), HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_SETTINGS_DIR: join(home, 'settings'), TIMMY_MCP_HOME: join(home, 'mcp'), OLLAMA_HOST: ollamaOrigin };
   };
   const app = express();
-  app.get('/', (_req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.send(PAGE); });
+  app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.send(pageHtml(req.query.bare !== '1')); });
   app.get('/screen-connections.js', (_req, res) => { res.setHeader('Content-Type', 'text/javascript; charset=utf-8'); res.send(readFileSync(join(CLIENT, 'screen-connections.js'), 'utf8')); });
   app.get('/screen-connections.css', (_req, res) => { res.setHeader('Content-Type', 'text/css; charset=utf-8'); res.send(readFileSync(join(CLIENT, 'screen-connections.css'), 'utf8')); });
   mounted = mountConnections(app, { withUser: fakeWithUser, userEnv, fetch: routed, platform: 'linux', signInTimeoutMs: 60_000, confirmTimeoutMs: 60_000 });
@@ -178,6 +209,24 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const text = (await page.locator('#screen-connections').textContent()) ?? '';
     expect(text).not.toMatch(/\bconnected\b/i);
     expect(text).not.toMatch(/\bfree\b/i);
+    // R11 round 6: the native ProviderCard's host in every card — the footer's first child, the state word right after it — mounted
+    // once per card through TimmyRive.mountProviderCard(host, id, { size: 'wide', label }) (the FAKE's marker stands in the host)
+    const hosts = await page.locator('.cn-card .cn-card-foot > .cn-rive:first-child').evaluateAll((els) => els.map((e) => ({ id: e.getAttribute('data-rive-host'), card: e.closest('.cn-card')?.getAttribute('data-provider'), next: e.nextElementSibling?.className ?? '', marker: e.querySelector('[data-fake-rive="ProviderCard"]')?.textContent ?? '' })));
+    expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, card: id, next: expect.stringContaining('cn-state'), marker: `FAKE ProviderCard ${id}` })));
+    type Mount = { providerId: string; o: { size?: string; label?: string } | null };
+    expect(await page.evaluate(() => (window as unknown as { __mounts: Mount[] }).__mounts)).toEqual([
+      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local' } },
+      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare' } }]);
+    // the feed: the first draw fed each card's state ONCE, the backend's event as the source (never the card's drawing)
+    type Handle = { id: string; binds: string[]; events: Array<{ input: string; value: string; source: string }>; word: string | null };
+    const inspect = () => page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Handle[] } }).TimmyRive.inspect());
+    const first = await inspect();
+    expect(first.map((x) => x.binds)).toEqual([['connection:openrouter'], ['connection:ollama-local'], ['connection:ollama-cloud'], ['connection:cloudflare']]);
+    expect(first.map((x) => x.events)).toEqual([
+      [{ input: 'connection', value: 'not set up', source: 'GET /api/connections: openrouter', at: expect.any(Number) }],
+      [{ input: 'connection', value: 'not installed', source: 'GET /api/connections: ollama-local', at: expect.any(Number) }],
+      [{ input: 'connection', value: 'not set up', source: 'GET /api/connections: ollama-cloud', at: expect.any(Number) }],
+      [{ input: 'connection', value: 'not set up', source: 'GET /api/connections: cloudflare', at: expect.any(Number) }]]);
     // Ollama · cloud: the key pasted into the labelled password field, sent once in the body; the card says saved, not checked
     const keyField = page.getByLabel('Ollama API key', { exact: true });
     await keyField.fill(FAKE_KEY);
@@ -195,6 +244,15 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const toasts = await page.evaluate(() => (window as unknown as { __toasts: Array<{ words: string; live: boolean }> }).__toasts);
     expect(toasts.at(-1)).toMatchObject({ live: true });
     expect(toasts.at(-1)!.words).toMatch(/^Checked just now: Ollama Cloud took the key/);
+    // the two refreshes (the key saved, the key checked) fed the cloud card's two changes and nothing else: still four handles
+    // (no re-mount: the host moved into each redrawn card), the other three cards unchanged, so unfed
+    const after = await inspect();
+    expect(after.map((x) => x.id)).toEqual(first.map((x) => x.id));
+    expect(after[2].events.map((e) => [e.value, e.source])).toEqual([['not set up', 'GET /api/connections: ollama-cloud'], ['saved, not checked', 'GET /api/connections: ollama-cloud'], ['checked', 'GET /api/connections: ollama-cloud']]);
+    expect(after[2].word).toBe('checked');
+    expect([after[0], after[1], after[3]].map((x) => x.events.length)).toEqual([1, 1, 1]);
+    expect(await page.locator('.cn-card-ollama-cloud .cn-card-foot > .cn-rive:first-child [data-fake-rive="ProviderCard"]').count()).toBe(1);
+    expect(await page.evaluate(() => (window as unknown as { __mounts: unknown[] }).__mounts.length)).toBe(4);
     // the footer's steps go where the shell says
     await page.getByRole('button', { name: 'Explore without a model', exact: true }).click();
     await page.getByRole('button', { name: 'Back', exact: true }).click();
@@ -202,6 +260,15 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.evaluate(() => (window as unknown as { __went: string[]; __landed: number }).__went)).toEqual(['chat', 'account']);
     expect(await page.evaluate(() => (window as unknown as { __landed: number }).__landed)).toBe(1);
     expect(asked.filter((a) => !a.startsWith('http://127.0.0.1:') && !a.startsWith('https://ollama.com/'))).toEqual([]);
+    // the shell shows the screen again (a second draw): the four handles are unmounted first, then four fresh ones fed afresh
+    await page.evaluate(() => { const sh = (window as unknown as { TimmyShell: { draws: Record<string, (host: Element, shell: unknown) => void> } }).TimmyShell; sh.draws.connections(document.getElementById('screen-connections')!, sh); });
+    await page.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
+    await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+    expect(await page.evaluate(() => (window as unknown as { __unmounted: number }).__unmounted)).toBe(4);
+    const again = await inspect();
+    expect(again.length).toBe(4);
+    expect(again.map((x) => x.id).some((id) => first.some((x) => x.id === id))).toBe(false);
+    expect(again[2].events.map((e) => [e.value, e.source])).toEqual([['checked', 'GET /api/connections: ollama-cloud']]);
     await page.close();
   }, 60_000);
 
@@ -239,6 +306,44 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await card.locator('.cn-pull-status').textContent()).toContain('Ollama keeps what it downloaded of fake-second:1b');
     expect(ollama.installed.has('fake-second:1b')).toBe(false);
     expect(mounted.pendingPulls()).toBe(0);
+    // R11 round 6: the local card's feed over this case — the first draw (not installed), the Check (checked); the download's
+    // refresh found the same state and fed nothing: one line per state CHANGE, each from the backend's event
+    const local = (await page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Array<{ binds: string[]; events: Array<{ value: string; source: string }> }> } }).TimmyRive.inspect())).find((x) => x.binds.includes('connection:ollama-local'));
+    expect(local?.events.map((e) => [e.value, e.source])).toEqual([['not installed', 'GET /api/connections: ollama-local'], ['checked', 'GET /api/connections: ollama-local']]);
+    await page.close();
+  }, 60_000);
+
+  it('without TimmyRive on the page (R11 round 6): every card still carries its empty host, hidden by the sheet; the words, the buttons and the state words are the same', async () => {
+    if (!browser) return;
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}/?bare=1`);
+    await page.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
+    expect(await page.evaluate(() => typeof (window as unknown as { TimmyRive?: unknown }).TimmyRive)).toBe('undefined');
+    const hosts = await page.locator('.cn-card .cn-card-foot > .cn-rive:first-child').evaluateAll((els) => els.map((e) => ({ id: e.getAttribute('data-rive-host'), empty: e.childNodes.length === 0, display: getComputedStyle(e).display })));
+    expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, empty: true, display: 'none' })));
+    // the same companion, the same user (the cases above saved and checked a cloud key and checked the local Ollama): the words
+    // with and without the module are the same — the titles, the state words, the words under them, every button
+    const words = async (p: typeof page) => ({
+      titles: await p.locator('.cn-card .cn-card-title').allTextContents(),
+      states: await p.locator('.cn-card .cn-state-word').allTextContents(),
+      under: await p.locator('.cn-card .cn-words').allTextContents(),
+      buttons: await p.getByRole('button').allTextContents(),
+      head: [await p.locator('.cn-kicker').textContent(), await p.locator('h1').textContent(), await p.locator('.cn-lead').textContent()],
+    });
+    const bare = await words(page);
+    expect(bare.titles).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
+    expect(bare.states.length).toBe(4);
+    const withModule = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await withModule.goto(`${base}/`);
+    await withModule.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
+    await withModule.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+    expect(await withModule.locator('.cn-card .cn-rive [data-fake-rive="ProviderCard"]').count()).toBe(4);
+    const full = await words(withModule);
+    expect(bare).toEqual(full);
+    expect(errors).toEqual([]);
+    await withModule.close();
     await page.close();
   }, 60_000);
 
@@ -252,6 +357,8 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(new Set(boxes.map((b) => b.x)).size).toBe(1);
     expect(boxes.every((b) => b.w > 300 && b.w <= 390)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // R11 round 6: the ProviderCard's host stays within its card at a phone width (the component's own size is H174's)
+    expect(await page.locator('.cn-card .cn-rive').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); const c = e.closest('.cn-card')!.getBoundingClientRect(); return r.left >= c.left && r.right <= c.right + 0.5; }))).toEqual([true, true, true, true]);
     await expect(page.getByRole('button', { name: 'Continue to the workspace →', exact: true }).count()).resolves.toBe(1);
     await page.close();
   }, 60_000);

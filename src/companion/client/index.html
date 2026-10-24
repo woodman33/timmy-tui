@@ -212,6 +212,18 @@
               <div class="cx-running-box" id="cx-running" role="status" hidden></div>
             </div>
             <p class="cx-note" id="cx-note" role="status" hidden></p>
+            <!-- R11 round 6 (H171; the operator's 06:32 order): the native AgentConsole (timmy-ui.riv, the operator's asset) IN the
+                 Chat, as a band above the route line — one place for the turn's state before the first turn and through every
+                 turn, right over the Send / Stop it describes. H174's TimmyRive.mountConsole draws it (the canvas, the HTML state
+                 word beside it, aria-live) and this page's SSE feed moves it (chat-shell.js riveFeed / riveStopping). The band folds
+                 to the word (the face hidden, never the word) by its button; a phone starts folded; nothing here takes the focus. -->
+            <section class="cx-console" id="cx-console" aria-labelledby="cx-console-toggle" hidden>
+              <div class="cx-console-head">
+                <button type="button" class="cx-console-toggle" id="cx-console-toggle" aria-expanded="true" aria-controls="cx-console-body"><span class="cx-console-caret" aria-hidden="true">▾</span> Agent console</button>
+                <span class="cx-console-note" id="cx-console-note">the turn’s state, as the companion’s events say it</span>
+              </div>
+              <div class="cx-console-body" id="cx-console-body"></div>
+            </section>
             <div class="cx-route" id="cx-route" role="status"><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span> <button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
             <form class="cx-composer" id="cx-composer" autocomplete="off">
               <label for="cx-input" class="cx-input-k visually-hidden">Message Timmy</label>

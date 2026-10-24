@@ -29,6 +29,11 @@
 #screen-connections .cn-actions .cn-form { flex-basis: 100%; }
 #screen-connections .cn-link { margin-left: auto; }
 #screen-connections .cn-card-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--timmy-line); font-size: 13px; }
+/* R11 round 6 (H170; H174's 06:37 contract): the native ProviderCard (TimmyRive.mountProviderCard, size 'wide') above the state
+   word, the card's width up to the artboard's own 400 px (never upscaled past it); a host left empty — no module, no mount API —
+   takes no room, and the HTML state word beside it stands alone. The component's own box is H174's (rive-components.css). */
+#screen-connections .cn-rive { width: 100%; max-width: 400px; min-width: 0; margin: 0 0 4px; }
+#screen-connections .cn-rive:empty { display: none; }
 #screen-connections .cn-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
 #screen-connections .cn-words, #screen-connections .cn-next, #screen-connections .cn-say, #screen-connections .cn-lines { margin: 0; }
 #screen-connections .cn-next-label { color: var(--timmy-accent); font-weight: var(--timmy-weight-strong); }

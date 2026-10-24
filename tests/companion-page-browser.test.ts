@@ -328,7 +328,12 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const csp = r.headers.get('content-security-policy') ?? '';
     const directives = new Map(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [k, ...v] = d.split(/\s+/); return [k, v.join(' ')] as const; }));
     expect(directives.get('default-src')).toBe("'none'");
-    expect(directives.get('script-src')).toBe("'self'");
+    // R11 round 6 (the lead): the Rive runtime's WebAssembly needs the keyword 'wasm-unsafe-eval' (a keyword, never a host) — the
+    // policy carries it exactly when the companion serves a .riv with the runtime (rive-assets.ts / page.ts setPagePolicyWasm),
+    // and nothing else: still scripts from itself only, no unsafe-inline, no unsafe-eval
+    const listing = await (await fetch(`${base}/api/rive/assets`, { headers: { Authorization: `Bearer ${new URL(server.url).hash.replace(/^#t=/, '')}` } })).json().catch(() => null) as { runtime?: boolean; components?: Array<{ riv?: unknown }> } | null;
+    const wasm = Boolean(listing && listing.runtime && Array.isArray(listing.components) && listing.components.some((c) => c.riv));
+    expect(directives.get('script-src')).toBe(wasm ? "'self' 'wasm-unsafe-eval'" : "'self'");
     expect(directives.get('style-src')).toBe("'self' 'unsafe-inline'");
     expect(directives.get('img-src')).toBe("'self' data:");
     expect(directives.get('font-src')).toBe("'self'");
@@ -336,7 +341,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     expect(directives.get('object-src')).toBe("'none'");
     expect(directives.get('frame-ancestors')).toBe("'none'");
     expect(directives.get('base-uri')).toBe("'none'");
-    expect(csp).not.toMatch(/unsafe-eval|wasm-unsafe-eval|https?:|\*|blob:/);
+    // (R11 round 6: 'wasm-unsafe-eval' is the one keyword the policy may carry — exactly when a .riv is served, asserted above;
+    // 'unsafe-eval' itself, a scheme, a wildcard or blob: never)
+    expect(csp.replace(/'wasm-unsafe-eval'/g, '')).not.toMatch(/unsafe-eval|https?:|\*|blob:/);
+    if (!wasm) expect(csp).not.toMatch(/wasm-unsafe-eval/);
     expect(r.headers.get('x-content-type-options')).toBe('nosniff');
     expect(r.headers.get('referrer-policy')).toBe('no-referrer');
     const html = await r.text();

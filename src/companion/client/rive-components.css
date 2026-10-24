@@ -48,3 +48,16 @@ button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-ac
 .tr-preview-label { margin: 0; color: var(--timmy-accent); }
 @media (max-width: 720px) { .tr-cards { grid-template-columns: 1fr; } .tr-facts { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .tr-face, .tr-status { transition: none; animation: none; } }
+
+/* R11 round 6: the mounts in the product (TimmyRive.mountConsole / mountProviderCard / mountActionButton): the artboards at their
+   own proportions, 'card' at a fixed width, 'wide' at the host's width; a disabled action button says so and takes no pose */
+.tr-mount { display: grid; gap: 4px; }
+.tr-mount .tr-face { height: auto; border-radius: 8px; }
+.tr-mount[data-artboard="AgentConsole"] .tr-face { width: 320px; height: auto; aspect-ratio: 640 / 380; }
+.tr-mount[data-artboard="ProviderCard"] .tr-face { width: 240px; height: auto; aspect-ratio: 400 / 260; }
+.tr-mount[data-artboard="ActionButton"] .tr-face { width: 240px; height: auto; aspect-ratio: 240 / 72; font-size: 15px; font-weight: var(--timmy-weight-body, 400); }
+.tr-mount[data-size="wide"][data-artboard] .tr-face { width: 100%; max-width: 100%; }
+.tr-mount .tr-words { font-size: 12px; }
+button.tr-face[disabled] { opacity: .55; cursor: not-allowed; }
+button.tr-face[disabled]:hover { outline: none; }
+@media (max-width: 720px) { .tr-mount[data-artboard="AgentConsole"] .tr-face { width: 100%; } .tr-mount[data-artboard="ProviderCard"] .tr-face { width: 100%; max-width: 320px; } }
