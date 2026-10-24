@@ -113,6 +113,130 @@ function riveStopping(source) {
   riveLastWord = 'stopping';
   try { R.stopping(source); } catch (e) { /* the component's own */ }
 }
+
+// ── R11 round 6: the native Rive UI in the Chat (the operator's order of 06:32) ──
+/**
+ * The operator's native UI components (src/companion/assets/rive/timmy-ui/timmy-ui.riv: AgentConsole, ActionButton) drawn IN the
+ * Chat through H174's mount API — TimmyRive.mountConsole(host, { size }) and TimmyRive.mountActionButton(host, { label, action })
+ * — each a real HTML control or figure with the state word beside it (aria-live): the canvas is never the only carrier. Until
+ * that API is on the page (his CONTRACT line of round 6), the bindings' lower-level TimmyRive.component is called with the
+ * asset's documented names (its README: the three artboards, the one state machine TimmyUI); without the bindings nothing is
+ * mounted and the HTML stands as it did. A file or runtime that is not here leaves the words (the bindings' truth rule), never
+ * an error, never a drawn stand-in. Reduced motion is the asset's own input, set by the mount: this page only passes the host.
+ *
+ *   The AgentConsole: ONE place — a band above the composer's route line (#cx-console, index.html), before the first turn and
+ *   through every turn, right over the Send / Stop it describes (a console that lived in the welcome would move mid-turn, as
+ *   the welcome goes). Its feed is this page's turn (riveFeed / riveStopping above). The band folds to the state WORD (the face
+ *   hidden, the word never) by its button; a phone's width or a short window (≤ 760 px either way) starts folded, a tap opens
+ *   it; the choice is this viewer's (localStorage). Nothing in the band takes the focus on its own: the textarea's order and the keys are as they were.
+ *   The ActionButton: (a) each NEEDS-YOU answer (its action: answerNeedsYou → POST /api/chat/answer { id, choice } through the
+ *   existing gate; a trusted click / Enter / Space only — the bindings' trigger rule); (b) the welcome's primary starter
+ *   (startWith). Never a Send: Send stays the composer's. Each native button has an HTML TWIN with the same label and action —
+ *   the control until the file is DRAWN (then the twin hides and the native <button> face is the one control); a file not here
+ *   leaves the HTML button alone.
+ */
+const TIMMY_UI_ASSET = '/assets/rive/timmy-ui/timmy-ui.riv';
+function riveApi() { const R = typeof window !== 'undefined' ? window.TimmyRive : null; return R && typeof R.component === 'function' ? R : null; }
+function mountConsoleIn(host, size) {
+  const R = riveApi();
+  if (!R) return null;
+  try {
+    // (H174's CONTRACT of 06:37: size 'card' = 320 px / 'wide' = the host's width; the band's own CSS sets the face's height from
+    // the window, in the artboard's proportions; no heading of the mount's — the band's head row is the heading)
+    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size, heading: null, label: 'Agent console: the turn’s state' });
+    // (until his mount is on this page: the bindings' component with the asset's documented names; bound to this page's activity feed)
+    return R.component({ host, component: 'console', asset: TIMMY_UI_ASSET, artboard: 'AgentConsole', stateMachine: 'TimmyUI', role: 'img', heading: null, label: 'Agent console: the turn’s state', text: '>_', binds: ['activity'], size });
+  } catch (e) { return null; }
+}
+function mountActionButtonIn(host, label, action) {
+  const R = riveApi();
+  if (!R) return null;
+  try {
+    // (H174's CONTRACT: a real <button aria-label=label> face; `action(event)` on a trusted click / Enter / Space; the HTML label
+    // beside it carries the words — the native text is the asset's own, so the word beside the face is how the option reads)
+    if (typeof R.mountActionButton === 'function') return R.mountActionButton(host, { label, action });
+    // (until his mount is on this page: the bindings' button component; its trigger fires for a trusted click / Enter / Space only)
+    return R.component({ host, component: 'action', asset: TIMMY_UI_ASSET, artboard: 'ActionButton', stateMachine: 'TimmyUI', role: 'button', label, text: label, word: label, binds: [], onTrigger: () => { try { action(); } catch (e) { /* the action's own */ } } });
+  } catch (e) { return null; }
+}
+/**
+ * A native ActionButton beside its HTML twin (`htmlBtn`: the same label, the same action): the twin is the control until the
+ * file is DRAWN, then it hides and the native <button> face is the one control (with `words` beside it when given); a file
+ * that is not here ('words') removes the empty host and leaves the twin. Both are one action; a click on the face is the
+ * face's alone (the page's delegated handler leaves it: see onChatClick).
+ */
+function twinActionButton(htmlBtn, label, action, o = {}) {
+  const wrap = h(o.tag || 'span', { class: `cx-twin${o.class ? ` ${o.class}` : ''}`, 'data-rive': 'none', ...(o.attrs || {}) }, htmlBtn);
+  const host = h('span', { class: 'cx-rive-host is-loading', 'data-rive-action': label });
+  const handle = mountActionButtonIn(host, label, action);
+  if (!handle) return wrap;
+  wrap.riveHandle = handle; // (unmount() when the wrap is let go: the runtime instance with it)
+  if (o.words) host.append(h('span', { class: 'cx-way-words cx-twin-words' }, o.words));
+  // the host is the control's card: a trusted click on it beside the face (its words) is the action too; the face's own click
+  // is the bindings' (their trusted trigger calls the action), never acted on twice here
+  host.addEventListener('click', (ev) => { if (!ev.isTrusted || (ev.target instanceof Element && ev.target.closest('.tr-face'))) return; if (handle.disabled) return; try { action(ev); } catch (e) { /* the action's own */ } });
+  wrap.append(host);
+  wrap.dataset.rive = 'loading';
+  const settle = () => {
+    const root = host.querySelector('[data-rive]');
+    const st = root ? root.dataset.rive : handle.state;
+    if (st === 'drawn') {
+      host.classList.remove('is-loading'); htmlBtn.hidden = true; wrap.dataset.rive = 'drawn';
+      // (the face was laid out while hidden from view: the runtime draws to its size now)
+      try { if (handle.rive && typeof handle.rive.resizeDrawingSurfaceToCanvas === 'function') requestAnimationFrame(() => handle.rive.resizeDrawingSurfaceToCanvas()); } catch (e) { /* drawn at its size */ }
+      return true;
+    }
+    if (st === 'words') { host.remove(); htmlBtn.hidden = false; wrap.dataset.rive = 'words'; return true; }
+    return false;
+  };
+  if (!settle() && typeof MutationObserver === 'function') {
+    const mo = new MutationObserver(() => { if (settle()) mo.disconnect(); });
+    mo.observe(host, { subtree: true, attributes: true, attributeFilter: ['data-rive'] });
+  }
+  return wrap;
+}
+
+let consoleHandle = null;
+const CONSOLE_FOLD_KEY = 'cx-console-fold';
+const COMPACT_VIEW = '(max-width: 760px), (max-height: 760px)';
+/** A phone's width or a short window: the band starts folded there (the conversation keeps its height) until this viewer opens it. */
+const compactView = () => { try { return typeof matchMedia === 'function' && matchMedia(COMPACT_VIEW).matches; } catch (e) { return false; } };
+/** This viewer's choice for the console band ('open' | 'folded'), or null when none was made (then a compact view starts folded). */
+function consoleChoice() { try { const v = localStorage.getItem(CONSOLE_FOLD_KEY); return v === 'open' || v === 'folded' ? v : null; } catch (e) { return null; } }
+function consoleFolded() { const c = consoleChoice(); return c ? c === 'folded' : compactView(); }
+function setConsoleFold(folded, remember) {
+  const band = $('cx-console');
+  const btn = $('cx-console-toggle');
+  if (!band) return;
+  band.classList.toggle('is-folded', folded);
+  if (btn) btn.setAttribute('aria-expanded', String(!folded));
+  if (remember) { try { localStorage.setItem(CONSOLE_FOLD_KEY, folded ? 'folded' : 'open'); } catch (e) { /* not kept: the band still folds */ } }
+}
+/** The console band: shown with the composer (never on the first run's or a setup's panel), mounted once, folded as chosen. */
+function drawConsole() {
+  const band = $('cx-console');
+  const body = $('cx-console-body');
+  if (!band || !body) return;
+  const st = centerState();
+  const away = st === 'first-run' || st === 'setup';
+  // (no mount before the companion answered the chat's read for a signed-in page: the runtime's listing is a user-data read,
+  // and a page landing on the account screen asks for nothing of the chat's)
+  if (away || !cx.view || !signedIn() || !riveApi()) { band.hidden = true; return; }
+  if (!consoleHandle) {
+    consoleHandle = mountConsoleIn(body, 'card');
+    if (!consoleHandle) { band.hidden = true; return; }
+    setConsoleFold(consoleFolded(), false);
+    try {
+      // (the viewport crossing the compact bounds folds or opens the band only while this viewer made no choice; a resized
+      // window has the runtime draw the face at its new size)
+      const mq = matchMedia(COMPACT_VIEW);
+      if (mq && typeof mq.addEventListener === 'function') mq.addEventListener('change', () => { if (!consoleChoice()) setConsoleFold(compactView(), false); });
+      let sized = 0;
+      window.addEventListener('resize', () => { clearTimeout(sized); sized = setTimeout(() => { try { if (consoleHandle && consoleHandle.rive && typeof consoleHandle.rive.resizeDrawingSurfaceToCanvas === 'function') consoleHandle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ } }, 150); });
+    } catch (e) { /* no media queries here */ }
+  }
+  band.hidden = false;
+}
 const sessionNeeded = () => Boolean(typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.sessionNeeded === 'function' && TimmyShell.sessionNeeded());
 
 /**
@@ -125,6 +249,9 @@ function redraw(root, kids) {
   if (a instanceof HTMLElement && a !== root && root.contains(a)) {
     const k = ['data-cx-ctl', 'data-cx-way', 'data-cx-start', 'data-activity', 'data-cx', 'data-cx-copy', 'data-cx-dest', 'data-dest', 'data-away', 'data-stop-turn', 'href'].find((n) => a.getAttribute(n));
     pick = a.id ? `#${CSS.escape(a.id)}` : k ? `[${k}="${CSS.escape(a.getAttribute(k))}"]` : '';
+    // (R11 round 6: the focus on a native button or its twin comes back to whichever of the two is the control after the redraw)
+    const twin = a.closest('.cx-twin[data-cx-start]');
+    if (twin) pick = `.cx-twin[data-cx-start="${CSS.escape(twin.dataset.cxStart)}"] button:not([hidden])`;
   }
   root.replaceChildren(...kids);
   if (pick) { const back = root.querySelector(pick); if (back instanceof HTMLElement) back.focus({ preventScroll: true }); }
@@ -527,12 +654,9 @@ function ownTurn(t, i) {
   else if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, `✕ failed: ${t.words || 'no answer'}`));
   if (t.notice) meta.append(h('span', null, t.notice));
   // R11 round 4: each tool as a line with its outcome (H169's `tool` events), as they come
-  const toolLines = (t.tools || []).length ? h('div', { class: 'cx-act-tools cx-own-tools' }, ...(t.tools || []).map((x) => h('p', { class: 'cx-act-line', 'data-tool': x.name }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, x.status === 'completed' ? '●' : x.status === 'failed' ? '✕' : '○'), ` ${x.name} · ${x.status}${x.receipt ? ` · its own receipt ${receiptShort(x.receipt)}` : ''}`))) : null;
+  const toolLines = (t.tools || []).length ? h('div', { class: 'cx-act-tools cx-own-tools' }, ...(t.tools || []).map((x) => h('p', { class: 'cx-act-line', 'data-tool': x.name }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, x.status === 'ran' || x.status === 'completed' ? '●' : x.status === 'failed' || x.status === 'refused' ? '✕' : '○'), ` ${x.name} · ${x.status}${x.receipt ? ` · its own receipt ${receiptShort(x.receipt)}` : ''}`))) : null;
   // NEEDS-YOU: the question inline with its options; the choice goes back to the turn
-  const needs = t.needs ? h('div', { class: 'cx-needs', role: 'group', 'aria-label': 'Timmy needs you', 'data-needs': t.needs.id },
-    h('p', { class: 'cx-needs-k' }, 'Needs you'), h('p', null, t.needs.words),
-    t.needs.answered ? h('p', { class: 'cx-act-sub' }, `└ answered: ${t.needs.answered}`) : h('div', { class: 'cx-needs-opts' }, ...(t.needs.options.length ? t.needs.options : ['yes', 'no']).map((o) => h('button', { type: 'button', class: 'cx-btn', 'data-cx-answer': String(typeof o === 'string' ? o : o.id || o.value || ''), 'data-cx-answer-id': t.needs.id }, typeof o === 'string' ? o : (o.label || o.id || String(o.value || ''))))),
-    t.needs.failed ? h('p', { class: 'cx-act-sub' }, `└ ${t.needs.failed}`) : null) : null;
+  const needs = needsBlock(t);
   const li = h('li', { class: `cx-turn is-timmy is-${t.state}`, 'data-own': String(i), ...(t.id ? { 'data-turn-id': t.id } : {}) }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '>_'), who, textBlock(t.answer || ''), toolLines, needs, meta);
   // the evidence line from `done`: the sealed receipt (✓ only when the companion said it verified), else no receipt
   if (t.state !== 'streaming') {
@@ -542,6 +666,39 @@ function ownTurn(t, i) {
   if (t.answer) li.append(h('div', { class: 'cx-actions' }, h('button', { type: 'button', class: 'cx-link', 'data-cx-copy-text': '1' }, 'Copy text')));
   frag.append(li);
   return frag;
+}
+
+/**
+ * The NEEDS-YOU box of a turn (the question, its options; then the answer or the failure): kept across the running turn's 1 s
+ * redraws by the ask's id and what it shows, so the native ActionButton mounted in it (R11 round 6) is made ONCE and moves with
+ * its li; a new box only when the ask changes (answered, failed). Each option: the native button and its HTML twin, one action.
+ */
+const needsBoxes = new Map();
+function needsBlock(t) {
+  const n = t.needs;
+  if (!n) return null;
+  const key = `${n.answered || ''}|${n.failed || ''}|${n.words}|${(n.options || []).map((o) => (typeof o === 'string' ? o : o.id || o.value || '')).join(',')}`;
+  const had = needsBoxes.get(n.id);
+  if (had && had.key === key) return had.box;
+  if (had) letGoTwins(had.box);
+  const opts = (n.options.length ? n.options : ['yes', 'no']).map((o) => {
+    const choice = String(typeof o === 'string' ? o : o.id || o.value || '');
+    const label = typeof o === 'string' ? o : (o.label || o.id || String(o.value || ''));
+    const btn = h('button', { type: 'button', class: 'cx-btn', 'data-cx-answer': choice, 'data-cx-answer-id': n.id }, label);
+    // (the answer in flight: every option's native button and twin off until the ask is drawn as answered)
+    const act = () => { for (const w of box.querySelectorAll('.cx-twin')) { const b = w.querySelector('[data-cx-answer]'); if (b) b.disabled = true; if (w.riveHandle && typeof w.riveHandle.setDisabled === 'function') { try { w.riveHandle.setDisabled(true); } catch (e) { /* the pose stands */ } } } answerNeedsYou(n.id, choice); };
+    return twinActionButton(btn, label, act, { class: 'cx-needs-opt' });
+  });
+  const box = h('div', { class: 'cx-needs', role: 'group', 'aria-label': 'Timmy needs you', 'data-needs': n.id },
+    h('p', { class: 'cx-needs-k' }, 'Needs you'), h('p', null, n.words),
+    n.answered ? h('p', { class: 'cx-act-sub' }, `└ answered: ${n.answered}`) : h('div', { class: 'cx-needs-opts' }, ...opts),
+    n.failed ? h('p', { class: 'cx-act-sub' }, `└ ${n.failed}`) : null);
+  needsBoxes.set(n.id, { key, box });
+  return box;
+}
+/** The native buttons of a box that is let go: their runtime instances with them (H174's handle.unmount). */
+function letGoTwins(box) {
+  for (const w of box.querySelectorAll('.cx-twin')) { if (w.riveHandle && typeof w.riveHandle.unmount === 'function') { try { w.riveHandle.unmount(); } catch (e) { /* gone */ } } }
 }
 
 function routeOf(v) { return (v && v.route) || null; }
@@ -592,6 +749,7 @@ function drawChat() {
   drawRunning();
   drawOwn();
   drawEmpty();
+  drawConsole();
   drawRoute();
   drawComposer();
   drawControls();
@@ -723,7 +881,7 @@ function drawEmpty() {
   const st = centerState();
   document.body.dataset.chatState = st;
   const away = st === 'first-run' || st === 'setup';
-  for (const el of [document.querySelector('.cx-head'), $('cx-turns'), $('cx-route'), $('cx-composer'), document.querySelector('.cx-hint')]) if (el) el.hidden = away;
+  for (const el of [document.querySelector('.cx-head'), $('cx-turns'), $('cx-route'), $('cx-composer'), document.querySelector('.cx-hint'), $('cx-console')]) if (el) el.hidden = away;
   box.hidden = !['first-run', 'setup', 'no-model', 'empty'].includes(st);
   if (box.hidden) return;
   const r = routeOf(cx.view);
@@ -762,9 +920,29 @@ function drawEmpty() {
     h('span', { class: 'sh-mark is-big cx-welcome-mark', 'aria-hidden': 'true' }, h('canvas', { 'data-timmy-mark': '' }), h('span', { class: 'sh-mark-text' }, 'T')),
     h('h2', { class: 'cx-title cx-welcome-title' }, 'What would you like to make?'),
     h('p', { class: 'cx-welcome-line' }, 'Your models, tools and ideas share one workspace.'),
-    h('div', { class: 'cx-ways cx-starters' }, ...STARTERS.map((a) => h('button', { type: 'button', class: 'cx-way cx-way-compact', 'data-cx-start': a.id },
-      h('span', { class: 'cx-way-glyph', 'aria-hidden': 'true' }, a.glyph), h('span', { class: 'cx-way-title' }, a.title), h('span', { class: 'cx-way-words' }, a.words))))]);
+    h('div', { class: 'cx-ways cx-starters' }, ...starterButtons())]);
   drawMarks();
+}
+
+/**
+ * The welcome's three starters; the FIRST (the primary) is the native ActionButton (R11 round 6) with the HTML card as its twin,
+ * made once and kept across the welcome's redraws (the component is not mounted again). The wrapper carries data-cx-start, as
+ * the card did, so the row reads as three starters; a click on the native face is the face's own (startWith through its action).
+ */
+let primaryStarter = null;
+function starterButtons() {
+  return STARTERS.map((a, i) => {
+    const card = (attrs) => h('button', { type: 'button', class: 'cx-way cx-way-compact', ...attrs },
+      h('span', { class: 'cx-way-glyph', 'aria-hidden': 'true' }, a.glyph), h('span', { class: 'cx-way-title' }, a.title), h('span', { class: 'cx-way-words' }, a.words));
+    if (i !== 0) return card({ 'data-cx-start': a.id });
+    if (primaryStarter) return primaryStarter;
+    const htmlCard = card({});
+    const twin = twinActionButton(htmlCard, a.title, () => startWith(a.id), { tag: 'div', class: 'cx-way-twin', attrs: { 'data-cx-start': a.id }, words: a.words });
+    // (no bindings on the page: the card itself, as before; nothing is kept)
+    if (twin.dataset.rive === 'none') { htmlCard.setAttribute('data-cx-start', a.id); return htmlCard; }
+    primaryStarter = twin;
+    return twin;
+  });
 }
 
 /** The four starter actions (the plan's section 2; the terminal's words): each a real action this page has today, never a tour. */
@@ -1069,6 +1247,8 @@ async function sendNow() {
 function endOwnTurn(turn, controller) {
   if (!turn.ended) turn.ended = Date.now();
   if (cx.running === controller) { cx.running = null; cx.runningTurn = null; }
+  for (const { box } of needsBoxes.values()) letGoTwins(box);
+  needsBoxes.clear(); // (the turn's asks are over: their boxes, and the native buttons in them, are not kept)
   drawChat();
   drawStatus();
 }
@@ -1719,6 +1899,10 @@ document.addEventListener('click', (event) => {
   if (at.closest('#rail-new')) { toggleNewProject($('rail-new-note').hidden); return; }
   // R11 round 4: New conversation: this page's own turns put away and the draft cleared (the project's saved conversation stays)
   if (at.closest('#rail-new-conv')) { newConversation(); return; }
+  // R11 round 6: a click on a native ActionButton's face is the face's own (its action fires on the bindings' trusted trigger);
+  // nothing here acts on it twice. The console band's fold: the face hidden or shown, the word always there
+  if (at.closest('.cx-rive-host')) return;
+  if (at.closest('#cx-console-toggle')) { const band = $('cx-console'); if (band) setConsoleFold(!band.classList.contains('is-folded'), true); return; }
   const answer = at.closest('[data-cx-answer]');
   if (answer) { answerNeedsYou(answer.dataset.cxAnswerId, answer.dataset.cxAnswer); return; }
   const userProject = at.closest('[data-cx-project]');

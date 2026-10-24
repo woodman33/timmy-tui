@@ -142,27 +142,30 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
       // R11 round 5 (H174's ask): the welcome's T mark asks for its FILE only when the companion says it is there (GET
-      // /assets/mark.json: mark) — on H174's tree the runtime IS on the page (the Rive UI components' own file, timmy-ui.riv,
-      // loads window.rive) and the mark's file is not: drawing on the runtime's presence alone asked /assets/timmy-mark.riv and
-      // wrote "Failed to fetch the Rive file: HTTP 404" to the console per canvas. This fixture holds no .riv at all (the
-      // bindings' own loader rightly loads no runtime then), so a runtime OBJECT is put on the page as those components would
-      // leave it — window.rive.Rive, recording every construction — the marks are drawn again, and the mark's file is neither
-      // asked for nor constructed: the page's one read is mark.json
+      // /assets/mark.json: mark) — the runtime IS on the page (R11 round 6: the native UI components' own file, timmy-ui.riv,
+      // served here and drawn in the Chat's console band and the primary starter, loads window.rive) and the mark's file is
+      // not: drawing on the runtime's presence alone asked /assets/timmy-mark.riv and wrote "Failed to fetch the Rive file:
+      // HTTP 404" to the console per canvas. The runtime's Rive is wrapped to record every construction (put on the page when
+      // no runtime is here), the marks are drawn again, and the mark's file is neither asked for nor constructed: of the mark
+      // the page's one read is mark.json; the only .riv asked for is the native UI's
       await page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => new URL(e.name).pathname === '/assets/mark.json'), null, { timeout: 10_000 });
       await page.evaluate(() => {
         const made: unknown[] = [];
-        (window as unknown as { rive: unknown }).rive = { Rive: class { constructor(o: unknown) { made.push(o); } }, made };
+        const w = window as unknown as { rive?: { Rive?: new (o: unknown) => unknown; made?: unknown[] } };
+        if (w.rive && typeof w.rive.Rive === 'function') { const Real = w.rive.Rive; w.rive.Rive = function Recorded(this: unknown, o: unknown) { made.push(o); return new Real(o); } as unknown as new (o: unknown) => unknown; w.rive.made = made; }
+        else w.rive = { Rive: class { constructor(o: unknown) { made.push(o); } }, made };
       });
       // @ts-expect-error -- drawMarks is a function of the page's classic script chat-shell.js
       await page.evaluate(() => { drawMarks(); });
       await page.waitForTimeout(1_000);
       const rive = await page.evaluate(() => ({
         made: (window as unknown as { rive: { made: unknown[] } }).rive.made.length,
-        asked: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => /\.riv$|\/vendor\/rive\/|\/assets\/mark\.json$/.test(p)),
+        asked: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => /\.riv$|\/assets\/mark\.json$/.test(p)),
         started: [...document.querySelectorAll('canvas[data-timmy-mark]')].map((c) => c.getAttribute('data-rive-started')),
       }));
       expect(rive.made).toBe(0);
-      expect(rive.asked.filter((p) => p !== '/assets/mark.json')).toEqual([]);
+      expect(rive.asked.filter((p) => /timmy-mark\.riv$/.test(p))).toEqual([]);
+      expect(rive.asked.filter((p) => /\.riv$/.test(p)).every((p) => p === '/assets/rive/timmy-ui/timmy-ui.riv')).toBe(true);
       expect(rive.asked).toContain('/assets/mark.json');
       expect(rive.started.length).toBeGreaterThan(0);
       expect(rive.started.every((s) => s === null)).toBe(true);
@@ -198,6 +201,33 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       ]);
       const tops = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBe(1);
+      // R11 round 6 (the operator's order of 06:32): the native AgentConsole IN the chat — a band above the route line, open at
+      // this size, the state word idle beside the face (HTML, aria-live), the face at a readable size in the artboard's own
+      // proportions (640 × 380); the band folds to the word by its button (the face hidden, the word still read) and opens again;
+      // the welcome's primary starter is the native ActionButton with the card as its twin (one control at a time); the route
+      // line's button stays the stop before the textarea
+      const band = await page.$eval('#cx-console', (b) => ({ hidden: (b as HTMLElement).hidden, folded: b.classList.contains('is-folded'), expanded: b.querySelector('#cx-console-toggle')?.getAttribute('aria-expanded'), artboard: b.querySelector('[data-rive-component]')?.getAttribute('data-artboard'), word: b.querySelector('[data-rive-status]')?.textContent?.trim(), live: b.querySelector('[data-rive-status]')?.getAttribute('aria-live'), bottom: Math.round(b.getBoundingClientRect().bottom) }));
+      expect(band).toMatchObject({ hidden: false, folded: false, expanded: 'true', artboard: 'AgentConsole', word: 'idle', live: 'polite' });
+      expect(band.bottom).toBeLessThanOrEqual(Math.round(await page.$eval('#cx-route', (e) => e.getBoundingClientRect().top)) + 1);
+      const face = await page.$eval('#cx-console .tr-face', (e) => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), visible: r.width > 0 && r.height > 0 }; });
+      expect(face.visible).toBe(true);
+      expect(face.h).toBeGreaterThanOrEqual(120);
+      expect(Math.abs(face.w / face.h - 640 / 380)).toBeLessThan(0.06);
+      await page.click('#cx-console-toggle');
+      expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('false');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
+      expect(await page.isVisible('#cx-console [data-rive-status]')).toBe(true);
+      expect(await text(page, '#cx-console [data-rive-status]')).toBe('idle');
+      await page.click('#cx-console-toggle');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(true);
+      await page.waitForFunction(() => ['drawn', 'words'].includes(document.querySelector('#cx-empty .cx-way-twin')?.getAttribute('data-rive') ?? ''), null, { timeout: 15_000 });
+      const starter = await page.$eval('#cx-empty .cx-way-twin', (t) => ({ rive: t.getAttribute('data-rive'), start: t.getAttribute('data-cx-start'), cardHidden: (t.querySelector('.cx-way') as HTMLElement | null)?.hidden ?? null, face: t.querySelector('.cx-rive-host button.tr-face')?.getAttribute('aria-label') ?? null, words: t.querySelector('.cx-rive-host .cx-twin-words')?.textContent ?? null }));
+      expect(starter.start).toBe('plan');
+      if (starter.rive === 'drawn') expect(starter).toMatchObject({ cardHidden: true, face: 'Plan a project', words: 'Turn an idea into the next step.' });
+      else expect(starter).toMatchObject({ cardHidden: false, face: null });
+      await page.focus('#cx-input');
+      await page.keyboard.press('Shift+Tab');
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-change');
       // the line above the composer: the route is ready, so the next turn's model
       expect(await text(page, '#cx-route')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer Change model');
       // the composer: "Message Timmy…", + Attach, ⌘ Tools, Send ↑ (off until typed), the two notes
@@ -343,6 +373,16 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       const tops = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBe(3);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      // R11 round 6: on a phone the console band starts FOLDED to its word (the face hidden); a tap opens it, inside the viewport
+      expect(await page.$eval('#cx-console', (b) => ({ hidden: (b as HTMLElement).hidden, folded: b.classList.contains('is-folded'), expanded: b.querySelector('#cx-console-toggle')?.getAttribute('aria-expanded'), word: b.querySelector('[data-rive-status]')?.textContent?.trim() }))).toEqual({ hidden: false, folded: true, expanded: 'false', word: 'idle' });
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
+      await page.click('#cx-console-toggle');
+      expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('true');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(true);
+      expect(await page.$eval('#cx-console .tr-face', (e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth + 1; })).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      await page.click('#cx-console-toggle');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
       await page.click('#cx-menu');
       await page.waitForSelector('#shell-rail:visible', { timeout: 5_000 });
       expect(await texts(page, '#rail-menu .rail-item .rail-label')).toContain('Models & accounts');

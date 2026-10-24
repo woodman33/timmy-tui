@@ -27,7 +27,7 @@ import type { Browser, Page } from 'playwright';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { browserPath, launchBrowser, openPage, landWorkspace } from './helpers/companion-page-kit.js';
 import { appendReceipt } from '../src/utils/receipts.js';
-import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+import { startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const FIXTURE = join(__dirname, 'fixtures', 'openrouter-public-catalog-2026-10-22.json');
 interface FixtureModel { id: string; name: string; created?: number; pricing?: Record<string, string>; architecture?: { output_modalities?: string[] } }
@@ -113,7 +113,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       models,
       // (R11 step 2: three chunks 250 ms apart, so the turn streams long enough for its indicator to be read; R11 round 5: a
       // second turn that never answers, stopped from the page — the activity component's feed on Stop)
-      chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 }), () => ({ hang: true })],
+      // (R11 round 6: the NEEDS-YOU case after the first — the FAKE model asks for write_project_file, which asks the person; answered
+      // once, the tool runs and the model says Written.)
+      chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 }), () => ({ hang: true }),
+        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-r6.md', content: 'from the FAKE model, allowed once on the page\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Written.']) })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
     writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: MODELS }));
@@ -551,6 +554,72 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
     } finally {
       await context.close();
     }
+  }, 180_000);
+
+  it('R11 round 6: NEEDS-YOU answered through the native ActionButton (timmy-ui.riv) when it draws, its HTML twin when it does not — the one answer goes POST /api/chat/answer through the existing gate, the tool runs, the file is written; the console band reads the turn', async () => {
+    const { context, page, errors } = await openPage(browser, { origin }, { width: 1440, height: 900 });
+    page.setDefaultTimeout(30_000);
+    const answers: string[] = [];
+    page.on('request', (r) => { if (/\/api\/chat\/answer$/.test(new URL(r.url()).pathname)) answers.push(r.postData() ?? ''); });
+    try {
+      await page.goto(`${origin}/#t=${token}`);
+      await landWorkspace(page);
+      await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
+      // the FAKE's queue: the first case used its two scripted answers; this case's tool call is next (said here if the order moved)
+      expect(ollama.chats().length, 'the FAKE\'s /api/chat requests before this case (its tool-call script is the third)').toBe(2);
+      // the console band: present above the route line with the state word idle before the turn; the band's toggle and the face
+      // never hold the focus the composer has
+      expect(await page.isVisible('#cx-console')).toBe(true);
+      expect(await text(page, '#cx-console [data-rive-status]')).toBe('idle');
+      await page.focus('#cx-input');
+      await page.keyboard.press('Shift+Tab');
+      expect(await page.evaluate(() => document.activeElement?.id), 'the stop before the textarea is the route line\'s button, as before the band').toBe('cx-change');
+      await page.focus('#cx-input');
+      await page.keyboard.type('write notes');
+      await page.keyboard.press('Enter');
+      // the ask: the box with its three options (the server's: once · session · deny), each a native button and its HTML twin
+      await page.waitForSelector('#cx-own .cx-needs', { timeout: 30_000 });
+      expect(await page.$$eval('#cx-own .cx-needs [data-cx-answer]', (els) => els.map((e) => e.getAttribute('data-cx-answer')))).toEqual(['once', 'session', 'deny']);
+      expect(await text(page, '#cx-console [data-rive-status]')).toBe('awaiting approval');
+      // the component settles: drawn (the native face the control, the twin hidden) or words (the twin the control, no empty host);
+      // never both controls at once, and never an answer sent on its own
+      await page.waitForFunction(() => [...document.querySelectorAll('#cx-own .cx-needs .cx-twin')].every((t) => t.getAttribute('data-rive') === 'drawn' || t.getAttribute('data-rive') === 'words' || t.getAttribute('data-rive') === 'none'), null, { timeout: 15_000 });
+      const twins = await page.$$eval('#cx-own .cx-needs .cx-twin', (els) => els.map((t) => ({ rive: t.getAttribute('data-rive'), label: t.querySelector('[data-cx-answer]')?.textContent?.trim(), twinHidden: (t.querySelector('[data-cx-answer]') as HTMLElement | null)?.hidden ?? null, face: t.querySelector('.cx-rive-host button.tr-face') !== null, faceLabel: t.querySelector('.cx-rive-host button.tr-face')?.getAttribute('aria-label') ?? null, hosts: t.querySelectorAll('.cx-rive-host').length })));
+      expect(twins.map((t) => t.label)).toEqual(['once', 'session', 'deny']);
+      const drawn = twins[0].rive === 'drawn';
+      for (const t of twins) {
+        expect(t.rive).toBe(twins[0].rive);
+        if (drawn) expect(t).toMatchObject({ twinHidden: true, face: true, faceLabel: t.label, hosts: 1 });
+        else expect(t).toMatchObject({ twinHidden: false, face: false, hosts: 0 });
+      }
+      expect(answers).toEqual([]);
+      // a redraw of the running turn (every second) keeps the same box: the native button is not mounted again
+      const boxId = await page.$eval('#cx-own .cx-needs', (e) => { (e as HTMLElement).dataset.pin = 'same-box'; return e.getAttribute('data-needs'); });
+      await page.waitForTimeout(1_500);
+      expect(await page.$eval('#cx-own .cx-needs', (e) => (e as HTMLElement).dataset.pin)).toBe('same-box');
+      // the answer "once": the native face (a real click on it) when drawn, else the twin; ONE POST /api/chat/answer { id, choice },
+      // answered 200 by the existing route (the FAKE answers Written. right after, so the box's "answered" line is not waited on)
+      const answered = page.waitForResponse((r) => /\/api\/chat\/answer$/.test(new URL(r.url()).pathname), { timeout: 15_000 });
+      if (drawn) await page.click('#cx-own .cx-needs .cx-twin:nth-child(1) .cx-rive-host button.tr-face');
+      else await page.click('#cx-own .cx-needs [data-cx-answer="once"]');
+      const res = await answered;
+      // (the status only: the page reads the answer's body only when it is not ok, and Playwright's response.json() on a body the
+      // page never reads waits for the context's close — round 5's lesson)
+      expect(res.status()).toBe(200);
+      expect(answers).toHaveLength(1);
+      expect(JSON.parse(answers[0])).toEqual({ id: boxId, choice: 'once' });
+      // the real action behind the gate: the tool ran where the turn runs (the project's folder), the model's answer followed, the
+      // turn sealed; the console reads idle again
+      await page.waitForFunction(() => document.querySelector('#cx-own li.cx-turn.is-timmy.is-answered') !== null, null, { timeout: 30_000 });
+      expect(readFileSync(join(box, 'tray', 'notes-r6.md'), 'utf8')).toBe('from the FAKE model, allowed once on the page\n');
+      expect(await page.$$eval('#cx-own .cx-act-line[data-tool="write_project_file"]', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual([expect.stringMatching(/^● write_project_file · ran$/)]);
+      expect(await page.$eval('#cx-own li.cx-turn.is-timmy .cx-text', (e) => e.textContent)).toBe('Written.');
+      expect(await text(page, '#cx-console [data-rive-status]')).toBe('idle');
+      expect(await page.evaluate(() => document.activeElement?.closest('#cx-console') !== null)).toBe(false);
+      expect(answers, 'one answer, and no second one from the twin or the face').toHaveLength(1);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
   }, 180_000);
 
   it('at 1280 × 720 the composer, its chip and Send read as at 1440 (the rail beside them); the conversation takes the height first: the composer one row until typed in, the chip whole with Send on its row, the first answer above the fold (R51, R52)', async () => {

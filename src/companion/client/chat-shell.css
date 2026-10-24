@@ -495,3 +495,60 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
   .cx-crumb .cx-proj { max-width: 40vw; }
   .cx-older { padding: 10px 14px 18px; }
 }
+
+/* ── R11 round 6 (H171; the operator's order of 06:32): the native Rive UI in the Chat ── */
+/* the console band above the route line: the native AgentConsole through H174's mount (the face, the state word beside it,
+   aria-live; src/companion/client/rive-components.css draws the component). One place, before the first turn and through every
+   turn; folded (the face hidden, never the word) by its button; the face's height follows the window so the conversation keeps its
+   height: 20 % of a 900 px window is 180 px (the native 640 × 380 at 47 %: its text reads), never under 120 or over 190 */
+.cx-console { margin: 8px 0 2px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); }
+.cx-console-head { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 2px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
+.cx-console-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text); font: inherit; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.cx-console-toggle:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+.cx-console-caret { display: inline-block; }
+.cx-console.is-folded .cx-console-caret { transform: rotate(-90deg); }
+.cx-console-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-console-body { padding: 0 8px 8px; }
+#cx-console .tr-component[data-artboard] { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; align-items: center; width: 100%; }
+#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { width: auto; height: clamp(120px, 20vh, 190px); aspect-ratio: 640 / 380; }
+#cx-console .tr-component .tr-words { font-size: 13px; }
+#cx-console .tr-component .tr-status { font-size: 14px; }
+/* folded: ONE row — the toggle, then the state word and its note (the face hidden, never the word); the conversation keeps the height */
+.cx-console.is-folded { display: flex; align-items: center; gap: 10px; min-height: 28px; }
+.cx-console.is-folded .cx-console-head { flex: 0 0 auto; }
+.cx-console.is-folded .cx-console-note { display: none; }
+.cx-console.is-folded .cx-console-body { flex: 1; min-width: 0; padding: 0 8px 0 0; }
+.cx-console.is-folded .cx-console-body .tr-face { display: none; }
+.cx-console.is-folded .cx-console-body .tr-component[data-artboard] { display: block; }
+.cx-console.is-folded .cx-console-body .tr-words { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.cx-console.is-folded .cx-console-body .tr-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-height: 760px) { .cx-console { margin: 4px 0 0; } .cx-console-head, .cx-console.is-folded { min-height: 26px; } }
+/* a native ActionButton and its HTML twin (chat-shell.js twinActionButton): one control shows at a time; while the file loads
+   the host is laid out (the runtime needs its size) but out of view and out of the tab order (visibility), the twin the control */
+.cx-twin { display: inline-grid; position: relative; min-width: 0; }
+.cx-twin > .cx-way[hidden], .cx-twin > .cx-btn[hidden] { display: none; } /* (the twin's own display rule would keep a hidden card on the page) */
+.cx-rive-host { display: inline-grid; gap: 4px; justify-items: start; }
+.cx-rive-host.is-loading { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; }
+.cx-rive-host .tr-component, .cx-rive-host .tr-component[data-artboard] { display: inline-grid; grid-template-columns: 1fr; gap: 4px; justify-items: start; }
+/* the word beside a native button IS its label (the native text is the asset's own): read under the face, 13 px, in the text colour */
+.cx-rive-host .tr-component .tr-words { font-size: 13px; }
+.cx-rive-host .tr-component .tr-status { font-size: 13px; color: var(--timmy-text); }
+.cx-rive-host .tr-face .tr-fallback { font-size: 14px; font-weight: var(--timmy-weight-strong); }
+/* the native buttons at 180 × 54 (the artboard's 240 × 72 at 75 %) so once · session · deny sit in one row of the turn's box */
+#cx-own .cx-needs .cx-rive-host .tr-face { width: 180px; height: auto; aspect-ratio: 240 / 72; }
+#cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 200px; height: auto; aspect-ratio: 240 / 72; }
+.cx-needs-opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: start; }
+/* the welcome's primary starter: the native button in the first starter's cell, its words under it; the card is its twin */
+.cx-way-twin { display: grid; }
+.cx-way-twin .cx-rive-host:not(.is-loading) { padding: 8px 14px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; }
+.cx-way-twin .cx-twin-words { font-size: 13px; color: var(--timmy-text-secondary); }
+@media (max-width: 760px) {
+  .cx-console { margin-top: 6px; }
+  .cx-console-head { padding: 2px 6px; }
+  .cx-console-body { padding: 0 6px 6px; }
+  /* opened on a phone: the face above its words, never a thin column beside it */
+  #cx-console .tr-component[data-artboard] { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  #cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { max-width: 100%; }
+  .cx-console-note { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .cx-console-caret { transition: none; } }
