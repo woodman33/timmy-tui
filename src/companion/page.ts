@@ -80,12 +80,20 @@ const CONNECT_ORIGIN = /^ https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i;
 export function setPagePolicyConnect(extra: string): void {
   policyConnect = typeof extra === 'string' && CONNECT_ORIGIN.test(extra) ? extra : '';
 }
+/**
+ * R11 round 4 (H171, step 3): the T mark's Rive runtime compiles WebAssembly (its rive.wasm, served by this companion from
+ * /vendor/rive/), which the policy allows only with the keyword 'wasm-unsafe-eval' — a keyword, not a host: script-src names
+ * no origin but 'self' either way. Set by mountMark only when the mark's file is here to draw; without it the page loads no
+ * runtime and the policy stays as it was.
+ */
+let policyWasm = false;
+export function setPagePolicyWasm(on: boolean): void { policyWasm = on === true; }
 
 export function pagePolicy(host: string | undefined): string {
   const socket = typeof host === 'string' && HOST.test(host) ? ` ws://${host}` : '';
   return [
     "default-src 'none'",
-    "script-src 'self'",
+    `script-src 'self'${policyWasm ? " 'wasm-unsafe-eval'" : ''}`,
     PAGE_STYLE_SRC,
     "font-src 'self'",
     PAGE_IMG_SRC,
@@ -193,6 +201,9 @@ export function markDir(assetsDir?: string): string {
 }
 export function mountMark(app: express.Application, assetsDir?: string): void {
   const dir = markDir(assetsDir);
+  // the policy's WebAssembly keyword only when there is a mark to draw and a runtime to draw it with (see setPagePolicyWasm)
+  const rive = riveDir();
+  setPagePolicyWasm(existsSync(join(dir, 'timmy-mark.riv')) && rive !== null && existsSync(join(rive, 'rive.wasm')));
   app.get('/assets/:file', (req, res, next) => {
     const file = String(req.params.file);
     const type = MARK_FILES[file];

@@ -621,7 +621,7 @@ body.slate-absent p { max-width: 72ch; }
 .run-table th { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); }
 .run-link { background: none; border: 0; padding: 0; color: var(--timmy-link); font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
-/* ---------- the STREAMDOWN CHAT island (this page's own chat with a model) ---------- */
+/* ---------- the STREAMDOWN CHAT island (the older view; since R11 round 4 it sends nothing) ---------- */
 
 #streamdown-root {
   flex-grow: 1;
@@ -1576,7 +1576,7 @@ body.slate-absent p { max-width: 72ch; }
 .sh-head-brand { display: inline-flex; align-items: center; gap: 12px; font-size: 22px; font-weight: var(--timmy-weight-heading); letter-spacing: 0.02em; color: var(--timmy-text); }
 .sh-steps { display: flex; gap: 28px; font-size: 13px; color: var(--timmy-text-secondary); }
 .sh-step { display: inline-flex; align-items: baseline; gap: 8px; }
-.sh-step b { font-weight: var(--timmy-weight-body); font-size: 11px; letter-spacing: 0.1em; }
+.sh-step b { font-weight: var(--timmy-weight-body); font-size: 13px; letter-spacing: 0.1em; }
 .sh-step.is-current { color: var(--timmy-accent); }
 .sh-head-words { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; white-space: nowrap; }
 .sh-foot { display: flex; justify-content: space-between; gap: 16px; padding: 18px 48px; margin-top: auto; font-size: 13px; color: var(--timmy-text-secondary); }
@@ -1603,7 +1603,7 @@ body.slate-absent p { max-width: 72ch; }
 .sh-btn-text { padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .sh-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; }
 /* the tiny uppercase label, the state word, the fine print, the divider */
-.sh-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.sh-label { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); } /* (13 px like the rail's section labels: the Chat composition's floor; the preview's label is smaller, which R10's legibility pin forbids) */
 .sh-state { font-size: 13px; color: var(--timmy-text-secondary); }
 .sh-state.is-live { color: var(--timmy-live); }
 .sh-state.is-attn { color: var(--timmy-accent); }

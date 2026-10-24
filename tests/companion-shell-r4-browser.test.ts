@@ -12,7 +12,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Browser, Page } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
+type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { browserPath, launchBrowser, openPage } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
@@ -67,8 +68,8 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
   });
 
   /** The page opened with its token, landed by the shell's rule. */
-  async function land(c: CompanionServer, size: { width: number; height: number }) {
-    const o = await openPage(browser, { origin: urlOf(c) }, size);
+  async function land(c: CompanionServer, size: { width: number; height: number }, storageState?: StorageState) {
+    const o = await openPage(browser, { origin: urlOf(c) }, size, storageState);
     await o.page.goto(`${urlOf(c)}/#t=${tokenOf(c)}`);
     await o.page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
     return o;
@@ -114,14 +115,19 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await texts(page, '#rail-menu .rail-item .rail-label')).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'VoxVision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations']);
       expect(await page.getAttribute('#rail-menu .rail-item[data-dest="chat"]', 'aria-current')).toBe('page');
       expect(await page.getAttribute('#rail-menu .rail-item[data-shell-go]', 'data-shell-go')).toBe('connections');
-      expect(await text(page, '#rail-account')).toBe('T Not signed in this companion’s own workspace');
+      expect(await text(page, '#rail-avatar')).toBe('T');
+      expect(await text(page, '#rail-account-name')).toBe('Not signed in');
+      expect(await text(page, '#rail-account-sub')).toBe('this companion’s own workspace');
       expect(await page.isVisible('#rail-signout')).toBe(false);
       // the top line: "<project> / Chat", the state words, Connections
       expect(await text(page, '.cx-crumb')).toBe('fresh / Chat');
       expect(await text(page, '#cx-state-words')).toBe('Local logs · cloud sync off');
       expect(await text(page, '#cx-connections')).toBe('Connections');
       // the descriptor and the welcome
-      expect(await text(page, '#cx-descriptor')).toBe('Agent chat Think, make and check your work. FAKE model on this computer Local logs · cloud sync off');
+      expect(await text(page, '#cx-descriptor span > strong')).toBe('Agent chat');
+      expect(await text(page, '#cx-sub')).toBe('Think, make and check your work.');
+      expect(await text(page, '#cx-tag')).toBe('FAKE model on this computer');
+      expect(await text(page, '#cx-descriptor-state')).toBe('Local logs · cloud sync off');
       expect(await text(page, '#cx-empty .cx-welcome-title')).toBe('What would you like to make?');
       expect(await text(page, '#cx-empty .cx-welcome-line')).toBe('Your models, tools and ideas share one workspace.');
       expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent, e.querySelector('.cx-way-words')?.textContent]))).toEqual([
@@ -203,14 +209,21 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.fill('#cx-input', 'A draft that survives the reopen.');
       await page.waitForTimeout(200);
       expect(errors).toEqual([]);
+      // the browser closed and opened again: its profile's storage (localStorage) comes back, as a person's browser keeps it;
+      // it holds the screen and the draft only, never a token or a key
+      const kept = await context.storageState();
+      expect(JSON.stringify(kept)).not.toMatch(/[0-9a-f]{64}|sk-or-/);
+      expect(kept.origins.flatMap((o) => o.localStorage.map((e) => e.name)).sort()).toEqual(expect.arrayContaining(['timmy.shell.screen']));
       await context.close();
-      ({ context, page, errors } = await land(withRoute, { width: 1440, height: 900 }));
+      ({ context, page, errors } = await land(withRoute, { width: 1440, height: 900 }, kept));
       // not signed in: the landing rule lands on the account screen again (a remembered screen counts only when signed in)
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('account');
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
       expect(await page.inputValue('#cx-input')).toBe('A draft that survives the reopen.');
       // Send: this branch has no POST /api/chat/turn (H169's): the turn says so, nothing streams, nothing is invented
+      // (the shell gave the screen's heading the keyboard on arrival; a person clicks into the composer first)
+      await page.focus('#cx-input');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#cx-own .cx-turn.is-failed', { timeout: 20_000 });
       expect(await text(page, '#cx-own .cx-turn.is-failed .cx-end')).toContain('no POST /api/chat/turn yet');

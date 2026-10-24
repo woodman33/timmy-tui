@@ -59,6 +59,9 @@ const companion = (() => {
     },
     // Every request to the companion: the token in a header, never in the address; a 401 stops the page.
     fetch(path, init) {
+      // R11 round 4: through the shell when it is here (the session header rides; a session 401 goes to the account screen,
+      // a token 401 refuses the page as before)
+      if (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.fetch === 'function') return TimmyShell.fetch(path, init);
       const o = Object.assign({}, init || {});
       o.headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + token });
       o.credentials = 'omit';
@@ -381,7 +384,7 @@ function mirrorEmptyHtml() {
           <li>In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn's prompt and answer are sealed as hashes only). ${replWhereHtml()}</li>
           <li>In the Workbench (<span class="mirror-code">timmy workbench</span>), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor's turn is labelled Monitor. Every surface's turns are this project's one conversation, kept in its .sessions.</li>
         </ul>
-        <div>STREAMDOWN CHAT is this page's own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.</div>
+        <div>The older STREAMDOWN CHAT view sends nothing now: the chat is the agent turn in Chat (POST /api/chat/turn); its ✨ sample is labelled SAMPLE there and is never shown here.</div>
       </div>
     `;
 }
@@ -2203,8 +2206,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── R10 (H167): the project's conversation, where it continues and the route its next turn takes ──
-// This page's own Send is its own chat (H164's scope: no tools, no receipt); the project's conversation continues in the
-// Workbench (2 Chat) or the REPL, and the mirror says the route its next turn takes there, as their top lines say it
+// R11 round 4: this page's Send is the project's conversation too (POST /api/chat/turn, H169); the conversation continues in
+// the Workbench (2 Chat) or the REPL as well, and the mirror says the route its next turn takes there, as their top lines say it
 // (H164's routeNow for the Workbench), FAKE where its model's name says so. Asked when the Chat tab is shown, at most every
 // HOME_WORK_EVERY_MS.
 const projectRoute = { at: 0, asking: false, route: null, why: '' };

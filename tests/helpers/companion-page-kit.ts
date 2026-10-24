@@ -103,8 +103,9 @@ export async function pageProject(kit: OpsKit, o: { prefix?: string; records?: b
 }
 
 /** A page of the companion at `size`, every request to another origin refused; its errors collected. */
-export async function openPage(browser: Browser, p: Pick<PageProject, 'origin'>, size: { width: number; height: number }): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
-  const context = await browser.newContext({ viewport: { ...size }, deviceScaleFactor: 1 });
+export async function openPage(browser: Browser, p: Pick<PageProject, 'origin'>, size: { width: number; height: number }, storageState?: Awaited<ReturnType<BrowserContext['storageState']>>): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
+  // (R11 round 4: a saved storage state stands for the same browser opened again — a new context is otherwise a new profile)
+  const context = await browser.newContext({ viewport: { ...size }, deviceScaleFactor: 1, ...(storageState ? { storageState } : {}) });
   await context.route('**/*', (route) => (new URL(route.request().url()).origin === p.origin ? route.continue() : route.abort('blockedbyclient')));
   const page = await context.newPage();
   const errors: string[] = [];

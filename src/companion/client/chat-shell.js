@@ -6,8 +6,8 @@
 // What it draws comes from the companion, read only, never made up here: GET /api/chat/view (the project's saved
 // conversation, each answer's model from its sealed receipt, the route this page's Send takes, the free-only policy, each
 // provider's state, where the logs are) and GET /api/chat/models (one source's rows, sorted and filtered on the server).
-// The page's Send is POST /chat, its existing route: this page's own chat, not saved to the project's conversation, with no
-// tools and no receipt, and every turn it shows says so. Nothing here sends a key, a prompt or a request elsewhere.
+// The page's Send is POST /api/chat/turn (R11 round 4, H169's agent turn): the project's conversation, with the project's
+// tools and a sealed receipt, as the turn's evidence line says. Nothing here sends a key, a prompt or a request elsewhere.
 
 /* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader */
 
@@ -26,6 +26,8 @@ const cx = {
   running: null,
   /** the Models rail */
   models: { provider: 'openrouter', sub: 'local', q: { search: '', sort: 'recent', maker: '', capability: '', cost: '', context: '' }, answer: null, asking: 0, selected: '', chosenProvider: false },
+  /** R11 round 4: the model chip element, kept across the panel's redraws */
+  chipEl: null,
   /** R11 round 4: the user's projects (GET /api/projects) for the project box */
   userProjects: null,
   userProjectsAsking: false,
@@ -370,7 +372,7 @@ function evidence(key, model, rc, tools, extra) {
     });
   } else if (tools && tools.length) {
     tools.forEach((m) => lines.append(h('p', { class: 'cx-act-line' }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, '●'), ` ${m.tool || 'a tool'} · result kept in the conversation`), h('p', { class: 'cx-act-sub' }, `└ ${String(m.text || '').split('\n')[0].slice(0, 120)}`)));
-  } else lines.append(h('p', { class: 'cx-act-line is-none' }, rc ? 'No tool ran: the answer came from the model alone.' : 'No tools: this page’s own chat offers none.'));
+  } else lines.append(h('p', { class: 'cx-act-line is-none' }, rc ? 'No tool ran: the answer came from the model alone.' : 'No tool ran in this turn.'));
   act.append(h('p', { class: 'cx-act-k' }, 'Tools'), lines);
   // the receipt's facts, each named; a FAKE receipt in a test is said not verified, never ✓
   const facts = h('dl', { class: 'cx-facts' });
@@ -384,7 +386,7 @@ function evidence(key, model, rc, tools, extra) {
     add('Spend', rc.cost ? (rc.cost.usd === 0 ? 'none' : `$${rc.cost.usd.toFixed(4)}${rc.cost.measured ? ' (the whole charge reported)' : ' (a lower bound, not the whole charge)'}`) : 'not recorded');
     if (typeof rc.files === 'number') add('Files written', rc.files === 0 ? 'none' : String(rc.files));
   } else {
-    add('Receipt', 'none: this page’s own chat is not saved to the project and seals no receipt; the Workbench, the REPL and the monitor seal theirs');
+    add('Receipt', 'not sealed yet: the turn’s receipt is read back from the project’s conversation when it ends');
     if (extra && extra.cost) add('Spend', extra.cost);
   }
   act.append(h('p', { class: 'cx-act-k' }, 'Receipt'), facts);
@@ -506,7 +508,7 @@ function drawChat() {
     if (sub) sub.textContent = 'Think, make and check your work.';
     const facts = conv && conv.session
       ? `The project’s saved conversation, kept in its .sessions folder and continued by the Workbench, the REPL and the monitor: ${n} message${n === 1 ? '' : 's'}${conv.total > conv.turns.length ? `, the newest ${conv.turns.length} of ${conv.total} shown` : ''}. Each answer names the model its sealed receipt records.`
-      : 'No conversation saved here yet; this page’s own chat is not saved either.';
+      : 'No conversation saved here yet; the first turn sent from this page begins it.';
     turns.setAttribute('aria-label', facts); turns.title = facts;
     if (tag) { tag.hidden = !(v.route && v.route.kind === 'local' && fakeModel(v.route.model)); tag.textContent = 'FAKE model on this computer'; }
     const fakeTag = $('cx-fake-tag');
@@ -632,7 +634,7 @@ function drawOwn() {
   const saved = new Set((((cx.view && cx.view.conversation) || {}).turns || []).map((t) => t.receipt && (t.receipt.id || t.receipt.hash)).filter(Boolean));
   const mine = cx.own.filter((t) => !(t.receipt && saved.has(typeof t.receipt === 'string' ? t.receipt.slice(-8) : (t.receipt.id || t.receipt.hash))));
   if (!mine.length) { own.replaceChildren(); return; }
-  const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s own chat' });
+  const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s turns in the project’s conversation' });
   mine.forEach((t) => list.append(ownTurn(t, cx.own.indexOf(t))));
   own.replaceChildren(h('p', { class: 'cx-divider' }, 'This page’s turns · sealed to the project’s conversation as they end'), list);
 }
@@ -706,7 +708,7 @@ function drawEmpty() {
 const marks = [];
 function drawMarks() {
   const rv = typeof window !== 'undefined' && window.rive && window.rive.Rive ? window.rive : null;
-  if (!rv) return;
+  if (!rv) { loadMarkRuntime(); return; }
   try { if (rv.RuntimeLoader && !drawMarks.wasmSet) { rv.RuntimeLoader.setWasmUrl('/vendor/rive/rive.wasm'); drawMarks.wasmSet = true; } } catch (e) { return; }
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   for (const canvas of document.querySelectorAll('canvas[data-timmy-mark]:not([data-rive-started])')) {
@@ -718,6 +720,24 @@ function drawMarks() {
       marks.push(r);
     } catch (e) { delete canvas.dataset.loaded; }
   }
+}
+/**
+ * The mark's runtime (/vendor/rive/rive.js, the companion's own copy of @rive-app/canvas), loaded once and only when the companion
+ * serves the mark's file (a HEAD of /assets/timmy-mark.riv answers 200): without a mark to draw the page loads no runtime, compiles
+ * no WebAssembly and asks no CDN, and the text mark stays. (The page's policy allows the WebAssembly only then too: page.ts.)
+ */
+function loadMarkRuntime() {
+  if (drawMarks.runtime || typeof fetch !== 'function') return;
+  if (!document.querySelector('canvas[data-timmy-mark]')) return;
+  drawMarks.runtime = 'asking';
+  fetch('/assets/timmy-mark.riv', { method: 'HEAD', cache: 'no-store', credentials: 'omit' }).then((r) => {
+    if (r.status !== 200) { drawMarks.runtime = 'none'; return; }
+    const s = document.createElement('script');
+    s.src = '/vendor/rive/rive.js';
+    s.onload = () => { drawMarks.runtime = 'here'; drawMarks(); };
+    s.onerror = () => { drawMarks.runtime = 'none'; };
+    document.head.append(s);
+  }).catch(() => { drawMarks.runtime = 'none'; });
 }
 window.addEventListener('pagehide', () => { for (const r of marks) { try { r.cleanup(); } catch (e) { /* gone */ } } });
 
@@ -851,18 +871,19 @@ function drawChip() {
   chip.setAttribute('aria-expanded', modelsShown() ? 'true' : 'false');
 }
 
-// ── sending: POST /chat, this page's own chat, streamed ──
+// ── sending: POST /api/chat/turn, the project's conversation, streamed ──
 
 function saveDraft() {
   const input = $('cx-input');
   if (!input) return;
-  try { sessionStorage.setItem(DRAFT_KEY(cx.project && cx.project.id), input.value); } catch (e) { /* no storage here */ }
+  // R11 round 4: the draft survives the page closed and opened again (localStorage, by project; never a token, never a key)
+  try { if (input.value) localStorage.setItem(DRAFT_KEY(cx.project && cx.project.id), input.value); else localStorage.removeItem(DRAFT_KEY(cx.project && cx.project.id)); } catch (e) { /* no storage here */ }
 }
 function restoreDraft() {
   const input = $('cx-input');
   if (!input) return;
   let text = '';
-  try { text = sessionStorage.getItem(DRAFT_KEY(cx.project && cx.project.id)) || ''; } catch (e) { text = ''; }
+  try { text = localStorage.getItem(DRAFT_KEY(cx.project && cx.project.id)) || ''; } catch (e) { text = ''; }
   input.value = text;
   drawComposer();
 }
@@ -1091,7 +1112,9 @@ function readModels() {
 function nextTurnBlock() {
   const r = routeOf(cx.view);
   const c = choiceOf(cx.view);
-  const chip = $('cx-chip');
+  // (the chip is one element, kept across the panel's redraws: it moves into each new block)
+  const chip = $('cx-chip') || cx.chipEl;
+  if (chip) cx.chipEl = chip;
   const chosen = c && c.chosen ? c.model : r && r.ready ? r.model : '';
   const box = h('div', { class: 'cm-bottom', id: 'cx-next-turn' },
     h('span', { class: 'sh-label' }, 'Next turn'),
@@ -1249,7 +1272,7 @@ function drawModelsRail(o = {}) {
     h('button', { type: 'button', class: 'cx-panel-tab', role: 'tab', id: 'cx-panel-models', 'data-cx-panel': 'models', 'aria-selected': cx.panel === 'models' ? 'true' : 'false', tabindex: cx.panel === 'models' ? '0' : '-1' }, 'Models'),
     h('button', { type: 'button', class: 'cx-panel-tab', role: 'tab', id: 'cx-panel-tools', 'data-cx-panel': 'tools', 'aria-selected': cx.panel === 'tools' ? 'true' : 'false', tabindex: cx.panel === 'tools' ? '0' : '-1' }, 'Tools')));
   if (cx.panel === 'tools') {
-    kids.push(...toolsPanel());
+    kids.push(...toolsPanel(), nextTurnBlock());
     rail.replaceChildren(...kids);
     rail.dataset.panel = 'tools';
     return;
@@ -1384,7 +1407,7 @@ function drawControls() {
 
 function ctlButton(id, glyph, words, n, minor) {
   return h('button', { type: 'button', class: `cx-ctl${minor ? ' is-minor' : ''}`, 'data-cx-ctl': id, 'aria-expanded': cx.drawer === id ? 'true' : 'false', 'aria-controls': 'cx-drawer' },
-    h('span', { 'aria-hidden': 'true' }, glyph), words, n ? h('span', { class: 'cx-ctl-n' }, n) : null);
+    h('span', { 'aria-hidden': 'true' }, glyph), ' ', words, n ? [' ', h('span', { class: 'cx-ctl-n' }, n)] : null);
 }
 
 function drawerBody(id) {
@@ -1791,12 +1814,19 @@ $('cx-scroll')?.addEventListener('scroll', () => {
       const name = user ? String(user.username || user.email || user.id || 'Signed in') : 'Not signed in';
       $('rail-account-name').textContent = name;
       $('rail-account-sub').textContent = user ? 'your Timmy home' : 'this companion’s own workspace';
-      $('rail-avatar').textContent = (name.trim()[0] || 'T').toUpperCase();
+      $('rail-avatar').textContent = user ? (name.trim()[0] || 'T').toUpperCase() : 'T';
       $('rail-signout').hidden = !user;
     };
     drawAccount(TimmyShell.session.user());
     TimmyShell.on('session', ({ user }) => { drawAccount(user); cx.view = null; cx.userProjects = null; cx.toolsInv = null; cx.models.answer = null; if (cx.dest === 'chat') { readView(true); drawChat(); readModels(); } });
-    TimmyShell.on('screen', ({ id }) => { if (id === 'chat' && cx.dest === 'chat') { readView(true); drawChat(); readModels(); } });
+    TimmyShell.on('screen', ({ id }) => {
+      if (id !== 'chat' || cx.dest !== 'chat') return;
+      readView(true); drawChat(); readModels();
+      // the conversation read while this screen was hidden could not scroll (no height): shown, it opens at its end as a
+      // conversation does, unless a panel (the first run, a setup, the welcome) is what is shown
+      const s = $('cx-scroll');
+      if (s && cx.follow && !/^(first-run|setup|empty):/.test(cx.shownKey || '')) s.scrollTop = s.scrollHeight;
+    });
     $('rail-signout')?.addEventListener('click', () => {
       if (window.timmyAccount && typeof window.timmyAccount.signOut === 'function') { Promise.resolve(window.timmyAccount.signOut()).catch(() => undefined); return; }
       TimmyShell.session.clear();

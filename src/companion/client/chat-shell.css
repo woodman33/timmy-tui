@@ -95,9 +95,9 @@ body[data-dest="chat"] #ws-main { flex: 1; min-height: 0; padding: 0; margin: 0;
 body[data-dest="chat"] #ws-chat { flex: 1; min-height: 0; min-width: 0; display: block; overflow-y: auto; }
 body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 
-.cx { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; }
+.cx { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; grid-template-columns: minmax(0, 1fr); } /* (one column sized to the screen, never to the top line's longest row: on a phone the crumb shortens instead of pushing the page past the edge) */
 .cx-top { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 0 22px; border-bottom: 1px solid var(--timmy-line); }
-.cx-crumb { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; }
+.cx-crumb { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; } /* (the spaces around "/" in the markup are what a reader hears; the flex gap is what is drawn) */
 .cx-crumb .cx-proj { color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
 .cx-crumb .cx-sep { color: var(--timmy-text-secondary); }
 .cx-crumb .cx-here { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
@@ -427,8 +427,14 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-input-k { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .cx-field { margin-top: 10px; }
   .cx-hint #cx-hint-draft { display: none; }
-  .cx-hint { justify-content: flex-end; }
+  .cx-hint { justify-content: flex-end; padding-top: 4px; }
   .cx-head .cx-sub { display: none; }
+  /* R11 round 4: the descriptor row ("Agent chat · Think, make and check your work." with the state words the top line
+     carries too) gives its height to the conversation; the composer's foot and the route line sit closer */
+  .cx-descriptor { display: none; }
+  .cx-route { min-height: 26px; padding: 2px; }
+  .cx-compose-foot { padding: 4px 10px 6px 12px; }
+  .cx-controls { min-height: 40px; }
 }
 @media (max-width: 1180px) { .cx-controls .cx-ctl.is-minor { display: none; } .cx-more { display: inline-flex; } }
 @media (max-width: 520px) { .cx-controls .cx-ctl-n { display: none; } .cx-controls { gap: 2px; } .cx-ctl, .cx-more { padding: 4px 6px; } .cx-controls .cx-ctl > span[aria-hidden] { display: none; } }
@@ -457,7 +463,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-head { flex-wrap: wrap; gap: 8px 16px; }
   .cx-head-words { flex: 1 1 100%; }
   .cx-tag { white-space: normal; }
-  .cx-ways { grid-template-columns: minmax(0, 1fr); }
+  .cx-ways, .cx-ways.cx-starters { grid-template-columns: minmax(0, 1fr); }
   .cx-controls { padding: 0 10px; }
   .cx-hint { flex-direction: column; gap: 2px; }
   .cx-compose-foot { flex-wrap: wrap; gap: 8px 12px; }

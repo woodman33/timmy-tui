@@ -45,7 +45,7 @@
   <aside class="rail" id="shell-rail" aria-label="Timmy">
     <!-- R11 round 4 (H171; the preview's rail, captures 04/05): the mark, WORKSPACE with the project box and New conversation,
          then Chat, WORK, CREATE, CONNECT, and the account at the bottom -->
-    <div class="rail-brand"><span class="sh-mark" aria-hidden="true"><canvas data-timmy-mark></canvas><span class="sh-mark-text">T</span></span><span class="rail-name">TIMMY</span></div>
+    <div class="rail-brand"><span class="sh-mark" aria-hidden="true"><canvas data-timmy-mark></canvas><span class="sh-mark-text">T</span></span> <span class="rail-name">TIMMY</span></div>
     <div class="rail-scroll">
       <div class="rail-sec" id="rail-project-label">Workspace</div>
       <button type="button" class="rail-project" id="rail-project" aria-haspopup="true" aria-expanded="false" aria-controls="rail-project-menu" aria-describedby="rail-project-label">
@@ -165,13 +165,13 @@
       </div>
     </section>
 
-    <!-- 2 · Chat & Intent (references 02, 11): the project's one conversation as the terminal's turns reach this page, or this
-         page's own chat with a model; beside it the event log, newest at top -->
+    <!-- 2 · Chat & Intent (references 02, 11): the project's one conversation as the terminal's turns reach this page, and
+         the turns this page sends into it (POST /api/chat/turn); beside it the event log, newest at top -->
     <section id="ws-chat" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-chat" data-ws-page="chat" hidden>
       <!-- R10 CHAT CHECKPOINT (H171; the handoff's captures 01 to 06): the Chat composition. CENTER the project's saved
            conversation (its newest one in .sessions, GET /api/chat/view: each answer with the model its sealed receipt names),
-           the answers this page's Send streams (POST /chat: this page's own chat, not saved to the project's conversation, no
-           tools, no receipt, as its route says), the route of the next turn and the composer; RIGHT the Models rail (GET
+           the answers this page's Send streams (POST /api/chat/turn, R11 round 4: the project's conversation, the project's
+           tools, a sealed receipt, as the evidence line says), the route of the next turn and the composer; RIGHT the Models rail (GET
            /api/chat/models); BOTTOM the conversation's controls and the status line. chat-shell.js draws it; the words below
            are what it shows until the companion answers. -->
       <div class="cx" id="cx">
@@ -180,7 +180,7 @@
              bottom row; the right panel's Models and Tools -->
         <header class="cx-top">
           <button type="button" class="cx-key cx-menu" id="cx-menu" aria-expanded="false" aria-controls="shell-rail">Menu</button>
-          <div class="cx-crumb"><span class="cx-proj" id="cx-proj">project not known yet</span><span class="cx-sep" aria-hidden="true">/</span><span class="cx-here">Chat</span></div>
+          <div class="cx-crumb"><span class="cx-proj" id="cx-proj">project not known yet</span> <span class="cx-sep" aria-hidden="true">/</span> <span class="cx-here">Chat</span></div>
           <span class="cx-saved" id="cx-saved" hidden>Local records</span>
           <div class="cx-top-right">
             <span class="cx-socket" id="cx-socket" role="status">connecting</span>
@@ -192,7 +192,7 @@
         </header>
         <div class="cx-body" id="cx-body">
           <section class="cx-center" aria-label="Conversation">
-            <div class="cx-descriptor" id="cx-descriptor"><span><strong class="cx-descriptor-k">Agent chat</strong> <span id="cx-sub">Think, make and check your work.</span></span><span class="cx-descriptor-right"><span class="cx-tag" id="cx-tag" hidden></span><span class="cx-descriptor-state" id="cx-descriptor-state">Local logs · cloud sync off</span></span></div>
+            <div class="cx-descriptor" id="cx-descriptor"><span><strong class="cx-descriptor-k">Agent chat</strong> <span id="cx-sub">Think, make and check your work.</span></span><span class="cx-descriptor-right"><span class="cx-tag" id="cx-tag" hidden></span> <span class="cx-descriptor-state" id="cx-descriptor-state">Local logs · cloud sync off</span></span></div>
             <div class="cx-scroll" id="cx-scroll" tabindex="-1">
               <div class="cx-head" id="cx-head" hidden>
                 <div class="cx-head-words">
@@ -206,7 +206,7 @@
               <div class="cx-running-box" id="cx-running" role="status" hidden></div>
             </div>
             <p class="cx-note" id="cx-note" role="status" hidden></p>
-            <div class="cx-route" id="cx-route" role="status"><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span><button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
+            <div class="cx-route" id="cx-route" role="status"><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span> <button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
             <form class="cx-composer" id="cx-composer" autocomplete="off">
               <label for="cx-input" class="cx-input-k visually-hidden">Message Timmy</label>
               <div class="cx-field">
@@ -214,7 +214,7 @@
               </div>
               <div class="cx-compose-foot">
                 <button type="button" class="cx-foot-btn" data-cx-ctl="attachments"><span aria-hidden="true">+</span> Attach</button>
-                <button type="button" class="cx-foot-btn" id="cx-tools-btn" data-cx-panel="tools"><span aria-hidden="true">⌘</span> Tools <span id="cx-tools-n" hidden>0</span></button>
+                <button type="button" class="cx-foot-btn" id="cx-tools-btn" data-cx-panel="tools"><span aria-hidden="true">⌘</span> Tools<span id="cx-tools-n" hidden></span></button>
                 <span class="cx-send-why" id="cx-send-why" role="status"></span>
                 <button type="button" class="cx-chip" id="cx-chip" aria-controls="cx-models" title="The next turn’s model: opens Models" hidden><span class="cx-dot" id="cx-dot" data-state="unknown" aria-hidden="true">●</span><span class="cx-chip-words" id="cx-chip-words">reading…</span></button>
                 <button type="submit" class="cx-send" id="cx-send" aria-label="Send message" disabled><span aria-hidden="true">↑</span></button>
@@ -270,13 +270,13 @@
             </div>
           </div>
 
-          <!-- This page's own chat with a model (TMX P3): POST /chat, streamed, drawn by Streamdown (/web/island/companion-chat.js) -->
+          <!-- The older Streamdown view (TMX P3; /web/island/companion-chat.js): since R11 round 4 it sends nothing (POST /chat is gone) and says so -->
           <div id="tab-streamdown" class="tab-panel" role="tabpanel" aria-labelledby="btn-streamdown" data-ws="chat" data-group="chat">
             <div class="sd-card">
               <div class="card-header">
-                <span class="card-title">This page's own chat · not the project's conversation</span>
+                <span class="card-title">Older view · the chat is in Chat above</span>
                 <!-- R4 (H104, second part): the route the chat takes, as the companion says it (the script writes it) -->
-                <span class="sd-route" id="sd-route">Asking the companion which route this page’s own chat takes…</span>
+                <span class="sd-route" id="sd-route">Asking the companion which route the next turn takes…</span>
               </div>
               <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
               <div id="streamdown-root" class="dark"></div>
@@ -567,8 +567,8 @@
   <!-- R11 round 4 (H171): the shell's screens and what they share (window.TimmyShell), before the screens' own scripts -->
   <script src="/shell.js"></script>
   <!-- R11 round 4 (H171, step 3): the Rive runtime (@rive-app/canvas, served by the companion from node_modules at /vendor/rive/;
-       no CDN) for the T mark; where it is not served, the text mark stays -->
-  <script src="/vendor/rive/rive.js"></script>
+       no CDN) is loaded by chat-shell.js only when the companion serves the mark (GET /assets/timmy-mark.riv), since WebAssembly
+       needs a policy keyword the page carries only then (page.ts); where the mark is absent the text mark stays and nothing loads -->
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>
