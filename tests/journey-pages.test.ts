@@ -558,9 +558,11 @@ describe('every major page on the shell, from the running companion and Studio: 
         try {
           await landed(o.page);
           await goTo(o, p.name);
-          const s = await expectScaffold(o.page, p.name);
-          const facts = [`${p.name} on the scaffold: kicker "${s.kicker}" · title "${s.title}" · primary next action "${s.primary}" · states marked: ${s.states.join(', ') || '(none marked)'}.`, `The summary band: "${s.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}".`];
+          // the page's picture FIRST (a reviewer needs it whether or not a scaffold piece is missing), then the scaffold asserted
+          const read = await scaffoldOf(o.page);
+          const facts = [`${p.name} on the scaffold: kicker "${read.kicker}" · title "${read.title}" · primary next action "${read.primary || '(NONE drawn)'}" · states marked: ${read.states.join(', ') || '(none marked)'}.`, `The summary band: "${read.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}".`];
           await caps.cap(o.page, size, `${slug(p.name)}-page`, { line: line(p.name, 'as reached by the navigation'), facts, full: true });
+          await expectScaffold(o.page, p.name);
           await PROBES[p.name]?.(o, size, facts);
           await clean(o, p.name);
         } finally { await o.close(); }
