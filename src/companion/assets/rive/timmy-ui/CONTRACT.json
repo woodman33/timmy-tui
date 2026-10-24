@@ -1,18 +1,32 @@
 {
   "name": "timmy-ui",
   "version": 2,
-  "status": "source authored (R11 round 7, H174); the compiled timmy-ui.riv beside this file is the version named in `asset` — v1 until the v2 build lands",
+  "status": "served: the v2 build of commit 4e8d4905's source (R11 round 7, H174); the source of this folder is a step ahead (0b6c0e45's inks, the stage positions) and is the next build",
   "asset": {
     "file": "timmy-ui.riv",
-    "built": "the Rive CLI on the operator's machine (`rive . --verify`, `rive . --once`), from scene.rml as create-controls.py writes it; VERIFY.txt and BUILD.txt beside it record the run",
-    "contractOfTheServedFile": 1,
-    "sha256": "9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6",
-    "bytes": 405278
+    "contractOfTheServedFile": 2,
+    "builtFrom": "the source of commit 4e8d4905 (scene.rml as create-controls.py wrote it there)",
+    "built": "Rive CLI 1.1.1 on the operator's machine, 2026-10-24 14:43 PT: `rive . --verify` 0 errors 0 warnings, `rive . --once` 0 errors 0 warnings; BUILD.txt, rive.log, problems.log and INSPECT-summary.txt beside this file record it",
+    "sha256": "e97d28dc5efd83a04ddd5e8b04db5a0dada329fe7c165826e7040c8ad3e7dc36",
+    "bytes": 93211,
+    "artboards": 7,
+    "knownDifferencesFromThisSource": [
+      "the primary-action inks are the study's (#5B421D amber, #244761 glacier); the source now has the inks H175 measured (#402E14, #1D3848) — the next build",
+      "every artboard sits at the editor stage's origin (21 'artboards-overlap' warnings in rive inspect; nothing of the runtime's) — the source now places them"
+    ],
+    "evidenceOfTheStates": "per-state native renders of the PRODUCTION artboards are not possible from the CLI (it drives pointer and key gestures and --data view-model properties, not a state-machine input): the states are what the browser suites show on this file (tests/companion-rive-browser.test.ts, tests/studio-rive-shape-browser.test.ts) and the lead's native renders of the artboards at rest and of the preview variant after a click"
   },
   "source": {
-    "generator": "create-controls.py (Python 3.12+; writes scene.rml and rive.yaml)",
+    "generator": "create-controls.py (Python 3.12+; writes scene.rml, the CLI's four-line rive.yaml, and this file's `meta` block)",
     "markup": "scene.rml",
-    "font": { "file": "Outfit.ttf", "family": "Outfit", "axis": "wght 100–900 (variable)", "licence": "Outfit-OFL.txt (SIL OFL 1.1; no Reserved Font Name declared)", "made_by": "make-font.py from @fontsource-variable/outfit's latin woff2 — the font this product serves at /web/fonts/" }
+    "font": {
+      "file": "Outfit.ttf",
+      "family": "Outfit",
+      "axis": "wght 100–900 (variable)",
+      "licence": "Outfit-OFL.txt (SIL OFL 1.1; no Reserved Font Name declared)",
+      "made_by": "make-font.py from @fontsource-variable/outfit's latin woff2 — the font this product serves at /web/fonts/"
+    },
+    "yaml": "rive.yaml holds the CLI's name + logs only: its yaml parser (fkyaml) aborts on any other key — the listing reads this file's `meta` block instead"
   },
   "served": {
     "asset": "/assets/rive/timmy-ui/timmy-ui.riv",
@@ -22,28 +36,155 @@
   "stateMachine": {
     "name": "TimmyUI",
     "inputs": {
-      "State": { "type": "Number", "values": { "0": "Idle", "1": "Working / Checking", "2": "Approval / NEEDS-YOU", "3": "Stopped", "4": "Failed" }, "note": "no success value: a connected provider is State 0 and the words say connected" },
-      "Hover": { "type": "Bool", "note": "the page's selection (tldraw) or the pointer over an ActionButton; never a state" },
-      "Pressed": { "type": "Bool", "note": "a press, down then up on the next frame; never a state" },
-      "ReducedMotion": { "type": "Bool", "note": "zero-duration transitions AND the Working pose without its spinning ring (the WorkingStill state): nothing keeps moving; the words carry the state" }
+      "State": {
+        "type": "Number",
+        "values": {
+          "0": "Idle",
+          "1": "Working / Checking",
+          "2": "Approval / NEEDS-YOU",
+          "3": "Stopped",
+          "4": "Failed"
+        },
+        "note": "no success value: a connected provider is State 0 and the words say connected"
+      },
+      "Hover": {
+        "type": "Bool",
+        "note": "the page's selection (tldraw) or the pointer over an ActionButton; never a state"
+      },
+      "Pressed": {
+        "type": "Bool",
+        "note": "a press, down then up on the next frame; never a state"
+      },
+      "ReducedMotion": {
+        "type": "Bool",
+        "note": "zero-duration transitions AND the Working pose without its spinning ring (the WorkingStill state): nothing keeps moving; the words carry the state"
+      }
     }
   },
   "artboards": {
-    "AgentConsole": { "size": [640, 380], "role": "the turn's activity", "runs": { "Title": "TIMMY  /  AGENT CONSOLE", "Tag": "NATIVE RIVE UI → the page sets the turn's identity words", "Caption": "'' → the page sets LIVE  /  THE TURN’S EVENTS", "HeadlineIdle…HeadlineFailed": "the authored headline per state (baked in its state group)", "LineIdle…LineFailed": "the authored line per state" }, "listeners": [] },
-    "ProviderCard": { "size": [400, 260], "role": "one provider's connection", "runs": { "Title": "TIMMY  /  PROVIDERS", "Tag": "NATIVE RIVE UI → the page's words", "Caption": "'' → the page sets LIVE  /  GET /api/connections", "ProviderName": "Provider → OpenRouter · Ollama · local · Ollama · cloud · Cloudflare (ONE run, outside the state groups: v1's five same-named subtitle runs are gone)", "ProviderState": "'' → the state word", "ProviderDetail": "'' → the page's one line", "HeadlineIdle…HeadlineFailed": "the authored headline per state" }, "listeners": [] },
-    "ActionButton": { "size": [240, 72], "role": "a real action (Amber primary-action material)", "runs": { "Caption": "Action → the button's own label" }, "listeners": ["Button enter / exit → Hover", "Button down / up → Pressed"], "note": "the per-state baked labels of v1 are gone; the state poses change the right-hand mark only" },
-    "ActionButtonGlacier": { "size": [240, 72], "role": "the same button in the Glacier material (a mount picks by the page's data-theme)", "runs": { "Caption": "Action" }, "listeners": ["Button enter / exit → Hover", "Button down / up → Pressed"] },
-    "AgentConsolePreview": { "size": [640, 380], "role": "PREVIEW (the Inspect view only; never mounted in the product)", "bakes": ["Caption = PREVIEW  /  NOT A LIVE JOB", "the Inspect interaction pill", "the Inspect click listener: State → 1"] },
-    "ProviderCardPreview": { "size": [400, 260], "role": "PREVIEW (the Inspect view only)", "bakes": ["Caption = PREVIEW  /  NOT A LIVE JOB", "the Inspect interaction pill", "the Inspect click listener: State → 1"] },
-    "ActionButtonPreview": { "size": [240, 72], "role": "PREVIEW (the Inspect view only)", "bakes": ["Caption = Preview action", "the Inspect click listener: State → 1"] }
+    "AgentConsole": {
+      "size": [
+        640,
+        380
+      ],
+      "role": "the turn's activity",
+      "runs": {
+        "Title": "TIMMY  /  AGENT CONSOLE",
+        "Tag": "NATIVE RIVE UI → the page sets the turn's identity words",
+        "Caption": "'' → the page sets LIVE  /  THE TURN’S EVENTS",
+        "HeadlineIdle…HeadlineFailed": "the authored headline per state (baked in its state group)",
+        "LineIdle…LineFailed": "the authored line per state"
+      },
+      "listeners": []
+    },
+    "ProviderCard": {
+      "size": [
+        400,
+        260
+      ],
+      "role": "one provider's connection",
+      "runs": {
+        "Title": "TIMMY  /  PROVIDERS",
+        "Tag": "NATIVE RIVE UI → the page's words",
+        "Caption": "'' → the page sets LIVE  /  GET /api/connections",
+        "ProviderName": "Provider → OpenRouter · Ollama · local · Ollama · cloud · Cloudflare (ONE run, outside the state groups: v1's five same-named subtitle runs are gone)",
+        "ProviderState": "'' → the state word",
+        "ProviderDetail": "'' → the page's one line",
+        "HeadlineIdle…HeadlineFailed": "the authored headline per state"
+      },
+      "listeners": []
+    },
+    "ActionButton": {
+      "size": [
+        240,
+        72
+      ],
+      "role": "a real action (Amber primary-action material)",
+      "runs": {
+        "Caption": "Action → the button's own label"
+      },
+      "listeners": [
+        "Button enter / exit → Hover",
+        "Button down / up → Pressed"
+      ],
+      "note": "the per-state baked labels of v1 are gone; the state poses change the right-hand mark only"
+    },
+    "ActionButtonGlacier": {
+      "size": [
+        240,
+        72
+      ],
+      "role": "the same button in the Glacier material (a mount picks by the page's data-theme)",
+      "runs": {
+        "Caption": "Action"
+      },
+      "listeners": [
+        "Button enter / exit → Hover",
+        "Button down / up → Pressed"
+      ]
+    },
+    "AgentConsolePreview": {
+      "size": [
+        640,
+        380
+      ],
+      "role": "PREVIEW (the Inspect view only; never mounted in the product)",
+      "bakes": [
+        "Caption = PREVIEW  /  NOT A LIVE JOB",
+        "the Inspect interaction pill",
+        "the Inspect click listener: State → 1"
+      ]
+    },
+    "ProviderCardPreview": {
+      "size": [
+        400,
+        260
+      ],
+      "role": "PREVIEW (the Inspect view only)",
+      "bakes": [
+        "Caption = PREVIEW  /  NOT A LIVE JOB",
+        "the Inspect interaction pill",
+        "the Inspect click listener: State → 1"
+      ]
+    },
+    "ActionButtonPreview": {
+      "size": [
+        240,
+        72
+      ],
+      "role": "PREVIEW (the Inspect view only)",
+      "bakes": [
+        "Caption = Preview action",
+        "the Inspect click listener: State → 1"
+      ]
+    }
   },
   "materials": {
     "registry": "DESIGN.md B11 / the study's token registry v0.1",
-    "canvas": "#080B0F", "surface": "#111A23", "raised": "#1C2936", "border": "#44586B",
-    "text": "#ECF1F5", "secondary": "#BDCADA", "muted": "#9AAFC3",
-    "focus": "#FFB000 (the Working ring, Approval, Failed: focus / intent / attention)", "stopped": "#9AAFC3",
+    "canvas": "#080B0F",
+    "surface": "#111A23",
+    "raised": "#1C2936",
+    "border": "#44586B",
+    "text": "#ECF1F5",
+    "secondary": "#BDCADA",
+    "muted": "#9AAFC3",
+    "focus": "#FFB000 (the Working ring, Approval, Failed: focus / intent / attention)",
+    "stopped": "#9AAFC3",
     "neverOnAFace": "#28FE14 — no observed-live claim is drawn; the HTML words say connected / passed / sealed",
-    "primaryAction": { "amber": { "start": "#F0E5D4", "soft": "#EAD0A3", "accent": "#D6AA64", "ink": "#402E14 (H175's measured ink: 6.05:1 on the accent)" }, "glacier": { "start": "#E1EEF7", "soft": "#BED9ED", "accent": "#8ABBE3", "ink": "#1D3848 (6.02:1)" } }
+    "primaryAction": {
+      "amber": {
+        "start": "#F0E5D4",
+        "soft": "#EAD0A3",
+        "accent": "#D6AA64",
+        "ink": "#402E14 (H175's measured ink: 6.05:1 on the accent)"
+      },
+      "glacier": {
+        "start": "#E1EEF7",
+        "soft": "#BED9ED",
+        "accent": "#8ABBE3",
+        "ink": "#1D3848 (6.02:1)"
+      }
+    }
   },
   "consumers": {
     "mountApi": "window.TimmyRive.mountConsole(host, { size, label, heading, name, place, identity: { project, session }, caption }) · mountProviderCard(host, providerId, { size, label, name, place, providerName, detail }) · mountActionButton(host, { label, action, disabled, name, place, theme })",
@@ -52,5 +193,81 @@
     "identity": "a 'turn' event names the feed's current turn (data.id); 'needs-you' / 'done' of another turn are ignored as stale (recorded, never applied); 'done'.receipt is attached to the handle; stopping = STOP REQUESTED until 'done' cancelled",
     "shape": "timmy-rive props { w, h, component, state, label, provider } unchanged; AS SAVED / NOT A LIVE JOB until a feed event reaches it on its page",
     "versions": "the bindings tell v1 from v2 by the runs present (v2: Caption on every production artboard); v1's runtime workarounds (the caption overwrite, the scaled pill) apply to a v1 file only"
+  },
+  "meta": {
+    "name": "timmy-ui",
+    "file": "timmy-ui.riv",
+    "contract": "2",
+    "artboard": "AgentConsole",
+    "artboards": [
+      "AgentConsole",
+      "ProviderCard",
+      "ActionButton",
+      "ActionButtonGlacier"
+    ],
+    "previewArtboards": [
+      "AgentConsolePreview",
+      "ProviderCardPreview",
+      "ActionButtonPreview"
+    ],
+    "stateMachine": "TimmyUI",
+    "inputs": [
+      "State",
+      "Hover",
+      "Pressed",
+      "ReducedMotion"
+    ],
+    "font": "Outfit.ttf",
+    "runs": {
+      "AgentConsole": [
+        "Title",
+        "Tag",
+        "Caption"
+      ],
+      "ProviderCard": [
+        "Title",
+        "Tag",
+        "Caption",
+        "ProviderName",
+        "ProviderState",
+        "ProviderDetail"
+      ],
+      "ActionButton": [
+        "Caption"
+      ],
+      "ActionButtonGlacier": [
+        "Caption"
+      ]
+    },
+    "sizes": {
+      "AgentConsole": [
+        640,
+        380
+      ],
+      "ProviderCard": [
+        400,
+        260
+      ],
+      "ActionButton": [
+        240,
+        72
+      ],
+      "ActionButtonGlacier": [
+        240,
+        72
+      ],
+      "AgentConsolePreview": [
+        640,
+        380
+      ],
+      "ProviderCardPreview": [
+        400,
+        260
+      ],
+      "ActionButtonPreview": [
+        240,
+        72
+      ]
+    }
   }
 }

@@ -2,9 +2,11 @@
 """
 timmy-ui — the native Rive UI's editable source (RIVE CONTRACT v2, R11 round 7, H174).
 
-Writes scene.rml (the Rive markup the Rive CLI compiles: `rive . --verify`, `rive . --once` → timmy-ui.riv) and rive.yaml
-(what the companion's listing reads) beside this file. Python 3.12+ (f-strings with nested quotes). The compiled .riv is
-built on the operator's machine by the Rive CLI and committed beside this source with its sha256 (CONTRACT.json, README).
+Writes scene.rml (the Rive markup the Rive CLI compiles: `rive . --verify`, `rive . --once` → timmy-ui.riv), the CLI's
+four-line rive.yaml (name + logs: the CLI's yaml parser takes nothing else) and the `meta` block of CONTRACT.json (what the
+companion's listing reads: artboards, preview artboards, state machine, inputs, font, the runs per artboard). Python 3.12+
+(f-strings with nested quotes). The compiled .riv is built on the operator's machine by the Rive CLI and committed beside
+this source with its sha256 and records (CONTRACT.json `asset`, BUILD.txt, rive.log, problems.log, INSPECT-summary.txt).
 
 Artboards (sizes are the consumers' aspect rules: rive-components.css, companion/studio-canvas/index.html):
   PRODUCTION  AgentConsole 640×380 · ProviderCard 400×260 · ActionButton 240×72 (Amber) · ActionButtonGlacier 240×72
@@ -200,7 +202,7 @@ def layer(nm, inputid, offa, ona, offs, ons):
             f'<AnimationState x="400" y="0" animationId="{ona}" id="{ons}"><StateTransition stateToId="{offs}" duration="120"><TransitionBoolCondition inputId="{inputid}" opValue="notEqual"/></StateTransition></AnimationState></StateMachineLayer>')
 
 
-def build(name, w, h, kind, theme='amber', preview=False):
+def build(name, w, h, kind, theme='amber', preview=False, stage=(0, 0)):
     """One artboard. kind: 'console' | 'card' | 'button'. preview: the Inspect view's variant (baked PREVIEW caption + click listener)."""
     art, style, sm = ident(), ident(), ident()
     state, hover, pressed, motion = ident(), ident(), ident(), ident()
@@ -289,34 +291,44 @@ def build(name, w, h, kind, theme='amber', preview=False):
     if preview and hit:
         sm_markup += f'<StateMachineListenerSingle name="Inspect click" targetId="{hit}" listenerTypeValue="click"><ListenerNumberChange inputId="{state}" value="1"/></StateMachineListenerSingle>'
     sm_markup += '</StateMachine>'
-    return (f'<Artboard name="{name}" id="{art}" width="{w}" height="{h}" styleId="{style}" defaultStateMachineId="{sm}"><LayoutComponentStyle id="{style}"/>'
+    # (x, y: the artboard's place on the editor's stage — the CLI warns when artboards overlap there; nothing of the runtime's)
+    return (f'<Artboard name="{name}" id="{art}" x="{stage[0]}" y="{stage[1]}" width="{w}" height="{h}" styleId="{style}" defaultStateMachineId="{sm}"><LayoutComponentStyle id="{style}"/>'
             + ''.join(reversed(draw)) + sm_markup + ''.join(animations) + '</Artboard>'), runs
 
 
 ARTBOARDS = [
-    ('AgentConsole', 640, 380, 'console', 'amber', False),
-    ('ProviderCard', 400, 260, 'card', 'amber', False),
-    ('ActionButton', 240, 72, 'button', 'amber', False),
-    ('ActionButtonGlacier', 240, 72, 'button', 'glacier', False),
-    ('AgentConsolePreview', 640, 380, 'console', 'amber', True),
-    ('ProviderCardPreview', 400, 260, 'card', 'amber', True),
-    ('ActionButtonPreview', 240, 72, 'button', 'amber', True),
+    # name, width, height, kind, theme, preview, the stage position (a row of production artboards, a row of previews below)
+    ('AgentConsole', 640, 380, 'console', 'amber', False, (0, 0)),
+    ('ProviderCard', 400, 260, 'card', 'amber', False, (700, 0)),
+    ('ActionButton', 240, 72, 'button', 'amber', False, (1160, 0)),
+    ('ActionButtonGlacier', 240, 72, 'button', 'glacier', False, (1160, 132)),
+    ('AgentConsolePreview', 640, 380, 'console', 'amber', True, (0, 480)),
+    ('ProviderCardPreview', 400, 260, 'card', 'amber', True, (700, 480)),
+    ('ActionButtonPreview', 240, 72, 'button', 'amber', True, (1160, 480)),
 ]
+CONTRACT_VERSION = 2
 
 if __name__ == '__main__':
+    import json
     markup, all_runs = [], {}
-    for name, w, h, kind, theme, preview in ARTBOARDS:
-        m, runs = build(name, w, h, kind, theme, preview)
+    for name, w, h, kind, theme, preview, stage in ARTBOARDS:
+        m, runs = build(name, w, h, kind, theme, preview, stage)
         markup.append(m)
         all_runs[name] = runs
     scene = '<Rive version="1" kind="fragment">' + ''.join(markup) + f'<FontAsset file="Outfit.ttf" name="Outfit" id="{FONT}"/></Rive>'
     (p / 'scene.rml').write_text(scene)
+    # the CLI's rive.yaml: name + logs, nothing else (its yaml parser aborts on more: the build of 4e8d4905 showed it)
+    (p / 'rive.yaml').write_text('name: timmy-ui\nlogs:\n  file: build/rive.log\n  problems: build/problems.log\n')
     production = [a[0] for a in ARTBOARDS if not a[5]]
     previews = [a[0] for a in ARTBOARDS if a[5]]
-    (p / 'rive.yaml').write_text(
-        'name: timmy-ui\nfile: timmy-ui.riv\ncontract: 2\nartboard: AgentConsole\n'
-        f'artboards: {", ".join(production)}\npreviewArtboards: {", ".join(previews)}\n'
-        'stateMachine: TimmyUI\ninputs: State, Hover, Pressed, ReducedMotion\nfont: Outfit.ttf\n'
-        + ''.join(f'runs.{name}: {", ".join(runs)}\n' for name, runs in all_runs.items() if name in production)
-        + 'logs:\n  file: build/rive.log\n  problems: build/problems.log\n')
-    print('authored', p / 'scene.rml', 'and', p / 'rive.yaml')
+    # the listing's metadata: the `meta` block of CONTRACT.json (the rest of that file is written by hand; this block by this script)
+    contract_path = p / 'CONTRACT.json'
+    contract = json.loads(contract_path.read_text()) if contract_path.exists() else {}
+    contract['meta'] = {
+        'name': 'timmy-ui', 'file': 'timmy-ui.riv', 'contract': str(CONTRACT_VERSION), 'artboard': production[0], 'artboards': production,
+        'previewArtboards': previews, 'stateMachine': 'TimmyUI', 'inputs': ['State', 'Hover', 'Pressed', 'ReducedMotion'], 'font': 'Outfit.ttf',
+        'runs': {name: list(all_runs[name]) for name in production},
+        'sizes': {a[0]: [a[1], a[2]] for a in ARTBOARDS},
+    }
+    contract_path.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + '\n')
+    print('authored', p / 'scene.rml', ',', p / 'rive.yaml', 'and the meta block of', contract_path)

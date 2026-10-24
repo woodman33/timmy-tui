@@ -38,10 +38,11 @@ const RIVE_FILE_TYPES: Readonly<Record<string, string>> = {
   // (Outfit.ttf since round 7; Montserrat.ttf before) stays in the folder and is not served (the .riv embeds what it needs)
   '.py': 'text/plain; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
-  // R11 round 7: the contract (CONTRACT.json) and the build records (VERIFY/BUILD.txt) beside the asset
+  // R11 round 7: the contract (CONTRACT.json) and the build's records (BUILD.txt, rive.log, problems.log) beside the asset
   '.json': 'application/json; charset=utf-8',
+  '.log': 'text/plain; charset=utf-8',
 };
-const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt', '.json']);
+const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt', '.json', '.log']);
 /** A component's folder name and a file's name: plain names only (no path, no dot segment). */
 const COMPONENT_NAME = /^[a-z][a-z0-9-]{0,40}$/;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
@@ -88,6 +89,26 @@ export function readRiveMeta(path: string): RiveComponentListing['meta'] {
   return meta;
 }
 
+/** CONTRACT.json's `meta` block (create-controls.py writes it): the listing's facts about the native asset. Empty without the file. */
+export function readContractMeta(path: string): RiveComponentListing['meta'] {
+  if (!existsSync(path)) return {};
+  try {
+    const c = JSON.parse(readFileSync(path, 'utf8')) as { meta?: Record<string, unknown> };
+    const m = c?.meta && typeof c.meta === 'object' ? c.meta : {};
+    const out: RiveComponentListing['meta'] = {};
+    const str = (k: string): void => { if (typeof m[k] === 'string') out[k] = m[k] as string; };
+    const list = (k: string): void => { if (Array.isArray(m[k])) out[k] = (m[k] as unknown[]).filter((v): v is string => typeof v === 'string'); };
+    for (const k of ['name', 'file', 'contract', 'artboard', 'stateMachine', 'font']) str(k);
+    for (const k of ['artboards', 'previewArtboards', 'inputs']) list(k);
+    if (m.runs && typeof m.runs === 'object') {
+      const runs: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(m.runs as Record<string, unknown>)) if (Array.isArray(v)) runs[k] = v.filter((x): x is string => typeof x === 'string');
+      out.runs = runs;
+    }
+    return out;
+  } catch { return {}; }
+}
+
 /** The v1 build's artboards (the round-5 asset): what a page may ask a v1 file for. */
 const V1_ARTBOARDS = ['AgentConsole', 'ProviderCard', 'ActionButton'];
 /**
@@ -126,7 +147,9 @@ export function listRiveComponents(dir: string): RiveComponentListing[] {
     if (rivName) {
       try { const bytes = readFileSync(join(folder, rivName)); riv = { name: rivName, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex').slice(0, 12) }; } catch { riv = null; }
     }
-    const meta = readRiveMeta(join(folder, 'rive.yaml'));
+    // the yaml's plain keys first (the drafted folders' own); CONTRACT.json's `meta` block over them (the native asset's: its
+    // rive.yaml is the Rive CLI's four-line one, which takes nothing else)
+    const meta = { ...readRiveMeta(join(folder, 'rive.yaml')), ...readContractMeta(join(folder, 'CONTRACT.json')) };
     const served = readServed(join(folder, 'CONTRACT.json'), meta);
     if (served) meta.served = served;
     out.push({ component: name, riv, sources: files.filter((f) => SOURCE_EXT.has(extOf(f))), meta, words: riv ? RIVE_WITH_RIV : RIVE_NO_RIV });

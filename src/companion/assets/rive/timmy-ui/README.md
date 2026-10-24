@@ -17,6 +17,7 @@ contract v1, sha256 `9fd9ae7c…`, 405,278 bytes) stays the served file until th
 | `rive.yaml` | what the companion's listing reads: artboards, preview artboards, state machine, inputs, font, the runs per artboard |
 | `Outfit.ttf` + `Outfit-OFL.txt` | the embedded font: Outfit (variable, wght 100–900; SIL OFL 1.1, no Reserved Font Name declared), made by `make-font.py` from `@fontsource-variable/outfit`'s latin WOFF2 — the same font this product serves for its HTML (DESIGN.md B11 D2: one UI face across HTML and the native faces). Montserrat (v1) is dropped. |
 | `make-font.py` | the reproducible font step (fontTools; Brotli through Node's zlib when the module is absent); prints the TTF's sha256 |
+| `Montserrat.ttf` + `OFL.txt` | v1's font, kept only while `scripts/copy-runtime-assets.mjs` (the packaging allowlist, not this folder's) names them — the v2 source does not use them; they go when that list names the v2 files |
 | `CONTRACT.json` | the contract: version, the served asset's identity, artboards, runs, inputs, materials, the consumers' API |
 
 ## What changed from v1 to v2 (the order's "Make the native UI coherent")
