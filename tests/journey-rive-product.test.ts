@@ -57,8 +57,8 @@ import { grant, nameProject } from './helpers/canvas-auth.js';
 
 // ── the contract's selectors (one place to adjust) ──────────────────────────────
 const SEL = {
-  /** the chat screen's console (H171's placement of H174's mountConsole): its root, by the component key it mounts */
-  console: '#screen-chat [data-rive-component="activity"], [data-screen="chat"] [data-rive-component="activity"], [data-rive-component="console"]',
+  /** the chat screen's console (H171's 06:58: ONE band #cx-console above the composer's route line, H174's mountConsole bound to the activity feed) */
+  console: '#cx-console [data-rive-component], #screen-chat [data-rive-component="activity"], [data-rive-component="console"]',
   consoleKey: 'activity',
   /** the NEEDS-YOU answer buttons (H174's mountActionButton: a real <button aria-label=label> wrapping the canvas; H171 names the choice) inside the turn's group */
   needsGroup: '.cx-needs',
@@ -68,8 +68,8 @@ const SEL = {
   /** a provider card and the ProviderCard mounted in it */
   card: (id: string): string => `[data-provider="${id}"]`,
   cardComponent: (id: string): string => `[data-provider="${id}"] [data-rive-component]`,
-  /** the console's fold on a phone (H171's call: a control that opens the console from its label) */
-  consoleFold: '[data-rive-fold], [data-console-fold], .cx-console-fold',
+  /** the console's fold (H171: folds to the WORD by its aria-expanded button; a phone's width or a short window starts folded; a tap opens) */
+  consoleFold: '#cx-console button[aria-expanded="false"]',
 };
 const PROVIDERS = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];
 const NATIVE = { name: 'timmy-ui.riv', bytes: 405_278, sha256: '9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
@@ -360,10 +360,13 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await group.waitFor({ state: 'visible', timeout: 30_000 });
         await inputIs(o.page, key, 'State', 2, 10_000); // awaiting approval → State 2 Approval
         expect(await label(o.page, key)).toMatch(/awaiting/);
-        const once = o.page.locator(SEL.answerButton('once')).last();
+        // (H171: each option is a mounted ActionButton — a real <button aria-label> wrapping its canvas — with an HTML twin that is the
+        // control only until the file is drawn; the role query sees the visible one)
+        await o.page.waitForSelector(`${SEL.needsGroup} canvas[data-timmy-rive][data-loaded]`, { state: 'attached', timeout: 20_000 });
+        const once = group.getByRole('button', { name: /^(allow )?once$/i }).first();
         await once.waitFor({ state: 'visible', timeout: 10_000 });
         expect(await once.evaluate((e) => e.tagName), 'the answer control is a real <button>').toBe('BUTTON');
-        expect(await once.evaluate((e) => Boolean(e.getAttribute('data-rive-face') || e.querySelector('canvas[data-timmy-rive]'))), 'the answer control is a mounted ActionButton (H174\'s mount: a <button> wrapping the canvas)').toBe(true);
+        expect(await once.evaluate((e) => Boolean(e.getAttribute('data-rive-face') || e.querySelector('canvas[data-timmy-rive]') || e.classList.contains('tr-face'))), 'the answer control is the mounted ActionButton\'s face (the HTML twin hidden once the file is drawn)').toBe(true);
         await caps.cap(o.page, size, 'chat-needs-you', ['NEEDS YOU: the FAKE model asked for write_project_file; H169\'s gate waits for this page; the ActionButtons offer the choices; the console awaiting approval (State 2).'], { to: group, what: 'the NEEDS YOU group' });
         const answered = o.page.waitForResponse((r) => r.url().endsWith('/api/chat/answer') && r.request().method() === 'POST', { timeout: 15_000 });
         await once.click();
@@ -378,7 +381,8 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         const group2 = o.page.locator(SEL.needsGroup).last();
         await group2.waitFor({ state: 'visible', timeout: 30_000 });
-        const once2 = o.page.locator(SEL.answerButton('once')).last();
+        await o.page.waitForSelector(`${SEL.needsGroup} canvas[data-timmy-rive][data-loaded]`, { state: 'attached', timeout: 20_000 });
+        const once2 = group2.getByRole('button', { name: /^(allow )?once$/i }).first();
         await once2.waitFor({ state: 'visible', timeout: 10_000 });
         const answered2 = o.page.waitForResponse((r) => r.url().endsWith('/api/chat/answer') && r.request().method() === 'POST', { timeout: 15_000 });
         await once2.focus();
@@ -407,10 +411,12 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await caps.cap(o.page, size, 'chat-stopped', ['After Stop: the console stopped (State 3, from the turn\'s own done (cancelled)); the stopped turn folded with its receipt.'], { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: /stopped by you/i }).last(), what: 'the stopped turn' });
         // ── the welcome's starter ActionButton fires the starter (a new conversation shows the welcome again) ──
         await o.page.getByRole('button', { name: /New conversation/ }).first().click().catch(() => undefined);
-        const starter = o.page.locator(SEL.starter).first();
+        // (H171: the welcome's PRIMARY starter is a mounted ActionButton → startWith('plan'); its twin stands until the file is drawn)
+        await o.page.waitForSelector('.cx-starters canvas[data-timmy-rive][data-loaded], .cx-welcome canvas[data-timmy-rive][data-loaded]', { state: 'attached', timeout: 20_000 }).catch(() => undefined);
+        const starter = o.page.locator('.cx-starters, .cx-welcome, .cx-ways').getByRole('button').filter({ has: o.page.locator('canvas[data-timmy-rive]') }).first().or(o.page.locator(SEL.starter).first());
         if (await starter.count()) {
           await starter.waitFor({ state: 'visible', timeout: 10_000 });
-          const id = await starter.getAttribute('data-cx-start');
+          const id = (await starter.getAttribute('data-cx-start')) || (await starter.getAttribute('aria-label')) || (await starter.innerText()).trim();
           expect(await starter.evaluate((e) => e.tagName)).toBe('BUTTON');
           await starter.click();
           // the starter's own action: the composer takes its words, or the chat moves (H171's STARTERS); the welcome's Pressed recorded
@@ -473,7 +479,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
 
   // ── the Canvas (the Studio) ──────────────────────────────────────────────────
 
-  type Ed = { getShape: (id: string) => { id: string; type: string; x: number; y: number; props: Record<string, unknown> } | undefined; updateShape: (s: unknown) => void; createShape: (s: unknown) => void; createBindings: (b: unknown[]) => void; getBindingsInvolvingShape?: (id: string) => Array<{ type: string; fromId: string; toId: string; props: Record<string, unknown> }>; store: { serialize: (scope: string) => Record<string, { typeName: string; type?: string; fromId?: string; toId?: string; props?: Record<string, unknown>; x?: number; y?: number }> }; selectNone: () => void; zoomToFit: () => void };
+  type Ed = { getShape: (id: string) => { id: string; type: string; x: number; y: number; props: Record<string, unknown> } | undefined; updateShape: (s: unknown) => void; createShape: (s: unknown) => void; createBindings: (b: unknown[]) => void; getBindingsInvolvingShape?: (id: string) => Array<{ type: string; fromId: string; toId: string; props: Record<string, unknown> }>; store: { serialize: (scope: string) => Record<string, { typeName: string; type?: string; fromId?: string; toId?: string; props?: Record<string, unknown>; x?: number; y?: number }> }; selectNone: () => void; zoomToFit: () => unknown };
+  // (page.evaluate must never RETURN the tldraw Editor — zoomToFit() returns `this`, and Playwright's serialization of that graph with an
+  // arrow on the board ends the evaluation with "Execution context was destroyed" (H172's scratch, 07:0x): every editor call is a block)
   type Win = { timmyCanvas: { editor: Ed; placeRive: (component: string, o?: Record<string, unknown>) => string; licenseState: string; identity?: { state: string; project?: { name: string } } }; TimmyRive: { inspect: () => Handle[] } };
 
   async function openCanvas(size: { width: number; height: number }, o: { reducedMotion?: boolean; record?: string } = {}): Promise<{ page: Page; context: BrowserContext; errors: string[] }> {
@@ -506,7 +514,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       // the three shapes placed (H174's timmy-rive shape), drawn by the runtime
       placed = await page.evaluate(() => { const W = window as unknown as Win; return { activity: W.timmyCanvas.placeRive('activity'), connection: W.timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local' }), welcome: W.timmyCanvas.placeRive('welcome') }; });
       await page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
-      await page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.zoomToFit());
+      await page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
       const hs = await handles(page);
       for (const h of hs) { expect(h.contract).toBe('TimmyUI'); expect(h.runtime!.artboardNames).toEqual(NATIVE.artboards); }
@@ -527,7 +535,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       }, placed);
       const bindings = await page.evaluate((id) => Object.values((window as unknown as Win).timmyCanvas.editor.store.serialize('document')).filter((r) => r.typeName === 'binding' && r.fromId === id).map((r) => [r.toId, (r.props as { terminal: string }).terminal]), arrowId);
       expect(bindings.sort()).toEqual([[placed.activity, 'start'], [placed.connection, 'end']].sort());
-      await page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.zoomToFit());
+      await page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await saved(page);
       await caps.cap(page, size, 'canvas-arrow-bound', ['The console moved, the card resized (expanded), an arrow BOUND from the console to the card (two binding records); saved through Timmy\'s project storage (the board under the project).']);
       before = await page.evaluate(() => { const m = (window as unknown as Win).timmyCanvas.editor.store.serialize('document'); return Object.fromEntries(Object.entries(m).filter(([, r]) => r.typeName !== 'user')); });
@@ -544,7 +552,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
       expect(after).toEqual(before);
       await again.page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
-      await again.page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.zoomToFit());
+      await again.page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await again.page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
       expect(await again.page.evaluate((ids) => (window as unknown as Win).timmyCanvas.editor.getShape(ids.connection)?.props.w, placed)).toBe(420);
       await caps.cap(again.page, size, 'canvas-reopened', ['The board reopened in a new page: the three shapes with their props (the card at 420 wide), the arrow and its two bindings exactly as saved; drawn again by the runtime.']);
@@ -564,7 +572,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
     const still = await openCanvas(size, { reducedMotion: true });
     try {
       await still.page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
-      await still.page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.zoomToFit());
+      await still.page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await still.page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
       const hs = await handles(still.page);
       for (const h of hs) {
@@ -581,7 +589,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
     const o = await openCanvas(size);
     try {
       await o.page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
-      await o.page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.zoomToFit());
+      await o.page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await o.page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
       const overflow = await o.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, 'nothing overflows the phone\'s width').toBeLessThanOrEqual(0);
