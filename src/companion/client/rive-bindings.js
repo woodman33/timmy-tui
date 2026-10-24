@@ -83,12 +83,18 @@
 
   let runtimeWhy = '';
   let listingAsked = null;
-  /** GET /api/rive/assets (through the shell's fetch, which carries the launch token): whether any component has its .riv. */
-  function anyRiv() {
+  /**
+   * GET /api/rive/assets (through the shell's fetch, which carries the launch token, on the companion; plain on the Studio, whose
+   * listing is open): whether any component has its .riv, and whether that server serves the runtime (the Studio has no
+   * /assets/mark.json: its answer is the listing's). { any: false, runtime: false } when nothing answers.
+   */
+  function listing() {
     if (listingAsked) return listingAsked;
-    const f = W.TimmyShell && typeof W.TimmyShell.fetch === 'function' ? W.TimmyShell.fetch.bind(W.TimmyShell) : (typeof companion !== 'undefined' && companion && companion.fetch ? companion.fetch : null);
-    if (!f) { listingAsked = Promise.resolve(false); return listingAsked; }
-    listingAsked = f(LISTING_PATH).then(async (r) => { const b = r.status === 200 ? await r.json().catch(() => null) : null; return Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)); }).catch(() => false);
+    const f = W.TimmyShell && typeof W.TimmyShell.fetch === 'function' ? W.TimmyShell.fetch.bind(W.TimmyShell) : (typeof companion !== 'undefined' && companion && companion.fetch ? companion.fetch : plainFetch);
+    listingAsked = f(LISTING_PATH).then(async (r) => {
+      const b = r.status === 200 ? await r.json().catch(() => null) : null;
+      return { any: Boolean(b && Array.isArray(b.components) && b.components.some((c) => c && c.riv)), runtime: Boolean(b && b.runtime === true) };
+    }).catch(() => ({ any: false, runtime: false }));
     return listingAsked;
   }
 
@@ -103,9 +109,9 @@
       const settle = (rv) => { runtimeState = rv ? 'here' : 'none'; const ws = runtimeWaiters; runtimeWaiters = []; for (const w of ws) w(rv); };
       // the runtime is loaded only when there is a file for it to draw: the page's policy carries the WebAssembly keyword
       // only then (page.ts setPagePolicyWasm; rive-assets.ts), and a runtime without it would fail its compile and ask a CDN
-      Promise.all([askWords(), anyRiv()]).then(([w, any]) => {
-        if (!w.runtime || typeof document === 'undefined') { settle(null); return; }
-        if (!w.mark && !any) { runtimeWhy = 'no .riv is in this installation, so the runtime is not loaded'; settle(null); return; }
+      Promise.all([askWords(), listing()]).then(([w, l]) => {
+        if ((!w.runtime && !l.runtime) || typeof document === 'undefined') { runtimeWhy = 'this server serves no Rive runtime'; settle(null); return; }
+        if (!w.mark && !l.any) { runtimeWhy = 'no .riv is in this installation, so the runtime is not loaded'; settle(null); return; }
         const s = document.createElement('script');
         s.src = RUNTIME_PATH;
         s.onload = () => { const rv = W.rive && W.rive.Rive ? W.rive : null; try { if (rv && rv.RuntimeLoader) rv.RuntimeLoader.setWasmUrl(WASM_PATH); } catch (e) { /* the runtime's own default would be a CDN: refused by the page's policy, so said in words */ } settle(rv); };
@@ -113,6 +119,16 @@
         document.head.append(s);
       });
     });
+  }
+
+  /**
+   * What a component says beside its text fallback when its file is not drawn: the T mark's words are the companion's
+   * (GET /assets/mark.json); every other component names ITS OWN file (the mark's words never stand in for another's).
+   */
+  function absentWords(handle) {
+    const file = typeof handle.asset === 'string' ? handle.asset.slice(handle.asset.lastIndexOf('/') + 1) : '';
+    if (!file || file === 'timmy-mark.riv') return askWords().then((w) => w.words);
+    return Promise.resolve(`${file} is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.`);
   }
 
   /** The number a word has on its Number input, or null when the input takes something else. */
@@ -210,7 +226,7 @@
       if (canvas) { delete canvas.dataset.loaded; canvas.dataset.riveState = 'words'; }
       if (handle.fallback) handle.fallback.hidden = false;
       if (handle.root) handle.root.dataset.rive = 'words';
-      askWords().then((w) => { if (handle.note) handle.note.textContent = w.words; });
+      absentWords(handle).then((words) => { if (handle.note) handle.note.textContent = words; });
     };
     if (!canvas || typeof assetPath !== 'string' || !assetPath) { toWords('no canvas or no asset path'); return handle; }
     canvas.dataset.riveState = 'loading';
@@ -264,11 +280,11 @@
     const handle = load(canvas, o.asset, { ...o, label, root, fallback, word: label.textContent });
     handle.note = note;
     handle.face = face;
-    if (handle.state === 'words') askWords().then((w) => { note.textContent = w.words; });
+    if (handle.state === 'words') absentWords(handle).then((words) => { note.textContent = words; });
     const fire = (ev) => { const did = trigger(handle, o.triggerInput || 'welcome', ev); if (did && typeof o.onTrigger === 'function') o.onTrigger(handle, did); if (did && ev.type === 'keydown') ev.preventDefault(); };
-    if (role === 'button') { face.addEventListener('click', fire); }
+    // a <button> fires its own (trusted) click for Enter / Space; a role=img face takes the keys itself
+    if (role === 'button') face.addEventListener('click', fire);
     else face.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') fire(ev); });
-    if (role === 'button') face.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { /* a button's own click follows */ } });
     return handle;
   }
 
@@ -294,7 +310,7 @@
   /** H169's SSE event → the activity vocabulary (null when the event moves nothing: route, delta, tool ran, …). */
   function activityWordOf(event, data) {
     if (event === 'turn' || event === 'route' || event === 'delta') return 'working';
-    if (event === 'tool') return data && data.status === 'asked' ? 'working' : data && data.status === 'failed' ? 'working' : 'working';
+    if (event === 'tool') return 'working'; // asked, ran, refused or failed: the turn goes on; the turn's own end says how
     if (event === 'needs-you') return 'awaiting';
     if (event === 'error') return 'failed';
     if (event === 'done') { const s = data && data.status; return s === 'cancelled' ? 'stopped' : s === 'failed' ? 'failed' : 'idle'; }
@@ -360,7 +376,7 @@
 
   W.TimmyRive = Object.freeze({
     VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS,
-    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf,
+    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf, absentWords,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     reducedMotion: still,
     /** For a page that unloads: the runtimes let go. */
