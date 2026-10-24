@@ -53,7 +53,7 @@
 
     // one screen state per draw: a draw after the shell shows the screen again starts afresh (the previous poll stops)
     if (host._cxScreen && typeof host._cxScreen.destroy === 'function') host._cxScreen.destroy();
-    const live = { data: null, pull: null, destroyed: false, poll: null };
+    const live = { data: null, pull: null, pullBox: null, said: null, destroyed: false, poll: null };
     host.replaceChildren();
     const main = h('div', { class: 'sh-main cx-main' });
     const head = h('header', { class: 'sh-head' },
@@ -113,8 +113,8 @@
           input.value = '';
           if (!key.trim()) { say(cardOf(c.id), 'Paste the key from ollama.com/settings/keys first.', 'failed'); return; }
           const r = await postJson('/api/connections/ollama-cloud/key', { key });
-          say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The key was not saved.'), r.ok ? 'step' : 'failed');
           if (r.ok) { toast(r.body.words, false); await refresh(); }
+          say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The key was not saved.'), r.ok ? 'step' : 'failed');
         } },
           h('label', { for: 'cx-ollama-cloud-key', class: 'sh-note cx-label' }, 'Paste an Ollama API key (sent once, in the request body; never shown again)'),
           h('div', { class: 'cx-form-row' }, input, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save the key')));
@@ -127,8 +127,8 @@
         const form = h('form', { class: 'cx-form', onSubmit: async (e) => {
           e.preventDefault();
           const r = await postJson('/api/connections/cloudflare', { gatewayUrl: url.value.trim() || null, cloudLogs: logs.checked });
-          say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The settings were not saved.'), r.ok ? 'step' : 'failed');
           if (r.ok) await refresh();
+          say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The settings were not saved.'), r.ok ? 'step' : 'failed');
         } },
           h('label', { for: 'cx-cloudflare-gateway', class: 'sh-note cx-label' }, 'AI Gateway / model routing (optional)'),
           h('div', { class: 'cx-form-row' }, url),
@@ -145,8 +145,8 @@
       const r = await postJson('/api/connections/openrouter/start', { callback: `${location.origin}/api/connections/openrouter/callback` });
       if (!r.ok) { say(cardOf(c.id), r.body.error || 'The sign-in could not start.', 'failed'); return; }
       open(r.body.url);
+      live.said = { id: c.id, words: `${r.body.words} This card says when the key is saved.`, kind: 'step' };
       await refresh();
-      say(cardOf(c.id), `${r.body.words} This card says when the key is saved.`, 'step');
     }
     async function check(c, id) {
       const what = live.data && live.data.checks && live.data.checks[id];
@@ -161,15 +161,15 @@
     async function forget(c) {
       let r; try { r = await api(`/api/connections/${c.id}`, { method: 'DELETE' }); } catch { r = null; }
       let j = null; try { j = r ? await r.json() : null; } catch { j = null; }
-      say(cardOf(c.id), (j && (j.words || j.error)) || 'Nothing was removed.', r && r.ok ? 'step' : 'failed');
       await refresh();
+      say(cardOf(c.id), (j && (j.words || j.error)) || 'Nothing was removed.', r && r.ok ? 'step' : 'failed');
     }
 
     // Ollama · local: the download, with its size, the person's confirmation, its progress and Cancel (SSE from the server)
     function showPull(c) {
       const card = cardOf(c.id);
       let box = card.querySelector('.cx-pull');
-      if (box) { box.remove(); return; }
+      if (box) { box.remove(); live.pullBox = null; return; }
       const local = c.local || { starters: [] };
       const select = h('select', { class: 'sh-select', id: 'cx-pull-model', 'aria-label': 'Model to download' }, ...(local.starters || []).map((m) => h('option', { value: m.model, selected: m.default }, `${m.model} · ${m.size} · ${m.use}`)));
       const other = h('input', { type: 'text', class: 'sh-input', id: 'cx-pull-other', placeholder: 'or another model name from the Ollama library', 'aria-label': 'Another model name', autocomplete: 'off' });
@@ -184,6 +184,7 @@
         h('div', { class: 'cx-form-row' }, startBtn, confirmBtn, cancelBtn),
         bar, status);
       card.querySelector('.cx-actions').after(box);
+      live.pullBox = box;
       startBtn.addEventListener('click', () => startPull((other.value.trim() || select.value), { status, bar, confirmBtn, cancelBtn, startBtn }));
     }
     async function startPull(model, ui) {
@@ -253,6 +254,9 @@
             h('button', { type: 'button', class: 'sh-btn-primary', onClick: () => { if (typeof sh.land === 'function') sh.land(); else if (typeof sh.go === 'function') sh.go('chat'); } }, `${s.continue || 'Continue to the workspace'} →`))),
         h('p', { class: 'sh-note cx-note' }, h('span', { class: 'cx-note-mark', 'aria-hidden': 'true' }, '↳ '), s.note || ''));
       foot.replaceChildren(h('span', null, s.footerStrong || ''), h('span', null, s.footer || ''));
+      // the download box and a card's last status line outlive a render (a refresh after an action keeps what it said)
+      if (live.pullBox) { const local = cardOf('ollama-local'); const at = local && local.querySelector('.cx-actions'); if (at) at.after(live.pullBox); }
+      if (live.said) { say(cardOf(live.said.id), live.said.words, live.said.kind); live.said = null; }
       // a sign-in pending: ask again until the callback landed (the browser is away on OpenRouter's page)
       const pending = (data.cards || []).some((c) => c.state === 'pending');
       if (pending && !live.poll) live.poll = setTimeout(() => { live.poll = null; void refresh(); }, 3000);
