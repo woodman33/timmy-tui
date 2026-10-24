@@ -187,7 +187,7 @@ describe('scope: a user\'s own corner, and nothing outside it (C1)', () => {
     expect(env.TIMMY_PRIVATE_DIR).toBe(join(home, 'private'));
     expect(env.OPENROUTER_API_KEY).toBeUndefined();
     expect(env.OLLAMA_API_KEY).toBeUndefined();
-    expect(env.TIMMY_REPO).toBeUndefined();
+    expect(env.TIMMY_REPO).toBe('/somewhere'); // everything else passes through
     expect(userHome({ id: USER_A }, base)).toBe(home);
     for (const d of [home, join(home, 'settings'), join(home, 'mcp'), join(home, 'private'), join(home, 'projects'), join(home, 'state')]) {
       expect(statSync(d).isDirectory()).toBe(true);

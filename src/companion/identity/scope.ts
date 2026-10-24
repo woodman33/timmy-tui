@@ -77,12 +77,10 @@ export function userEnv(user: UserRef, base: Env = process.env): Env {
   env.TIMMY_SETTINGS_DIR = join(home, 'settings');
   env.TIMMY_MCP_HOME = join(home, 'mcp');
   env.TIMMY_PRIVATE_DIR = join(home, 'private');
-  // the operator's keys are not the user's; a user's own are in their providers.json
+  // the operator's keys are not the user's; a user's own are in their providers.json. Everything else of the base env
+  // passes through (TIMMY_REPO_ROOT and the store pin included: the receipts' rules are the workspace's, not a user's)
   delete env.OPENROUTER_API_KEY;
   delete env.OLLAMA_API_KEY;
-  // the user's folder is never fixed to a repository checkout of the operator's
-  delete env.TIMMY_REPO;
-  delete env.TIMMY_REPO_ROOT;
   ensure0700(join(baseHome(base), USERS_DIR));
   for (const d of [home, env.TIMMY_SETTINGS_DIR, env.TIMMY_MCP_HOME, env.TIMMY_PRIVATE_DIR, join(home, 'projects'), join(home, 'state')]) ensure0700(d);
   return env;
