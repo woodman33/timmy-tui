@@ -28,6 +28,8 @@
  *   error      { words, lines }                                    a refusal (nothing sent) or a failure
  *
  * POST /api/chat/answer { id, choice: 'once' | 'session' | 'deny' } answers a NEEDS YOU of this user's turn.
+ * POST /api/chat/new { project: { root } } (R11 round 6) starts a conversation of its own on the project's agent (the REPL's
+ * /new: startSession; the saved conversation stays in .sessions) → { ok: true, session }; 409 while a turn of it runs.
  * POST /api/chat/stop { id } asks a turn this page started to stop (requestTurnStop by the hold's id, the one `turn` carried);
  * a turn of another surface names its project too ({ id, project: { root } }). The turn, or the project, must be this
  * user's, so one user never stops another's turn.
@@ -221,6 +223,30 @@ export function mountChatRun(app: express.Express, deps: ChatRunDeps): void {
     if (!ask || ask.user !== user.id) { res.status(404).json({ ok: false, error: 'Not answered: no NEEDS YOU of this account waits under that id (it was answered, denied after its wait, or is another account\'s).' }); return; }
     ask.resolve(choice);
     res.json({ ok: true, id, choice });
+  });
+
+  // R11 round 6 (H169; H172's GATE 38, H171's page): "New conversation" = the REPL's /new on the project's one agent (src/agent/
+  // core.ts startSession, through the session's newConversation): the project's next turn starts a conversation of its own, the
+  // saved one stays in .sessions; the page then re-reads its view (an empty newest conversation). The same boundary as /turn:
+  // the user's own project (400 with words otherwise); 409 while a turn of the project runs; { ok: true, session: <id> }.
+  app.post('/api/chat/new', deps.withToken, deps.withUser, deps.json, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const user = userOf(req);
+    if (!user) { res.status(401).json({ ok: false, error: 'Not started: no signed-in user on this request.' }); return; }
+    const root = rootOf(req.body);
+    if (!root) { res.status(400).json({ ok: false, error: 'Not started: the request names no project ({ project: { root } }).' }); return; }
+    const env = deps.userEnv(user);
+    if (!deps.isOwnedRoot(user, root, env)) { res.status(400).json({ ok: false, error: 'Not started: that project is not one of this account\'s projects, so no conversation of it is yours to start.' }); return; }
+    let session: Awaited<ReturnType<typeof openChatSession>>;
+    try {
+      session = await open({ project: { name: basename(root), root }, surface: 'companion' }, { env, settings: () => userSettings(env, root) });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: `Not started: the chat could not be opened: ${(err as Error)?.message ?? String(err)}.` }); return;
+    }
+    if (!session.newConversation) { res.status(501).json({ ok: false, error: 'Not started: this chat session offers no new conversation.' }); return; }
+    const r = session.newConversation();
+    if (!r.ok) { res.status(409).json({ ok: false, error: `Not started: ${r.why}.` }); return; }
+    res.json({ ok: true, session: r.session, words: 'New conversation: the project\'s next turn starts a conversation of its own (the saved one is kept in .sessions).' });
   });
 
   // R5 lead's Stop (requestTurnStop by the turn's id), now for the user's own project only

@@ -37,7 +37,7 @@
  *   // lines: a refusal's or a failure's words (cause and fix), and on an answered turn what must be read beside it (the
  *   // last-resort fallback that answered, tools off for a model that takes none)
  */
-import { realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ChatRouteState, ChatSession, ChatSurface, ChatTurnHooks, ChatTurnResult } from '../contracts/chat-session.js';
 import { gateTools, type ApprovalRequest, type Decision } from '../repl/approvals.js';
@@ -60,7 +60,8 @@ type Env = Record<string, string | undefined>;
 /** What the session needs of an agent: src/agent/core.ts Agent has all of it. */
 export type SessionAgent = Pick<Agent,
   'send' | 'on' | 'off' | 'getModel' | 'setTools' | 'setInstructions' | 'useLocalChat' | 'localChatRoute' | 'lastLocalTurn'
-  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions' | 'setModel'>;
+  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions' | 'setModel'
+  | 'startSession' | 'keptConversation'>;
 
 /** R4 (H113): seals a turn from its facts (src/repl/seal.ts sealTurn's shape); `dir`: the project's store when it is not this process's */
 export type TurnSealer = (facts: TurnFacts & { model: string }, dir?: string) => SealedTurn;
@@ -340,9 +341,28 @@ export async function openChatSession(o: { project: { name: string; root: string
     return { status, text: s.streamed, lines: [...notices, ...lines], ...base };
   };
 
+  /**
+   * R11 round 6 (H169): the REPL's /new for every surface — a conversation of its own on the project's one agent. The new
+   * conversation is the project's newest for every surface and process at once: an empty file of it in the project's
+   * .sessions (what the companion's view and another process's continueConversation read), where the REPL's own /new
+   * keeps it in its process until the first message is written.
+   */
+  const newConversation = (): { ok: true; session: string } | { ok: false; why: string } => {
+    if (agent.isRunning() || ctx.current) return { ok: false, why: `another chat turn of this project is running here${ctx.current && ctx.surface ? `, sent from ${surfaceWords(ctx.surface)}` : ''}: it ends first (Stop ends it), then a new conversation can start` };
+    const id = agent.startSession();
+    try {
+      const dir = agent.keptConversation().directory;
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `${id}.jsonl`);
+      if (!existsSync(file)) writeFileSync(file, '');
+    } catch { /* not written: this process still holds it as the newest (the REPL's own /new); another reader sees the saved one */ }
+    return { ok: true, session: id };
+  };
+
   return {
     route: (): ChatRouteState => routeNow().state,
     send: (text: string, hooks: ChatTurnHooks) => send(text, hooks),
     sendOnce: (key: string, text: string, hooks: ChatTurnHooks) => send(text, hooks, key),
+    newConversation,
   };
 }
