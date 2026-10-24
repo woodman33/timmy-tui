@@ -99,7 +99,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       await page.waitForSelector('[data-timmy-rive-shape].is-selected', { timeout: 10_000 });
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected · selected');
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-foot')).toContain('selected');
-      await page.evaluate((sid) => { const W = window as unknown as Win; const s = W.timmyCanvas.editor.getShape(sid)!; W.timmyCanvas.editor.updateShape({ id: sid, type: 'timmy-rive', props: { ...s.props, w: 420 } }); }, id);
+      await page.evaluate((sid) => { const W = window as unknown as Win; const s = W.timmyCanvas.editor.getShape(sid)!; W.timmyCanvas.editor.updateShape({ id: sid, type: 'timmy-rive', props: { ...s.props, w: 500 } }); }, id);
       await page.waitForSelector('[data-timmy-rive-shape].is-expanded', { timeout: 10_000 });
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-more')).toContain('ProviderCard · TimmyUI: State, Hover, Pressed, ReducedMotion');
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected · selected · expanded');
@@ -132,8 +132,11 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
     try {
       // (the welcome first, clicked while it is the shape in view; the activity placed after — no camera move: a zoomToFit here
       // has ended the page's execution context in some runs, cause not pinned, see the report)
-      // placed at the viewport's centre (the board already holds the first case's shapes: a free spot would be off screen)
-      await page.evaluate(() => { const W = window as unknown as Win & { timmyCanvas: { editor: { getViewportPageBounds: () => { x: number; y: number; w: number; h: number } } } }; const v = W.timmyCanvas.editor.getViewportPageBounds(); W.timmyCanvas.placeRive('welcome', { at: { x: Math.round(v.x + v.w / 2 - 120), y: Math.round(v.y + v.h / 2 - 100) } }); });
+      // a fresh region of the board (the board already holds the first case's shapes) at 100 %: the welcome placed in view and
+      // clicked; the console and the card placed beside it after — the three faces at their default sizes in one frame
+      await page.evaluate(() => { const ed = (window as unknown as Win & { timmyCanvas: { editor: { setCamera: (c: { x: number; y: number; z: number }) => unknown } } }).timmyCanvas.editor; ed.setCamera({ x: -6000, y: -6000, z: 1 }); return 'ok'; });
+      await page.waitForTimeout(150);
+      await page.evaluate(() => { const W = window as unknown as Win & { timmyCanvas: { editor: { getViewportPageBounds: () => { x: number; y: number; w: number; h: number } } } }; const v = W.timmyCanvas.editor.getViewportPageBounds(); W.timmyCanvas.placeRive('welcome', { at: { x: Math.round(v.x + 840), y: Math.round(v.y + 130) } }); });
       const face = page.locator('[data-timmy-rive-shape][data-component="welcome"] .tr-face');
       await face.waitFor({ state: 'visible', timeout: 10_000 });
       expect(await face.evaluate((e) => e.tagName)).toBe('BUTTON');
@@ -155,6 +158,9 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       const box2 = await face.boundingBox();
       expect(box2!.width).toBeGreaterThan(box!.width * 1.3);
       expect(box2!.width).toBeLessThanOrEqual(wider);
+      // back to its default width for the three-face frame below
+      await page.evaluate(() => { const W = window as unknown as Win & { timmyCanvas: { editor: { getCurrentPageShapes: () => Array<{ id: string; type: string; props: { component?: string; w: number } }>; updateShape: (s: { id: string; type: string; props: { w: number } }) => unknown } } }; const ed = W.timmyCanvas.editor; const sh = ed.getCurrentPageShapes().find((x) => x.type === 'timmy-rive' && x.props.component === 'welcome')!; ed.updateShape({ id: sh.id, type: sh.type, props: { w: 280 } }); return 'ok'; });
+      await page.waitForTimeout(200);
       if (CAP_DIR && existsSync(CAP_DIR)) await page.screenshot({ path: CAP_WELCOME, clip: { x: Math.max(0, box2!.x - 40), y: Math.max(0, box2!.y - 80), width: Math.min(900, box2!.width + 80), height: box2!.height + 220 } }).catch(() => undefined);
       const before = await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect().find((x) => x.component === 'welcome')!.events.filter((e) => e.input === 'welcome').length);
       expect(before).toBe(0);
@@ -164,9 +170,32 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       expect(ev).toHaveLength(1);
       expect(ev[0].source).toBe('user click');
       expect(await text(page, '[data-timmy-rive-shape][data-component="welcome"] [data-rive-status]')).toContain('welcome');
-      await page.evaluate(() => (window as unknown as Win).timmyCanvas.placeRive('activity'));
+      // the console beside the welcome and the card under the welcome, clear of the Studio's side panel, at their default
+      // sizes (480 / 280 / 320 wide); nothing selected for the capture (tldraw's style panel would cover the right column)
+      const ids = await page.evaluate(() => { const W = window as unknown as Win & { timmyCanvas: { editor: { getViewportPageBounds: () => { x: number; y: number; w: number; h: number } } } }; const v = W.timmyCanvas.editor.getViewportPageBounds(); return { activity: W.timmyCanvas.placeRive('activity', { at: { x: Math.round(v.x + 340), y: Math.round(v.y + 130) } }), connection: W.timmyCanvas.placeRive('connection', { at: { x: Math.round(v.x + 840), y: Math.round(v.y + 350) }, provider: 'ollama-local' }), welcome: (document.querySelector('[data-timmy-rive-shape][data-component="welcome"]') as HTMLElement).getAttribute('data-timmy-rive-shape') }; });
       await page.waitForSelector('[data-timmy-rive-shape][data-component="activity"]', { state: 'attached', timeout: 20_000 });
       expect(await page.$eval('[data-timmy-rive-shape][data-component="activity"] [data-rive-status]', (e) => (e.textContent || '').trim())).toBe('idle');
+      // R63 (H168): every artboard's face fills its shape's content width at its own aspect and reads at 100 % — the console
+      // ≥ 400×230 (640:380), the card ≥ 280×180 (400:260), the welcome ≥ 200×60 (240:72); none a pill
+      await page.evaluate(() => { const ed = (window as unknown as Win & { timmyCanvas: { editor: { getZoomLevel: () => number; resetZoom: () => unknown } } }).timmyCanvas.editor; if (Math.abs(ed.getZoomLevel() - 1) > 0.001) ed.resetZoom(); return 'ok'; });
+      await page.waitForFunction(() => { const W = window as unknown as Win; const all = W.TimmyRive.inspect(); return ['activity', 'connection:ollama-local'].every((c) => all.some((x) => x.component === c && x.state === 'drawn')); }, null, { timeout: 30_000 });
+      await page.waitForTimeout(300);
+      const boxes: Record<string, { w: number; h: number; sw: number }> = {};
+      // (by the shapes' own ids: the first case's connection shape is on the board too, culled off screen)
+      for (const c of ['activity', 'connection', 'welcome'] as const) {
+        const root = page.locator(`[data-timmy-rive-shape="${ids[c]}"]`);
+        const b = (await root.locator('.tr-face').boundingBox())!;
+        const sw = (await root.boundingBox())!.width;
+        boxes[c] = { w: Math.round(b.width), h: Math.round(b.height), sw: Math.round(sw) };
+      }
+      expect(boxes.activity.w).toBeGreaterThanOrEqual(400); expect(boxes.activity.h).toBeGreaterThanOrEqual(230); expect(Math.abs(boxes.activity.w / boxes.activity.h - 640 / 380)).toBeLessThan(0.1);
+      expect(boxes.connection.w).toBeGreaterThanOrEqual(280); expect(boxes.connection.h).toBeGreaterThanOrEqual(180); expect(Math.abs(boxes.connection.w / boxes.connection.h - 400 / 260)).toBeLessThan(0.1);
+      expect(boxes.welcome.w).toBeGreaterThanOrEqual(200); expect(boxes.welcome.h).toBeGreaterThanOrEqual(60);
+      for (const c of ['activity', 'connection', 'welcome']) expect(boxes[c].w, `${c}: the face at the shape's content width`).toBeGreaterThanOrEqual(boxes[c].sw - 30);
+      await page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.selectNone(); const a = document.activeElement as HTMLElement | null; if (a && a.blur) a.blur(); return 'ok'; });
+      await page.mouse.click(600, 720); // an empty spot of the board: nothing selected, no style panel over the right column
+      await page.waitForTimeout(300);
+      if (CAP_DIR && existsSync(CAP_DIR)) await page.screenshot({ path: join(CAP_DIR, 'studio-three-faces-100pct.png') }).catch(() => undefined);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 120_000);

@@ -28,8 +28,14 @@ export const RIVE_COMPONENTS = Object.freeze({
 });
 export const RIVE_WIDTH = 240;
 export const RIVE_HEIGHT = 200;
-/** A new shape's width per component: the welcome's ActionButton face (240:72) needs ≥ 200 px to read as a button at 100 %. */
-export const RIVE_WIDTH_OF = Object.freeze({ welcome: 280, connection: RIVE_WIDTH, activity: RIVE_WIDTH });
+/**
+ * A new shape's width per component, so each face reads at 100 %: the AgentConsole (640:380) at 480 → a 454×270 face, its
+ * 19 px labels ~13 px; the ProviderCard (400:260) at 320 → 294×191; the ActionButton (240:72) at 280 → 254×76 (≥ 200 px, a
+ * button). The face fills the shape's content width at the artboard's aspect (index.html: the component is a block grid).
+ */
+export const RIVE_WIDTH_OF = Object.freeze({ welcome: 280, connection: 320, activity: 480 });
+/** The default width of a component's shape (RIVE_WIDTH for an unknown one). */
+export const widthOf = (component) => RIVE_WIDTH_OF[component] || RIVE_WIDTH;
 /** Expanded when the person made the shape at least this much wider than its default. */
 export const EXPAND_AT = 1.5;
 /** What the shape says of a state word that no backend event set on this page (a saved word is a record, not an observation). */
@@ -44,7 +50,7 @@ export const isRiveShape = (r) => !!r && r.typeName === 'shape' && r.type === RI
 /** The props a new shape of `component` starts with. */
 export function riveProps(component, o = {}) {
   const c = RIVE_COMPONENTS[component] ? component : 'welcome';
-  return { w: o.w ?? (RIVE_WIDTH_OF[c] || RIVE_WIDTH), h: o.h ?? RIVE_HEIGHT, component: c, state: o.state ?? (c === 'connection' ? 'disconnected' : c === 'activity' ? 'idle' : 'ready'), label: o.label ?? (c === 'connection' ? 'Provider connection' : c === 'activity' ? 'Agent / tool activity' : 'Welcome / guide'), provider: o.provider ?? '' };
+  return { w: o.w ?? widthOf(c), h: o.h ?? RIVE_HEIGHT, component: c, state: o.state ?? (c === 'connection' ? 'disconnected' : c === 'activity' ? 'idle' : 'ready'), label: o.label ?? (c === 'connection' ? 'Provider connection' : c === 'activity' ? 'Agent / tool activity' : 'Welcome / guide'), provider: o.provider ?? '' };
 }
 
 /**
@@ -65,7 +71,7 @@ export function createRiveShape(deps) {
     const [source, setSource] = React.useState(SAVED_WORDS);
     const editor = deps.editor();
     const selected = useValue('timmy rive: selected', () => { const ed = deps.editor(); return ed ? ed.getSelectedShapeIds().includes(shape.id) : false; }, [shape.id]);
-    const expanded = p.w >= RIVE_WIDTH * EXPAND_AT;
+    const expanded = p.w >= widthOf(p.component) * EXPAND_AT; // 1.5× the component's own default width
     // the component, made once per shape element, bound to the page's feed of its vocabulary
     React.useEffect(() => {
       const host = ref.current;
@@ -110,7 +116,7 @@ export function createRiveShape(deps) {
     }, [shape.id, shape.type]);
     // selection and expansion: tldraw's own facts, as the two Bool inputs
     React.useEffect(() => { const rive = R(); const hd = handleRef.current; if (rive && hd) rive.set(hd, 'selected', selected, 'tldraw selection'); }, [selected]);
-    React.useEffect(() => { const rive = R(); const hd = handleRef.current; if (rive && hd) rive.set(hd, 'expanded', expanded, `tldraw size (w ${Math.round(p.w)} ≥ ${RIVE_WIDTH * EXPAND_AT} is expanded)`); }, [expanded]);
+    React.useEffect(() => { const rive = R(); const hd = handleRef.current; if (rive && hd) rive.set(hd, 'expanded', expanded, `tldraw size (w ${Math.round(p.w)} ≥ ${widthOf(p.component) * EXPAND_AT} is expanded)`); }, [expanded]);
     const handled = (e) => { const ed = deps.editor(); if (ed) ed.markEventAsHandled(e); };
     // R11 round 6: the artboard chosen on the shape itself (a native <select>, keyboard reachable): the props change, the board
     // save (save-state.js) carries them, the component is made again for the new artboard (the effect above keys on it)

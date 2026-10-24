@@ -89,6 +89,7 @@
     inspect: 'Inspect interaction',           // AgentConsole, ProviderCard: the baked face button, meaningless here → ''
     actionIdle: 'Connect provider',           // ActionButton: its Idle label → the button's own label
     provider: 'OpenRouter  ·  Ollama  ·  Cloudflare', // ProviderCard ×5 under one name: not addressable (left as baked)
+    pill: 'Primary action',                   // AgentConsole, ProviderCard: the amber pill under "Inspect interaction" (a Shape; the listener's hit area)
   });
   const CAPTION = Object.freeze({
     preview: 'PREVIEW  /  NOT A LIVE JOB',
@@ -120,6 +121,12 @@
     if (handle.artboard === 'AgentConsole' || handle.artboard === 'ProviderCard') {
       runs.caption = put(RUNS.caption, captionOf(handle));
       runs.inspect = put(RUNS.inspect, '');
+      // the baked amber pill under that text (the Shape "Primary action", the listener's hit area) is a control that means
+      // nothing here: scaled to nothing through the runtime's node API (the artboard's node of that name; no opacity there)
+      let pill = null;
+      try { pill = r.artboard.node(RUNS.pill) || null; } catch (e) { pill = null; }
+      if (pill) { try { pill.scaleX = 0; pill.scaleY = 0; } catch (e) { pill = null; } }
+      runs.pill = { name: RUNS.pill, hidden: Boolean(pill), note: pill ? 'scaled to 0 by the runtime (artboard.node)' : 'not reachable through the runtime: drawn as baked' };
       if (handle.artboard === 'ProviderCard') runs.provider = { name: RUNS.provider, set: null, reads: put(RUNS.provider, null).reads, note: 'five runs share this name (one per state group): the runtime addresses one; left as baked — the source must name them apart' };
     } else if (handle.artboard === 'ActionButton') {
       runs.actionIdle = put(RUNS.actionIdle, typeof handle.faceLabel === 'string' ? handle.faceLabel : (handle.word || ''));
