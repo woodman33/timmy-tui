@@ -108,6 +108,8 @@ import { mountRunDetailRoute, type RunDetailProducer } from './run-detail-route.
 // R6 (H145): the shown project's artifacts, for the board's artifact cards
 import { mountArtifactRoutes } from './artifacts.js';
 import { mountReferenceRoutes } from './references.js';
+import { mountRive } from '../companion/page.js';
+import { mountRiveAssets } from '../companion/rive-assets.js';
 import { timmyHome } from '../setup/home.js';
 import { receiptsDir } from '../utils/receipts.js';
 
@@ -630,6 +632,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   mountReferenceRoutes(app, { link, relay, canvasRoot: savedIn });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
+  // R11 round 5 (H174, contract 23:52): the Rive runtime (/vendor/rive/, from this computer's node_modules) and the components'
+  // listing + files for the canvas's timmy-rive shape (the Studio has no launch token: the listing is open on this loopback server)
+  mountRive(app);
+  mountRiveAssets(app);
   // Checked on every request, so building while Timmy runs needs only a reload.
   app.get(['/', '/index.html'], (_req, res, next) => {
     if (existsSync(join(root, 'dist', 'canvas.js'))) return next();

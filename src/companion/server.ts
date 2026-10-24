@@ -137,6 +137,7 @@ import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
 import { mountPanels } from './panels.js';
 // R10 (H164): the journey's read-only routes (src/journey/routes.ts)
 import { mountJourneyRoutes } from '../journey/routes.js';
+import { mountRiveAssets } from './rive-assets.js';
 // R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
 import { mountChatView } from './chat-view.js';
 import type { InventorySource } from './panels/tools.js';
@@ -844,6 +845,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R11 round 4 (H169, contract C3): the page's chat is the real agent turn (POST /api/chat/turn SSE, /api/chat/answer,
   // /api/chat/stop { id }) in the user's own project under the user's env
   mountChatRun(app, { withToken, withUser: withUserOrOperator, json: express.json({ limit: '80kb' }), userEnv: (u, base) => principalEnv(u, base), isOwnedRoot: principalOwns });
+  // R11 round 5 (H174, contract 23:52): the Rive components' listing (GET /api/rive/assets: each component's .riv when it is
+  // here, its editable source beside it) and their files (/assets/rive/<component>/<file>), for the page's Inspect animation view
+  mountRiveAssets(app, { withToken, withUser: withUserOrOperator });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
