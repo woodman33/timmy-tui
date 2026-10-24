@@ -28,6 +28,7 @@ import { saveActiveProject } from '../src/project/index.js';
 import { readChain } from '../src/utils/receipts.js';
 import { opsKit, replOf, sandbox } from './helpers/ops-sandbox.js';
 import { PNG, reportProject, runOf, typed } from './helpers/run-inspect-fixture.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -98,6 +99,7 @@ describe.skipIf(!browserPath)('the run detail inspected, in a real browser (R6 H
       page.on('pageerror', (e) => errors.push(e.message));
       page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
       await page.goto(`${origin}/run/${op}#t=${token}`);
+      await landWorkspace(page);
       await page.waitForSelector(`#run-detail .run-view[data-operation="${op}"][data-inspected="true"]`, { timeout: 30_000 });
       await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 
@@ -277,6 +279,7 @@ describe.skipIf(!browserPath)('the run detail inspected, in a real browser (R6 H
         phone.on('pageerror', (e) => errors.push(e.message));
         // the restore's own run: its change, − 150 + 140, against the version /restore kept first
         await phone.goto(`${origin}/run/${restoreOp}#t=${token}`);
+        await landWorkspace(phone);
         await phone.waitForSelector(`#run-detail .run-view[data-operation="${restoreOp}"][data-inspected="true"]`, { timeout: 30_000 });
         await phone.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
         expect(await phone.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth)).toBe(true);

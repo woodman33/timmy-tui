@@ -181,6 +181,8 @@
       if (landing) return landing;
       landing = (async () => {
         let configured = false;
+        // no launch token (or not this companion's): the page's own note says how to open it from Timmy; nothing else is read
+        if (!launchToken() || (typeof companion !== 'undefined' && companion && companion.refused)) { shell.go('chat', 'no-token'); return 'chat'; }
         try {
           const r = await shell.fetch('/api/identity');
           if (r.status === 200) { identityAnswer = await r.json(); configured = Boolean(identityAnswer && identityAnswer.configured); }

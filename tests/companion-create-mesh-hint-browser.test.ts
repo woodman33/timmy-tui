@@ -17,6 +17,7 @@ import { startCompanionServer, type CompanionServer } from '../src/companion/ser
 import { createCompanionHint } from '../src/workbench/create-tab.js';
 import { withQuery } from '../src/workbench/servers.js';
 import { DEMO_MESH, DEMO_OBJ, DEMO_PLY } from '../scripts/demo-mesh.mjs';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -54,6 +55,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6 chooses the mesh the Workb
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(withQuery(companion.url, query));
+    await landWorkspace(page);
     await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 30_000 });
     await page.waitForFunction(() => /The view you can turn · /.test(document.querySelector('[data-create="view-title"]')?.textContent ?? ''), null, { timeout: 15_000 });
     const rows = await page.$$eval('.create-mesh', (bs) => bs.map((b) => [(b as HTMLElement).dataset.createMesh ?? '', b.getAttribute('aria-current') ?? ''] as [string, string]));

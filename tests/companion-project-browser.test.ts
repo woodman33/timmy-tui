@@ -29,7 +29,7 @@ import { RUN_NO_PRODUCER, runDetailAnswer, type RunDetailProducer } from '../src
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { projectId, saveActiveProject, type ActiveProject } from '../src/project/index.js';
 import { tildePath } from '../src/utils/home-scrub.js';
-import { openWorkspaceTab } from './helpers/companion-page-kit.js';
+import { openWorkspaceTab, landWorkspace } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks } from './fixtures/fake-ollama-chat.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -250,6 +250,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     page.on('pageerror', (e) => seen.errors.push(e.message));
     // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases read the header and Home, as before
     await page.goto(`${origin}${o.path ?? '/?tab=home'}#t=${tokenOf(target)}`);
+    await landWorkspace(page);
     return { page, context, seen };
   }
   const clean = (seen: Seen): void => {
@@ -364,6 +365,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       // the companion's address opened again in this tab (a reload alone has no token: the page keeps it in memory only)
       // keeps the pin, this tab's own; a new page follows
       await pinned.page.goto(`http://127.0.0.1:${own.port}/?tab=home#t=${tokenOf(own)}`);
+      await landWorkspace(pinned.page);
       await connected(pinned.page);
       await shows(pinned.page, 'beta');
       await pinned.page.waitForFunction(() => document.getElementById('project')?.dataset.mode === 'pinned', null, { timeout: 5_000 });

@@ -15,6 +15,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildWorkspaceFrame } from '../src/ops/workspace-frame.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -51,6 +52,7 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
     page.on('pageerror', (e) => errors.push(e.message));
     // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases start on Home, as they did
     await page.goto(companion.url.replace('/#t=', '/?tab=home#t='));
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.waitForSelector('#home-connections .conn-card', { timeout: 15_000 });
     return { page, errors };
@@ -108,6 +110,7 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
       page.on('pageerror', (e) => errors.push(e.message));
       try {
         await page.goto(address);
+        await landWorkspace(page);
         await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
         await page.waitForFunction((w) => document.querySelector('#ws-tabs [aria-selected="true"]')?.getAttribute('data-ws-tab') === w, want, { timeout: 10_000 });
         expect(page.url(), address.replace(token, '<token>')).not.toContain(token);

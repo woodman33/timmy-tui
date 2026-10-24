@@ -19,7 +19,7 @@ import { CONNECTIONS_SCHEMA, buildWorkspaceFrame, writeConnections, type Connect
 import { startCompanionServer, type CompanionOptions, type CompanionServer } from '../src/companion/server.js';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { DEFAULT_SETTINGS, readSettings, saveSettings, settingsPath } from '../src/workbench/settings.js';
-import { openWorkspaceTab } from './helpers/companion-page-kit.js';
+import { openWorkspaceTab, landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -105,6 +105,7 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases start where they did, on Home
     await page.goto(s.url.replace('/#t=', '/?tab=home#t='));
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.waitForSelector('#home-connections .conn-card', { timeout: 15_000 });
     return { page, context, posts, errors, outside };

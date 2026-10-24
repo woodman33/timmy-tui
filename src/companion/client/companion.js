@@ -67,35 +67,7 @@ const companion = (() => {
     },
     // Whether the companion still takes this token (asked when the socket closes); true when it cannot be asked.
     check: () => c.fetch('/api/auth').then((r) => r.status !== 401, () => true),
-    // POST /chat, streamed: calls on(event, data) for each server-sent event (delta, usage, error, done).
-    async chat(messages, on, signal) {
-      const res = await c.fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }), signal });
-      if (!res.ok || !res.body) throw new Error('Companion /chat responded HTTP ' + res.status);
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) return;
-        buf += decoder.decode(chunk.value, { stream: true });
-        let sep;
-        while ((sep = buf.indexOf('\n\n')) !== -1) {
-          const raw = buf.slice(0, sep);
-          buf = buf.slice(sep + 2);
-          let event = 'message';
-          const data = [];
-          for (const line of raw.split('\n')) {
-            if (line.startsWith('event:')) event = line.slice(6).trim();
-            else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
-          }
-          if (!data.length) continue;
-          let parsed = data.join('\n');
-          try { parsed = JSON.parse(parsed); } catch (e) { /* raw text */ }
-          on(event, parsed);
-          if (event === 'done') return;
-        }
-      }
-    },
+    // (R11 round 4: the chat's turn is POST /api/chat/turn through TimmyShell.fetch, in chat-shell.js; the legacy POST /chat caller is gone)
   };
   if (!token) c.say('This page has no token from Timmy, so it loads nothing: the companion answers only the address Timmy gives, which carries its token after #. ' + OPEN_FROM_TIMMY);
   return c;
@@ -132,7 +104,9 @@ const chatRoute = (() => {
 // The model chat (the Streamdown island, /web/island/companion-chat.js) streams through this call and asks whether the page
 // may ask; the token itself is not put on window. R4 (H104, second part): and which route it takes (route, onRoute, refreshRoute).
 window.timmyCompanion = {
-  chat: (messages, on, signal) => companion.chat(messages, on, signal),
+  // R11 round 4: the legacy POST /chat caller is gone: the chat is the agent turn in the Chat composition (POST /api/chat/turn,
+  // chat-shell.js); the older Streamdown view sends nothing and says so
+  chat: () => Promise.reject(new Error('This older view sends nothing: the chat is the agent turn in Chat above (POST /api/chat/turn).')),
   ready: () => Boolean(companion.token) && !companion.refused,
   route: chatRoute.now,
   onRoute: chatRoute.on,

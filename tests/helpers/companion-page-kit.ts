@@ -209,3 +209,18 @@ export async function smallText(page: Page, least = 11): Promise<SmallText[]> {
 export async function closeProject(p: PageProject | undefined): Promise<void> {
   if (p) await p.companion.shutdown();
 }
+
+/**
+ * R11 round 4 (H171): the page lands by the shell's rule (shell.js): on the account screen when no identity provider is
+ * configured (every test companion here, until one sets CLERK_* keys), the workspace hidden behind it. A test of the workspace
+ * itself goes to the chat screen as a person would ("Review the workspace without an account →"): this waits for the landing,
+ * then asks the shell for it. Nothing is signed in; the page reads and writes as the companion's own process, as before.
+ */
+export async function landWorkspace(page: Page): Promise<void> {
+  await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
+  await page.evaluate(() => {
+    const shell = (window as unknown as { TimmyShell?: { current(): string; go(id: string): void } }).TimmyShell;
+    if (shell && shell.current() !== 'chat') shell.go('chat');
+  });
+}
+

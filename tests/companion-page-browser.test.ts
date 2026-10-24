@@ -33,7 +33,7 @@ import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { sealTurn } from '../src/repl/seal.js';
 import { tildePath } from '../src/utils/home-scrub.js';
-import { openWorkspaceTab } from './helpers/companion-page-kit.js';
+import { openWorkspaceTab, landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -226,6 +226,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     page.on('dialog', (d) => { seen.dialogs.push(d.message()); void d.dismiss(); });
     page.on('download', (d) => seen.downloads.push(d.suggestedFilename()));
     await page.goto(target.url);
+    await landWorkspace(page);
     return { page, context, seen };
   }
 

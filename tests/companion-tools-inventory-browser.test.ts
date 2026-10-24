@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { inventoryOfRows } from '../src/companion/panels/tools-inventory.js';
 import { FAKE_ROWS } from './fixtures/fake-inventory-rows.js';
+import { landWorkspace } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -56,6 +57,7 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(companion.url);
+    await landWorkspace(page);
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.keyboard.press('9');
     await page.waitForSelector('[data-tools-caps] .tl-card', { timeout: 30_000 });
