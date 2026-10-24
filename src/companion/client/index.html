@@ -10,7 +10,11 @@
        style sheet; Streamdown's style sheet and the Tailwind classes it emits, precompiled; its scripts below. No inline
        script, style or handler (the page's Content-Security-Policy allows none), and nothing from any other site. R5 (H132,
        DESIGN.md §10 B10): Timmy's shared look first (the --timmy-* variables and Monaspace Argon's faces, /timmy-theme.css),
-       then the Tailwind classes, the page's own sheet (only those variables), then Streamdown's (linked last). -->
+       then the Tailwind classes, the page's own sheet (only those variables), then Streamdown's (linked last).
+       R11 round 7 (H175; DESIGN.md §10 B11, SHELL CONTRACT v1): the theme sheet also carries the B11 registry (--timmy-ui-*, the
+       Outfit face for words, Monaspace Argon for paths and code, the Amber and Glacier families under html[data-theme]); the
+       page is ONE shell for every destination: the permanent grouped rail, the topbar, one section.page per destination with
+       the same scaffold (head · band · work + context · dock · records), the phone's sheets, Help & find (shell.js). -->
   <!-- R4 (H104, r25's D11): the page's icon, the companion's own (with none declared the browser asked for /favicon.ico: a 404) -->
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/timmy-theme.css">
@@ -26,85 +30,71 @@
   <link rel="stylesheet" href="/account.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
-<body class="shell" data-dest="chat">
-  <!-- R5 (H132, the operator's completion order of 2026-10-15): the browser view of the project workspace whose main operating
-       space is the terminal. The references (codex-ui-references 01/13 Home, 02/11 Chat, 12 Workflows, 10 Logs) set its
-       structure: a header with the project and its switch and new-project commands; the ten tabs (keys 1 to 9, then 0), the
-       active one with a 1px amber border; the "Workflow actions" strip, whose one primary next step is amber; the tab's
-       columns; and the activity stream at the bottom. Tabs, actions, commands and connection words come from the workspace
-       frame (GET /api/workspace, src/contracts/workspace.ts), never made up here: the labels below are what the page shows
-       until the frame arrives. -->
+<body class="shell" data-dest="chat" data-page="chat" data-screen="chat">
+  <!-- R11 round 7 (H175; the operator's order of 2026-10-24: "Timmy → project → current task → primary next action → work area →
+       contextual tools/details → progress and evidence"; the lead's D3/D4/D5): the browser view of the project workspace, its
+       main operating space the terminal. ONE frame: the rail (D3's grouped destinations, the project switcher, New conversation,
+       Help & find, the account) beside the main column (the topbar; the pages; the records band). Every destination is one
+       section.page below with the same regions; what each page registers (TimmyShell.page) is drawn into its head and band,
+       and the frame's actions (GET /api/workspace, src/contracts/workspace.ts) into its dock, never made up here. The words
+       below are what the page shows until the companion answers. -->
   <a class="skip-link" href="#ws-main">Skip to the workspace</a>
 
-  <!-- R11 round 4 (H171): the journey's three screens (src/companion/client/shell.js, window.TimmyShell): the account screen
-       (H173's account.js draws it), the connections screen (H170's screen-connections.js draws it) and the chat screen, which is
-       the shell below (the rail and the page). The shell lands on one by its rule (account when no identity provider is
-       configured or no session; connections when signed in with no route; chat otherwise); the others are hidden. -->
-  <section class="sh-screen" id="screen-account" data-screen="account" aria-label="Account" hidden></section>
-  <section class="sh-screen" id="screen-connections" data-screen="connections" aria-label="Connections" hidden></section>
-  <div class="sh-screen sh-screen-chat" id="screen-chat" data-screen="chat" hidden>
-
-  <!-- R10 CHAT CHECKPOINT (H171; the operator's order of 2026-10-22, 16:01 PT: "LEFT: permanent navigation, project
-       selector/New project, Chat first"): the shell's left menu, beside every destination. Each item opens one of this page's
-       destinations (the workspace's tabs, as their keys do); an item this page does not have says where it opens. The words
-       below are what the menu shows until the companion answers (src/companion/client/chat-shell.js draws the rest). -->
-  <aside class="rail" id="shell-rail" aria-label="Timmy">
-    <!-- R11 round 4 (H171; the preview's rail, captures 04/05): the mark, WORKSPACE with the project box and New conversation,
-         then Chat, WORK, CREATE, CONNECT, and the account at the bottom -->
-    <div class="rail-brand"><span class="sh-mark" aria-hidden="true"><canvas data-timmy-mark></canvas><span class="sh-mark-text">T</span></span> <span class="rail-name">TIMMY</span></div>
-    <div class="rail-scroll">
-      <div class="rail-sec" id="rail-project-label">Workspace</div>
-      <button type="button" class="rail-project" id="rail-project" aria-haspopup="true" aria-expanded="false" aria-controls="rail-project-menu" aria-describedby="rail-project-label">
-        <span class="rail-project-name" id="rail-project-name">not known yet</span><span aria-hidden="true">⌄</span>
-      </button>
-      <div class="rail-project-menu" id="rail-project-menu" hidden></div>
-      <button type="button" class="rail-new" id="rail-new" aria-expanded="false" aria-controls="rail-new-note" hidden><span aria-hidden="true">+</span> New project</button>
-      <p class="rail-note" id="rail-new-note" hidden></p>
-      <button type="button" class="rail-new rail-new-conv" id="rail-new-conv" title="Starts a new conversation on this page: the composer cleared, the page’s own turns put away (the project’s saved conversation stays)"><span aria-hidden="true">+</span> New conversation</button>
-      <div class="rail-find-box" id="rail-find-box" hidden><label class="rail-find-label" for="rail-find">Find</label><input class="rail-find" id="rail-find" type="search" autocomplete="off" placeholder="A destination’s name…" aria-describedby="rail-find-hint"><span class="rail-find-hint" id="rail-find-hint">Enter opens the first · Esc clears</span></div>
-      <nav class="rail-menu" id="rail-menu" aria-label="Destinations"></nav>
-      <p class="rail-away-note" id="rail-away-note" role="status" hidden></p>
+  <div class="frame" id="shell-frame">
+  <!-- THE RAIL (D3): permanent on every page at a desk; a top strip and a sheet on a phone (D5). shell.js draws the destinations
+       into #rail-menu (.rail-item[data-page][data-dest]: the page id and the legacy tab id); the project switcher, New
+       conversation and the account block keep their round-4 ids (chat-shell.js and account.js write them). -->
+  <aside class="nav-rail" id="shell-rail" aria-label="Timmy">
+    <div class="rail-top">
+      <div class="rail-brand"><span class="sh-mark" aria-hidden="true"><canvas data-timmy-mark></canvas><span class="sh-mark-text">T</span></span> <span class="rail-name">TIMMY</span></div>
+      <button type="button" class="ui-btn rail-menu-btn" id="shell-menu" aria-expanded="false" aria-controls="rail-sheet" title="Menu: every destination, the project, your account"><span aria-hidden="true">☰</span> Menu</button>
     </div>
-    <div class="rail-foot" id="rail-foot">
-      <div class="rail-foot-keys"><button type="button" class="rail-foot-btn" id="rail-help" aria-controls="cx-drawer"><kbd>?</kbd> Help</button><button type="button" class="rail-foot-btn" id="rail-find-btn" aria-expanded="false" aria-controls="rail-find-box"><kbd>/</kbd> find</button></div>
-      <!-- the account (H173's session: the user's name; sign-out); without one, said so -->
-      <div class="rail-account" id="rail-account" data-signed="no">
-        <span class="rail-avatar" id="rail-avatar" aria-hidden="true">T</span>
-        <button type="button" class="rail-account-words" id="rail-account-go" data-shell-go="account" title="Your account: sign in, or see what this companion knows about accounts"><strong class="rail-account-name" id="rail-account-name">Not signed in</strong> <small class="rail-account-sub" id="rail-account-sub">this companion’s own workspace</small></button>
-        <button type="button" class="rail-foot-btn rail-signout" id="rail-signout" hidden>Sign out</button>
+    <div class="rail-sheet" id="rail-sheet" aria-label="Destinations, the project and your account">
+      <div class="rail-scroll">
+        <div class="rail-sec" id="rail-project-label">Workspace</div>
+        <button type="button" class="rail-project" id="rail-project" aria-haspopup="true" aria-expanded="false" aria-controls="rail-project-menu" aria-describedby="rail-project-label">
+          <span class="rail-project-name" id="rail-project-name">not known yet</span><span aria-hidden="true">⌄</span>
+        </button>
+        <div class="rail-project-menu" id="rail-project-menu" hidden></div>
+        <button type="button" class="rail-new" id="rail-new" aria-expanded="false" aria-controls="rail-new-note" hidden><span aria-hidden="true">+</span> New project</button>
+        <p class="rail-note" id="rail-new-note" hidden></p>
+        <button type="button" class="rail-new rail-new-conv" id="rail-new-conv" title="Starts a new conversation on this page: the composer cleared, the page’s own turns put away (the project’s saved conversation stays)"><span aria-hidden="true">+</span> New conversation</button>
+        <!-- (round 4's finder: kept for chat-shell.js until H171 moves; Help & find (⌘K) is the finder now) -->
+        <div class="rail-find-box" id="rail-find-box" hidden><label class="rail-find-label" for="rail-find">Find</label><input class="rail-find" id="rail-find" type="search" autocomplete="off" placeholder="A destination’s name…" aria-describedby="rail-find-hint"><span class="rail-find-hint" id="rail-find-hint">Enter opens the first · Esc clears</span></div>
+        <nav class="rail-menu" id="rail-menu" aria-label="Destinations"></nav>
+        <p class="rail-away-note" id="rail-away-note" role="status" hidden></p>
+      </div>
+      <div class="rail-foot" id="rail-foot">
+        <button type="button" class="rail-foot-btn rail-help" id="shell-help" aria-haspopup="dialog" aria-controls="shell-help-dialog"><kbd>?</kbd> <span>Help &amp; find</span> <kbd class="rail-help-key">⌘K</kbd></button>
+        <button type="button" class="rail-foot-btn" id="rail-find-btn" aria-expanded="false" aria-controls="rail-find-box" hidden><kbd>/</kbd> find</button>
+        <!-- the account (H173's session: the user's name; sign-out); without one, said so -->
+        <div class="rail-account" id="rail-account" data-signed="no">
+          <span class="rail-avatar" id="rail-avatar" aria-hidden="true">T</span>
+          <button type="button" class="rail-account-words" id="rail-account-go" data-shell-go="account" title="Your account: sign in, or see what this companion knows about accounts; Settings"><strong class="rail-account-name" id="rail-account-name">Not signed in</strong> <small class="rail-account-sub" id="rail-account-sub">this companion’s own workspace</small></button>
+          <button type="button" class="rail-foot-btn rail-signout" id="rail-signout" hidden>Sign out</button>
+        </div>
       </div>
     </div>
   </aside>
 
-  <div class="shell-main" id="shell-main">
-  <header class="ws-header">
-    <!-- R10 CHAT (H171): on this page's other destinations the shell's left menu opens over the page -->
-    <button type="button" class="btn-action tiny ws-menu" id="ws-menu" aria-expanded="false" aria-controls="shell-rail" title="Menu: Chat and every destination">☰ Menu</button>
-    <h1 class="brand"><span class="brand-mark" aria-hidden="true">[▣]</span> TIMMY <span class="brand-sub">companion</span></h1>
-    <!-- R4 (H104, second part): the project this page shows (the active one, followed; or pinned on this page; or fixed by
-         TIMMY_REPO), as the companion says it; its Pin keeps this page on it. R5 (H132): the frame's switch and new-project
-         commands beside it (they run in Timmy's terminal; the page copies them). -->
-    <div id="project" class="project-bar" data-mode="unknown" role="status" aria-live="polite">
-      <span class="project-label">PROJECT</span>
-      <strong id="project-name">not known yet</strong>
-      <span id="project-pin-mark" class="project-pin" hidden>PINNED</span>
-      <span id="project-mode" class="project-mode">asking the companion</span>
-      <button type="button" id="project-pin" class="btn-action tiny project-pin-btn" data-action="pin-project" disabled>Pin: keep this page on this project</button>
-    </div>
-    <div id="project-cmds" class="project-cmds" aria-label="Project commands, for Timmy's terminal"></div>
-    <div id="status" role="status" aria-live="polite">
-      <span class="status-dot" data-state="connecting"></span>
-      <span id="status-text">COMPANION SOCKET · CONNECTING</span>
+  <div class="shell-body" id="shell-main">
+  <!-- THE TOPBAR: where I am (Workspace / the page), the live status word (green only while the socket is observed open), the theme -->
+  <header class="topbar" id="shell-top">
+    <div class="crumb" aria-label="Where you are"><span class="crumb-ws" id="shell-crumb-ws">Workspace</span> <span class="crumb-sep" aria-hidden="true">/</span> <strong class="crumb-page" id="shell-crumb-page">Chat</strong></div>
+    <div class="topbar-right">
+      <span class="live-word" id="shell-status" role="status" aria-live="polite">Companion: connecting…</span>
+      <div class="theme-switch" role="group" aria-label="Theme"><button type="button" data-theme="glacier" aria-pressed="false" aria-label="Glacier"><i aria-hidden="true"></i><span class="theme-word">Glacier</span></button><button type="button" data-theme="amber" aria-pressed="true" aria-label="Amber"><i aria-hidden="true"></i><span class="theme-word">Amber</span></button></div>
     </div>
   </header>
-  <!-- R4 (H104, second part): which folder this page reads (the shown project's event bus and receipts) -->
-  <p id="project-folder" class="project-folder">Project folder: not known yet (the companion says which when it answers).</p>
 
   <!-- R4 (H84): shown when the page has no token, or its token is not this companion's: what to do, in words. -->
   <div id="token-note" class="token-note" role="alert" hidden></div>
 
-  <!-- The ten tabs. A tab that holds one of the page's panels names it (data-tab), so the panel opens with it. -->
-  <nav class="ws-nav" aria-label="Workspace">
+  <!-- The tab row of R5 (keys 1 to 9, then 0): HIDDEN since round 7 (D3: the rail is the one navigation), kept as the page's one
+       switcher — companion.js's showWorkspaceTab, the keys and the frame's waiting counts drive it. A tab that holds one of the
+       page's panels names it (data-tab), so the panel opens with it. The four pages without a key (Files, Models & accounts,
+       Settings, Account) have a button here too, so one switcher shows every page. -->
+  <nav class="ws-nav" aria-label="Workspace" hidden>
     <div id="ws-tabs" class="ws-tablist" role="tablist" aria-label="Workspace tabs: keys 1 to 9, then 0">
       <button type="button" class="ws-tab" role="tab" id="ws-tab-home" data-ws-tab="home" aria-controls="ws-home" aria-selected="true" tabindex="0"><kbd class="tab-key">1</kbd> <span class="tab-label">Home</span> <span class="tab-waiting" hidden></span></button>
       <button type="button" class="ws-tab" role="tab" id="ws-tab-chat" data-ws-tab="chat" aria-controls="ws-chat" aria-selected="false" tabindex="-1"><kbd class="tab-key">2</kbd> <span class="tab-label">Chat &amp; Intent</span> <span class="tab-waiting" hidden></span></button>
@@ -116,460 +106,709 @@
       <button type="button" class="ws-tab" role="tab" id="ws-tab-fleet" data-ws-tab="fleet" aria-controls="ws-fleet" aria-selected="false" tabindex="-1"><kbd class="tab-key">8</kbd> <span class="tab-label">Fleet &amp; Clef</span> <span class="tab-waiting" hidden></span></button>
       <button type="button" class="ws-tab" role="tab" id="ws-tab-tools" data-ws-tab="tools" aria-controls="ws-tools" aria-selected="false" tabindex="-1"><kbd class="tab-key">9</kbd> <span class="tab-label">Tools &amp; MCP</span> <span class="tab-waiting" hidden></span></button>
       <button type="button" class="ws-tab" role="tab" id="ws-tab-logs" data-ws-tab="logs" data-tab="logs" aria-controls="ws-logs" aria-selected="false" tabindex="-1"><kbd class="tab-key">0</kbd> <span class="tab-label">Logs &amp; Receipts</span> <span class="tab-waiting" hidden></span></button>
+      <!-- round 7: the pages without a key -->
+      <button type="button" class="ws-tab" role="tab" id="ws-tab-files" data-ws-tab="files" aria-controls="ws-files" aria-selected="false" tabindex="-1"><kbd class="tab-key"></kbd> <span class="tab-label">Files</span> <span class="tab-waiting" hidden></span></button>
+      <button type="button" class="ws-tab" role="tab" id="ws-tab-connections" data-ws-tab="connections" aria-controls="screen-connections" aria-selected="false" tabindex="-1"><kbd class="tab-key"></kbd> <span class="tab-label">Models &amp; accounts</span> <span class="tab-waiting" hidden></span></button>
+      <button type="button" class="ws-tab" role="tab" id="ws-tab-settings" data-ws-tab="settings" aria-controls="ws-settings" aria-selected="false" tabindex="-1"><kbd class="tab-key"></kbd> <span class="tab-label">Settings</span> <span class="tab-waiting" hidden></span></button>
+      <button type="button" class="ws-tab" role="tab" id="ws-tab-account" data-ws-tab="account" aria-controls="screen-account" aria-selected="false" tabindex="-1"><kbd class="tab-key"></kbd> <span class="tab-label">Account</span> <span class="tab-waiting" hidden></span></button>
     </div>
   </nav>
 
-  <!-- The tab's workflow actions, numbered, from the frame: its one primary next step amber, the others structure grey; one not
-       available now says why. They run in Timmy's terminal: the page copies a command (or opens a tab, for a tab's key). -->
+  <!-- The frame's workflow actions, numbered, its one primary next step amber (the strip of R5): MOVED by shell.js into the shown
+       page's task dock on every page change; companion.js keeps drawing #ws-actions and #ws-strip-note. They run in Timmy's
+       terminal: the page copies a command (or opens a page, for a page's key). -->
   <section id="ws-strip" class="ws-strip" aria-labelledby="ws-strip-title">
     <h2 id="ws-strip-title" class="strip-title">Workflow actions</h2>
     <ol id="ws-actions" class="strip-actions" aria-describedby="ws-strip-note"></ol>
     <p id="ws-strip-note" class="strip-note" role="status" aria-live="polite">Reading the workspace…</p>
   </section>
 
-  <main id="ws-main" class="ws-main right-col" tabindex="-1">
+  <main id="ws-main" class="ws-main" tabindex="-1">
 
-    <!-- 1 · Home (references 01, 13): the project's recent work, the selected item drawn large with the one way to open it,
-         the connections as Timmy last observed them, and the newest images. R10 (H167): the journey's first screen in the
-         browser, as the terminal Workbench's Home: recent work from H164's GET /api/journey/recent (each item opens where it
-         belongs: H164's openTarget), the selected item's preview beside it (an image drawn, a run's progress, result and
-         receipt, a mesh's format), in words: no address, port, path, command or id outside "Details". -->
-    <section id="ws-home" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-home" data-ws-page="home">
-      <div class="cols cols-home">
-        <div class="col-stack home-left">
-          <section class="box home-work-box" aria-labelledby="home-work-title">
-            <h2 id="home-work-title" class="box-title">Recent work</h2>
-            <div class="box-body">
-              <ol id="home-work" class="work-list" role="listbox" aria-label="Recent work, newest first: Up and Down choose, Enter opens it" tabindex="0"><li class="empty">Reading the project’s recent work…</li></ol>
-            </div>
-          </section>
-          <section class="box home-conn-box" aria-labelledby="home-conn-title">
-            <h2 id="home-conn-title" class="box-title">Connections &amp; runtimes</h2>
-            <div class="box-body"><div id="home-connections" class="conn-grid"><p class="empty">Reading the workspace…</p></div></div>
-          </section>
-          <section class="box box-fit" aria-labelledby="prefs-title">
-            <h2 id="prefs-title" class="box-title">When the workspace starts</h2>
-            <form id="ws-prefs" class="prefs box-body" autocomplete="off">
-              <label class="check"><input type="checkbox" id="pref-companion" data-pref="openCompanionAtStart" disabled> <span>Open the companion when the workspace starts</span></label>
-              <label class="check"><input type="checkbox" id="pref-studio" data-pref="openStudioAtStart" disabled> <span>Open Studio when the workspace starts</span></label>
-              <p class="prefs-foot"><span id="prefs-state" class="prefs-state" role="status" aria-live="polite">Reading the settings…</span> <button type="button" id="prefs-reload" class="btn-action tiny" data-action="prefs-reload" hidden>Reload</button></p>
-            </form>
-          </section>
-        </div>
-        <!-- R10 (H167; the brief and references 01, 02, 05, 09: the preview is the largest share of the page): the selected item
-             drawn large, with the one way to open it; under it, smaller, the newest images, Studio and the newest run -->
-        <div class="col-stack home-right">
-          <section class="box home-stage-box" aria-labelledby="home-stage-title">
-            <h2 id="home-stage-title" class="box-title">Preview</h2>
-            <div class="box-body"><div id="home-stage" class="stage" aria-live="polite"><p class="empty">Reading the project’s recent work…</p></div></div>
-          </section>
-          <section class="box home-more-box" aria-labelledby="home-preview-title">
-            <h2 id="home-preview-title" class="box-title">The newest images, Studio and runs</h2>
-            <div class="box-body"><div id="home-preview" class="preview"><p class="empty">Reading the workspace…</p></div></div>
-          </section>
-        </div>
-      </div>
-    </section>
-
-    <!-- 2 · Chat & Intent (references 02, 11): the project's one conversation as the terminal's turns reach this page, and
-         the turns this page sends into it (POST /api/chat/turn); beside it the event log, newest at top -->
-    <section id="ws-chat" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-chat" data-ws-page="chat" hidden>
-      <!-- R10 CHAT CHECKPOINT (H171; the handoff's captures 01 to 06): the Chat composition. CENTER the project's saved
-           conversation (its newest one in .sessions, GET /api/chat/view: each answer with the model its sealed receipt names),
-           the answers this page's Send streams (POST /api/chat/turn, R11 round 4: the project's conversation, the project's
-           tools, a sealed receipt, as the evidence line says), the route of the next turn and the composer; RIGHT the Models rail (GET
-           /api/chat/models); BOTTOM the conversation's controls and the status line. chat-shell.js draws it; the words below
-           are what it shows until the companion answers. -->
-      <div class="cx" id="cx">
-        <!-- R11 round 4 (H171; the preview's chat, captures 04/05/09): the top line "<project> / Chat", Connections, the state
-             words; the conversation with the welcome until the first turn; the line above the composer; the composer; the
-             bottom row; the right panel's Models and Tools -->
-        <header class="cx-top">
-          <button type="button" class="cx-key cx-menu" id="cx-menu" aria-expanded="false" aria-controls="shell-rail">Menu</button>
-          <div class="cx-crumb"><span class="cx-proj" id="cx-proj">project not known yet</span> <span class="cx-sep" aria-hidden="true">/</span> <span class="cx-here">Chat</span></div>
-          <span class="cx-saved" id="cx-saved" hidden>Local records</span>
-          <div class="cx-top-right">
-            <span class="cx-socket" id="cx-socket" role="status">connecting</span>
-            <span class="cx-state-words" id="cx-state-words">Local logs · cloud sync off</span>
-            <button type="button" class="cx-key" id="cx-connections" data-shell-go="connections">Connections</button>
-            <button type="button" class="cx-key" id="cx-keys" aria-expanded="false" aria-controls="cx-drawer">Keys <kbd>?</kbd></button>
-            <button type="button" class="cx-key" id="cx-models-toggle" aria-pressed="true" aria-controls="cx-models" aria-keyshortcuts="m">Models <kbd>M</kbd></button>
-          </div>
-        </header>
-        <div class="cx-body" id="cx-body">
-          <section class="cx-center" aria-label="Conversation">
-            <div class="cx-descriptor" id="cx-descriptor"><span><strong class="cx-descriptor-k">Agent chat</strong> <span id="cx-sub">Think, make and check your work.</span></span><span class="cx-descriptor-right"><span class="cx-tag" id="cx-tag" hidden></span> <span class="cx-descriptor-state" id="cx-descriptor-state">Local logs · cloud sync off</span></span></div>
-            <div class="cx-scroll" id="cx-scroll" tabindex="-1">
-              <div class="cx-head" id="cx-head" hidden>
-                <div class="cx-head-words">
-                  <p class="cx-kicker" id="cx-kicker">Chat</p>
-                  <h2 class="cx-title" id="cx-title">The project’s conversation</h2>
+    <!-- 01 · Chat (H171): the composition of R10/R11 rounds 4–6 (#cx, chat-shell.js) sits in the page's work region until H171 moves
+         its Models rail into .page-context, its controls into .page-dock and its status into the band (SHELL CONTRACT v1 §6).
+         The older views below it (the turn mirror, the Streamdown island) keep their ids. -->
+    <section class="page ws-page" id="ws-chat" data-page="chat" data-ws-page="chat" data-state="content" role="tabpanel" aria-labelledby="ws-tab-chat" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-chat" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <!-- R10 CHAT CHECKPOINT (H171; the handoff's captures 01 to 06): the Chat composition. CENTER the project's saved
+               conversation (its newest one in .sessions, GET /api/chat/view: each answer with the model its sealed receipt names),
+               the answers this page's Send streams (POST /api/chat/turn, R11 round 4: the project's conversation, the project's
+               tools, a sealed receipt, as the evidence line says), the route of the next turn and the composer; RIGHT the Models rail (GET
+               /api/chat/models); BOTTOM the conversation's controls and the status line. chat-shell.js draws it; the words below
+               are what it shows until the companion answers. -->
+          <div class="cx" id="cx">
+            <!-- R11 round 4 (H171; the preview's chat, captures 04/05/09): the top line "<project> / Chat", Connections, the state
+                 words; the conversation with the welcome until the first turn; the line above the composer; the composer; the
+                 bottom row; the right panel's Models and Tools -->
+            <header class="cx-top">
+              <button type="button" class="cx-key cx-menu" id="cx-menu" aria-expanded="false" aria-controls="shell-rail">Menu</button>
+              <div class="cx-crumb"><span class="cx-proj" id="cx-proj">project not known yet</span> <span class="cx-sep" aria-hidden="true">/</span> <span class="cx-here">Chat</span></div>
+              <span class="cx-saved" id="cx-saved" hidden>Local records</span>
+              <div class="cx-top-right">
+                <span class="cx-socket" id="cx-socket" role="status">connecting</span>
+                <span class="cx-state-words" id="cx-state-words">Local logs · cloud sync off</span>
+                <button type="button" class="cx-key" id="cx-connections" data-shell-go="connections">Connections</button>
+                <button type="button" class="cx-key" id="cx-keys" aria-expanded="false" aria-controls="cx-drawer">Keys <kbd>?</kbd></button>
+                <button type="button" class="cx-key" id="cx-models-toggle" aria-pressed="true" aria-controls="cx-models" aria-keyshortcuts="m">Models <kbd>M</kbd></button>
+              </div>
+            </header>
+            <div class="cx-body" id="cx-body">
+              <section class="cx-center" aria-label="Conversation">
+                <div class="cx-descriptor" id="cx-descriptor"><span><strong class="cx-descriptor-k">Agent chat</strong> <span id="cx-sub">Think, make and check your work.</span></span><span class="cx-descriptor-right"><span class="cx-tag" id="cx-tag" hidden></span> <span class="cx-descriptor-state" id="cx-descriptor-state">Local logs · cloud sync off</span></span></div>
+                <div class="cx-scroll" id="cx-scroll" tabindex="-1">
+                  <div class="cx-head" id="cx-head" hidden>
+                    <div class="cx-head-words">
+                      <p class="cx-kicker" id="cx-kicker">Chat</p>
+                      <h2 class="cx-title" id="cx-title">The project’s conversation</h2>
+                    </div>
+                  </div>
+                  <ol class="cx-turns" id="cx-turns" aria-label="The project’s saved conversation"></ol>
+                  <div id="cx-own" class="cx-own" aria-live="polite"></div>
+                  <div class="cx-empty" id="cx-empty" hidden></div>
+                  <div class="cx-running-box" id="cx-running" role="status" hidden></div>
                 </div>
-              </div>
-              <ol class="cx-turns" id="cx-turns" aria-label="The project’s saved conversation"></ol>
-              <div id="cx-own" class="cx-own" aria-live="polite"></div>
-              <div class="cx-empty" id="cx-empty" hidden></div>
-              <div class="cx-running-box" id="cx-running" role="status" hidden></div>
-            </div>
-            <p class="cx-note" id="cx-note" role="status" hidden></p>
-            <!-- R11 round 6 (H171; the operator's 06:32 order): the native AgentConsole (timmy-ui.riv, the operator's asset) IN the
-                 Chat, as a band above the route line — one place for the turn's state before the first turn and through every
-                 turn, right over the Send / Stop it describes. H174's TimmyRive.mountConsole draws it (the canvas, the HTML state
-                 word beside it, aria-live) and this page's SSE feed moves it (chat-shell.js riveFeed / riveStopping). The band folds
-                 to the word (the face hidden, never the word) by its button; a phone starts folded; nothing here takes the focus. -->
-            <section class="cx-console" id="cx-console" aria-labelledby="cx-console-toggle" hidden>
-              <div class="cx-console-head">
-                <button type="button" class="cx-console-toggle" id="cx-console-toggle" aria-expanded="true" aria-controls="cx-console-body"><span class="cx-console-caret" aria-hidden="true">▾</span> Agent console</button>
-                <span class="cx-console-note" id="cx-console-note">the turn’s state, as the companion’s events say it</span>
-              </div>
-              <div class="cx-console-body" id="cx-console-body"></div>
-            </section>
-            <div class="cx-route" id="cx-route" role="status"><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span> <button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
-            <form class="cx-composer" id="cx-composer" autocomplete="off">
-              <label for="cx-input" class="cx-input-k visually-hidden">Message Timmy</label>
-              <div class="cx-field">
-                <textarea id="cx-input" class="cx-input" rows="1" placeholder="Message Timmy…" aria-describedby="cx-hint-keys cx-send-why"></textarea>
-              </div>
-              <div class="cx-compose-foot">
-                <button type="button" class="cx-foot-btn" data-cx-ctl="attachments"><span aria-hidden="true">+</span> Attach</button>
-                <button type="button" class="cx-foot-btn" id="cx-tools-btn" data-cx-panel="tools"><span aria-hidden="true">⌘</span> Tools<span id="cx-tools-n" hidden></span></button>
-                <span class="cx-send-why" id="cx-send-why" role="status"></span>
-                <button type="button" class="cx-chip" id="cx-chip" aria-controls="cx-models" title="The next turn’s model: opens Models" hidden><span class="cx-dot" id="cx-dot" data-state="unknown" aria-hidden="true">●</span><span class="cx-chip-words" id="cx-chip-words">reading…</span></button>
-                <button type="submit" class="cx-send" id="cx-send" aria-label="Send message" disabled><span aria-hidden="true">↑</span></button>
-              </div>
-            </form>
-            <p class="cx-hint"><span id="cx-hint-draft">Messages and records stay local unless you choose cloud services.</span><span id="cx-hint-keys">Enter to send · Shift + Enter for a new line</span></p>
-          </section>
-          <aside class="cx-models" id="cx-models" aria-label="Models and tools"></aside>
-        </div>
-        <div class="cx-controls" id="cx-controls" role="toolbar" aria-label="This conversation’s controls"></div>
-        <div class="cx-drawer" id="cx-drawer" role="region" aria-labelledby="cx-drawer-title" hidden></div>
-        <footer class="cx-status" id="cx-status" role="status" hidden></footer>
-      </div>
-      <!-- R10 CHAT (H171): the older views of this page, below the composition (the page scrolls to them; Logs › Show the
-           turn mirror goes there): the turn mirror of every surface and this page's Streamdown view -->
-      <div class="cx-older" id="cx-older">
-        <p class="cx-divider">Older views on this page · the turn mirror and the Streamdown chat</p>
-      <div class="cols cols-chat">
-        <section class="box box-flush chat-box" aria-label="Chat">
-          <div class="view-switch" role="tablist" aria-label="Chat views">
-            <button type="button" class="view-btn active" role="tab" id="btn-chat" data-tab="chat" aria-controls="tab-chat" aria-selected="true">Project conversation · mirror</button>
-            <button type="button" class="view-btn" role="tab" id="btn-streamdown" data-tab="streamdown" aria-controls="tab-streamdown" aria-selected="false" tabindex="-1">Ask a model here</button>
-          </div>
-
-          <!-- The chat mirror: the project's one conversation, as each surface's turns reach this page -->
-          <div id="tab-chat" class="tab-panel active" role="tabpanel" aria-labelledby="btn-chat" data-ws="chat" data-group="chat">
-            <div id="console-card" class="mirror-card">
-              <div class="card-header wrap">
-                <div class="row-10">
-                  <span id="mirror-status" data-state="waiting">Local chat mirror: WAITING</span>
-                </div>
-                <!-- R10 (H167; the brief's step 2, "continue the chat with the actual route shown"): where the project's
-                     conversation continues and the route its next turn takes (H164's GET /api/journey/route?surface=workbench) -->
-                <p id="mirror-route" class="mirror-route" role="status">Asking the companion which route the project’s next turn takes…</p>
-                <div class="row-8">
-                  <button type="button" class="btn-action tiny success" data-action="save-chat">Save chat</button>
-                  <button type="button" class="btn-action tiny" data-action="download-chat">Download</button>
-                  <button type="button" class="btn-action tiny danger" data-action="delete-chat">✕ Delete local copy</button>
-                  <span class="badge-planned soft">Cloudflare backup: planned</span>
-                </div>
-              </div>
-              <!-- Bounded scroll container -->
-              <div id="console-logs">
-                <div class="mirror-empty">Waiting for session chat streams...</div>
-              </div>
-              <!-- Saved in this browser only -->
-              <details id="saved-chats-card" class="saved-drawer">
-                <summary>Saved in this browser</summary>
-                <div id="saved-chats-list">
-                  <div class="saved-empty">Saved chats will appear here after you press Save chat.</div>
-                </div>
-              </details>
-            </div>
-          </div>
-
-          <!-- The older Streamdown view (TMX P3; /web/island/companion-chat.js): since R11 round 4 it sends nothing (POST /chat is gone) and says so -->
-          <div id="tab-streamdown" class="tab-panel" role="tabpanel" aria-labelledby="btn-streamdown" data-ws="chat" data-group="chat">
-            <div class="sd-card">
-              <div class="card-header">
-                <span class="card-title">Older view · the chat is in Chat above</span>
-                <!-- R4 (H104, second part): the route the chat takes, as the companion says it (the script writes it) -->
-                <span class="sd-route" id="sd-route">Asking the companion which route the next turn takes…</span>
-              </div>
-              <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
-              <div id="streamdown-root" class="dark"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="box" aria-labelledby="chat-log-title">
-          <h2 id="chat-log-title" class="box-title">This conversation’s turns · newest at the top</h2>
-          <div class="box-body"><ol id="chat-events" class="events"><li class="empty">Reading the workspace…</li></ol></div>
-        </section>
-      </div>
-      </div>
-    </section>
-
-    <!-- 3 · Workflows (references 03, 12): the runs of this project, and one run's intent, prediction, run and receipt kept apart -->
-    <section id="ws-workflows" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-workflows" data-ws-page="workflows" hidden>
-      <div class="cols cols-flow">
-        <section class="box" aria-labelledby="flow-runs-title">
-          <h2 id="flow-runs-title" class="box-title">Runs in this project</h2>
-          <div class="box-body">
-            <p id="flow-activity" class="activity-words"></p>
-            <ol id="flow-runs" class="runs"><li class="empty">Reading the workspace…</li></ol>
-          </div>
-        </section>
-        <!-- R4 (H104, second part): one operation's run detail, opened by its operation id: this page's address /run/<id> (from
-             the terminal Workbench's Activity or a Timmy Studio card), a run on the left, or the box below. Drawn from Timmy's
-             records as its producer gives them (src/contracts/run-detail.ts); this page checks and decides nothing.
-             R6 (H144): with the run inspected (its source, changes, outputs and receipts, each receipt verified on the
-             companion's server when it answers), drawn by panel-run.js; the run detail fills the box, each column scrolling
-             on its own and saying "more below" while it has more. -->
-        <div id="tab-run" class="tab-panel active" role="region" aria-label="Run detail" data-ws="workflows">
-          <section id="run-card" class="box" aria-labelledby="run-card-title">
-            <h2 id="run-card-title" class="box-title">Run detail · intent → prediction → run → receipt</h2>
-            <div class="box-body">
-            <!-- R10 (H167; H168's F3, as on Home): a run is opened by its id behind a Details control (the runs on the left,
-                 Home's recent work and the activity open one in words); it opens by itself when the page has no token, as the
-                 words in the run box then name it -->
-            <details id="run-by-id" class="run-by-id">
-              <summary>Details · open a run by its operation id</summary>
-              <div class="rv-top">
-                <form id="run-form" class="run-form" autocomplete="off">
-                  <label for="run-op" class="run-label">Operation id</label>
-                  <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
-                  <button type="submit" id="run-open" class="btn-action">Open its run detail</button>
+                <p class="cx-note" id="cx-note" role="status" hidden></p>
+                <!-- R11 round 6 (H171; the operator's 06:32 order): the native AgentConsole (timmy-ui.riv, the operator's asset) IN the
+                     Chat, as a band above the route line — one place for the turn's state before the first turn and through every
+                     turn, right over the Send / Stop it describes. H174's TimmyRive.mountConsole draws it (the canvas, the HTML state
+                     word beside it, aria-live) and this page's SSE feed moves it (chat-shell.js riveFeed / riveStopping). The band folds
+                     to the word (the face hidden, never the word) by its button; a phone starts folded; nothing here takes the focus. -->
+                <section class="cx-console" id="cx-console" aria-labelledby="cx-console-toggle" hidden>
+                  <div class="cx-console-head">
+                    <button type="button" class="cx-console-toggle" id="cx-console-toggle" aria-expanded="true" aria-controls="cx-console-body"><span class="cx-console-caret" aria-hidden="true">▾</span> Agent console</button>
+                    <span class="cx-console-note" id="cx-console-note">the turn’s state, as the companion’s events say it</span>
+                  </div>
+                  <div class="cx-console-body" id="cx-console-body"></div>
+                </section>
+                <div class="cx-route" id="cx-route" role="status"><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span> <button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
+                <form class="cx-composer" id="cx-composer" autocomplete="off">
+                  <label for="cx-input" class="cx-input-k visually-hidden">Message Timmy</label>
+                  <div class="cx-field">
+                    <textarea id="cx-input" class="cx-input" rows="1" placeholder="Message Timmy…" aria-describedby="cx-hint-keys cx-send-why"></textarea>
+                  </div>
+                  <div class="cx-compose-foot">
+                    <button type="button" class="cx-foot-btn" data-cx-ctl="attachments"><span aria-hidden="true">+</span> Attach</button>
+                    <button type="button" class="cx-foot-btn" id="cx-tools-btn" data-cx-panel="tools"><span aria-hidden="true">⌘</span> Tools<span id="cx-tools-n" hidden></span></button>
+                    <span class="cx-send-why" id="cx-send-why" role="status"></span>
+                    <button type="button" class="cx-chip" id="cx-chip" aria-controls="cx-models" title="The next turn’s model: opens Models" hidden><span class="cx-dot" id="cx-dot" data-state="unknown" aria-hidden="true">●</span><span class="cx-chip-words" id="cx-chip-words">reading…</span></button>
+                    <button type="submit" class="cx-send" id="cx-send" aria-label="Send message" disabled><span aria-hidden="true">↑</span></button>
+                  </div>
                 </form>
-                <p id="run-hint" class="run-hint" title="This page's address for a run is /run/&lt;operation id&gt; on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.">An operation id is o and 8 hex digits, as Timmy prints it; this page's address for one is <code>/run/&lt;operation id&gt;</code>.</p>
+                <p class="cx-hint"><span id="cx-hint-draft">Messages and records stay local unless you choose cloud services.</span><span id="cx-hint-keys">Enter to send · Shift + Enter for a new line</span></p>
+              </section>
+              <aside class="cx-models" id="cx-models" aria-label="Models and tools"></aside>
+            </div>
+            <div class="cx-controls" id="cx-controls" role="toolbar" aria-label="This conversation’s controls"></div>
+            <div class="cx-drawer" id="cx-drawer" role="region" aria-labelledby="cx-drawer-title" hidden></div>
+            <footer class="cx-status" id="cx-status" role="status" hidden></footer>
+          </div>
+          <!-- R10 CHAT (H171): the older views of this page, below the composition (the page scrolls to them; Logs › Show the
+               turn mirror goes there): the turn mirror of every surface and this page's Streamdown view -->
+          <div class="cx-older" id="cx-older">
+            <p class="cx-divider">Older views on this page · the turn mirror and the Streamdown chat</p>
+          <div class="cols cols-chat">
+            <section class="box box-flush chat-box" aria-label="Chat">
+              <div class="view-switch" role="tablist" aria-label="Chat views">
+                <button type="button" class="view-btn active" role="tab" id="btn-chat" data-tab="chat" aria-controls="tab-chat" aria-selected="true">Project conversation · mirror</button>
+                <button type="button" class="view-btn" role="tab" id="btn-streamdown" data-tab="streamdown" aria-controls="tab-streamdown" aria-selected="false" tabindex="-1">Ask a model here</button>
               </div>
-            </details>
-            <div id="run-detail" class="run-detail" aria-live="polite">
-              <p class="run-empty">No run detail opened yet.</p>
-            </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    </section>
 
-    <!-- 4 · Studio (reference 06): Timmy Studio's state, and Timmy Canvas's revision and jobs, read with the token -->
-    <section id="ws-studio" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-studio" data-ws-page="studio" hidden>
-      <div class="cols cols-two">
-        <div class="col-stack">
-          <section class="box box-fit" aria-labelledby="studio-state-title">
-            <h2 id="studio-state-title" class="box-title">Timmy Studio</h2>
-            <div class="box-body"><div id="studio-state" class="preview"><p class="empty">Reading the workspace…</p></div></div>
-          </section>
-          <div id="tab-canvas" class="tab-panel active" role="region" aria-label="Timmy Canvas" data-ws="studio">
-            <section class="box canvas-card" aria-labelledby="canvas-title">
-              <h2 id="canvas-title" class="box-title">Timmy Canvas · revision and jobs</h2>
-              <div class="box-body"><div id="canvas-summary">Reading the canvas…</div></div>
+              <!-- The chat mirror: the project's one conversation, as each surface's turns reach this page -->
+              <div id="tab-chat" class="tab-panel active" role="tabpanel" aria-labelledby="btn-chat" data-ws="chat" data-group="chat">
+                <div id="console-card" class="mirror-card">
+                  <div class="card-header wrap">
+                    <div class="row-10">
+                      <span id="mirror-status" data-state="waiting">Local chat mirror: WAITING</span>
+                    </div>
+                    <!-- R10 (H167; the brief's step 2, "continue the chat with the actual route shown"): where the project's
+                         conversation continues and the route its next turn takes (H164's GET /api/journey/route?surface=workbench) -->
+                    <p id="mirror-route" class="mirror-route" role="status">Asking the companion which route the project’s next turn takes…</p>
+                    <div class="row-8">
+                      <button type="button" class="btn-action tiny success" data-action="save-chat">Save chat</button>
+                      <button type="button" class="btn-action tiny" data-action="download-chat">Download</button>
+                      <button type="button" class="btn-action tiny danger" data-action="delete-chat">✕ Delete local copy</button>
+                      <span class="badge-planned soft">Cloudflare backup: planned</span>
+                    </div>
+                  </div>
+                  <!-- Bounded scroll container -->
+                  <div id="console-logs">
+                    <div class="mirror-empty">Waiting for session chat streams...</div>
+                  </div>
+                  <!-- Saved in this browser only -->
+                  <details id="saved-chats-card" class="saved-drawer">
+                    <summary>Saved in this browser</summary>
+                    <div id="saved-chats-list">
+                      <div class="saved-empty">Saved chats will appear here after you press Save chat.</div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <!-- The older Streamdown view (TMX P3; /web/island/companion-chat.js): since R11 round 4 it sends nothing (POST /chat is gone) and says so -->
+              <div id="tab-streamdown" class="tab-panel" role="tabpanel" aria-labelledby="btn-streamdown" data-ws="chat" data-group="chat">
+                <div class="sd-card">
+                  <div class="card-header">
+                    <span class="card-title">Older view · the chat is in Chat above</span>
+                    <!-- R4 (H104, second part): the route the chat takes, as the companion says it (the script writes it) -->
+                    <span class="sd-route" id="sd-route">Asking the companion which route the next turn takes…</span>
+                  </div>
+                  <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
+                  <div id="streamdown-root" class="dark"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="box" aria-labelledby="chat-log-title">
+              <h2 id="chat-log-title" class="box-title">This conversation’s turns · newest at the top</h2>
+              <div class="box-body"><ol id="chat-events" class="events"><li class="empty">Reading the workspace…</li></ol></div>
             </section>
           </div>
-          <!-- R6 (H145): the Studio panel (src/companion/client/panel-studio.js) draws the shown project's board artifacts here:
-               its reference images, nodes and the project's results placed on its board, each with the preview it opens -->
-          <div class="studio-host" data-panel-host="studio"></div>
-        </div>
-        <section class="box" aria-labelledby="studio-acts-title">
-          <h2 id="studio-acts-title" class="box-title">This tab's actions, in full</h2>
-          <div class="box-body"><div class="acts-full" data-acts-for="studio"></div></div>
-        </section>
-      </div>
-    </section>
-
-    <!-- 5 · VoxVision (references 04, 05, 15, 16) -->
-    <section id="ws-voxvision" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-voxvision" data-ws-page="voxvision" hidden>
-      <!-- R6 (H143): the VoxVision panel (src/companion/client/panel-vox.js) draws its three columns here: the records and the
-           entity tree; the viewport with what was measured over the image, the timeline and the record's commands; the
-           pipeline and receipt, the values and the engines. The tab's own actions are the strip's, above. -->
-      <div class="vox-host" data-panel-host="voxvision"><p class="empty">Reading this project's VoxVision records…</p></div>
-    </section>
-
-    <!-- 6 · 3D & Motion (reference 06). R7 (H153): the project's meshes, drawn by panel-create.js into the host below (its
-         routes: src/companion/panels/create.ts): the meshes and the recordings Timmy can read; Timmy's own view of the
-         selected file's triangles, which you can turn; what Timmy's own STL reader measured from the whole file. Under it (the
-         tab scrolls) this tab's actions in full, and Slate 3D, the mission board as a scene, lit from the bus (companion/slate3d). -->
-    <section id="ws-create" class="ws-page ws-create-page" role="tabpanel" aria-labelledby="ws-tab-create" data-ws-page="create" hidden>
-      <div class="create-host" data-panel-host="create"><p class="empty">Reading this project's meshes…</p></div>
-      <div class="cols cols-wide create-more">
-        <section class="box" aria-labelledby="create-acts-title">
-          <h2 id="create-acts-title" class="box-title">This tab's actions, in full</h2>
-          <div class="box-body"><div class="acts-full" data-acts-for="create"></div></div>
-        </section>
-        <!-- R4 (H84, H92): its address is set by the script when the tab is first opened, with the page's token in its fragment
-             (Slate 3D asks for it too). -->
-        <div id="tab-slate3d" class="tab-panel active" role="region" aria-label="Slate 3D" data-ws="create">
-          <section class="box box-flush slate-box" aria-labelledby="slate-title">
-            <h2 id="slate-title" class="box-title">Slate 3D · the mission board as a scene</h2>
-            <iframe id="slate3d-frame" title="Slate 3D" data-src="/slate3d/?board=ledger"></iframe>
-          </section>
-        </div>
-      </div>
-    </section>
-
-    <!-- 7 · Control Room (references 07, 14): what runs, what waits on you, and where work happens. R8 (H155): in the middle,
-         the runs' panes, drawn read-only by panel-control.js into the host below (its route: src/companion/panels/control.ts,
-         from src/ops/panes.ts, the Workbench's tab 7's own source): a 2×2 grid, what runs first, then the newest ended. -->
-    <section id="ws-control" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-control" data-ws-page="control" hidden>
-      <div class="cols cols-control">
-        <div class="col-stack">
-          <section class="box box-fit" aria-labelledby="control-now-title">
-            <h2 id="control-now-title" class="box-title">What runs · what waits on you</h2>
-            <div class="box-body"><div id="control-now" class="preview"><p class="empty">Reading the workspace…</p></div></div>
-          </section>
-          <section class="box" aria-labelledby="control-acts-title">
-            <h2 id="control-acts-title" class="box-title">This tab's actions, in full</h2>
-            <div class="box-body"><div class="acts-full" data-acts-for="control"></div></div>
-          </section>
-        </div>
-        <div class="control-host" data-panel-host="control"><p class="empty">Reading this project's panes…</p></div>
-        <!-- Where work happens; this page checks none of it -->
-        <div id="tab-workspace" class="tab-panel active" role="region" aria-label="Where work happens" data-ws="control">
-          <section id="workspace-card" class="box" aria-labelledby="workspace-title">
-            <h2 id="workspace-title" class="box-title">Where work happens</h2>
-            <div class="box-body">
-            <p><span class="status-badge unchecked">NOT CHECKED FROM THIS PAGE</span></p>
-            <p class="ws-intro">Carbonyl renders a real browser in a terminal pane. The browser companion is this page. tmux is fallback persistence. This page checks none of them: each card says what it is and gives its command.</p>
-            <div class="ws-grid">
-              <div class="ws-card">
-                <div>
-                  <div class="row-between">
-                    <strong class="ws-name">Carbonyl browser</strong>
-                    <span class="ws-state">[ NOT CHECKED HERE ]</span>
-                  </div>
-                  <div class="ws-purpose">An in-pane Chromium browser lane</div>
-                  <p class="ws-desc">Renders this companion (real Chromium: JS, WebGL, video) inside a multiplexer pane. The command opens this page's address without its token, so the page shows nothing until it has one: open this page from Timmy instead, with the Workbench's <code>c</code> (<code>timmy workbench</code>) or q on HOME in <code>timmy watch</code>.</p>
-                </div>
-                <div class="ws-actions">
-                  <button type="button" class="btn-action wide" data-copy-carbonyl>Copy the launch command</button>
-                </div>
-              </div>
-              <div class="ws-card">
-                <div>
-                  <div class="row-between">
-                    <strong class="ws-name">Browser companion</strong>
-                    <span class="ws-state">[ THIS PAGE ]</span>
-                  </div>
-                  <div class="ws-purpose">The browser view of the project workspace</div>
-                  <p class="ws-desc">The chat mirror, the workspace's tabs and actions, logs, receipts and run details.</p>
-                </div>
-              </div>
-              <div class="ws-card">
-                <div>
-                  <div class="row-between">
-                    <strong class="ws-name">tmux fallback</strong>
-                    <span class="ws-state">[ NOT CHECKED HERE ]</span>
-                  </div>
-                  <div class="ws-purpose">Terminal persistence</div>
-                  <p class="ws-desc">tmux keeps a recoverable terminal session alive. It may not open a visual UI.</p>
-                </div>
-                <div class="ws-actions">
-                  <button type="button" class="btn-action wide" data-copy="tmux attach -t timmy-run">Copy the attach command</button>
-                </div>
-              </div>
-            </div>
-            <div class="ws-spec">
-              <div class="ws-spec-title">Fallback persistence: to attach to the tmux session, run</div>
-              <div class="ws-cmd">tmux attach -t timmy-run</div>
-              <div class="ws-foot">Carbonyl for in-pane browsing, tmux for fallback terminal persistence.</div>
-            </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    </section>
-
-    <!-- 8 · Fleet & Clef (references 09, 18) -->
-    <section id="ws-fleet" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-fleet" data-ws-page="fleet" hidden>
-      <div class="cols cols-two">
-        <section class="box" aria-labelledby="fleet-conn-title">
-          <h2 id="fleet-conn-title" class="box-title">Fleet backend, decisions and the edge</h2>
-          <div class="box-body"><div class="conn-grid" data-conns-for="fleet"><p class="empty">Reading the workspace…</p></div></div>
-        </section>
-        <section class="box" aria-labelledby="fleet-acts-title">
-          <h2 id="fleet-acts-title" class="box-title">This tab's actions, in full</h2>
-          <div class="box-body"><div class="acts-full" data-acts-for="fleet"></div></div>
-        </section>
-      </div>
-    </section>
-
-    <!-- 9 · Tools & MCP (references 08, 17). R6 (H142): the inspector, drawn by panel-tools.js into the host below (its routes:
-         src/companion/panels/tools.ts): the servers and their tools, a request checked against its schema, calls through both
-         MCP-to-CLI routes with their wire trace, record and receipt, and the project's newest calls. It fills the tab; under it
-         (the tab scrolls) the workspace frame's own words for the two routes and this tab's actions in full. -->
-    <section id="ws-tools" class="ws-page ws-tools-page" role="tabpanel" aria-labelledby="ws-tab-tools" data-ws-page="tools" hidden>
-      <div data-panel-host="tools" class="tools-host"><p class="empty">Reading the inspector…</p></div>
-      <div class="cols cols-two tools-frame-cols">
-        <section class="box" aria-labelledby="tools-conn-title">
-          <h2 id="tools-conn-title" class="box-title">MCP to CLI: both routes, as the workspace frame words them</h2>
-          <div class="box-body">
-            <p class="empty">The frame's word is about a connection, which Timmy keeps no check of; the inspector above says each route's rung (installed or not) and its last call as this project's records hold it.</p>
-            <div class="conn-grid" data-conns-for="tools"><p class="empty">Reading the workspace…</p></div>
           </div>
-        </section>
-        <section class="box" aria-labelledby="tools-acts-title">
-          <h2 id="tools-acts-title" class="box-title">This tab's actions, in full</h2>
-          <div class="box-body"><div class="acts-full" data-acts-for="tools"></div></div>
-        </section>
+        </div>
+        <aside class="page-context" id="page-context-chat" aria-label="Context" hidden></aside>
       </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
     </section>
 
-    <!-- 0 · Logs & Receipts (reference 10): raw lines as they reached this page, structured events, and the latest receipt -->
-    <section id="ws-logs" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-logs" data-ws-page="logs" hidden>
-      <div class="cols cols-logs">
-        <!-- what reached this page over its socket -->
-        <div id="tab-logs" class="tab-panel active" role="region" aria-label="This page's socket log" data-ws="logs">
-          <section id="logs-card" class="box box-flush" aria-labelledby="logs-title">
-            <h2 id="logs-title" class="box-title">Raw · this page's socket</h2>
-            <div id="logs-list">
-              <div class="log-line muted">[companion-client] Initialized socket telemetry logger. Waiting for active events...</div>
-            </div>
-          </section>
+    <section class="page ws-page" id="ws-files" data-page="files" data-ws-page="files" data-state="content" role="region" aria-label="Files" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-files" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <!-- 02 · Files (H173; NEW this round): the project's files — inputs, editable sources and outputs — drawn by panel-files.js into
+               the host below (TimmyPanels.register('files', …)). Until it lands, the words below say where the folder opens. -->
+          <div class="files-host" data-panel-host="files"><p class="empty">This page has no file browser yet: the project’s folder opens in the terminal or your file manager (its path is under Details in the records band).</p></div>
         </div>
-        <section class="box" aria-labelledby="logs-events-title">
-          <h2 id="logs-events-title" class="box-title">Structured events · newest at top</h2>
-          <div class="box-body"><ol id="logs-events" class="events events-table"><li class="empty">Reading the workspace…</li></ol></div>
-        </section>
-        <!-- the latest receipt as it reached this page; the page checks nothing -->
-        <div id="tab-proof" class="tab-panel active" role="region" aria-label="The latest receipt this page received" data-ws="logs">
-          <section id="proof-card" class="box" aria-labelledby="proof-title">
-            <h2 id="proof-title" class="box-title">Latest receipt this page received</h2>
-            <div class="box-body">
-            <p><span class="status-badge">AS RECEIVED · NOT CHECKED HERE</span></p>
-            <!-- R5 lead (QA-R5E defect 28): one sentence while nothing has reached this page, not seven "none received yet"
-                 rows beside a list of sealed receipts; the rows show once Timmy's terminal sends one -->
-            <p id="proof-none" class="empty">No receipt has been sent to this page since it opened. The project's sealed receipts so far are in Structured events, as the frame read them.</p>
-            <div id="proof-box" class="proof-box" hidden>
-              <div class="proof-row"><span class="proof-label">Run ID:</span><strong id="proof-run-id">none received yet</strong></div>
-              <div class="proof-row"><span class="proof-label">Prompt:</span><span id="proof-prompt">none received yet</span></div>
-              <div class="proof-row"><span class="proof-label">Agent:</span><span id="proof-agent">none received yet</span></div>
-              <div class="proof-row"><span class="proof-label">Tools:</span><span id="proof-tools">none received yet</span></div>
-              <div class="proof-row"><span class="proof-label">What changed:</span><span id="proof-changed">none received yet</span></div>
-              <div class="proof-row"><span class="proof-label">Manifest hash:</span><strong id="proof-hash">none received yet</strong></div>
-              <div class="proof-row"><span class="proof-label">Receipt file:</span><span id="proof-path">none received yet</span></div>
-            </div>
-            <div class="proof-note">
-              This page shows a receipt as Timmy's terminal sent it, or a run id and a sha256 the chat mirror named; it checks nothing itself. Timmy seals receipts on this computer, and <code>timmy verify</code> checks their chain.
-            </div>
-            </div>
-          </section>
-        </div>
+        <aside class="page-context" id="page-context-files" aria-label="Context" hidden></aside>
       </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 03 · Workflows (H169; references 03, 12): the runs of this project, and one run's intent, prediction, run and receipt kept apart -->
+    <section class="page ws-page" id="ws-workflows" data-page="workflows" data-ws-page="workflows" data-state="content" role="tabpanel" aria-labelledby="ws-tab-workflows" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-workflows" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="cols cols-flow">
+            <section class="box" aria-labelledby="flow-runs-title">
+              <h2 id="flow-runs-title" class="box-title">Runs in this project</h2>
+              <div class="box-body">
+                <p id="flow-activity" class="activity-words"></p>
+                <ol id="flow-runs" class="runs"><li class="empty">Reading the workspace…</li></ol>
+              </div>
+            </section>
+            <!-- R4 (H104, second part): one operation's run detail, opened by its operation id: this page's address /run/<id> (from
+                 the terminal Workbench's Activity or a Timmy Studio card), a run on the left, or the box below. Drawn from Timmy's
+                 records as its producer gives them (src/contracts/run-detail.ts); this page checks and decides nothing.
+                 R6 (H144): with the run inspected (its source, changes, outputs and receipts, each receipt verified on the
+                 companion's server when it answers), drawn by panel-run.js; the run detail fills the box, each column scrolling
+                 on its own and saying "more below" while it has more. -->
+            <div id="tab-run" class="tab-panel active" role="region" aria-label="Run detail" data-ws="workflows">
+              <section id="run-card" class="box" aria-labelledby="run-card-title">
+                <h2 id="run-card-title" class="box-title">Run detail · intent → prediction → run → receipt</h2>
+                <div class="box-body">
+                <!-- R10 (H167; H168's F3, as on Home): a run is opened by its id behind a Details control (the runs on the left,
+                     Home's recent work and the activity open one in words); it opens by itself when the page has no token, as the
+                     words in the run box then name it -->
+                <details id="run-by-id" class="run-by-id">
+                  <summary>Details · open a run by its operation id</summary>
+                  <div class="rv-top">
+                    <form id="run-form" class="run-form" autocomplete="off">
+                      <label for="run-op" class="run-label">Operation id</label>
+                      <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
+                      <button type="submit" id="run-open" class="btn-action">Open its run detail</button>
+                    </form>
+                    <p id="run-hint" class="run-hint" title="This page's address for a run is /run/&lt;operation id&gt; on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.">An operation id is o and 8 hex digits, as Timmy prints it; this page's address for one is <code>/run/&lt;operation id&gt;</code>.</p>
+                  </div>
+                </details>
+                <div id="run-detail" class="run-detail" aria-live="polite">
+                  <p class="run-empty">No run detail opened yet.</p>
+                </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-workflows" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 04 · Runs & receipts (H169; the Logs page of R5, reference 10): raw lines as they reached this page, structured events, and the
+         latest receipt. Its legacy tab id stays "logs" (key 0); the page id is "runs". -->
+    <section class="page ws-page" id="ws-logs" data-page="runs" data-ws-page="logs" data-state="content" role="tabpanel" aria-labelledby="ws-tab-logs" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-runs" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="cols cols-logs">
+            <!-- what reached this page over its socket -->
+            <div id="tab-logs" class="tab-panel active" role="region" aria-label="This page's socket log" data-ws="logs">
+              <section id="logs-card" class="box box-flush" aria-labelledby="logs-title">
+                <h2 id="logs-title" class="box-title">Raw · this page's socket</h2>
+                <div id="logs-list">
+                  <div class="log-line muted">[companion-client] Initialized socket telemetry logger. Waiting for active events...</div>
+                </div>
+              </section>
+            </div>
+            <section class="box" aria-labelledby="logs-events-title">
+              <h2 id="logs-events-title" class="box-title">Structured events · newest at top</h2>
+              <div class="box-body"><ol id="logs-events" class="events events-table"><li class="empty">Reading the workspace…</li></ol></div>
+            </section>
+            <!-- the latest receipt as it reached this page; the page checks nothing -->
+            <div id="tab-proof" class="tab-panel active" role="region" aria-label="The latest receipt this page received" data-ws="logs">
+              <section id="proof-card" class="box" aria-labelledby="proof-title">
+                <h2 id="proof-title" class="box-title">Latest receipt this page received</h2>
+                <div class="box-body">
+                <p><span class="status-badge">AS RECEIVED · NOT CHECKED HERE</span></p>
+                <!-- R5 lead (QA-R5E defect 28): one sentence while nothing has reached this page, not seven "none received yet"
+                     rows beside a list of sealed receipts; the rows show once Timmy's terminal sends one -->
+                <p id="proof-none" class="empty">No receipt has been sent to this page since it opened. The project's sealed receipts so far are in Structured events, as the frame read them.</p>
+                <div id="proof-box" class="proof-box" hidden>
+                  <div class="proof-row"><span class="proof-label">Run ID:</span><strong id="proof-run-id">none received yet</strong></div>
+                  <div class="proof-row"><span class="proof-label">Prompt:</span><span id="proof-prompt">none received yet</span></div>
+                  <div class="proof-row"><span class="proof-label">Agent:</span><span id="proof-agent">none received yet</span></div>
+                  <div class="proof-row"><span class="proof-label">Tools:</span><span id="proof-tools">none received yet</span></div>
+                  <div class="proof-row"><span class="proof-label">What changed:</span><span id="proof-changed">none received yet</span></div>
+                  <div class="proof-row"><span class="proof-label">Manifest hash:</span><strong id="proof-hash">none received yet</strong></div>
+                  <div class="proof-row"><span class="proof-label">Receipt file:</span><span id="proof-path">none received yet</span></div>
+                </div>
+                <div class="proof-note">
+                  This page shows a receipt as Timmy's terminal sent it, or a run id and a sha256 the chat mirror named; it checks nothing itself. Timmy seals receipts on this computer, and <code>timmy verify</code> checks their chain.
+                </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-runs" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 05 · Canvas (H176; reference 06): Timmy Studio's state, and Timmy Canvas's revision and jobs, read with the token (tab id "studio") -->
+    <section class="page ws-page" id="ws-studio" data-page="canvas" data-ws-page="studio" data-state="content" role="tabpanel" aria-labelledby="ws-tab-studio" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-canvas" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="cols cols-two">
+            <div class="col-stack">
+              <section class="box box-fit" aria-labelledby="studio-state-title">
+                <h2 id="studio-state-title" class="box-title">Timmy Studio</h2>
+                <div class="box-body"><div id="studio-state" class="preview"><p class="empty">Reading the workspace…</p></div></div>
+              </section>
+              <div id="tab-canvas" class="tab-panel active" role="region" aria-label="Timmy Canvas" data-ws="studio">
+                <section class="box canvas-card" aria-labelledby="canvas-title">
+                  <h2 id="canvas-title" class="box-title">Timmy Canvas · revision and jobs</h2>
+                  <div class="box-body"><div id="canvas-summary">Reading the canvas…</div></div>
+                </section>
+              </div>
+              <!-- R6 (H145): the Studio panel (src/companion/client/panel-studio.js) draws the shown project's board artifacts here:
+                   its reference images, nodes and the project's results placed on its board, each with the preview it opens -->
+              <div class="studio-host" data-panel-host="studio"></div>
+            </div>
+            <section class="box" aria-labelledby="studio-acts-title">
+              <h2 id="studio-acts-title" class="box-title">This tab's actions, in full</h2>
+              <div class="box-body"><div class="acts-full" data-acts-for="studio"></div></div>
+            </section>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-canvas" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 06 · VoxVision (H170; references 04, 05, 15, 16) -->
+    <section class="page ws-page" id="ws-voxvision" data-page="voxvision" data-ws-page="voxvision" data-state="content" role="tabpanel" aria-labelledby="ws-tab-voxvision" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-voxvision" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <!-- R6 (H143): the VoxVision panel (src/companion/client/panel-vox.js) draws its three columns here: the records and the
+               entity tree; the viewport with what was measured over the image, the timeline and the record's commands; the
+               pipeline and receipt, the values and the engines. The tab's own actions are the strip's, above. -->
+          <div class="vox-host" data-panel-host="voxvision"><p class="empty">Reading this project's VoxVision records…</p></div>
+        </div>
+        <aside class="page-context" id="page-context-voxvision" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 07 · Motion & 3D (H176; reference 06; R7 H153): the project's meshes, drawn by panel-create.js into the host below (its
+         routes: src/companion/panels/create.ts); under it (the page scrolls) this page's actions in full, and Slate 3D (tab id "create") -->
+    <section class="page ws-page" id="ws-create" data-page="motion" data-ws-page="create" data-state="content" role="tabpanel" aria-labelledby="ws-tab-create" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-motion" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="create-host" data-panel-host="create"><p class="empty">Reading this project's meshes…</p></div>
+          <div class="cols cols-wide create-more">
+            <section class="box" aria-labelledby="create-acts-title">
+              <h2 id="create-acts-title" class="box-title">This tab's actions, in full</h2>
+              <div class="box-body"><div class="acts-full" data-acts-for="create"></div></div>
+            </section>
+            <!-- R4 (H84, H92): its address is set by the script when the tab is first opened, with the page's token in its fragment
+                 (Slate 3D asks for it too). -->
+            <div id="tab-slate3d" class="tab-panel active" role="region" aria-label="Slate 3D" data-ws="create">
+              <section class="box box-flush slate-box" aria-labelledby="slate-title">
+                <h2 id="slate-title" class="box-title">Slate 3D · the mission board as a scene</h2>
+                <iframe id="slate3d-frame" title="Slate 3D" data-src="/slate3d/?board=ledger"></iframe>
+              </section>
+            </div>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-motion" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 08 · Models & accounts (H170): the connections screen of R11 round 4 (screen-connections.js draws it through
+         TimmyShell.mount('connections', draw)), a page of the one shell now: the rail stays beside it. -->
+    <section class="page ws-page sh-screen" id="screen-connections" data-page="connections" data-ws-page="connections" data-state="content" role="region" aria-label="Models & accounts" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-connections" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <!-- (the connections screen's draw, TimmyShell.mount('connections', …), draws into .page-mount, which the shell makes here) -->
+        </div>
+        <aside class="page-context" id="page-context-connections" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 09 · Tools & integrations (H170; references 08, 17; R6 H142): the inspector, drawn by panel-tools.js into the host below (its
+         routes: src/companion/panels/tools.ts): the servers and their tools, a request checked against its schema, calls through both
+         MCP-to-CLI routes with their wire trace, record and receipt, and the project's newest calls; under it the frame's own words
+         for the two routes and this page's actions in full. -->
+    <section class="page ws-page" id="ws-tools" data-page="tools" data-ws-page="tools" data-state="content" role="tabpanel" aria-labelledby="ws-tab-tools" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-tools" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div data-panel-host="tools" class="tools-host"><p class="empty">Reading the inspector…</p></div>
+          <div class="cols cols-two tools-frame-cols">
+            <section class="box" aria-labelledby="tools-conn-title">
+              <h2 id="tools-conn-title" class="box-title">MCP to CLI: both routes, as the workspace frame words them</h2>
+              <div class="box-body">
+                <p class="empty">The frame's word is about a connection, which Timmy keeps no check of; the inspector above says each route's rung (installed or not) and its last call as this project's records hold it.</p>
+                <div class="conn-grid" data-conns-for="tools"><p class="empty">Reading the workspace…</p></div>
+              </div>
+            </section>
+            <section class="box" aria-labelledby="tools-acts-title">
+              <h2 id="tools-acts-title" class="box-title">This tab's actions, in full</h2>
+              <div class="box-body"><div class="acts-full" data-acts-for="tools"></div></div>
+            </section>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-tools" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- 10 · Control Room (H169; references 07, 14; R8 H155): what runs, what waits on you, and where work happens; the runs' panes,
+         drawn read-only by panel-control.js into the host (its route: src/companion/panels/control.ts, from src/ops/panes.ts). -->
+    <section class="page ws-page" id="ws-control" data-page="control" data-ws-page="control" data-state="content" role="tabpanel" aria-labelledby="ws-tab-control" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-control" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="cols cols-control">
+            <div class="col-stack">
+              <section class="box box-fit" aria-labelledby="control-now-title">
+                <h2 id="control-now-title" class="box-title">What runs · what waits on you</h2>
+                <div class="box-body"><div id="control-now" class="preview"><p class="empty">Reading the workspace…</p></div></div>
+              </section>
+              <section class="box" aria-labelledby="control-acts-title">
+                <h2 id="control-acts-title" class="box-title">This tab's actions, in full</h2>
+                <div class="box-body"><div class="acts-full" data-acts-for="control"></div></div>
+              </section>
+            </div>
+            <div class="control-host" data-panel-host="control"><p class="empty">Reading this project's panes…</p></div>
+            <!-- Where work happens; this page checks none of it -->
+            <div id="tab-workspace" class="tab-panel active" role="region" aria-label="Where work happens" data-ws="control">
+              <section id="workspace-card" class="box" aria-labelledby="workspace-title">
+                <h2 id="workspace-title" class="box-title">Where work happens</h2>
+                <div class="box-body">
+                <p><span class="status-badge unchecked">NOT CHECKED FROM THIS PAGE</span></p>
+                <p class="ws-intro">Carbonyl renders a real browser in a terminal pane. The browser companion is this page. tmux is fallback persistence. This page checks none of them: each card says what it is and gives its command.</p>
+                <div class="ws-grid">
+                  <div class="ws-card">
+                    <div>
+                      <div class="row-between">
+                        <strong class="ws-name">Carbonyl browser</strong>
+                        <span class="ws-state">[ NOT CHECKED HERE ]</span>
+                      </div>
+                      <div class="ws-purpose">An in-pane Chromium browser lane</div>
+                      <p class="ws-desc">Renders this companion (real Chromium: JS, WebGL, video) inside a multiplexer pane. The command opens this page's address without its token, so the page shows nothing until it has one: open this page from Timmy instead, with the Workbench's <code>c</code> (<code>timmy workbench</code>) or q on HOME in <code>timmy watch</code>.</p>
+                    </div>
+                    <div class="ws-actions">
+                      <button type="button" class="btn-action wide" data-copy-carbonyl>Copy the launch command</button>
+                    </div>
+                  </div>
+                  <div class="ws-card">
+                    <div>
+                      <div class="row-between">
+                        <strong class="ws-name">Browser companion</strong>
+                        <span class="ws-state">[ THIS PAGE ]</span>
+                      </div>
+                      <div class="ws-purpose">The browser view of the project workspace</div>
+                      <p class="ws-desc">The chat mirror, the workspace's tabs and actions, logs, receipts and run details.</p>
+                    </div>
+                  </div>
+                  <div class="ws-card">
+                    <div>
+                      <div class="row-between">
+                        <strong class="ws-name">tmux fallback</strong>
+                        <span class="ws-state">[ NOT CHECKED HERE ]</span>
+                      </div>
+                      <div class="ws-purpose">Terminal persistence</div>
+                      <p class="ws-desc">tmux keeps a recoverable terminal session alive. It may not open a visual UI.</p>
+                    </div>
+                    <div class="ws-actions">
+                      <button type="button" class="btn-action wide" data-copy="tmux attach -t timmy-run">Copy the attach command</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="ws-spec">
+                  <div class="ws-spec-title">Fallback persistence: to attach to the tmux session, run</div>
+                  <div class="ws-cmd">tmux attach -t timmy-run</div>
+                  <div class="ws-foot">Carbonyl for in-pane browsing, tmux for fallback terminal persistence.</div>
+                </div>
+                </div>
+              </section>
+            </div>
+          </div>
+          <!-- Fleet & Clef (D3: folded into Control Room): the fleet backend, decisions and the edge, as the frame words them -->
+          <section class="box" aria-labelledby="control-fleet-title">
+            <h2 id="control-fleet-title" class="box-title">Fleet backend, decisions and the edge</h2>
+            <div class="box-body"><div class="conn-grid" data-conns-for="fleet"><p class="empty">Reading the workspace…</p></div></div>
+          </section>
+        </div>
+        <aside class="page-context" id="page-context-control" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <section class="page ws-page" id="ws-settings" data-page="settings" data-ws-page="settings" data-state="content" role="region" aria-label="Settings" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-settings" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <!-- Settings (H173; NEW this round): the companion's and the workspace's preferences, drawn by panel-settings.js into the host
+               below (TimmyPanels.register('settings', …)); reached from the account block and Help & find (D3), not the rail. -->
+          <div class="settings-host" data-panel-host="settings"><p class="empty">Settings are not drawn on this page yet; the start-up preferences are on Home (key 1) until they move here.</p></div>
+        </div>
+        <aside class="page-context" id="page-context-settings" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- Account (H173): the account screen of R11 round 4 (account.js draws it through TimmyShell.mount('account', draw): Clerk's
+         flows, the session this companion verifies), a page of the one shell now; reached from the rail's account block. -->
+    <section class="page ws-page sh-screen" id="screen-account" data-page="account" data-ws-page="account" data-state="content" role="region" aria-label="Account" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-account" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <!-- (the account screen's draw, TimmyShell.mount('account', …), draws into .page-mount, which the shell makes here) -->
+        </div>
+        <aside class="page-context" id="page-context-account" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- Home (legacy, R10 H167; key 1 and Help & find reach it; D3: its content lives in Chat's first use): the project's recent
+         work, the selected item drawn large, the connections as Timmy last observed them, the newest images, the start-up settings. -->
+    <section class="page ws-page" id="ws-home" data-page="home" data-ws-page="home" data-state="content" role="tabpanel" aria-labelledby="ws-tab-home" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-home" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="cols cols-home">
+            <div class="col-stack home-left">
+              <section class="box home-work-box" aria-labelledby="home-work-title">
+                <h2 id="home-work-title" class="box-title">Recent work</h2>
+                <div class="box-body">
+                  <ol id="home-work" class="work-list" role="listbox" aria-label="Recent work, newest first: Up and Down choose, Enter opens it" tabindex="0"><li class="empty">Reading the project’s recent work…</li></ol>
+                </div>
+              </section>
+              <section class="box home-conn-box" aria-labelledby="home-conn-title">
+                <h2 id="home-conn-title" class="box-title">Connections &amp; runtimes</h2>
+                <div class="box-body"><div id="home-connections" class="conn-grid"><p class="empty">Reading the workspace…</p></div></div>
+              </section>
+              <section class="box box-fit" aria-labelledby="prefs-title">
+                <h2 id="prefs-title" class="box-title">When the workspace starts</h2>
+                <form id="ws-prefs" class="prefs box-body" autocomplete="off">
+                  <label class="check"><input type="checkbox" id="pref-companion" data-pref="openCompanionAtStart" disabled> <span>Open the companion when the workspace starts</span></label>
+                  <label class="check"><input type="checkbox" id="pref-studio" data-pref="openStudioAtStart" disabled> <span>Open Studio when the workspace starts</span></label>
+                  <p class="prefs-foot"><span id="prefs-state" class="prefs-state" role="status" aria-live="polite">Reading the settings…</span> <button type="button" id="prefs-reload" class="btn-action tiny" data-action="prefs-reload" hidden>Reload</button></p>
+                </form>
+              </section>
+            </div>
+            <!-- R10 (H167; the brief and references 01, 02, 05, 09: the preview is the largest share of the page): the selected item
+                 drawn large, with the one way to open it; under it, smaller, the newest images, Studio and the newest run -->
+            <div class="col-stack home-right">
+              <section class="box home-stage-box" aria-labelledby="home-stage-title">
+                <h2 id="home-stage-title" class="box-title">Preview</h2>
+                <div class="box-body"><div id="home-stage" class="stage" aria-live="polite"><p class="empty">Reading the project’s recent work…</p></div></div>
+              </section>
+              <section class="box home-more-box" aria-labelledby="home-preview-title">
+                <h2 id="home-preview-title" class="box-title">The newest images, Studio and runs</h2>
+                <div class="box-body"><div id="home-preview" class="preview"><p class="empty">Reading the workspace…</p></div></div>
+              </section>
+            </div>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-home" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
+    </section>
+
+    <!-- Fleet & Clef (legacy; key 8; D3: folded into Control Room, whose page carries the same connections grid) -->
+    <section class="page ws-page" id="ws-fleet" data-page="fleet" data-ws-page="fleet" data-state="content" role="tabpanel" aria-labelledby="ws-tab-fleet" hidden>
+      <header class="page-head">
+        <div class="page-head-words"><p class="page-kicker"></p><h1 class="page-title" tabindex="-1"></h1><p class="page-intro"></p></div>
+        <div class="page-head-actions"><button type="button" class="ui-btn page-context-btn" aria-expanded="false" aria-controls="page-context-fleet" hidden></button><div class="page-primary"></div></div>
+      </header>
+      <div class="page-band"></div>
+      <div class="page-body">
+        <div class="page-work">
+          <div class="page-state" hidden></div>
+          <div class="cols cols-two">
+            <section class="box" aria-labelledby="fleet-conn-title">
+              <h2 id="fleet-conn-title" class="box-title">Fleet backend, decisions and the edge</h2>
+              <div class="box-body"><div class="conn-grid" data-conns-for="fleet"><p class="empty">Reading the workspace…</p></div></div>
+            </section>
+            <section class="box" aria-labelledby="fleet-acts-title">
+              <h2 id="fleet-acts-title" class="box-title">This tab's actions, in full</h2>
+              <div class="box-body"><div class="acts-full" data-acts-for="fleet"></div></div>
+            </section>
+          </div>
+        </div>
+        <aside class="page-context" id="page-context-fleet" aria-label="Context" hidden></aside>
+      </div>
+      <div class="page-dock"></div>
+      <div class="page-records"></div>
     </section>
   </main>
 
-  <!-- The activity stream (the frame's newest log lines, newest first), as on every surface; it can be folded -->
+  <!-- THE RECORDS BAND: quiet, expandable (D4's "progress and evidence"): the activity stream (the frame's newest log lines, newest
+       first), as on every surface, foldable; under its Details, the companion's own facts (the project bar, its commands, the
+       folder, the socket's state) that companion.js keeps writing (R4 H104 / R5 H132: #project, #project-cmds, #project-folder,
+       #status), behind a control rather than on every page (D4). -->
   <section id="ws-activity" class="ws-activity" aria-labelledby="ws-activity-title">
     <div class="activity-head">
-      <h2 id="ws-activity-title" class="strip-title">Live session &amp; activity</h2>
+      <h2 id="ws-activity-title" class="strip-title">Records · live session &amp; activity</h2>
       <span id="ws-activity-counts" class="activity-counts"></span>
       <button type="button" id="ws-activity-toggle" class="btn-action tiny" data-action="toggle-activity" aria-expanded="true" aria-controls="ws-activity-list">Fold</button>
     </div>
     <ol id="ws-activity-list" class="activity-list"><li class="empty">Reading the workspace…</li></ol>
+    <details class="ui-details shell-details" id="shell-details">
+      <summary>Details · the companion, this project’s folder, the socket</summary>
+      <header class="ws-header legacy-head">
+        <h1 class="brand"><span class="brand-mark" aria-hidden="true">[▣]</span> TIMMY <span class="brand-sub">companion</span></h1>
+        <!-- R4 (H104, second part): the project this page shows (the active one, followed; or pinned on this page; or fixed by
+             TIMMY_REPO), as the companion says it; its Pin keeps this page on it. R5 (H132): the frame's switch and new-project
+             commands beside it (they run in Timmy's terminal; the page copies them). -->
+        <div id="project" class="project-bar" data-mode="unknown" role="status" aria-live="polite">
+          <span class="project-label">PROJECT</span>
+          <strong id="project-name">not known yet</strong>
+          <span id="project-pin-mark" class="project-pin" hidden>PINNED</span>
+          <span id="project-mode" class="project-mode">asking the companion</span>
+          <button type="button" id="project-pin" class="btn-action tiny project-pin-btn" data-action="pin-project" disabled>Pin: keep this page on this project</button>
+        </div>
+        <div id="project-cmds" class="project-cmds" aria-label="Project commands, for Timmy's terminal"></div>
+        <div id="status" role="status" aria-live="off">
+          <span class="status-dot" data-state="connecting"></span>
+          <span id="status-text">COMPANION SOCKET · CONNECTING</span>
+        </div>
+      </header>
+      <!-- R4 (H104, second part): which folder this page reads (the shown project's event bus and receipts) -->
+      <p id="project-folder" class="project-folder">Project folder: not known yet (the companion says which when it answers).</p>
+    </details>
   </section>
-  </div>
-  </div><!-- /screen-chat -->
+  </div><!-- /shell-main -->
+  </div><!-- /frame -->
+
+  <!-- the scrim behind a phone's sheets (the rail, a page's context): a press closes them -->
+  <div class="shell-scrim" id="shell-scrim" hidden></div>
+
+  <!-- HELP & FIND (⌘K · Ctrl+K · ? when not typing · the rail's button): destinations, this page's actions, the keys; one search filters all three -->
+  <dialog class="help" id="shell-help-dialog" aria-labelledby="shell-help-title">
+    <form method="dialog" class="help-head"><h2 id="shell-help-title" class="help-title">Help &amp; find</h2><button type="submit" class="ui-btn help-close" aria-label="Close">Esc</button></form>
+    <label class="help-find-label"><span class="visually-hidden">Find a destination, an action or a key</span><input type="search" class="help-find" autocomplete="off" placeholder="Type to find · Enter opens the first"></label>
+    <div class="help-lists"></div>
+  </dialog>
 
   <!-- R11 round 4 (H173): on /account/callback only, the launch token back into the address before companion.js reads it -->
   <script src="/account-callback.js"></script>

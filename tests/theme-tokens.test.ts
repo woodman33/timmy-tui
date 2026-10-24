@@ -156,6 +156,8 @@ describe('B11: the browser registry (--timmy-ui-*), additive beside B10', () => 
       expect((shared.match(new RegExp(`--timmy-ui-${name}:`, 'g')) ?? []).length, name).toBe(1);
     }
     expect(css).toContain(`  --timmy-ui-font: ${TYPE_UI.stack};`);
+    expect(css).toContain(`  --timmy-ui-swatch-amber: ${UI_THEMES.amber.accent};`);
+    expect(css).toContain(`  --timmy-ui-swatch-glacier: ${UI_THEMES.glacier.accent};`);
     expect(css).toContain(`  --timmy-ui-font-mono: ${TYPE.stack};`);
     expect(css).toContain(`  --timmy-ui-size-label: ${TYPE_UI.size.label}px;`);
     expect(TYPE_UI.size.label).toBeGreaterThanOrEqual(13); // the page's floor

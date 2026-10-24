@@ -290,6 +290,8 @@ export function uiThemeCss(uiFontPath: string | null): string {
     ...(['feedback', 'state', 'panel'] as const).map((name) => `  --timmy-ui-motion-${name}: ${UI_MOTION[name]}ms;`),
     `  --timmy-ui-ease: ${UI_MOTION.ease};`,
   ];
+  // the two families' keys as named swatches (the theme switch shows both while one is active)
+  shared.push(...Object.entries(UI_THEMES).map(([name, t]) => `  --timmy-ui-swatch-${name}: ${t.accent};`));
   const family = (t: UiThemeFamily): string[] => [
     `  --timmy-ui-accent: ${t.accent};`,
     `  --timmy-ui-accent-soft: ${t.accentSoft};`,

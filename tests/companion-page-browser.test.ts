@@ -311,11 +311,13 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       }
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
       // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, marked): no page of the
-      // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's three fonts.
+      // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's Inter and Fira Code.
+      // R11 round 7 (H175; DESIGN.md §10 B11, the lead's D2): Outfit is the page's UI face again, served from this server's own
+      // built web assets (/web/fonts/outfit-latin-wght-normal.woff2) — the face test below holds it to that one file.
       // R11 round 6: what the page may ask for under /vendor/ is what this server serves from its own installed packages —
       // the Rive runtime (rive-assets.ts: /vendor/rive/rive.js + rive.wasm, for the Chat's AgentConsole band) and, on a
       // Clerk-configured companion, Clerk's module (/vendor/clerk/, identity) — nothing else there (the old marked copy above all).
-      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/(?!rive\/|clerk\/)|web\/fonts\/(?:outfit|inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/(?!rive\/|clerk\/)|web\/fonts\/(?:inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
       for (const p of seen.requests.map((r) => new URL(r).pathname).filter((p) => p.startsWith('/vendor/'))) expect(p, 'under /vendor/ only the Rive runtime or Clerk').toMatch(/^\/vendor\/(?:rive\/rive\.(?:js|wasm)|clerk\/)/);
       // (R11 round 4: the ✨ sample asks no model: the FAKE Ollama saw no chat request for this page)
       expect(ollama.chats().length).toBe(chatsBefore);
@@ -561,18 +563,25 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     } finally { await context.close(); }
   });
 
-  it('its one face is Monaspace Argon, the theme\'s (R5 H132, DESIGN.md §10 B10): loaded from this computer (installed, or the companion\'s own file), for headings, text and code alike', async () => {
+  it('its two faces are the theme\'s (R5 H132 B10; R11 round 7 H175, DESIGN.md §10 B11 and the lead\'s D2): Outfit for headings, labels and text, Monaspace Argon for code, paths and keys — each loaded from this computer (installed, or the companion\'s own file), nothing from elsewhere', async () => {
     const { page, context, seen } = await open();
     try {
       await connected(page);
       await page.evaluate(() => document.fonts.ready);
       const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.weight} ${f.status}`));
+      // the mono face: the page's keys (kbd), commands and records are drawn in it, so its regular weight is loaded
       expect(fonts).toContain('Monaspace Argon 400 loaded');
-      for (const s of ['h1', 'body', '#status', '#project-name']) {
-        expect(await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).fontFamily, s), s).toMatch(/^"?Monaspace Argon"?/);
+      // the UI face: Outfit's one variable file (weights 100 to 900), loaded for the words on screen
+      expect(fonts.some((f) => /^Outfit (?:100 900|\d+) loaded$/.test(f)), fonts.join(', ')).toBe(true);
+      for (const s of ['h1', 'body', '#status', '#project-name', '.page-title', '.rail-item', '#shell-crumb-page']) {
+        expect(await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).fontFamily, s), s).toMatch(/^"?Outfit"?/);
       }
-      // a face's file the browser asked for was this server's (none, where the font is installed); b69ab12's three were not asked for
-      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/web/fonts/monaspace-argon-latin-\\d00-(?:normal|italic)\\.woff2$`));
+      for (const s of ['kbd', 'code, .cmd, pre']) {
+        expect(await page.evaluate((sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).fontFamily : '"Monaspace Argon" (none on the page)'; }, s), s).toMatch(/^"?Monaspace Argon"?/);
+      }
+      // a face's file the browser asked for was this server's (none, where the font is installed): the four Monaspace Argon
+      // files or Outfit's one; b69ab12's Inter and Fira Code are not asked for (the policy case above)
+      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/web/fonts/(?:monaspace-argon-latin-\\d00-(?:normal|italic)|outfit-latin-wght-normal)\\.woff2$`));
       expect(seen.outside).toEqual([]);
     } finally { await context.close(); }
   });
