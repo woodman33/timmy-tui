@@ -1554,7 +1554,8 @@ function mount(snapshot, b = canvas) {
             connectNodes: (from, to) => nodes.connect(String(from), String(to)),
             connections: () => nodes.connections(),
             // R11 round 5 (H174): a Rive component shape placed on the board (welcome | connection | activity; a provider for connection)
-            placeRive: (component, o) => riveShape.place(editor, String(component), placeAt(editor, { w: 240, h: 200 }), o && typeof o === 'object' ? o : {}),
+            // (o.at = { x, y } places it there; else clear of every shape)
+            placeRive: (component, o) => riveShape.place(editor, String(component), o && typeof o === 'object' && o.at && typeof o.at.x === 'number' && typeof o.at.y === 'number' ? { x: o.at.x, y: o.at.y } : placeAt(editor, { w: 240, h: 200 }), o && typeof o === 'object' ? o : {}),
           };
           attachEditor(editor, b);
           followEditor(editor);
