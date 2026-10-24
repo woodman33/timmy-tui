@@ -32,7 +32,9 @@ import { readSettings, saveSettings, type SaveResult, type SettingsRead, type Wo
 type Env = Record<string, string | undefined>;
 
 /** The project a page shows (src/companion/project.ts): its name and its folder. */
-export interface ShownProject { name: string; root: string }
+/** The project a page shows; `env` when it is a signed-in user's (R11 round 4, H171): the frame and the settings are read and
+ *  written under the user's own env, never this companion's (the user's project root is theirs alone, so the share by root holds). */
+export interface ShownProject { name: string; root: string; env?: Env }
 
 /**
  * What makes a frame for a project: src/ops/workspace-frame.ts buildWorkspaceFrame unless a test gives one. `project` is
@@ -76,7 +78,7 @@ export class CompanionWorkspace {
 
   constructor(private readonly d: WorkspaceDeps = {}) {}
 
-  private env(): Env { return this.d.env ?? process.env; }
+  private env(shown?: ShownProject): Env { return shown?.env ?? this.d.env ?? process.env; }
 
   /**
    * A frame for `shown`, made now. The producer reads the active project (the one chosen, else the folder it is given) by
@@ -86,7 +88,7 @@ export class CompanionWorkspace {
   private async make(shown: ShownProject): Promise<WorkspaceFrame> {
     let own = false;
     try { own = readActiveProject(shown.root).root === shown.root; } catch { own = false; }
-    const o = { cwd: shown.root, env: this.env(), ...(own ? {} : { project: { name: shown.name, root: shown.root } }) };
+    const o = { cwd: shown.root, env: this.env(shown), ...(own ? {} : { project: { name: shown.name, root: shown.root } }) };
     if (this.d.frame) return this.d.frame(o);
     const { buildWorkspaceFrame } = await import('../ops/workspace-frame.js');
     return buildWorkspaceFrame(o);
@@ -140,7 +142,7 @@ export class CompanionWorkspace {
       return { status: 500, body: { error: `${WORKSPACE_FAILED} to check this change against: ${words(err)}. Nothing was written.` } };
     }
     if (now.revision !== revision) return { status: 409, body: { error: 'stale', frame: now } };
-    const env = this.env();
+    const env = this.env(shown);
     const read = (this.d.read ?? ((e: Env) => readSettings(e)))(env);
     if (read.state === 'unreadable') {
       return { status: 500, body: { error: `the Workbench's settings file could not be read (${words(read.error ?? 'unreadable')}), so nothing was written over it` } };

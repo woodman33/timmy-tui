@@ -120,5 +120,11 @@ describe('a configured companion: the socket without a session waits; with one, 
     expect(view.status).toBe(200);
     expect(view.body.route).toMatchObject({ kind: 'local', model: 'fake-llama:1b' });
     expect(view.body.project).toEqual({ name: 'Untitled project' });
+    // the lead's journey item (b): a signed-in page's workspace frame is the user's project's (no 404 for the user's id)
+    const frame = await call(`/api/workspace?project=${mine.id}`);
+    expect(frame.status).toBe(200);
+    expect(JSON.stringify(frame.body)).not.toContain('operator-project');
+    const unknown = await call('/api/workspace?project=0123456789abcdef');
+    expect(unknown.status).toBe(404);
   }, 30_000);
 });

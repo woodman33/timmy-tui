@@ -55,7 +55,7 @@
     if (host._cxScreen && typeof host._cxScreen.destroy === 'function') host._cxScreen.destroy();
     const live = { data: null, pull: null, pullBox: null, said: null, destroyed: false, poll: null };
     host.replaceChildren();
-    const main = h('div', { class: 'sh-main cx-main' });
+    const main = h('div', { class: 'sh-main cn-main' });
     const head = h('header', { class: 'sh-head' },
       h('span', { class: 'sh-head-brand' }, h('span', { class: 'sh-mark', 'aria-hidden': 'true' }, h('span', { class: 'sh-mark-text' }, 'T')), 'TIMMY'),
       h('nav', { class: 'sh-steps', 'aria-label': 'Setup steps' },
@@ -63,12 +63,12 @@
         h('span', { class: 'sh-step is-current', 'aria-current': 'step' }, h('b', null, '02'), 'Connections'),
         h('span', { class: 'sh-step' }, h('b', null, '03'), 'Workspace')),
       h('span', { class: 'sh-head-words' }, (() => { const u = sh.session && typeof sh.session.user === 'function' ? sh.session.user() : null; return u && (u.username || u.email || u.id) ? `Signed in · ${u.username || u.email || u.id}` : 'No account signed in'; })()));
-    const foot = h('footer', { class: 'sh-foot cx-foot-shell' });
+    const foot = h('footer', { class: 'sh-foot cn-foot-shell' });
     host.append(head, main, foot);
 
     const cardOf = (id) => main.querySelector(`[data-provider="${id}"]`);
     const say = (card, words, kind) => {
-      const el = card && card.querySelector('[data-cx-say]');
+      const el = card && card.querySelector('[data-cn-say]');
       if (!el) return;
       el.textContent = words || '';
       el.dataset.kind = kind || '';
@@ -76,26 +76,26 @@
 
     function cardEl(c) {
       const mark = stateMark(c.state);
-      return h('article', { class: `sh-card cx-card cx-card-${c.id}`, 'data-provider': c.id, 'data-state': c.state, 'aria-labelledby': `cx-card-${c.id}-title` },
-        h('header', { class: 'cx-card-head' },
-          h('span', { class: 'cx-card-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'),
-          h('div', { class: 'cx-card-names' },
-            h('h2', { id: `cx-card-${c.id}-title`, class: 'cx-card-title' }, c.title),
-            h('p', { class: 'sh-sub cx-card-sub' }, c.subtitle))),
-        h('p', { class: 'cx-card-body' }, c.body),
+      return h('article', { class: `sh-card cn-card cn-card-${c.id}`, 'data-provider': c.id, 'data-state': c.state, 'aria-labelledby': `cn-card-${c.id}-title` },
+        h('header', { class: 'cn-card-head' },
+          h('span', { class: 'cn-card-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'),
+          h('div', { class: 'cn-card-names' },
+            h('h2', { id: `cn-card-${c.id}-title`, class: 'cn-card-title' }, c.title),
+            h('p', { class: 'sh-sub cn-card-sub' }, c.subtitle))),
+        h('p', { class: 'cn-card-body' }, c.body),
         actions(c),
-        h('footer', { class: 'cx-card-foot' },
-          h('p', { class: `${mark.cls} cx-state` }, h('span', { class: 'cx-state-glyph', 'aria-hidden': 'true' }, mark.glyph), ' ', h('span', { class: 'cx-state-word' }, c.state)),
-          h('p', { class: 'sh-note cx-words' }, c.words),
-          c.next ? h('p', { class: 'sh-note cx-next' }, h('span', { class: 'cx-next-label' }, 'Next '), c.next) : null,
-          c.lines && c.lines.length ? h('ul', { class: 'sh-note cx-lines' }, ...c.lines.map((l) => h('li', null, l))) : null,
-          h('p', { class: 'sh-note cx-say', 'data-cx-say': '', 'aria-live': 'polite' })));
+        h('footer', { class: 'cn-card-foot' },
+          h('p', { class: `${mark.cls} cn-state` }, h('span', { class: 'cn-state-glyph', 'aria-hidden': 'true' }, mark.glyph), ' ', h('span', { class: 'cn-state-word' }, c.state)),
+          h('p', { class: 'sh-note cn-words' }, c.words),
+          c.next ? h('p', { class: 'sh-note cn-next' }, h('span', { class: 'cn-next-label' }, 'Next '), c.next) : null,
+          c.lines && c.lines.length ? h('ul', { class: 'sh-note cn-lines' }, ...c.lines.map((l) => h('li', null, l))) : null,
+          h('p', { class: 'sh-note cn-say', 'data-cn-say': '', 'aria-live': 'polite' })));
     }
 
     function actions(c) {
-      const row = h('div', { class: 'sh-actions cx-actions' });
+      const row = h('div', { class: 'sh-actions cn-actions' });
       if (c.id === 'openrouter') {
-        row.append(h('button', { type: 'button', class: 'sh-btn-text cx-link', onClick: () => startOpenRouter(c) }, `${c.action} ↗`));
+        row.append(h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => startOpenRouter(c) }, `${c.action} ↗`));
         if (c.key) row.append(h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => check(c, 'openrouter') }, 'Check the key'), h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => forget(c) }, 'Forget the key'));
       } else if (c.id === 'ollama-local') {
         const local = c.local || {};
@@ -103,11 +103,11 @@
           h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => { open(local.link); say(cardOf(c.id), `${local.install || 'Install Ollama'}; then ${local.start || 'start it'}. Then Check.`, 'step'); } }, 'Install Ollama'),
           h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => showPull(c) }, 'Download a local model'),
           h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => check(c, 'ollama-local') }, 'Check'),
-          h('button', { type: 'button', class: 'sh-btn-text cx-link', onClick: () => open(local.link) }, `${c.action} ↗`));
+          h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(local.link) }, `${c.action} ↗`));
       } else if (c.id === 'ollama-cloud') {
         const page = (c.links || []).find((l) => /keys/.test(l.url));
-        const input = h('input', { type: 'password', class: 'sh-input', id: 'cx-ollama-cloud-key', autocomplete: 'off', spellcheck: 'false', placeholder: 'Ollama API key', 'aria-label': 'Ollama API key' });
-        const form = h('form', { class: 'cx-form', onSubmit: async (e) => {
+        const input = h('input', { type: 'password', class: 'sh-input', id: 'cn-ollama-cloud-key', autocomplete: 'off', spellcheck: 'false', placeholder: 'Ollama API key', 'aria-label': 'Ollama API key' });
+        const form = h('form', { class: 'cn-form', onSubmit: async (e) => {
           e.preventDefault();
           const key = input.value;
           input.value = '';
@@ -116,26 +116,26 @@
           if (r.ok) { toast(r.body.words, false); await refresh(); }
           say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The key was not saved.'), r.ok ? 'step' : 'failed');
         } },
-          h('label', { for: 'cx-ollama-cloud-key', class: 'sh-note cx-label' }, 'Paste an Ollama API key (sent once, in the request body; never shown again)'),
-          h('div', { class: 'cx-form-row' }, input, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save the key')));
-        row.append(h('button', { type: 'button', class: 'sh-btn-text cx-link', onClick: () => open(page && page.url) }, `${c.action} ↗`), form);
+          h('label', { for: 'cn-ollama-cloud-key', class: 'sh-note cn-label' }, 'Paste an Ollama API key (sent once, in the request body; never shown again)'),
+          h('div', { class: 'cn-form-row' }, input, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save the key')));
+        row.append(h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(page && page.url) }, `${c.action} ↗`), form);
         if (c.key) row.append(h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => check(c, 'ollama-cloud') }, 'Check the key'), h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => forget(c) }, 'Forget the key'));
       } else if (c.id === 'cloudflare') {
         const cf = c.cloudflare || { gatewayUrl: null, cloudLogs: false };
-        const url = h('input', { type: 'url', class: 'sh-input', id: 'cx-cloudflare-gateway', autocomplete: 'off', placeholder: 'https://gateway.ai.cloudflare.com/…', value: cf.gatewayUrl || '', 'aria-label': 'AI Gateway address (optional)' });
-        const logs = h('input', { type: 'checkbox', id: 'cx-cloudflare-logs', checked: cf.cloudLogs === true });
-        const form = h('form', { class: 'cx-form', onSubmit: async (e) => {
+        const url = h('input', { type: 'url', class: 'sh-input', id: 'cn-cloudflare-gateway', autocomplete: 'off', placeholder: 'https://gateway.ai.cloudflare.com/…', value: cf.gatewayUrl || '', 'aria-label': 'AI Gateway address (optional)' });
+        const logs = h('input', { type: 'checkbox', id: 'cn-cloudflare-logs', checked: cf.cloudLogs === true });
+        const form = h('form', { class: 'cn-form', onSubmit: async (e) => {
           e.preventDefault();
           const r = await postJson('/api/connections/cloudflare', { gatewayUrl: url.value.trim() || null, cloudLogs: logs.checked });
           if (r.ok) await refresh();
           say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The settings were not saved.'), r.ok ? 'step' : 'failed');
         } },
-          h('label', { for: 'cx-cloudflare-gateway', class: 'sh-note cx-label' }, 'AI Gateway / model routing (optional)'),
-          h('div', { class: 'cx-form-row' }, url),
-          h('label', { class: 'sh-note cx-check', for: 'cx-cloudflare-logs' }, logs, ' Cloud logs (optional). Local logs are already part of the design.'),
-          h('div', { class: 'cx-form-row' }, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save Cloudflare settings'), (cf.gatewayUrl || cf.cloudLogs) ? h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => forget(c) }, 'Remove the settings') : null));
+          h('label', { for: 'cn-cloudflare-gateway', class: 'sh-note cn-label' }, 'AI Gateway / model routing (optional)'),
+          h('div', { class: 'cn-form-row' }, url),
+          h('label', { class: 'sh-note cn-check', for: 'cn-cloudflare-logs' }, logs, ' Cloud logs (optional). Local logs are already part of the design.'),
+          h('div', { class: 'cn-form-row' }, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save Cloudflare settings'), (cf.gatewayUrl || cf.cloudLogs) ? h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => forget(c) }, 'Remove the settings') : null));
         const setup = (c.links || [])[0];
-        row.append(h('button', { type: 'button', class: 'sh-btn-text cx-link', onClick: () => open(setup && setup.url) }, `${c.action} ↗`), form);
+        row.append(h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(setup && setup.url) }, `${c.action} ↗`), form);
       }
       return row;
     }
@@ -168,22 +168,22 @@
     // Ollama · local: the download, with its size, the person's confirmation, its progress and Cancel (SSE from the server)
     function showPull(c) {
       const card = cardOf(c.id);
-      let box = card.querySelector('.cx-pull');
+      let box = card.querySelector('.cn-pull');
       if (box) { box.remove(); live.pullBox = null; return; }
       const local = c.local || { starters: [] };
-      const select = h('select', { class: 'sh-select', id: 'cx-pull-model', 'aria-label': 'Model to download' }, ...(local.starters || []).map((m) => h('option', { value: m.model, selected: m.default }, `${m.model} · ${m.size} · ${m.use}`)));
-      const other = h('input', { type: 'text', class: 'sh-input', id: 'cx-pull-other', placeholder: 'or another model name from the Ollama library', 'aria-label': 'Another model name', autocomplete: 'off' });
-      const status = h('p', { class: 'sh-note cx-pull-status', 'aria-live': 'polite' }, local.sizeNote ? `Sizes: ${local.sizeNote}.` : '');
-      const bar = h('progress', { class: 'cx-progress', max: '100', value: '0', hidden: true });
+      const select = h('select', { class: 'sh-select', id: 'cn-pull-model', 'aria-label': 'Model to download' }, ...(local.starters || []).map((m) => h('option', { value: m.model, selected: m.default }, `${m.model} · ${m.size} · ${m.use}`)));
+      const other = h('input', { type: 'text', class: 'sh-input', id: 'cn-pull-other', placeholder: 'or another model name from the Ollama library', 'aria-label': 'Another model name', autocomplete: 'off' });
+      const status = h('p', { class: 'sh-note cn-pull-status', 'aria-live': 'polite' }, local.sizeNote ? `Sizes: ${local.sizeNote}.` : '');
+      const bar = h('progress', { class: 'cn-progress', max: '100', value: '0', hidden: true });
       const confirmBtn = h('button', { type: 'button', class: 'sh-btn-primary is-small', hidden: true }, 'Confirm the download');
       const cancelBtn = h('button', { type: 'button', class: 'sh-btn is-small', hidden: true }, 'Cancel');
       const startBtn = h('button', { type: 'button', class: 'sh-btn is-small' }, 'Show the size');
-      box = h('div', { class: 'cx-pull' },
-        h('label', { for: 'cx-pull-model', class: 'sh-note cx-label' }, 'Download a local model into the Ollama on this computer: its size first; it starts only when you confirm.'),
-        h('div', { class: 'cx-form-row' }, select, other),
-        h('div', { class: 'cx-form-row' }, startBtn, confirmBtn, cancelBtn),
+      box = h('div', { class: 'cn-pull' },
+        h('label', { for: 'cn-pull-model', class: 'sh-note cn-label' }, 'Download a local model into the Ollama on this computer: its size first; it starts only when you confirm.'),
+        h('div', { class: 'cn-form-row' }, select, other),
+        h('div', { class: 'cn-form-row' }, startBtn, confirmBtn, cancelBtn),
         bar, status);
-      card.querySelector('.cx-actions').after(box);
+      card.querySelector('.cn-actions').after(box);
       live.pullBox = box;
       startBtn.addEventListener('click', () => startPull((other.value.trim() || select.value), { status, bar, confirmBtn, cancelBtn, startBtn }));
     }
@@ -241,21 +241,21 @@
       live.data = data;
       const s = data.screen || {};
       main.replaceChildren(
-        h('div', { class: 'cx-head' },
-          h('p', { class: 'sh-label cx-kicker' }, s.kicker || ''),
-          h('h1', { id: 'cx-title', class: 'cx-title', tabindex: '-1' }, s.title || ''),
-          h('p', { class: 'cx-lead' }, s.lead || '')),
-        h('div', { class: 'cx-cards' }, ...PROVIDERS.map((id) => { const c = (data.cards || []).find((x) => x.id === id); return c ? cardEl(c) : null; })),
-        h('div', { class: 'cx-foot' },
-          h('div', { class: 'cx-foot-words' }, h('p', { class: 'cx-strong' }, s.footerStrong || ''), h('p', { class: 'sh-note' }, s.footer || '')),
-          h('div', { class: 'sh-actions cx-foot-actions' },
+        h('div', { class: 'cn-head' },
+          h('p', { class: 'sh-label cn-kicker' }, s.kicker || ''),
+          h('h1', { id: 'cn-title', class: 'cn-title', tabindex: '-1' }, s.title || ''),
+          h('p', { class: 'cn-lead' }, s.lead || '')),
+        h('div', { class: 'cn-cards' }, ...PROVIDERS.map((id) => { const c = (data.cards || []).find((x) => x.id === id); return c ? cardEl(c) : null; })),
+        h('div', { class: 'cn-foot' },
+          h('div', { class: 'cn-foot-words' }, h('p', { class: 'cn-strong' }, s.footerStrong || ''), h('p', { class: 'sh-note' }, s.footer || '')),
+          h('div', { class: 'sh-actions cn-foot-actions' },
             h('button', { type: 'button', class: 'sh-btn-text', onClick: () => { if (typeof sh.go === 'function') sh.go('account'); } }, s.back || 'Back'),
             h('button', { type: 'button', class: 'sh-btn', onClick: () => { if (typeof sh.go === 'function') sh.go('chat'); } }, s.explore || 'Explore without a model'),
             h('button', { type: 'button', class: 'sh-btn-primary', onClick: () => { if (typeof sh.land === 'function') sh.land(); else if (typeof sh.go === 'function') sh.go('chat'); } }, `${s.continue || 'Continue to the workspace'} →`))),
-        h('p', { class: 'sh-note cx-note' }, h('span', { class: 'cx-note-mark', 'aria-hidden': 'true' }, '↳ '), s.note || ''));
+        h('p', { class: 'sh-note cn-note' }, h('span', { class: 'cn-note-mark', 'aria-hidden': 'true' }, '↳ '), s.note || ''));
       foot.replaceChildren(h('span', null, s.footerStrong || ''), h('span', null, s.footer || ''));
       // the download box and a card's last status line outlive a render (a refresh after an action keeps what it said)
-      if (live.pullBox) { const local = cardOf('ollama-local'); const at = local && local.querySelector('.cx-actions'); if (at) at.after(live.pullBox); }
+      if (live.pullBox) { const local = cardOf('ollama-local'); const at = local && local.querySelector('.cn-actions'); if (at) at.after(live.pullBox); }
       if (live.said) { say(cardOf(live.said.id), live.said.words, live.said.kind); live.said = null; }
       // a sign-in pending: ask again until the callback landed (the browser is away on OpenRouter's page)
       const pending = (data.cards || []).some((c) => c.state === 'pending');
@@ -267,11 +267,11 @@
       let r;
       try { r = await api('/api/connections'); } catch { r = null; }
       if (!r || !r.ok) {
-        main.replaceChildren(h('p', { class: 'sh-note sh-error cx-failed', role: 'alert' }, r && r.status === 401 ? 'Sign in to Timmy first: the connections are kept under your account.' : 'The connections could not be read from the companion.'));
+        main.replaceChildren(h('p', { class: 'sh-note sh-error cn-failed', role: 'alert' }, r && r.status === 401 ? 'Sign in to Timmy first: the connections are kept under your account.' : 'The connections could not be read from the companion.'));
         return;
       }
       let data; try { data = await r.json(); } catch { data = null; }
-      if (!data || !data.ok) { main.replaceChildren(h('p', { class: 'sh-note sh-error cx-failed', role: 'alert' }, 'The connections could not be read from the companion.')); return; }
+      if (!data || !data.ok) { main.replaceChildren(h('p', { class: 'sh-note sh-error cn-failed', role: 'alert' }, 'The connections could not be read from the companion.')); return; }
       if (live.destroyed) return;
       render(data);
     }
