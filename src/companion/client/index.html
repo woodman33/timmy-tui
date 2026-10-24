@@ -20,6 +20,8 @@
   <link rel="stylesheet" href="/chat-shell.css">
   <!-- R11 round 4 (H170): the Connections screen's own styles (src/companion/client/screen-connections.css) -->
   <link rel="stylesheet" href="/screen-connections.css">
+  <!-- R11 round 4 (H173): the account screen's own layout (src/companion/client/account.css) -->
+  <link rel="stylesheet" href="/account.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body class="shell" data-dest="chat">
@@ -555,6 +557,8 @@
   </div>
   </div><!-- /screen-chat -->
 
+  <!-- R11 round 4 (H173): on /account/callback only, the launch token back into the address before companion.js reads it -->
+  <script src="/account-callback.js"></script>
   <!-- R6 lead: the tab panels' registry, then each panel's own file, then the page's code, which draws them -->
   <script src="/panels.js"></script>
   <script src="/panel-studio.js"></script>
@@ -575,6 +579,8 @@
   <script src="/screen-connections.js"></script>
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
+  <!-- R11 round 4 (H173): the account screen (Clerk's flows; the session this companion verifies), drawn into #screen-account -->
+  <script src="/account.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>
 </body>
 </html>

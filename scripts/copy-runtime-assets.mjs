@@ -56,6 +56,10 @@ export const RUNTIME_ASSETS = Object.freeze([
   // R11 round 4 (H170): the Connections screen (src/companion/connections.ts serves its data)
   'src/companion/client/screen-connections.js',
   'src/companion/client/screen-connections.css',
+  // R11 round 4 (H173): the account screen (Clerk, verified by the companion), its sheet, and the OAuth callback's token keeper
+  'src/companion/client/account.js',
+  'src/companion/client/account.css',
+  'src/companion/client/account-callback.js',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).

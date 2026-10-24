@@ -140,6 +140,9 @@ import { mountJourneyRoutes } from '../journey/routes.js';
 // R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
 import { mountChatView } from './chat-view.js';
 import type { InventorySource } from './panels/tools.js';
+// R11 round 4 (H173, contract C1): the identity provider's configuration, Clerk's JS served from here, the user's projects
+// (src/companion/identity/routes.ts); its withUser is what every user-data route runs after withToken
+import { mountIdentity, type IdentityDeps } from './identity/routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -161,7 +164,8 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
 // R10 CHAT (H171): chat-shell.js and chat-shell.css, the shell's left menu and the Chat composition
 // R11 round 4 (H171): shell.js, the journey's three screens and what they share (window.TimmyShell)
 // R11 round 4 (H170): screen-connections.js and .css, the Connections screen (src/companion/connections.ts serves its data)
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css'];
+// R11 round 4 (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js'];
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -215,6 +219,11 @@ export interface CompanionOptions {
    * process's environment, src/ops/workspace-frame.ts and src/workbench/settings.ts when absent.
    */
   workspace?: WorkspaceDeps;
+  /**
+   * R11 round 4 (H173): the identity routes' seams (a test's FAKE Clerk folder, origins, JWKS address or clock). The
+   * configuration itself is read from `workspace.env` when given, else this process's environment (identityConfig).
+   */
+  identity?: Pick<IdentityDeps, 'clerkDir' | 'user'>;
 }
 
 /**
@@ -726,6 +735,17 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       if (err) failRequest(res, (err as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 500, (err as NodeJS.ErrnoException).code === 'ENOENT' ? COMPANION_PAGE_ABSENT : COMPANION_FAILED, 'text');
     });
   };
+  // R11 round 4 (H173, contract C1): GET /api/identity, /vendor/clerk/*, /account(/callback), /api/projects; the user
+  // middleware the other user-data routes mount after withToken (identity.withUser), with --lan the LAN addresses as origins
+  const lanOrigins: string[] = []; // filled once the port is bound (below): the page's origins on the network, for azp
+  const identity = mountIdentity(app, {
+    withToken, sendPage, json: express.json({ limit: '2kb' }), env: options.workspace?.env ?? process.env,
+    ...(options.identity?.clerkDir !== undefined ? { clerkDir: options.identity.clerkDir } : {}),
+    user: { lan: lanOrigins, ...(options.identity?.user ?? {}) },
+  });
+  // H169, H170, H171: `identity.withUser` after withToken on every route that reads or writes a user's data, and
+  // `identity.envOf(req)` for that user's env (never process.env); the hello's `session` through verifyHello (middleware.ts)
+  void identity;
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
@@ -868,6 +888,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   httpServer.on('error', () => undefined);
   const bound = (httpServer.address() as import('net').AddressInfo).port;
   selfPort = bound;
+  lanOrigins.push(...lan.map((a) => `${a}:${bound}`));
   await noteSelf('started');
   const host = options.lan ? '0.0.0.0' : '127.0.0.1';
 
