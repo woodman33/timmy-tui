@@ -104,7 +104,7 @@ afterAll(async () => {
 
 // ── the page ──────────────────────────────────────────────────────────────────
 
-interface Opened { page: Page; errors: string[]; left: string[]; refused: string[]; seam: string; close: () => Promise<void> }
+interface Opened { page: Page; errors: string[]; left: string[]; refused: string[]; frames: string[]; seam: string; close: () => Promise<void> }
 
 /** The page at a size, with the launch token in its address; what leaves 127.0.0.1 and every page error recorded. */
 async function open(server: CompanionServer, size: { width: number; height: number }, o: { session?: string; tab?: string } = {}): Promise<Opened> {
@@ -113,6 +113,8 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   const errors: string[] = [];
   const left: string[] = [];
   const refused: string[] = [];
+  // every frame the companion's socket sent the page, as `<type>` or `session:<ok>:<needs>` (never a token's value); '--seam--' marks the adoption
+  const frames: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('request', (r) => { try { if (new URL(r.url()).hostname !== '127.0.0.1') left.push(r.url()); } catch { /* data: */ } });
@@ -125,12 +127,17 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   // the socket: every hello the page sent (with or without a session; never the token) and every refusal the companion answered
   page.on('websocket', (ws) => {
     ws.on('framesent', (f) => { const t = String(f.payload); if (t.includes('"type":"hello"')) refused.push(`ws hello sent (session: ${/"session":"/.test(t) ? 'yes' : 'no'})`); });
-    ws.on('framereceived', (f) => { const t = String(f.payload); if (t.includes('"type":"session"') && t.includes('"ok":false')) refused.push(`ws ${t.slice(0, 220)}`); });
+    ws.on('framereceived', (f) => {
+      const t = String(f.payload);
+      if (t.includes('"type":"session"') && t.includes('"ok":false')) refused.push(`ws ${t.slice(0, 220)}`);
+      try { const m = JSON.parse(t) as { type?: string; ok?: boolean; needs?: string }; frames.push(m.type === 'session' ? `session:${String(m.ok)}:${m.needs ?? ''}` : String(m.type ?? '?')); } catch { frames.push('?'); }
+    });
     ws.on('close', () => refused.push('ws closed'));
   });
   await page.goto(server.url);
   const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined) : '';
-  return { page, errors, left, refused, seam, close: () => context.close() };
+  frames.push('--seam--');
+  return { page, errors, left, refused, frames, seam, close: () => context.close() };
 }
 
 /**
@@ -249,6 +256,11 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       try {
         const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections, facts(o));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
+        // the socket rule (the lead, 22:3x): a configured companion answers a socket without a session with { type: 'session',
+        // ok: false, needs: 'session' } and NOTHING else (no welcome, bus tail, event or project frame) — the frames before the seam
+        const beforeSeam = o.frames.slice(0, o.frames.indexOf('--seam--'));
+        expect(beforeSeam.length, `the socket answered the page's hello without a session: ${JSON.stringify(o.frames).slice(0, 400)}`).toBeGreaterThan(0);
+        expect(beforeSeam.filter((f) => f !== 'session:false:session'), `nothing but the refusal before a session (the frames: ${JSON.stringify(beforeSeam).slice(0, 400)})`).toEqual([]);
         expect(t).toMatch(/Choose how you want to run\./);
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
         // the state words are H170's provider states: never "free", never "connected" for a selection
