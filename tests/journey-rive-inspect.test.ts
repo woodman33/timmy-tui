@@ -406,7 +406,9 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         expect(derived!, 'the event names its source: the backend event (fed) or the page\'s drawing of it (derived), never neither').toMatch(/derived from the page.s drawing of GET \/api\/connections|GET \/api\/connections: ollama-local/);
         if (native) {
           // connected has NO success pose on the asset (none is authored, by design): State stays 0, the HTML label alone says connected, the event says why
-          expect(await nativeOf(o.page, 'connection-ollama-local', 'connection', 'connected')).toMatch(/^State 0 \(no success pose is authored: State stays 0 Idle; the label says connected\)/);
+          // (the note rides on the move; a word that reached the card before its file loaded was "kept until the file loads" and applied
+          // on load — the native State 0 and the facts row below say the same either way)
+          expect(await nativeOf(o.page, 'connection-ollama-local', 'connection', 'connected')).toMatch(/^State 0( \(no success pose is authored: State stays 0 Idle; the label says connected\))?$/);
           expect(await inputValue(o.page, 'connection-ollama-local', 'State')).toBe(0);
           expect(await o.page.locator('[data-inspect-component="connection-ollama-local"] .tr-facts').innerText()).toContain('connected has NO success pose');
         }

@@ -306,6 +306,8 @@ async function handleCensus(page: Page): Promise<string[]> {
 /** The focus order from the composer: each Tab's active element, until Send or `max` tabs. Never a canvas. */
 async function tabOrder(page: Page, max = 40): Promise<string[]> {
   const composer = page.getByRole('textbox', { name: /Message Timmy/i }).or(page.getByPlaceholder(/Message Timmy/i)).first();
+  // (Send is disabled — and so skipped by Tab — while the composer is empty: the order is read with a draft in it, cleared after)
+  await composer.first().fill('focus order (a draft, cleared)');
   await composer.focus();
   await page.keyboard.press('Escape'); // (a panel left open by the model's choice closes; the composer keeps the focus)
   await composer.focus();
@@ -316,6 +318,7 @@ async function tabOrder(page: Page, max = 40): Promise<string[]> {
     seen.push(d);
     if (/^button[^"]*"Send/i.test(d)) break;
   }
+  await composer.first().fill('');
   return seen;
 }
 
