@@ -145,10 +145,11 @@ export function answersFromFlags(o: InitOptions): Answers {
 /** Every path this command writes must sit under TIMMY_HOME or TIMMY_PRIVATE_DIR — asserted, not assumed.
  *  The one named exception is <repo>/.timmy/store-pin: the receipts store pin is generated on the first
  *  run and never committed (.timmy/ is gitignored); receipts.ts owns its location. */
-function guardPath(p: string, extraAllowed: string[] = [], workspace = workspaceRoot()): string {
+function guardPath(p: string, extraAllowed: string[] = [], workspace = workspaceRoot(), env: NodeJS.ProcessEnv = process.env): string {
   const abs = resolve(p);
   const under = (root: string) => { const r = relative(resolve(root), abs); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
-  const ok = [timmyHome(), privateDir(workspace)].some(under) || extraAllowed.some((e) => resolve(e) === abs);
+  // (the given env's home and private dir: a signed-in user's setup writes under the user's own home, never elsewhere)
+  const ok = [homeOf(env), privateDirOf(workspace, env)].some(under) || extraAllowed.some((e) => resolve(e) === abs);
   if (!ok) throw new Error(`refusing to write outside TIMMY_HOME / TIMMY_PRIVATE_DIR: ${abs}`);
   return abs;
 }
@@ -158,22 +159,22 @@ function writeAt(abs: string, data: string, mode: number): void {
   if ((mode & 0o077) === 0 && existsSync(abs)) chmodSync(abs, mode);
   writeFileSync(abs, data, { mode });
 }
-function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot()): string { const abs = guardPath(p, [], workspace); mkdirSync(join(abs, '..'), { recursive: true }); writeAt(abs, JSON.stringify(data, null, 1) + '\n', mode); return abs; }
+function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot(), env: NodeJS.ProcessEnv = process.env): string { const abs = guardPath(p, [], workspace, env); mkdirSync(join(abs, '..'), { recursive: true }); writeAt(abs, JSON.stringify(data, null, 1) + '\n', mode); return abs; }
 const readObject = (abs: string): Record<string, unknown> => {
   if (!existsSync(abs)) return {};
   try { const v = JSON.parse(readFileSync(abs, 'utf8')) as unknown; return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}; } catch { return {}; }
 };
-function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600, workspace = workspaceRoot()): string {
-  const abs = guardPath(p, [], workspace);
-  return writeJson(abs, { ...readObject(abs), ...patch }, mode, workspace);
+function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600, workspace = workspaceRoot(), env: NodeJS.ProcessEnv = process.env): string {
+  const abs = guardPath(p, [], workspace, env);
+  return writeJson(abs, { ...readObject(abs), ...patch }, mode, workspace, env);
 }
 
 export interface InitResult { ok: boolean; written: string[]; operator: string; operator_id: string; project: string; identity_source: string; home: string; private_dir: string; store_pin?: string; /** what a person should know about the model key's move (never the key) */ notes?: string[] }
 
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 /** The monitor's settings file, and the model key in it (never shown), read without conf (building conf's store writes it). */
-function settingsKeyAt(): { file: string; body: Record<string, unknown>; key?: string } {
-  const file = settingsFile();
+function settingsKeyAt(env: NodeJS.ProcessEnv = process.env): { file: string; body: Record<string, unknown>; key?: string } {
+  const file = settingsFile(env);
   const body = readObject(file);
   const key = text(body.apiKey);
   return { file, body, ...(key ? { key } : {}) };
@@ -184,8 +185,8 @@ function settingsKeyAt(): { file: string; body: Record<string, unknown>; key?: s
  * settings (providers.json holds it, or a newer key given now), or `keep` it (providers.json holds another, which is the
  * one used; the settings' key is left as it is, unused, and the setup says so). null: the settings hold none.
  */
-function settingsKeyPlan(home: string, newKey: string | undefined): { plan: 'move' | 'drop' | 'keep'; at: ReturnType<typeof settingsKeyAt> } | null {
-  const at = settingsKeyAt();
+function settingsKeyPlan(home: string, newKey: string | undefined, env: NodeJS.ProcessEnv = process.env): { plan: 'move' | 'drop' | 'keep'; at: ReturnType<typeof settingsKeyAt> } | null {
+  const at = settingsKeyAt(env);
   if (!at.key) return null;
   const held = text(readObject(join(home, 'providers.json')).openrouter_api_key);
   if (newKey || held === at.key) return { plan: 'drop', at };
@@ -209,10 +210,14 @@ const say = (log: (s: string) => void, words: string): void => { for (const l of
  * never over it. setup.json records the answers in words (never a key) and who gave them (`by`). R4 (H98, journey-2): the
  * model key is kept in one place, providers.json: a key the monitor's settings hold moves there (see settingsKeyPlan).
  */
-export function applySetup(answers: Answers, o: { by: string; repoRoot?: string; state?: SetupState } = { by: 'timmy init' }): InitResult {
-  const repoRoot = resolve(o.repoRoot ?? workspaceRoot());
-  const home = timmyHome(); const priv = privateDir(repoRoot);
-  const s = o.state ?? readSetupState(process.env, repoRoot);
+export function applySetup(answers: Answers, o: { by: string; repoRoot?: string; state?: SetupState; env?: NodeJS.ProcessEnv } = { by: 'timmy init' }): InitResult {
+  // R11 round 4 (the lead's gate-2 ruling 1, H171): every path is the given env's — a signed-in user's choice on the companion
+  // page writes that user's own home (TIMMY_HOME, TIMMY_SETTINGS_DIR, TIMMY_PRIVATE_DIR of identity.envOf(req)), never the
+  // operator's; `timmy init` and the terminal keep passing nothing (this process's env)
+  const env = o.env ?? process.env;
+  const repoRoot = resolve(o.repoRoot ?? workspaceOf(env));
+  const home = homeOf(env); const priv = privateDirOf(repoRoot, env);
+  const s = o.state ?? readSetupState(env, repoRoot);
   if (s.identity.exists && answers.identity !== undefined) throw new Error(IDENTITY_KEPT);
   // the identity is settled before anything is written: a seed that cannot be read stops the run with nothing written
   const idFile = join(home, 'identity.json');
@@ -232,33 +237,33 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
   // the receipts store pin: generated here on the first run, never committed. receipts.ts's
   // ensureStorePin() returns early whenever a package.json is in reach, so the pin is written here.
   const pin = join(repoRoot, '.timmy', 'store-pin');
-  if (!existsSync(pin)) { guardPath(pin, [pin], repoRoot); mkdirSync(join(repoRoot, '.timmy'), { recursive: true }); writeFileSync(pin, join(repoRoot, '.timmy', 'receipts')); written.push(pin); }
+  if (!existsSync(pin)) { guardPath(pin, [pin], repoRoot, env); mkdirSync(join(repoRoot, '.timmy'), { recursive: true }); writeFileSync(pin, join(repoRoot, '.timmy', 'receipts')); written.push(pin); }
   // the identity: made once; an existing one is kept, and a new operator name only renames it
   let operator = answers.operator ?? s.identity.operator ?? OPERATOR_DEFAULT;
   let operatorId = s.identity.operatorId ?? '';
   let source = s.identity.source ?? 'existing';
   if (id) {
     operatorId = id.operatorId; source = kept ? 'kept' : id.source;
-    if (kept) chmodSync(guardPath(seedFile, [], repoRoot), 0o600);
-    written.push(writeJson(idFile, { version: 1, operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: source, created: new Date().toISOString() }, 0o644, repoRoot));
-    if (!kept) { const seedPath = guardPath(seedFile, [], repoRoot); writeAt(seedPath, id.privatePem, 0o600); written.push(seedPath); }
+    if (kept) chmodSync(guardPath(seedFile, [], repoRoot, env), 0o600);
+    written.push(writeJson(idFile, { version: 1, operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: source, created: new Date().toISOString() }, 0o644, repoRoot, env));
+    if (!kept) { const seedPath = guardPath(seedFile, [], repoRoot, env); writeAt(seedPath, id.privatePem, 0o600); written.push(seedPath); }
   } else if (answers.operator !== undefined && answers.operator !== s.identity.operator) {
-    written.push(writeJson(idFile, { ...readObject(idFile), operator: answers.operator }, 0o644, repoRoot));
+    written.push(writeJson(idFile, { ...readObject(idFile), operator: answers.operator }, 0o644, repoRoot, env));
   } else operator = s.identity.operator ?? operator;
   // providers: the Ollama host; a key only when one was given (never removed), or the one the monitor's settings held
   const providersPatch: Record<string, string> = {};
   if (answers.ollama !== undefined || !s.providers.exists) providersPatch.ollama_host = answers.ollama || s.providers.ollama || OLLAMA_DEFAULT;
-  const fromSettings = settingsKeyPlan(home, answers.key || undefined);
+  const fromSettings = settingsKeyPlan(home, answers.key || undefined, env);
   if (answers.key) providersPatch.openrouter_api_key = answers.key;
   else if (fromSettings?.plan === 'move' && fromSettings.at.key) providersPatch.openrouter_api_key = fromSettings.at.key;
   if (answers.anthropic) providersPatch.anthropic_api_key = answers.anthropic;
-  if (Object.keys(providersPatch).length) written.push(mergeJson(join(home, 'providers.json'), providersPatch, 0o600, repoRoot));
+  if (Object.keys(providersPatch).length) written.push(mergeJson(join(home, 'providers.json'), providersPatch, 0o600, repoRoot, env));
   // then (providers.json written first: never a moment with the key in neither place) the settings without it
   const notes: string[] = [];
   if (fromSettings && fromSettings.plan !== 'keep') {
     const { apiKey: _gone, ...rest } = fromSettings.at.body;
     void _gone;
-    writeAt(guardPath(fromSettings.at.file, [fromSettings.at.file], repoRoot), `${JSON.stringify(rest, undefined, '\t')}\n`, 0o600);
+    writeAt(guardPath(fromSettings.at.file, [fromSettings.at.file], repoRoot, env), `${JSON.stringify(rest, undefined, '\t')}\n`, 0o600);
     written.push(fromSettings.at.file);
     notes.push(fromSettings.plan === 'move'
       ? `The model key the monitor's settings held is now in ${relPretty(join(home, 'providers.json'))}, the one place Timmy keeps it.`
@@ -268,20 +273,20 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
   }
   // the project: its folder and README once; added to the private list
   const project = answers.project ?? s.recorded?.answers.project ?? s.firstProject ?? s.projects[0] ?? PROJECT_DEFAULT;
-  const projDir = guardPath(join(home, 'projects', project), [], repoRoot); mkdirSync(projDir, { recursive: true });
+  const projDir = guardPath(join(home, 'projects', project), [], repoRoot, env); mkdirSync(projDir, { recursive: true });
   const readme = join(projDir, 'README.md');
   if (!existsSync(readme)) { writeFileSync(readme, `# ${project}\n\nFirst TIMMY project of ${operator} (${operatorId}). Created by \`timmy init\`.\n`); written.push(readme); }
-  written.push(mergeJson(join(priv, 'config.json'), { operator_label: operator, operator_id: operatorId, first_project: project, ...(answers.edge ? { edge_host: answers.edge } : {}) }, 0o600, repoRoot));
+  written.push(mergeJson(join(priv, 'config.json'), { operator_label: operator, operator_id: operatorId, first_project: project, ...(answers.edge ? { edge_host: answers.edge } : {}) }, 0o600, repoRoot, env));
   const listFile = join(priv, 'projects.json');
   const list = readObject(listFile).projects;
   const projects = Array.isArray(list) ? list.filter((p) => p && typeof p === 'object') as Array<Record<string, unknown>> : [];
   if (!projects.some((p) => p.name === project)) {
-    written.push(writeJson(listFile, { projects: [...projects, { name: project, path: projDir, created: new Date().toISOString() }] }, 0o600, repoRoot));
+    written.push(writeJson(listFile, { projects: [...projects, { name: project, path: projDir, created: new Date().toISOString() }] }, 0o600, repoRoot, env));
   }
   // the answers in words (never a key, never a seed)
   const prev = s.recorded?.answers ?? {};
   const chat: Chat | undefined = answers.chat === 'openrouter' && !answers.key && !s.providers.key && !s.settingsKey ? 'local' : answers.chat ?? prev.chat;
-  written.push(writeJson(setupPath(), {
+  written.push(writeJson(setupPath(env), {
     version: 1, by: o.by, at: new Date().toISOString(),
     answers: {
       ...prev, operator, identity: s.identity.exists ? (prev.identity ?? source) : source,
@@ -289,7 +294,7 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
       // R4 (H103): the chat's local model, when the chat question named one now ('' none chosen); else the one recorded before
       ...(chat ? { chat } : {}), ...(answers.model !== undefined ? { model: answers.model } : {}), project,
     },
-  }, 0o600, repoRoot));
+  }, 0o600, repoRoot, env));
   return { ok: true, written: [...new Set(written)], operator, operator_id: operatorId, project, identity_source: source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined, ...(notes.length ? { notes } : {}) };
 }
 

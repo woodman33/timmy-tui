@@ -33,6 +33,9 @@
   let identityAnswer = null;
   let sessionToken = '';
   let sessionUser = null;
+  // a 401 { needs: 'session' } was answered (the lead's gate-2 ruling 2): no user-data request goes out until a session is set
+  let needsSession = false;
+  let needsWords = 'Sign in to continue.';
   let landing = null;
 
   const h = (tag, attrs, ...children) => {
@@ -137,10 +140,12 @@
     },
     current: () => shown,
     identity: () => identityAnswer,
+    sessionNeeded: () => needsSession && !sessionToken,
     session: {
       set(token, user) {
         sessionToken = typeof token === 'string' ? token : '';
         sessionUser = user && typeof user === 'object' ? user : null;
+        if (sessionToken) needsSession = false;
         emit('session', { user: sessionUser });
       },
       clear() { sessionToken = ''; sessionUser = null; emit('session', { user: null }); },
@@ -148,6 +153,9 @@
       user: () => sessionUser,
     },
     fetch(url, init) {
+      // (the lead's gate-2 ruling 2: one 401 that needs a session stops every later ask until a session is set — the page's
+      // polls get this refusal back without a request, so a hidden chat screen never loops on the companion)
+      if (needsSession && !sessionToken) return Promise.resolve(new Response(JSON.stringify({ ok: false, needs: 'session', error: needsWords, words: needsWords }), { status: 401, headers: { 'content-type': 'application/json' } }));
       const o = Object.assign({}, init || {});
       const headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + launchToken() });
       if (sessionToken) headers['X-Timmy-Session'] = sessionToken;
@@ -166,6 +174,7 @@
           // (a session that ended, or a user-only route asked without one: the account screen, where an account can be
           // made or restored; with no identity provider configured there is none to make, so the screen that asked keeps
           // its own words — "Sign in to Timmy first" — and the page stays where the person is)
+          needsSession = true; needsWords = String(body.words || body.error || 'Sign in to continue.');
           shell.session.clear();
           if (identityAnswer && identityAnswer.configured) { shell.toast(body.words || body.error || 'Sign in to continue.'); shell.go('account', 'session'); }
         } else if (typeof companion !== 'undefined' && companion && typeof companion.refuse === 'function') companion.refuse();
