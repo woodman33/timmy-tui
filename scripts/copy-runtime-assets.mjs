@@ -74,6 +74,15 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/assets/rive/activity/scene.rml',
   'src/companion/assets/rive/activity/rive.yaml',
   'src/companion/assets/rive/activity/README.md',
+  // R11 round 5 (H174): the operator's native Rive UI asset (one state machine TimmyUI on three artboards) and its editable
+  // source beside it, the font with its license (OFL)
+  'src/companion/assets/rive/timmy-ui/timmy-ui.riv',
+  'src/companion/assets/rive/timmy-ui/scene.rml',
+  'src/companion/assets/rive/timmy-ui/rive.yaml',
+  'src/companion/assets/rive/timmy-ui/create-controls.py',
+  'src/companion/assets/rive/timmy-ui/README.md',
+  'src/companion/assets/rive/timmy-ui/Montserrat.ttf',
+  'src/companion/assets/rive/timmy-ui/OFL.txt',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).

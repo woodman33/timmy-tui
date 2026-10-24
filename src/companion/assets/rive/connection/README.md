@@ -19,3 +19,5 @@ provider refused the key or did not answer.
 
 The compiled `connection.riv` is NOT here (see ../welcome/README.md: the compile path is the Rive tooling's; the element names of
 the inputs and conditions are drafted from the runtime's type names and verified only by that compile).
+
+> R11 round 5, 2026-10-24: the operator's compiled asset `../timmy-ui/timmy-ui.riv` (one state machine `TimmyUI` on three artboards) now carries this component; the page draws its artboard (see ../timmy-ui/README.md). This folder stays as the earlier hand-written draft, uncompiled.

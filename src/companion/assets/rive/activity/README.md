@@ -18,3 +18,5 @@ agent asked the person (NEEDS YOU) and waits; **stopping** — Stop was pressed,
 ended cancelled; **failed** — the turn failed. No state draws a receipt or a progress number: the evidence line is the page's.
 
 The compiled `activity.riv` is NOT here (see ../welcome/README.md).
+
+> R11 round 5, 2026-10-24: the operator's compiled asset `../timmy-ui/timmy-ui.riv` (one state machine `TimmyUI` on three artboards) now carries this component; the page draws its artboard (see ../timmy-ui/README.md). This folder stays as the earlier hand-written draft, uncompiled.

@@ -19,3 +19,5 @@ operator's preview transfer); the `.riv` is compiled by the Rive tooling from th
 beside it as `welcome.riv` — never made up here. The state-machine input and condition elements (`StateMachineTrigger`,
 `StateMachineBool`, `TransitionTriggerCondition`, `TransitionBoolCondition`) are drafted from the runtime's type names; the compile
 is what verifies them.
+
+> R11 round 5, 2026-10-24: the operator's compiled asset `../timmy-ui/timmy-ui.riv` (one state machine `TimmyUI` on three artboards) now carries this component; the page draws its artboard (see ../timmy-ui/README.md). This folder stays as the earlier hand-written draft, uncompiled.

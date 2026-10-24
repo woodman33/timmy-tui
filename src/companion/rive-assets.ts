@@ -34,8 +34,12 @@ const RIVE_FILE_TYPES: Readonly<Record<string, string>> = {
   '.rev': 'application/octet-stream',
   '.yaml': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
+  // R11 round 5 (the operator's package): the generator script and the font's license beside the asset; the font file itself
+  // (Montserrat.ttf, OFL) stays in the folder and is not served (the .riv embeds what it needs)
+  '.py': 'text/plain; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
 };
-const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md']);
+const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt']);
 /** A component's folder name and a file's name: plain names only (no path, no dot segment). */
 const COMPONENT_NAME = /^[a-z][a-z0-9-]{0,40}$/;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
@@ -50,7 +54,7 @@ export interface RiveComponentListing {
   riv: { name: string; bytes: number; sha256: string } | null;
   sources: string[];
   /** From the folder's rive.yaml (plain `key: value` lines): the artboard, the state machine and the inputs the source declares. */
-  meta: { artboard?: string; stateMachine?: string; inputs?: string[]; [k: string]: string | string[] | undefined };
+  meta: { artboard?: string; artboards?: string[]; stateMachine?: string; inputs?: string[]; [k: string]: string | string[] | undefined };
   words: string;
 }
 
@@ -65,6 +69,7 @@ export function readRiveMeta(path: string): RiveComponentListing['meta'] {
     if (!m) continue;
     const [, key, value] = m;
     if (key === 'inputs') meta.inputs = value.split(',').map((v) => v.trim()).filter(Boolean);
+    else if (key === 'artboards') meta.artboards = value.split(',').map((v) => v.trim()).filter(Boolean);
     else if (key === 'artboard' || key === 'stateMachine' || key === 'name' || key === 'file') meta[key] = value;
   }
   return meta;

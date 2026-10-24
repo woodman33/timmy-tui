@@ -38,6 +38,43 @@
     expanded: Object.freeze([false, true]),
     welcome: Object.freeze(['welcome']),
   });
+  /**
+   * The operator's native asset (src/companion/assets/rive/timmy-ui/timmy-ui.riv; its CONTRACT in the README beside it): ONE state
+   * machine `TimmyUI` on each of its three artboards (AgentConsole, ProviderCard, ActionButton), the inputs `State` Number
+   * (0 Idle · 1 Working/Checking · 2 Approval · 3 Stopped · 4 Failed), `Hover` Bool, `Pressed` Bool, `ReducedMotion` Bool. This
+   * page's vocabularies map onto it; a word with NO native pose is drawn as the nearest truthful one and said so: `connected`
+   * has no success pose (none is authored, by design) → State 0 Idle, the HTML label alone says "connected"; `stopping` (the
+   * turn still runs while Stop is asked) → State 1 Working until the backend says cancelled (→ 3). `selected` → Hover (the
+   * native outline stands for the selection); `expanded` → no native input (HTML only); `welcome` → Pressed (a press, down
+   * then up). An asset whose state machine is not TimmyUI keeps the input names as they are (the drafted sources name theirs
+   * after the vocabularies).
+   */
+  const TIMMY_UI = Object.freeze({
+    stateMachine: 'TimmyUI',
+    inputs: Object.freeze({
+      connection: { name: 'State', values: { disconnected: 0, checking: 1, connected: 0, failed: 4 }, notes: { connected: 'no success pose is authored: State stays 0 Idle; the label says connected' } },
+      activity: { name: 'State', values: { idle: 0, working: 1, awaiting: 2, stopping: 1, stopped: 3, failed: 4 }, notes: { stopping: 'no stopping pose: State 1 Working until the backend says cancelled (3)' } },
+      selected: { name: 'Hover' },
+      expanded: null,
+      welcome: { name: 'Pressed', press: true },
+      hover: { name: 'Hover' },
+      pressed: { name: 'Pressed' },
+    }),
+  });
+  /** The native input and value a vocabulary word maps to on this handle, or null when the asset has none for it. */
+  function nativeOf(handle, input, value) {
+    if (handle.stateMachine === TIMMY_UI.stateMachine) {
+      const m = TIMMY_UI.inputs[input];
+      if (m === null) return null;
+      if (!m) return { name: input, value };
+      if (m.values) { const n = m.values[value]; return n === undefined ? null : { name: m.name, value: n, note: m.notes && m.notes[value] ? m.notes[value] : '' }; }
+      if (m.press) return { name: m.name, value: true, press: true };
+      return { name: m.name, value: Boolean(value) };
+    }
+    const n = numberOf(input, value);
+    return { name: input, value: typeof value === 'boolean' ? value : n === null ? value : n };
+  }
+
   /** The word shown beside an activity state (the operator's words; 'awaiting' is "awaiting approval"). */
   const SHOWN = Object.freeze({ awaiting: 'awaiting approval' });
   const RUNTIME_PATH = '/vendor/rive/rive.js';
@@ -165,18 +202,28 @@
     try { return (handle.rive.stateMachineInputs(handle.stateMachine) || []).find((i) => i.name === name) || null; } catch (e) { return null; }
   }
 
-  /** Moves the runtime's input (when loaded) and keeps the value for when it loads. Returns what happened, in a word. */
+  /**
+   * Moves the runtime's input (when loaded) and keeps the value for when it loads. Returns what happened, in words, and the
+   * native input and value it set (handle.lastNative) for the event record.
+   */
   function move(handle, input, value) {
     handle.values[input] = value;
+    const native = nativeOf(handle, input, value);
+    handle.lastNative = native ? { input: native.name, value: native.value, note: native.note || '' } : null;
     if (!handle.rive) return handle.state === 'loading' ? 'kept until the file loads' : 'the word only (no animation here)';
-    const i = inputOf(handle, input);
-    if (!i) return `no input named ${input} in ${handle.stateMachine || 'the file'}`;
+    if (!native) return `${input}: no native input on ${handle.stateMachine || 'the file'} (the HTML label carries it)`;
+    const i = inputOf(handle, native.name);
+    if (!i) return `no input named ${native.name} in ${handle.stateMachine || 'the file'}`;
     try {
       if (i.type === 58) { i.fire(); }
-      else if (i.type === 59) { i.value = Boolean(value); }
-      else { const n = numberOf(input, value); if (n === null) return `${input} is a Number input; ${JSON.stringify(value)} has no number`; i.value = n; }
-      if (handle.still) { try { handle.rive.pause(); } catch (e) { /* paused already */ } }
-      return 'moved';
+      else if (i.type === 59) {
+        i.value = Boolean(native.value);
+        // a press: down now, up on the next frame (the native Pressed wash plays its release)
+        if (native.press) requestAnimationFrame(() => { try { if (handle.rive) i.value = false; } catch (e) { /* released */ } });
+      } else { if (typeof native.value !== 'number') return `${native.name} is a Number input; ${JSON.stringify(value)} has no number`; i.value = native.value; }
+      // reduced motion without a native ReducedMotion input: the pose shown, the runtime paused (one advance draws it)
+      if (handle.still && !handle.nativeReduced) { try { handle.rive.pause(); } catch (e) { /* paused */ } }
+      return native.note ? `moved (${native.note})` : 'moved';
     } catch (e) { return `the runtime refused: ${e && e.message ? e.message : e}`; }
   }
 
@@ -194,7 +241,7 @@
   function set(handle, input, value, source) {
     if (!handle || typeof input !== 'string') return null;
     const did = move(handle, input, value);
-    const ev = { input, value, at: now(), source: typeof source === 'string' && source ? source : 'unnamed', did };
+    const ev = { input, value, at: now(), source: typeof source === 'string' && source ? source : 'unnamed', did, native: handle.lastNative || null };
     handle.events.push(ev);
     if (handle.events.length > MAX_EVENTS) handle.events.splice(0, handle.events.length - MAX_EVENTS);
     setLabel(handle, input, value);
@@ -235,8 +282,10 @@
       if (!rv) { toWords(runtimeWhy || 'the companion serves no Rive runtime'); return; }
       const patience = setTimeout(() => { if (handle.state === 'loading') toWords(`the file did not load within ${LOAD_PATIENCE_MS / 1000} s`); }, LOAD_PATIENCE_MS);
       try {
+        // (an asset with a native ReducedMotion input keeps playing so its zero-duration transitions settle each pose; the
+        // runtime is paused only for an asset without one: see onLoad)
         const r = new rv.Rive({
-          src: assetPath, canvas, autoplay: !handle.still, enableRiveAssetCDN: false,
+          src: assetPath, canvas, autoplay: true, enableRiveAssetCDN: false,
           ...(handle.artboard ? { artboard: handle.artboard } : {}),
           ...(handle.stateMachine ? { stateMachines: handle.stateMachine } : {}),
           onLoad: () => {
@@ -248,10 +297,15 @@
             canvas.dataset.riveState = 'drawn';
             if (handle.fallback) handle.fallback.hidden = true;
             if (handle.root) handle.root.dataset.rive = 'drawn';
+            // reduced motion: the asset's own ReducedMotion input when it has one (zero-duration transitions; the runtime
+            // settles and stops moving: the operator's design), else the runtime paused on its first frame
+            const reduced = inputOf(handle, 'ReducedMotion');
+            handle.nativeReduced = Boolean(reduced);
+            if (reduced) { try { reduced.value = Boolean(handle.still); } catch (e) { /* the pose stands */ } }
             // the values set while it loaded, applied now
             for (const [k, v] of Object.entries(handle.values)) if (k !== 'welcome') move(handle, k, v);
-            if (handle.still) { try { r.pause(); } catch (e) { /* paused */ } }
-            emit(handle, { input: null, value: null, at: now(), source: 'runtime', did: 'loaded' });
+            if (handle.still && !reduced) { try { r.pause(); } catch (e) { /* paused */ } }
+            emit(handle, { input: null, value: null, at: now(), source: 'runtime', did: `loaded${reduced ? ` (ReducedMotion ${handle.still})` : ''}`, native: null });
           },
           onLoadError: () => { clearTimeout(patience); toWords('the file did not load'); try { r.cleanup(); } catch (e) { /* gone */ } },
         });
@@ -286,6 +340,17 @@
     // a <button> fires its own (trusted) click for Enter / Space; a role=img face takes the keys itself
     if (role === 'button') face.addEventListener('click', fire);
     else face.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') fire(ev); });
+    // the person's pointer and keys on the face → the native Hover / Pressed (trusted events only; never recorded as a state)
+    const nat = (input, value, ev) => { if (!ev.isTrusted) return; if (!handle.rive) return; const n = nativeOf(handle, input, value); if (!n) return; const i = inputOf(handle, n.name); if (i && i.type === 59) { try { i.value = Boolean(value); } catch (e) { /* the pose stands */ } } };
+    face.addEventListener('pointerenter', (ev) => nat('hover', true, ev));
+    face.addEventListener('pointerleave', (ev) => { nat('hover', false, ev); nat('pressed', false, ev); });
+    face.addEventListener('pointerdown', (ev) => nat('pressed', true, ev));
+    face.addEventListener('pointerup', (ev) => nat('pressed', false, ev));
+    face.addEventListener('pointercancel', (ev) => nat('pressed', false, ev));
+    face.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') nat('pressed', true, ev); });
+    face.addEventListener('keyup', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') nat('pressed', false, ev); });
+    face.addEventListener('focus', (ev) => nat('hover', true, ev));
+    face.addEventListener('blur', (ev) => { nat('hover', false, ev); nat('pressed', false, ev); });
     return handle;
   }
 
@@ -417,6 +482,7 @@
     return handles.map((x) => ({
       id: x.id, component: x.component, asset: x.asset, artboard: x.artboard, stateMachine: x.stateMachine, state: x.state, why: x.why, still: x.still,
       word: x.word, values: { ...x.values }, binds: x.binds.slice(), events: x.events.slice(), runtime: report(x), sources: x.sources.slice(),
+      nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null,
     }));
   }
 
@@ -424,7 +490,7 @@
   const preview = (handle, input, value) => set(handle, input, value, 'PREVIEW — not an execution, no progress, no receipt');
 
   W.TimmyRive = Object.freeze({
-    VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS,
+    VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, nativeOf,
     component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf, absentWords,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     reducedMotion: still,

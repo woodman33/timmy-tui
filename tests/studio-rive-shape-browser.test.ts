@@ -1,8 +1,8 @@
 /**
  * R11 round 5 (H174): the `timmy-rive` shape on Timmy Canvas (companion/studio-canvas/src/rive-shape.js) in a real Chromium on the
- * real Studio server and bundle, with NO .riv: the Studio serves the runtime (/vendor/rive/, mountRive) and the components' listing
- * and sources (/assets/rive/, mountRiveAssets — the lead's 59d86eca), but without a .riv the bindings load no runtime (said so) and
- * the shape draws its words and the text mark beside the exact state word (HTML, aria-live), never an error; selection and width move the `selected` / `expanded` inputs (tldraw's
+ * real Studio server and bundle, on the operator's native asset timmy-ui.riv: the Studio serves the runtime (/vendor/rive/,
+ * mountRive) and the asset + listing (/assets/rive/, mountRiveAssets — the lead's 59d86eca), so the shape's artboard
+ * (ProviderCard) is DRAWN by the runtime (REAL) beside the exact state word (HTML, aria-live), never an error; selection and width move the `selected` / `expanded` inputs (tldraw's
  * own facts); a FAKE backend event through TimmyRive.fromProviderState (the test's, named FAKE) moves the connection word and
  * the shape keeps it with the board (props.state); the welcome shape's trigger is the person's click only. Nothing animates
  * here, and the shape says why.
@@ -21,9 +21,9 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
 
-type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string } };
+type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string } };
 
-describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .riv on the Studio\'s origin (R11 round 5, H174)', () => {
+describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from the operator\'s native asset (R11 round 5, H174)', () => {
   let root = '';
   let home = '';
   let server: StudioServer | undefined;
@@ -60,7 +60,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .ri
   }
   const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 
-  it('places a connection shape: the word beside the text mark, no runtime here (said so), selected and expanded from tldraw, a FAKE backend word kept with the board', async () => {
+  it('places a connection shape: ProviderCard drawn by the runtime beside the state word, selected (→ Hover) and expanded from tldraw, FAKE backend words kept with the board (checking → State 1; connected → State 0, no success pose)', async () => {
     const { page, context, errors } = await open();
     try {
       const id = await page.evaluate(() => (window as unknown as Win).timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local' }));
@@ -71,20 +71,22 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .ri
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected');
       expect(await page.getAttribute('[data-timmy-rive-shape] [data-rive-status]', 'aria-live')).toBe('polite');
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-title')).toBe('Ollama · local');
-      expect(await text(page, '[data-timmy-rive-shape] .tr-fallback')).toBe('○');
-      // no .riv on this origin: the component settled on its words, nothing drawn by a runtime, the reason said
-      await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().every((x) => x.state === 'words'), null, { timeout: 20_000 });
-      const info = await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect());
+      expect(await page.$eval('[data-timmy-rive-shape] .tr-fallback', (e) => (e as HTMLElement).textContent)).toBe('○');
+      // REAL: the Studio serves the runtime (/vendor/rive/) and the operator's native asset; the shape's ProviderCard is DRAWN
+      await page.waitForFunction(() => (window as unknown as Win).TimmyRive.inspect().every((x) => x.state === 'drawn'), null, { timeout: 20_000 });
+      const info = await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect() as unknown as Array<{ component: string; state: string; why: string; contract: string | null; runtime: { artboardNames: string[]; stateMachineNames: string[]; inputs: Array<{ name: string; value: unknown }> } }>);
       expect(info).toHaveLength(1);
       expect(info[0].component).toBe('connection:ollama-local');
-      expect(info[0].why).toBe('no .riv is in this installation, so the runtime is not loaded');
-      expect(await text(page, '[data-timmy-rive-shape] [data-rive-note]')).toBe('connection.riv is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.');
-      // the Studio serves the runtime and the listing (available, not exercised: no file to draw)
+      expect(info[0].state).toBe('drawn');
+      expect(info[0].contract).toBe('TimmyUI');
+      expect(info[0].runtime.artboardNames).toEqual(['AgentConsole', 'ProviderCard', 'ActionButton']);
+      expect(info[0].runtime.stateMachineNames).toEqual(['TimmyUI']);
+      expect(await text(page, '[data-timmy-rive-shape] [data-rive-note]')).toBe('');
       const served = await page.evaluate(async () => ({ rt: (await fetch('/vendor/rive/rive.js')).status, list: await (await fetch('/api/rive/assets')).json() }));
       expect(served.rt).toBe(200);
       expect(served.list.runtime).toBe(true);
-      expect(served.list.components.map((c: { component: string; riv: unknown }) => [c.component, c.riv])).toEqual([['activity', null], ['connection', null], ['welcome', null]]);
-      expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(0);
+      expect(served.list.components.map((c: { component: string; riv: { name: string } | null }) => [c.component, c.riv ? c.riv.name : null])).toEqual([['activity', null], ['connection', null], ['timmy-ui', 'timmy-ui.riv'], ['welcome', null]]);
+      expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(1);
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-source')).toContain('as saved with the board; no backend event has set it on this page');
       // tldraw's selection → selected; its width → expanded
       await page.evaluate((sid) => (window as unknown as Win).timmyCanvas.editor.select(sid), id);
@@ -99,9 +101,14 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .ri
       await page.waitForSelector('[data-timmy-rive-shape]:not(.is-selected)', { timeout: 10_000 });
       let events = (await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect()))[0].events;
       expect(events.map((e) => [e.input, e.value, e.source.split(' (')[0]])).toEqual([['selected', false, 'tldraw selection'], ['expanded', false, 'tldraw size'], ['selected', true, 'tldraw selection'], ['expanded', true, 'tldraw size'], ['selected', false, 'tldraw selection']]);
-      // FAKE: the backend's word through H170's feed (the test calls it) → the shape's word, and the board keeps it
+      // FAKE: the backend's word through H170's feed (the test calls it) → the shape's word, and the board keeps it; the native
+      // State moves with the words that have a pose (checking → 1), and connected has none (State 0: the label alone says it)
+      await page.evaluate(() => (window as unknown as Win).TimmyRive.fromProviderState('ollama-local', 'pending', 'FAKE (the test): pending'));
+      await page.waitForFunction(() => document.querySelector('[data-timmy-rive-shape]')?.getAttribute('data-state') === 'checking', null, { timeout: 10_000 });
+      expect(await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect()[0].runtime.inputs.find((i: { name: string }) => i.name === 'State')!.value)).toBe(1);
       await page.evaluate(() => (window as unknown as Win).TimmyRive.fromProviderState('ollama-local', 'checked', 'FAKE (the test): GET /api/connections ollama-local "checked"'));
       await page.waitForFunction(() => document.querySelector('[data-timmy-rive-shape]')?.getAttribute('data-state') === 'connected', null, { timeout: 10_000 });
+      expect(await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect()[0].runtime.inputs.find((i: { name: string }) => i.name === 'State')!.value)).toBe(0);
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('connected · expanded');
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-source')).toBe('from FAKE (the test): GET /api/connections ollama-local "checked"');
       await page.waitForFunction((sid) => (window as unknown as Win).timmyCanvas.editor.getShape(sid)?.props.state === 'connected', id, { timeout: 10_000 });
@@ -109,7 +116,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, with no .ri
       await page.evaluate(() => (window as unknown as Win).TimmyRive.fromProviderState('openrouter', 'refused', 'FAKE (the test): another provider'));
       expect(await page.getAttribute('[data-timmy-rive-shape]', 'data-state')).toBe('connected');
       events = (await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect()))[0].events;
-      expect(events.filter((e) => e.input === 'connection')).toHaveLength(1);
+      expect(events.filter((e) => e.input === 'connection')).toHaveLength(2);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 120_000);

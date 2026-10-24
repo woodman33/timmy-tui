@@ -47,7 +47,7 @@ function spliceRiveAssets(app: CompanionServer['app']): void {
   router.stack.splice(at + 1, 0, ...added);
 }
 
-describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspect animation view, with no .riv in hand (R11 round 5, H174)', () => {
+describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspect animation view, on the operator\'s native asset timmy-ui.riv (R11 round 5, H174)', () => {
   const kept = { TIMMY_REPO: process.env.TIMMY_REPO };
   let box = '';
   let browser: Browser;
@@ -95,50 +95,79 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
     await page.evaluate(() => { location.hash = '#inspect'; });
     await page.waitForSelector('#screen-inspect:not([hidden]) [data-inspect-component]', { timeout: 30_000 });
     await page.waitForFunction(() => !/Reading the companion/.test(document.querySelector('[data-inspect-listing]')?.textContent || ''), null, { timeout: 30_000 });
-    // every component has settled on the words path (no .riv here) before anything is asserted of it
-    await page.waitForFunction(() => { const els = [...document.querySelectorAll('[data-inspect-runtime]')]; return els.length >= 7 && els.every((e) => /words only/.test(e.textContent || '')); }, null, { timeout: 30_000 });
+    // every component has settled (drawn by the runtime, or the words) before anything is asserted of it
+    await page.waitForFunction(() => { const els = [...document.querySelectorAll('[data-inspect-runtime]')]; return els.length >= 7 && els.every((e) => /words only|drawn by/.test(e.textContent || '')); }, null, { timeout: 30_000 });
   }
 
-  it('the words path: no .riv → the text mark and the words, no runtime drawing, no page error; the Inspect view lists the mark and every component with its sources; the runtime file is served', async () => {
+  it('the operator\'s native asset: the three components are DRAWN by the runtime (REAL: @rive-app/canvas + timmy-ui.riv from this origin, the WebAssembly keyword on), the runtime reports its artboards, TimmyUI and its inputs; the mark stays on the words path (no timmy-mark.riv); a missing file stays words, never an error', async () => {
     const o = await open({ width: 1440, height: 900 });
     try {
-      // the companion serves the runtime (installed: @rive-app/canvas) and says the mark's file is not here
+      // the companion serves the runtime (installed: @rive-app/canvas), the native asset, and says the mark's file is not here
       const rt = await o.page.evaluate(async () => { const r = await fetch('/vendor/rive/rive.js'); return { status: r.status, type: r.headers.get('content-type') || '' }; });
       expect(rt.status).toBe(200);
       expect(rt.type).toContain('javascript');
       const words = await o.page.evaluate(async () => (await fetch('/assets/mark.json')).json());
       expect(words).toMatchObject({ mark: false, runtime: true });
+      const riv = await o.page.evaluate(async () => { const r = await fetch('/assets/rive/timmy-ui/timmy-ui.riv'); const b = await r.arrayBuffer(); return { status: r.status, bytes: b.byteLength }; });
+      expect(riv).toEqual({ status: 200, bytes: 405278 });
+      // the page's policy carries the WebAssembly keyword now that a .riv and the runtime are here
+      const csp = await o.page.evaluate(async () => (await fetch('/', { cache: 'no-store' })).headers.get('content-security-policy') || '');
+      expect(csp).toContain('wasm-unsafe-eval');
       await inspect(o.page);
       const cards = await o.page.$$eval('[data-inspect-component]', (els) => els.map((e) => e.getAttribute('data-inspect-component')));
       expect(cards).toEqual(['mark', 'activity', 'connection-openrouter', 'connection-ollama-local', 'connection-ollama-cloud', 'connection-cloudflare', 'welcome']);
-      // nothing drawn by the runtime, the text fallback shown, the words beside each component
-      expect(await o.page.$$eval('canvas[data-timmy-rive][data-loaded]', (els) => els.length)).toBe(0);
-      await o.page.waitForFunction(() => [...document.querySelectorAll('[data-inspect-runtime]')].every((e) => /words only/.test(e.textContent || '')), null, { timeout: 20_000 });
-      const runtimeWords = await o.page.$$eval('[data-inspect-runtime]', (els) => els.map((e) => e.textContent || ''));
-      expect(runtimeWords.every((t) => /words only — no \.riv is in this installation, so the runtime is not loaded/.test(t)), runtimeWords.join(' | ')).toBe(true);
-      // the runtime was NOT loaded (no file to draw; the policy has no WebAssembly keyword without one): window.rive absent
-      expect(await o.page.evaluate(() => typeof (window as unknown as { rive?: unknown }).rive)).toBe('undefined');
-      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: { runtimeState: () => string } }).TimmyRive.runtimeState())).toBe('none');
-      // the words beside each text fallback: the mark's are the companion's; every other component names ITS OWN file
+      // REAL: the runtime loaded from this origin and drew the six components (canvas[data-loaded] is set by TimmyRive's onLoad only)
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: { runtimeState: () => string } }).TimmyRive.runtimeState())).toBe('here');
+      expect(await o.page.evaluate(() => typeof (window as unknown as { rive?: { Rive?: unknown } }).rive?.Rive)).toBe('function');
+      expect(await o.page.$$eval('canvas[data-timmy-rive][data-loaded]', (els) => els.map((e) => e.getAttribute('data-timmy-rive')).sort())).toEqual(['activity', 'connection-cloudflare', 'connection-ollama-cloud', 'connection-ollama-local', 'connection-openrouter', 'welcome']);
+      // the mark: no timmy-mark.riv → the text mark and the companion's words (never an error)
+      expect(await o.page.$$eval('[data-inspect-component="mark"] canvas[data-loaded]', (els) => els.length)).toBe(0);
       expect(await text(o.page, '[data-inspect-component="mark"] [data-rive-note]')).toBe(words.words);
-      expect(await text(o.page, '[data-inspect-component="connection-ollama-local"] [data-rive-note]')).toBe('connection.riv is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.');
-      expect(await text(o.page, '[data-inspect-component="activity"] [data-rive-note]')).toBe('activity.riv is not in this installation (its editable source is; the .riv is compiled by the Rive tooling): the state is the word beside it.');
-      // the glyphs in the text colour (B10: amber is a role, never a mark)
-      expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-face', (e) => getComputedStyle(e).color)).toBe('rgb(242, 239, 233)');
-      expect(await text(o.page, '[data-inspect-component="welcome"] .tr-fallback')).toBe('T');
-      // the listing: the sources by name, the runtime's names "not reported" with the source's names given instead
-      const listing = await text(o.page, '[data-inspect-listing]');
-      expect(listing).toMatch(/No component has its \.riv here yet/);
-      expect(listing).toMatch(/Runtime served by this companion: yes/);
+      expect(await text(o.page, '[data-inspect-component="mark"] [data-inspect-runtime]')).toMatch(/words only — the file did not load/);
+      // what the RUNTIME reports of the asset (not the source's names): the three artboards, TimmyUI, the four inputs with values
+      type Info = { component: string; state: string; contract: string | null; nativeReduced: boolean; runtime: { artboardNames: string[]; stateMachineNames: string[]; inputs: Array<{ name: string; type: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; native: { input: string; value: unknown } | null; source: string }> };
+      const info = await o.page.evaluate(() => (window as unknown as { TimmyRive: { inspect: () => Info[] } }).TimmyRive.inspect());
+      const act = info.find((x) => x.component === 'activity')!;
+      expect(act.state).toBe('drawn');
+      expect(act.contract).toBe('TimmyUI');
+      expect(act.runtime!.artboardNames).toEqual(['AgentConsole', 'ProviderCard', 'ActionButton']);
+      expect(act.runtime!.stateMachineNames).toEqual(['TimmyUI']);
+      expect(act.runtime!.inputs.map((i) => [i.name, i.type, i.value])).toEqual([['State', 'Number', 0], ['Hover', 'Bool', false], ['Pressed', 'Bool', false], ['ReducedMotion', 'Bool', false]]);
+      expect(act.nativeReduced).toBe(true); // the asset HAS the input (false here: motion is not reduced)
       const facts = await text(o.page, '[data-inspect-component="activity"] .tr-facts');
-      expect(facts).toContain('activity.riv is not in this installation');
-      expect(facts).toContain('the source names TimmyActivity');
-      expect(facts).toContain('the source names Activity');
-      expect(facts).toContain('the source declares: activity, selected, expanded');
-      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['README.md', 'rive.yaml', 'scene.rml']);
-      const rml = await o.page.evaluate(async () => { const r = await fetch('/assets/rive/activity/scene.rml'); return { status: r.status, body: await r.text() }; });
+      expect(facts).toContain('timmy-ui.riv');
+      expect(facts).toContain('sha256 9fd9ae7c0981');
+      expect(facts).toContain('artboard AgentConsole');
+      expect(facts).toMatch(/Runtime\s*drawn by @rive-app\/canvas/);
+      expect(facts).toContain('AgentConsole, ProviderCard, ActionButton');
+      expect(facts).toMatch(/State · Number · 0/);
+      expect(facts).toContain('Native contract');
+      expect(facts).toContain('stopping → State 1 until the backend says cancelled → 3');
+      const conn = await text(o.page, '[data-inspect-component="connection-ollama-local"] .tr-facts');
+      expect(conn).toContain('artboard ProviderCard');
+      expect(conn).toContain('connected has NO success pose');
+      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['OFL.txt', 'README.md', 'create-controls.py', 'rive.yaml', 'scene.rml']);
+      const rml = await o.page.evaluate(async () => { const r = await fetch('/assets/rive/timmy-ui/scene.rml'); return { status: r.status, body: await r.text() }; });
       expect(rml.status).toBe(200);
-      expect(rml.body).toContain('name="TimmyActivity"');
+      expect(rml.body).toContain('name="AgentConsole"');
+      expect(rml.body).toContain('<StateMachine name="TimmyUI"');
+      // the listing's words
+      const listing = await text(o.page, '[data-inspect-listing]');
+      expect(listing).toMatch(/The components with a \.riv are drawn by the runtime/);
+      expect(listing).toMatch(/Runtime served by this companion: yes/);
+      // the glyphs in the text colour (B10: amber is a role, never a mark); the text fallback hidden under a drawn canvas
+      expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-face', (e) => getComputedStyle(e).color)).toBe('rgb(242, 239, 233)');
+      expect(await o.page.$eval('[data-inspect-component="welcome"] .tr-fallback', (e) => (e as HTMLElement).hidden)).toBe(true);
+      // a file that is not there: the words path, never an error (TimmyRive.load with a missing asset)
+      const missing = await o.page.evaluate(async () => {
+        const R = (window as unknown as { TimmyRive: { load: (c: HTMLCanvasElement, a: string, o: object) => { state: string; why: string } } }).TimmyRive;
+        const c = document.createElement('canvas');
+        document.body.append(c);
+        const hd = R.load(c, '/assets/rive/welcome/welcome.riv', { artboard: 'TimmyWelcome', stateMachine: 'Welcome', component: 'missing' });
+        await new Promise<void>((done) => { const t = setInterval(() => { if (hd.state !== 'loading') { clearInterval(t); done(); } }, 50); });
+        return { state: hd.state, why: hd.why, loaded: c.dataset.loaded ?? null };
+      });
+      expect(missing).toEqual({ state: 'words', why: 'the file did not load', loaded: null });
       // the state words: the labels beside the canvases, aria-live
       expect(await text(o.page, '[data-rive-status="connection-ollama-local"]')).toBe('disconnected');
       expect(await text(o.page, '[data-rive-status="activity"]')).toBe('idle');
@@ -165,7 +194,8 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown } }).TimmyRive.fromProviderState('ollama-cloud', 'checked', 'FAKE (the test): GET /api/connections ollama-cloud "checked"'));
       expect(await text(o.page, '[data-rive-status="connection-ollama-cloud"]')).toBe('connected');
       let evs = await eventsOf('connection-ollama-cloud');
-      expect(evs[evs.length - 1]).toMatchObject({ input: 'connection', value: 'connected', source: 'FAKE (the test): GET /api/connections ollama-cloud "checked"', did: 'the word only (no animation here)' });
+      // connected: no success pose is authored → the native State stays 0 Idle, the label says connected, the event says why
+      expect(evs[evs.length - 1]).toMatchObject({ input: 'connection', value: 'connected', source: 'FAKE (the test): GET /api/connections ollama-cloud "checked"', did: 'moved (no success pose is authored: State stays 0 Idle; the label says connected)', native: { input: 'State', value: 0 } });
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown } }).TimmyRive.fromProviderState('ollama-cloud', 'refused', 'FAKE (the test): refused'));
       expect(await text(o.page, '[data-rive-status="connection-ollama-cloud"]')).toBe('failed');
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown } }).TimmyRive.fromProviderState('openrouter', 'pending', 'FAKE (the test): pending'));
@@ -178,6 +208,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(await text(o.page, '[data-rive-status="activity"]')).toBe('working');
       await sse('needs-you', { id: 'ask-fake', words: 'FAKE question' });
       expect(await text(o.page, '[data-rive-status="activity"]')).toBe('awaiting approval');
+      // the native input moved with the word (REAL: the runtime's State input reads 2 Approval now; the event records it)
+      const native = await o.page.evaluate(() => { const x = (window as unknown as { TimmyRive: { inspect: () => Array<{ component: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ native: unknown }> }> } }).TimmyRive.inspect().find((h) => h.component === 'activity')!; return { state: x.runtime.inputs.find((i) => i.name === 'State')!.value, last: x.events[x.events.length - 1].native }; });
+      expect(native).toEqual({ state: 2, last: { input: 'State', value: 2, note: '' } });
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { stopping: (s: string) => unknown } }).TimmyRive.stopping('FAKE (the test): POST /api/chat/stop'));
       expect(await text(o.page, '[data-rive-status="activity"]')).toBe('stopping');
       await sse('done', { status: 'cancelled' });
@@ -190,6 +223,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       evs = await eventsOf('activity');
       expect(evs.map((e) => e.value)).toEqual(['working', 'working', 'awaiting', 'stopping', 'stopped', 'failed', 'idle']);
       expect(evs.every((e) => e.source.startsWith('FAKE (the test)'))).toBe(true);
+      // each with the contract's input and value: stopping → State 1 (no stopping pose), stopped → 3, failed → 4, idle → 0
+      expect(evs.map((e) => (e as unknown as { native: { input: string; value: number } }).native.value)).toEqual([1, 1, 2, 1, 3, 4, 0]);
+      expect(evs.map((e) => (e as unknown as { did: string }).did)).toEqual(['moved', 'moved', 'moved', 'moved (no stopping pose: State 1 Working until the backend says cancelled (3))', 'moved', 'moved', 'moved']);
       // the Inspect view shows them with their sources, newest first
       await o.page.evaluate(() => (window as unknown as { timmyInspectAnimation: { redraw: () => void } }).timmyInspectAnimation.redraw());
       const shown = await o.page.$$eval('[data-inspect-events="activity"] li', (els) => els.map((e) => e.getAttribute('data-event-source')));
@@ -234,7 +270,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await inspect(o.page);
       expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: { reducedMotion: () => boolean } }).TimmyRive.reducedMotion())).toBe(true);
       const facts = await text(o.page, '[data-inspect-component="connection-openrouter"] .tr-facts');
-      expect(facts).toMatch(/Reduced motion\s*on: the runtime is paused on its first frame/);
+      // the asset's own ReducedMotion input is set (the runtime's value reads true), not a pause of mine
+      expect(facts).toMatch(/Reduced motion\s*on: the asset’s own ReducedMotion input is true/);
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: { inspect: () => Array<{ component: string; nativeReduced: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } }> } }).TimmyRive.inspect().filter((h) => h.runtime).map((h) => [h.nativeReduced, h.runtime.inputs.find((i) => i.name === 'ReducedMotion')!.value]))).toEqual(Array(6).fill([true, true]));
       // the label, exactly, on every card with a preview control
       const labels = await o.page.$$eval('[data-preview-words]', (els) => els.map((e) => (e.textContent || '').trim()));
       expect(labels.length).toBeGreaterThanOrEqual(5);

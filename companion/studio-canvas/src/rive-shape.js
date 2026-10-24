@@ -14,11 +14,17 @@
 import '../../../src/companion/client/rive-bindings.js';
 
 export const RIVE_SHAPE = 'timmy-rive';
-/** The components a shape may show, with their artboard, state machine and vocabulary (as src/companion/assets/rive/<c>/rive.yaml). */
+/** The operator's native asset (src/companion/assets/rive/timmy-ui/timmy-ui.riv): one state machine TimmyUI on three artboards. */
+export const NATIVE_ASSET = '/assets/rive/timmy-ui/timmy-ui.riv';
+/**
+ * The components a shape may show: each is an artboard of the native asset (the contract in its README: State 0 Idle · 1
+ * Working/Checking · 2 Approval · 3 Stopped · 4 Failed, Hover, Pressed, ReducedMotion), with the page's vocabulary mapped on it
+ * by rive-bindings.js (connected has no success pose: State 0, the label says it; stopping → 1 until cancelled → 3).
+ */
 export const RIVE_COMPONENTS = Object.freeze({
-  welcome: { artboard: 'TimmyWelcome', stateMachine: 'Welcome', input: 'welcome', words: ['welcome'], text: 'T', role: 'button' },
-  connection: { artboard: 'TimmyConnection', stateMachine: 'Connection', input: 'connection', words: ['disconnected', 'checking', 'connected', 'failed'], text: '○', role: 'img' },
-  activity: { artboard: 'TimmyActivity', stateMachine: 'Activity', input: 'activity', words: ['idle', 'working', 'awaiting', 'stopping', 'stopped', 'failed'], text: '>_', role: 'img' },
+  welcome: { artboard: 'ActionButton', stateMachine: 'TimmyUI', input: 'welcome', words: ['welcome'], text: 'T', role: 'button' },
+  connection: { artboard: 'ProviderCard', stateMachine: 'TimmyUI', input: 'connection', words: ['disconnected', 'checking', 'connected', 'failed'], text: '○', role: 'img' },
+  activity: { artboard: 'AgentConsole', stateMachine: 'TimmyUI', input: 'activity', words: ['idle', 'working', 'awaiting', 'stopping', 'stopped', 'failed'], text: '>_', role: 'img' },
 });
 export const RIVE_WIDTH = 240;
 export const RIVE_HEIGHT = 200;
@@ -27,8 +33,8 @@ export const EXPAND_AT = 1.5;
 /** What the shape says of a state word that no backend event set on this page (a saved word is a record, not an observation). */
 export const SAVED_WORDS = 'as saved with the board; no backend event has set it on this page';
 
-/** The asset path of a component (its .riv is named after its folder). */
-export const assetOf = (component) => `/assets/rive/${component}/${component}.riv`;
+/** The asset path of a component: the native asset (every component is one of its artboards). */
+export const assetOf = () => NATIVE_ASSET;
 
 /** Whether a store record is this shape. */
 export const isRiveShape = (r) => !!r && r.typeName === 'shape' && r.type === RIVE_SHAPE;
@@ -91,7 +97,7 @@ export function createRiveShape(deps) {
         h('div', { className: 'tr-shape-head' }, h('strong', { className: 'tr-shape-title' }, p.label), h('span', { className: 'tr-badge' }, 'RIVE')),
         h('div', { ref, className: 'tr-shape-art', onPointerDown: handled }),
         h('p', { className: 'tr-shape-source', title: source }, source.startsWith('derived') ? 'derived from the page’s drawing of a backend event' : source === SAVED_WORDS ? SAVED_WORDS : `from ${source}`),
-        expanded ? h('p', { className: 'tr-shape-more' }, `${def.stateMachine} · inputs: ${def.input}, selected, expanded · words: ${def.words.join(' · ')}`) : null,
+        expanded ? h('p', { className: 'tr-shape-more' }, `${def.artboard} · ${def.stateMachine}: State, Hover, Pressed, ReducedMotion · this page's ${def.input}: ${def.words.join(' · ')} · selected → Hover · expanded: HTML only`) : null,
         h('p', { className: 'tr-shape-foot' }, selected ? 'selected' : 'not selected', ' · ', expanded ? 'expanded (resize narrower to fold)' : 'resize wider to expand', editor ? '' : '')));
   }
 

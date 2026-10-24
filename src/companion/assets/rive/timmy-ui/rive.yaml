@@ -1,0 +1,9 @@
+name: timmy-ui
+file: timmy-ui.riv
+artboard: AgentConsole
+artboards: AgentConsole, ProviderCard, ActionButton
+stateMachine: TimmyUI
+inputs: State, Hover, Pressed, ReducedMotion
+logs:
+  file: build/rive.log
+  problems: build/problems.log
