@@ -84,6 +84,9 @@ function installedWords(): string[] {
   try { const info = JSON.parse(readFileSync(join(INSTALLED, 'dist', 'build-info.json'), 'utf8')) as Record<string, unknown>; out.push(`Package build: ${JSON.stringify(info).slice(0, 300)}`); } catch { out.push('Package build: no dist/build-info.json in the installed package.'); }
   const tgz = process.env.TIMMY_INSTALLED_TARBALL?.trim();
   if (tgz) { try { out.push(`Tarball: ${tgz.split('/').pop()} · sha256 ${createHash('sha256').update(readFileSync(tgz)).digest('hex')}`); } catch { out.push(`Tarball: ${tgz.split('/').pop()} (not readable for its sha256)`); } }
+  // the review package the tarball came out of (final.sh's timmy-review-<rev>.tar.gz), when named
+  const review = process.env.TIMMY_INSTALLED_REVIEW?.trim();
+  if (review) { try { out.push(`Review package: ${review.split('/').pop()} · sha256 ${createHash('sha256').update(readFileSync(review)).digest('hex')}`); } catch { out.push(`Review package: ${review.split('/').pop()} (not readable for its sha256)`); } }
   return out;
 }
 
