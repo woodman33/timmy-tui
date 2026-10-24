@@ -6,6 +6,7 @@ rive inspect      exit 0   7 artboards: AgentConsole 640×380, ProviderCard 400�
                            AgentConsolePreview 640×380, ProviderCardPreview 400×260, ActionButtonPreview 240×72; default AgentConsole;
                            21 warnings "artboards-overlap" (editor-stage layout only: every artboard at x 0, y 0 — the next source gives each a stage position)
 sha256: e97d28dc5efd83a04ddd5e8b04db5a0dada329fe7c165826e7040c8ad3e7dc36   bytes: 93211
+records: rive-build-log.txt and rive-build-problems.txt are the CLI's rive.log and problems.log (renamed: the repository ignores *.log)
 yaml: the CLI ran with the four-line rive.yaml (name + logs); the longer rive.yaml committed in 4e8d4905 aborts its yaml parser (fkyaml type_error) —
       the repo's rive.yaml is the four-line one since the commit that adds this asset; the metadata lives in CONTRACT.json.
 native renders (the lead's, beside the review material, not in the repo): each artboard at rest after --advance=30; AgentConsolePreview after

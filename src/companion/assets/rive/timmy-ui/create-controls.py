@@ -6,7 +6,7 @@ Writes scene.rml (the Rive markup the Rive CLI compiles: `rive . --verify`, `riv
 four-line rive.yaml (name + logs: the CLI's yaml parser takes nothing else) and the `meta` block of CONTRACT.json (what the
 companion's listing reads: artboards, preview artboards, state machine, inputs, font, the runs per artboard). Python 3.12+
 (f-strings with nested quotes). The compiled .riv is built on the operator's machine by the Rive CLI and committed beside
-this source with its sha256 and records (CONTRACT.json `asset`, BUILD.txt, rive.log, problems.log, INSPECT-summary.txt).
+this source with its sha256 and records (CONTRACT.json `asset`, BUILD.txt, rive-build-log.txt, rive-build-problems.txt, INSPECT-summary.txt).
 
 Artboards (sizes are the consumers' aspect rules: rive-components.css, companion/studio-canvas/index.html):
   PRODUCTION  AgentConsole 640×380 · ProviderCard 400×260 · ActionButton 240×72 (Amber) · ActionButtonGlacier 240×72

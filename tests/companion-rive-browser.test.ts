@@ -154,7 +154,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       const conn = await text(o.page, '[data-inspect-component="connection-ollama-local"] .tr-facts');
       expect(conn).toContain('artboard ProviderCard');
       expect(conn).toContain('connected has NO success pose');
-      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'OFL.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'problems.log', 'rive.log', 'rive.yaml', 'scene.rml']);
+      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'OFL.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'rive-build-log.txt', 'rive-build-problems.txt', 'rive.yaml', 'scene.rml']);
       const rml = await o.page.evaluate(async () => { const r = await fetch('/assets/rive/timmy-ui/scene.rml'); return { status: r.status, body: await r.text() }; });
       expect(rml.status).toBe(200);
       expect(rml.body).toContain('name="AgentConsole"');

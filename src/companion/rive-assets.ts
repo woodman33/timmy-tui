@@ -38,11 +38,10 @@ const RIVE_FILE_TYPES: Readonly<Record<string, string>> = {
   // (Outfit.ttf since round 7; Montserrat.ttf before) stays in the folder and is not served (the .riv embeds what it needs)
   '.py': 'text/plain; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
-  // R11 round 7: the contract (CONTRACT.json) and the build's records (BUILD.txt, rive.log, problems.log) beside the asset
+  // R11 round 7: the contract (CONTRACT.json) beside the asset (the build's records are .txt)
   '.json': 'application/json; charset=utf-8',
-  '.log': 'text/plain; charset=utf-8',
 };
-const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt', '.json', '.log']);
+const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt', '.json']);
 /** A component's folder name and a file's name: plain names only (no path, no dot segment). */
 const COMPONENT_NAME = /^[a-z][a-z0-9-]{0,40}$/;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
