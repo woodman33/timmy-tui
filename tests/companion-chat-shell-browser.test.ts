@@ -18,7 +18,7 @@
  * token on the page's face.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -371,20 +371,31 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // Stop: a second turn the FAKE never answers; the composer's Send reads Stop while it runs; pressed, the component is
       // fed `stopping` (POST /api/chat/stop by the turn's id) and then `stopped` (this page stopped reading); the turn is
       // this page's stopped turn, then the chain's (its receipt says cancelled)
+      // (the FAKE's requests so far: one /api/chat for the answered turn — a second would have taken the hanging script and
+      // left the turn below a 500 "no answer was scripted", which ends at once and answers Stop with 409: said here, not later)
+      const chatsBefore = ollama.chats().length;
+      expect(chatsBefore, `the FAKE's /api/chat requests before the slow turn (${ollama.requests.filter((r) => r.path === '/api/chat').length} chats; all requests: ${ollama.requests.map((r) => r.path).join(' ')})`).toBe(1);
       await page.fill('#cx-input', 'And then?');
       await page.focus('#cx-input');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#cx-own li.cx-turn.is-timmy.is-streaming[data-turn-id]', { timeout: 30_000 });
       await page.waitForSelector('#cx-send.is-stop', { timeout: 10_000 });
       expect(await page.getAttribute('#cx-send', 'aria-label')).toBe('Stop');
+      // Stop is pressed while the turn is AT the model: the FAKE holds the request (it never answers), so the turn cannot end
+      // on its own before the stop lands (the freeze on 92811157 saw a 409 under load: the turn was no longer running)
+      for (let i = 0; i < 60 && ollama.chats().length < chatsBefore + 1; i++) await page.waitForTimeout(250);
+      expect(ollama.chats().length, 'the slow turn\'s request reached the FAKE (which holds it)').toBe(chatsBefore + 1);
       const stopAnswer = page.waitForResponse((r) => r.url().includes('/api/chat/stop'), { timeout: 15_000 });
       stopAnswer.catch(() => undefined);
       await page.click('#cx-send.is-stop', { timeout: 10_000 });
       // the companion took the stop (200, its words), by the turn's id
       const stopRes = await stopAnswer;
       const stopBody = await stopRes.json().catch(() => null) as { ok?: boolean; words?: string; error?: string } | null;
-      expect({ status: stopRes.status(), body: stopBody }).toMatchObject({ status: 200, body: { ok: true, words: expect.stringMatching(/^Stop asked of the turn being answered in the companion/) } });
-      await page.waitForFunction(() => document.querySelector('#cx-own li.cx-turn.is-timmy.is-stopped') !== null || [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].some((li) => li.classList.contains('is-stopped')), null, { timeout: 30_000 });
+      expect({ status: stopRes.status(), body: stopBody, holds: (() => { try { return readdirSync(join(box, 'tray', '.timmy', 'chat-turns')); } catch { return 'no chat-turns folder'; } })() }).toMatchObject({ status: 200, body: { ok: true, words: expect.stringMatching(/^Stop asked of the turn being answered in the companion/) } });
+      // (the turn ends ON THIS PAGE when its own li stops streaming — its `done`, or its read dropped; the project's conversation
+      // may hold the sealed turn a moment before that `done` arrives, the companion sealing it first, so the chain's stopped li
+      // alone is not this page's end)
+      await page.waitForFunction(() => !document.querySelector('#cx-own li.cx-turn.is-streaming') && (document.querySelector('#cx-own li.cx-turn.is-timmy.is-stopped') !== null || [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].some((li) => li.classList.contains('is-stopped'))), null, { timeout: 30_000 });
       // the turn ENDED where it ran, not only on this page: the companion's hold is released (the frame's activity names no
       // chat turn, so the composer reads Send again, not Stop), and the project's conversation holds the stopped turn with
       // its receipt — the FAKE never answered, so nothing was written before the stop. (Found by this pin: the operator's page
@@ -395,8 +406,14 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         // @ts-expect-error -- declared by the page's classic scripts
         running: Boolean(cx.running), chatTurn: (workspace as { frame: { activity?: { chatTurn?: unknown } } | null }).frame?.activity?.chatTurn ?? null,
       }));
+      // (R11 round 5, H172's observation: the composer read Stop a tick after the turn ended — the frame, read every 3 s, still
+      // named this page's own turn; and the own li read stopped at the SSE `done` while the composer waited for the stream's
+      // close. Now `done` IS the end: the composer, the controls and the status row are drawn in that tick, and the frame's word
+      // for this page's own turn is never "another surface's": the FIRST read after this page's turn ended is Send)
       let composer = await composerState();
-      for (let i = 0; i < 60 && (composer.send?.includes('is-stop') || composer.label !== 'Send message'); i++) { await page.waitForTimeout(500); composer = await composerState(); }
+      expect(composer).toMatchObject({ send: expect.not.stringContaining('is-stop'), label: 'Send message', running: false });
+      // (the frame itself is read again as the turn ends — the hold is gone there within its next answer)
+      for (let i = 0; i < 40 && composer.chatTurn !== null; i++) { await page.waitForTimeout(500); composer = await composerState(); }
       expect(composer).toMatchObject({ send: expect.not.stringContaining('is-stop'), label: 'Send message', running: false, chatTurn: null });
       await page.waitForFunction(() => document.querySelectorAll('#cx-own .cx-turn').length === 0 && [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].slice(-1).every((li) => li.classList.contains('is-stopped') && /receipt [0-9a-f]{8}/.test(li.querySelector('.cx-evidence')?.textContent ?? '')), null, { timeout: 30_000 });
       const stoppedLast = await page.$eval('#cx-turns li.cx-turn.is-timmy:last-of-type', (li) => ({ text: (li.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), meta: (li.querySelector('.cx-meta')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
