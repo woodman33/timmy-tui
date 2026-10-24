@@ -225,6 +225,58 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
     } finally { await page.close(); }
   });
 
+  it('R11 round 7: the page\'s purpose and primary (copied for the terminal; nothing runs here), and the honest evidence rows — each quantity its own row, Unknown with why where the record holds none, the receipt row saying what a seal proves, model-authored fields never admitted without a cited handle', async () => {
+    put(root, 'refs/photo.png', SMALL);
+    await act(kit, root, (ws) => ws.detect('refs/photo.png color 200,10,10'), { FAKE_QR: 'hello vox' });
+    const { page, errors } = await open();
+    try {
+      await page.waitForSelector('[data-vox="evidence"] .vox-ev-row', { timeout: 15_000 });
+      // the head: on a shell without the scaffold (this page's index.html until H175's commit 2), the panel's own head; the
+      // shell's registration otherwise (TimmyShell.page absent here → nothing registered, nothing thrown)
+      const scaffold = await page.$eval('#ws-voxvision', (e) => Boolean(e.querySelector('.page-head')));
+      if (!scaffold) {
+        expect(await text(page, '[data-vox="own-head"] .vox-kicker')).toBe('04 / OBSERVE & COMPARE');
+        expect(await text(page, '[data-vox="own-head"] .vox-title')).toBe('See the detail. Keep the evidence.');
+        expect(await text(page, '[data-vox="own-head"] .vox-primary')).toMatch(/: copy \/(?:vox|detect|measure|inspect)/);
+        expect(await page.getAttribute('[data-vox="own-head"] .vox-primary', 'title')).toContain('nothing runs from this page');
+      } else {
+        expect(await page.$('[data-vox="own-head"]:not([hidden])')).toBeNull();
+      }
+      // the eight rows, in the order the order names the quantities, then the receipt and the admission rule
+      const rows = await page.$$eval('[data-vox="evidence"] .vox-ev-row', (els) => els.map((e) => ({ key: e.getAttribute('data-vox-ev'), known: e.getAttribute('data-known'), name: e.querySelector('dt')?.textContent, words: (e.querySelector('dd')?.textContent ?? '').replace(/\s+/g, ' ').trim() })));
+      expect(rows.map((r) => [r.key, r.name])).toEqual([['observed', 'Observed facts'], ['candidates', 'Candidate matches'], ['scores', 'Model scores'], ['calibrated', 'Calibrated probabilities'], ['tolerances', 'Measurement tolerances'], ['price', 'Price uncertainty'], ['receipt', 'Receipt'], ['admitted', 'Model-authored fields']]);
+      const by = Object.fromEntries(rows.map((r) => [r.key, r]));
+      // a colour detect: the observed file and its measured values are facts; no model ran, so no candidate and no score
+      expect(by.observed.known).toBe('true');
+      expect(by.observed.words).toContain('refs/photo.png');
+      expect(by.observed.words).toMatch(/measured value/);
+      expect(by.candidates).toMatchObject({ known: 'false' });
+      expect(by.candidates.words).toMatch(/^Unknown — no model returned a candidate/);
+      expect(by.scores).toMatchObject({ known: 'false' });
+      // the two quantities this record can never hold say so, each with its why; a score is never shown as a probability
+      expect(by.calibrated.words).toMatch(/^Unknown — no calibration is recorded/);
+      expect(by.price.words).toMatch(/^Unknown — VoxVision records no price/);
+      expect(by.tolerances.words).toMatch(/^Unknown — no tolerance is recorded|method only/);
+      // the receipt row: what a seal proves, and what it does not
+      expect(by.receipt.words).toMatch(/integrity and authorship/);
+      expect(by.receipt.words).toMatch(/not (prove|a conclusion)|conclusion/);
+      const verified = await page.$eval('[data-vox="receipt"]', (e) => e.getAttribute('data-verified'));
+      expect(by.receipt.known).toBe(verified === 'true' ? 'true' : 'false');
+      if (verified === 'true') expect(await page.$eval('[data-vox-ev="receipt"]', (e) => e.classList.contains('is-verified'))).toBe(true);
+      // the admission rule, read on the record: nothing admitted, every model value a claim
+      expect(by.admitted.known).toBe('false');
+      expect(by.admitted.words).toMatch(/none admitted|No model-authored value admitted/);
+      expect(by.admitted.words).toContain('cite(handle_id)');
+      // no percentage the page made up: the rows carry the record's numbers only (a "%" appears nowhere in them)
+      expect(rows.every((r) => !/%/.test(r.words))).toBe(true);
+      // green only on a verified receipt's row
+      const greens = await page.$$eval('[data-vox="evidence"] dd', (els) => els.map((e) => getComputedStyle(e).color));
+      const live = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--timmy-live').trim());
+      expect(greens.filter((c) => c === live || /40,\s*254,\s*20|0,\s*215,\s*0/.test(c)).length).toBeLessThanOrEqual(verified === 'true' ? 1 : 0);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
   it('at 390 px wide the tab stacks its columns and nothing scrolls sideways', async () => {
     put(root, 'refs/photo.png', SMALL);
     await act(kit, root, (ws) => ws.detect('refs/photo.png color 200,10,10'), { FAKE_QR: 'hello vox' });
