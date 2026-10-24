@@ -54,6 +54,7 @@ need_node() {
 # only these pass when you set them: TIMMY_CHAT_FREE_ONLY, TIMMY_PALETTE, TIMMY_CLEF (decision-model routing, for this
 # process) and TIMMY_RERUN (the rerun program Timmy reads recordings with), TZ, and (R11 round 4) the companion's identity
 # provider: CLERK_PUBLISHABLE_KEY and CLERK_JWT_KEY (or CLERK_SECRET_KEY) — without them the companion runs as this computer's
+# (R11 round 6: and TLDRAW_LICENSE_KEY for the Studio's tldraw license — passed through, never printed; the SDK checks it in the page)
 # operator and its account screen names them; no model key passes this way
 run() {
   mkdir -p "$H" "$WORK" "$BOX/tmp" "$BOX/tmux" "$BOX/mcp-home/.mcporter"
@@ -70,6 +71,7 @@ run() {
     ${TZ:+TZ="$TZ"} \
     ${CLERK_PUBLISHABLE_KEY:+CLERK_PUBLISHABLE_KEY="$CLERK_PUBLISHABLE_KEY"} ${CLERK_JWT_KEY:+CLERK_JWT_KEY="$CLERK_JWT_KEY"} \
     ${CLERK_SECRET_KEY:+CLERK_SECRET_KEY="$CLERK_SECRET_KEY"} \
+    ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} \
     "$@"
 }
 
