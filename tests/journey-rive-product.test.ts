@@ -55,6 +55,7 @@ import { fakeIdentityProvider, fakeUserId, type FakeIdentity } from './fixtures/
 import { startFakeOllamaJourney, type FakeOllamaJourney } from './fixtures/fake-ollama-journey.js';
 import { capturer } from './fixtures/journey-caps.js';
 import { grant, nameProject } from './helpers/canvas-auth.js';
+import { activeProjectFile } from '../src/studio/active-follow.js';
 
 /**
  * The servers: from THE INSTALLED PACKAGE when TIMMY_INSTALLED_ROOT names its root (<prefix>/node_modules/timmy-tui, as
@@ -111,7 +112,7 @@ const caps = capturer('tests/journey-rive-product.test.ts', [
   'FAKE: the identity provider (an RSA pair made by the test; the session minted by the test), the Ollama on 127.0.0.1 (no model behind it: one tool call then a fixed answer; the gated write on "write"; the slow answer on "slowly"), the tldraw license key when the environment has none (a string the SDK rejects).',
   'What animates: the native Rive artboards drawn by the runtime, each state the native State input the binding set from a backend event; the HTML word beside it says the same. PREVIEW is only ever in the Inspect view, not here.',
   ...installedWords(),
-]);
+], 'product');
 
 const PORT = 4500;
 const SESSION_HEADER = 'X-Timmy-Session';
@@ -182,7 +183,8 @@ beforeAll(async () => {
   realKey = Boolean(process.env.TLDRAW_LICENSE_KEY?.trim());
   const studioEnv: Record<string, string | undefined> = { TIMMY_HOME: studioHome, HOME: studioHome, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR, TLDRAW_LICENSE_KEY: realKey ? process.env.TLDRAW_LICENSE_KEY : 'FAKE-license-key-the-sdk-rejects-H172' };
   // (the installed package serves its own companion/studio-canvas — index.html and the bundle it packed — from its default root)
-  studio = await sv.startStudioServer(0, { env: studioEnv, ...(INSTALLED ? {} : { root: studioRoot }) });
+  // (followActive: the Studio follows its Timmy home's active-project record, which is how a project switch reaches an open page)
+  studio = await sv.startStudioServer(0, { env: studioEnv, followActive: true, followEveryMs: 200, ...(INSTALLED ? {} : { root: studioRoot }) });
   studioBase = `http://127.0.0.1:${(studio.address() as AddressInfo).port}`;
   projectA = join(studioHome, 'project-a');
   projectB = join(studioHome, 'project-b');
@@ -302,8 +304,10 @@ async function handleCensus(page: Page): Promise<string[]> {
 }
 
 /** The focus order from the composer: each Tab's active element, until Send or `max` tabs. Never a canvas. */
-async function tabOrder(page: Page, max = 8): Promise<string[]> {
+async function tabOrder(page: Page, max = 40): Promise<string[]> {
   const composer = page.getByRole('textbox', { name: /Message Timmy/i }).or(page.getByPlaceholder(/Message Timmy/i)).first();
+  await composer.focus();
+  await page.keyboard.press('Escape'); // (a panel left open by the model's choice closes; the composer keeps the focus)
   await composer.focus();
   const seen: string[] = [];
   for (let i = 0; i < max; i++) {
@@ -321,6 +325,7 @@ async function toChat(o: Opened, size: { width: number; height: number }, capPre
   await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
   await until(o.page, 'the chat', (s) => /Message Timmy/i.test(s));
   await caps.cap(o.page, size, `${capPrefix}chat-welcome-console`, ['The chat screen on landing: the welcome, the composer, the AgentConsole mounted in the chat (idle, State 0) — REAL runtime, the operator\'s artboard.']);
+  if (size.width < 600) await o.page.getByRole('button', { name: /Models/ }).first().click(); // (a phone keeps the Models panel behind its button)
   await o.page.getByRole('tab', { name: 'Ollama local' }).first().click();
   await until(o.page, 'the FAKE model in the list', (s) => s.includes(MODEL), 20_000);
   await o.page.locator('#cm-list').getByText(MODEL, { exact: false }).first().click();
@@ -569,7 +574,8 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         else console.warn(`journey-rive-product ${at}: no "checking" word was fed on Check (the FAKE answered before a pending state was drawn): State 1 while Check runs is not exercised here`);
         const connected = await eventOf(o.page, key, 'connection', 'connected');
         expect(connected!.native).toBe('State 0');
-        expect(connected!.did).toMatch(/no success pose/);
+        // (the word may reach the card before its file loaded — "kept until the file loads" — and is applied on load: the live State 0 above says it)
+        expect(connected!.did).toMatch(/no success pose|kept until the file loads/);
         expect(connected!.source).toMatch(/GET \/api\/connections: ollama-local/);
         await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check against the FAKE: the card checked, the ProviderCard State 0 with the label "connected" (no success pose is authored, said in the event); the checking event (State 1) recorded from GET /api/connections: ollama-local.'], { to: o.page.locator(SEL.card('ollama-local')).first(), what: 'the local card' });
         // ── RAPID EVENTS (the operator's 07:06 bar): the four cards' states changed in quick succession — every Check the screen
@@ -734,14 +740,16 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       await again.page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
       expect(await again.page.evaluate((ids) => (window as unknown as Win).timmyCanvas.editor.getShape(ids.connection)?.props.w, placed)).toBe(420);
       await caps.cap(again.page, size, 'canvas-reopened', ['The board reopened in a new page: the three shapes with their props (the card at 420 wide), the arrow and its two bindings exactly as saved; drawn again by the runtime.']);
-      // a project switch: the other project's board has none of this
-      await nameProject((studio!.address() as AddressInfo).port, studio!.projectToken, { root: projectB, name: 'rive-product-b' });
+      // a project switch: the active-project record names the other project (as the Workbench's picker writes it; the Studio's own
+      // follower sees it): the other project's board has none of this
+      const switchTo = (name: string, root: string): void => { mkdirSync(join(studioHome, 'state'), { recursive: true }); writeFileSync(activeProjectFile({ TIMMY_HOME: studioHome, HOME: studioHome }), `${JSON.stringify({ name, root, at: new Date().toISOString() })}\n`); };
+      switchTo('rive-product-b', projectB);
       await again.page.waitForFunction(() => { const i = (window as unknown as Win).timmyCanvas.identity; return i?.state === 'shown' && i.project?.name === 'rive-product-b'; }, null, { timeout: 20_000 });
       await again.page.waitForTimeout(500);
       expect(await again.page.evaluate(() => Object.values((window as unknown as Win).timmyCanvas.editor.store.serialize('document')).filter((r) => r.typeName === 'shape').length), 'the other project\'s board is empty of these shapes').toBe(0);
       expect(await again.page.$$eval('[data-timmy-rive-shape]', (els) => els.length)).toBe(0);
       await caps.cap(again.page, size, 'canvas-other-project', ['Switched to the other project (rive-product-b): its board carries none of the first project\'s shapes (project isolation of the boards).']);
-      await nameProject((studio!.address() as AddressInfo).port, studio!.projectToken, { root: projectA, name: 'rive-product-a' });
+      switchTo('rive-product-a', projectA);
       await again.page.waitForFunction(() => { const i = (window as unknown as Win).timmyCanvas.identity; return i?.state === 'shown' && i.project?.name === 'rive-product-a'; }, null, { timeout: 20_000 });
       await again.page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
       expect(again.errors, 'page errors').toEqual([]);

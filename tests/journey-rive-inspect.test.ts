@@ -325,7 +325,8 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         if (native) {
           // REAL: the runtime loaded from this origin drew the six (canvas[data-loaded] is set by TimmyRive's onLoad only); the mark not
           expect(await o.page.evaluate(() => typeof (window as unknown as { rive?: { Rive?: unknown } }).rive?.Rive), 'window.rive from /vendor/rive/').toBe('function');
-          expect(await o.page.$$eval('canvas[data-timmy-rive][data-loaded]', (els) => els.map((e) => e.getAttribute('data-timmy-rive')).sort())).toEqual(DRAWN);
+          // (the Inspect view's own six: round 6 draws more on the page — H171's console band and starter, H170's four provider cards)
+          expect(await o.page.$$eval('#screen-inspect canvas[data-timmy-rive][data-loaded]', (els) => els.map((e) => e.getAttribute('data-timmy-rive')).sort())).toEqual(DRAWN);
           expect(await o.page.$$eval('[data-inspect-component="mark"] canvas[data-loaded]', (els) => els.length)).toBe(0);
           // what the RUNTIME reports of the asset (not the source's names): the three artboards, TimmyUI, the four inputs with values
           for (const key of DRAWN) {
