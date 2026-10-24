@@ -128,8 +128,8 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     const contract = JSON.parse(readFileSync(join(riveAssetsDir(), 'timmy-ui', 'CONTRACT.json'), 'utf8'));
     expect(contract.version).toBe(2);
     expect(native.riv).toEqual({ name: 'timmy-ui.riv', bytes: contract.asset.bytes, sha256: String(contract.asset.sha256).slice(0, 12) });
-    // (Outfit.ttf is kept, not served; OFL.txt is v1's licence, kept while the packaging allowlist names it)
-    expect(native.sources).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'OFL.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'rive-build-log.txt', 'rive-build-problems.txt', 'rive.yaml', 'scene.rml']);
+    // (Outfit.ttf is kept, not served)
+    expect(native.sources).toEqual(['BUILD.txt', 'CONTRACT.json', 'INSPECT-summary.txt', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'rive-build-log.txt', 'rive-build-problems.txt', 'rive.yaml', 'scene.rml']);
     // RIVE CONTRACT v2's meta (CONTRACT.json's `meta` block — rive.yaml is the CLI's four-line one): the four production artboards, the
     // three preview artboards, the font, the runs per artboard
     expect(native.meta).toMatchObject({ artboard: 'AgentConsole', contract: '2', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton', 'ActionButtonGlacier'], previewArtboards: ['AgentConsolePreview', 'ProviderCardPreview', 'ActionButtonPreview'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'], font: 'Outfit.ttf' });
