@@ -41,6 +41,7 @@ const PORTS = { unconfigured: 4495, configured: 4496 };
 const caps = capturer('tests/journey-account-connections-chat.test.ts', [
   'REAL: the companion (startCompanionServer in this process), its launch token, its page and scripts, the identity verifier (RS256 against CLERK_JWT_KEY), the projects/connections/chat routes, the agent turn (openChatSession → runTurn), the sealed receipt and its chain.',
   'FAKE: the identity provider (an RSA pair made by the test; its public key is CLERK_JWT_KEY; the tokens are minted by the test — no Clerk account, no network), the Ollama on 127.0.0.1 (no model behind it: one tool call, then a fixed answer), the Ollama cloud key\'s value.',
+  'Nothing animates in these pictures: the T mark is the text mark (no timmy-mark.riv in this installation; the page asks /assets/mark.json and loads no runtime); the Rive components are drawn only in the Inspect animation view, which these screens do not open.',
 ]);
 const SESSION_HEADER = 'X-Timmy-Session';
 const TOKEN = 'b4'.repeat(32);
