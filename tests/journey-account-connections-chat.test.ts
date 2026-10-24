@@ -156,6 +156,9 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
   // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
   // token set while the page's session-less first requests are still in flight is wiped by their refusals (gate run, 22:10)
   await page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen')), null, { timeout: 15_000 }).catch(() => undefined);
+  // (and the landing read GET /api/identity with the page's launch token: TimmyShell.identity() is its answer; a page that took
+  // the no-token path has none, and a seam then would be refused for the launch token, not the session)
+  await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: { identity?: () => unknown } }).TimmyShell?.identity?.()), null, { timeout: 15_000 }).catch(() => undefined);
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
   // and the account script's Clerk load has ended (its first state, "no session", fires then — gate 4, 22:24: account.js
   // onClerkState clears the shell's session whenever Clerk reports none, so one adopted before that fire is wiped)
@@ -174,7 +177,8 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
   return page.evaluate(() => {
     const w = window as unknown as { timmyAccount?: { state?: () => unknown }; TimmyShell?: { session?: { get?: () => string; user?: () => unknown }; current?: () => string } };
     const st = w.timmyAccount?.state ? JSON.stringify(w.timmyAccount.state()) : 'no timmyAccount.state';
-    return `session ${w.TimmyShell?.session?.get?.() ? 'held' : 'EMPTY'}; user ${JSON.stringify(w.TimmyShell?.session?.user?.() ?? null)}; screen ${w.TimmyShell?.current?.() ?? '?'}; account ${st.slice(0, 300)}`;
+    const id = (w.TimmyShell as { identity?: () => unknown } | undefined)?.identity?.();
+    return `session ${w.TimmyShell?.session?.get?.() ? 'held' : 'EMPTY'}; user ${JSON.stringify(w.TimmyShell?.session?.user?.() ?? null)}; screen ${w.TimmyShell?.current?.() ?? '?'}; identity ${id ? JSON.stringify(id).slice(0, 120) : 'not read'}; account ${st.slice(0, 300)}`;
   }).catch(() => 'state unreadable');
 }
 /** Which screen the shell shows (body[data-screen], H171's contract). */
@@ -312,7 +316,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
-        expect(chat).toMatch(/Local logs · cloud sync off|Local logs/);
+        if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
       } finally { await o.close(); }
     });
@@ -354,7 +358,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // the model's detail opens; "Use for the next turn" is the choice (POST /api/chat/choose: Ollama asked for the exact name first)
         const use = o.page.getByRole('button', { name: /Use for the next turn/ }).first();
         await use.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
-        await use.click({ timeout: 10_000 }).catch(async (e: unknown) => { throw new Error(`"Use for the next turn" after the model's row was clicked (${at}): ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; the panel read: ${(await text(o.page)).slice(-1200)}`); });
+        await use.click({ timeout: 10_000 }).catch(async (e: unknown) => {
+          const panel = await o.page.evaluate(() => { const p = document.querySelector('.cx-models'); return p ? `${(p as HTMLElement).innerText.slice(0, 1200)} [visible: ${(p as HTMLElement).offsetParent !== null}, ${(p as HTMLElement).getBoundingClientRect().width}x${(p as HTMLElement).getBoundingClientRect().height}]` : 'no .cx-models'; }).catch(() => 'unreadable');
+          throw new Error(`"Use for the next turn" after the model's row was clicked (${at}): ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; the Models panel: ${panel}`);
+        });
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
         // a turn: the REAL agent through H169's SSE; the FAKE model calls one tool, then answers
