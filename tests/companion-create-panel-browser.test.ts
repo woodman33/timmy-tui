@@ -167,8 +167,11 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       expect(await text(page, '[data-create="doctrine"]')).toBe(DOCTRINE_15);
       expect(await text(page, '[data-create="reader"]')).toBe("Timmy's own STL reader (timmy-stl-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units");
 
-      // a drag turns it
+      // a drag turns it (R11 round 7, H176: the page scrolls under the shell's head and band — at 768 px the view starts below the
+      // fold, so it is scrolled into view first, as a person scrolls to it)
       const c = (await page.$('[data-create="canvas"]'))!;
+      await c.scrollIntoViewIfNeeded();
+      await settled(page);
       const b = (await c.boundingBox())!;
       await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
       await page.mouse.down();
@@ -239,7 +242,11 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
         const kids = [...page6.children];
         const at = (e: Element) => e.getBoundingClientRect();
         const view = page6.querySelector('[data-create="stage"]')!;
-        return { real, before: kids.slice(0, kids.indexOf(host)).map((e) => e.className), above: at(box).bottom <= at(host).top + 1, viewInSight: at(view).bottom <= at(page6).bottom + 1 && at(view).height > 150 };
+        // (R11 round 7, H176: on the shell's scaffold the host sits inside .page-body > .page-work; the section's children before
+        // the one that holds the host are read, the scaffold's own parts — page-head, page-band — left out: nothing of the PANEL is
+        // above the box)
+        const holder = kids.find((k) => k === host || k.contains(host));
+        return { real, before: kids.slice(0, holder ? kids.indexOf(holder) : kids.length).map((e) => e.className).filter((c) => !/^page-/.test(c)), above: at(box).bottom <= at(host).top + 1, viewInSight: at(view).bottom <= at(page6).bottom + 1 && at(view).height > 150 };
       });
       await settled(page);
       await shot(page, order.real ? 'h153-09-tab6-under-the-unfinished-box' : 'h153-09-tab6-under-a-FAKE-stand-in-unfinished-box');
@@ -257,9 +264,23 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       expect(refused).toEqual([404, 'Refused: refs/theirs.stl is not a mesh of this project (tab 6 lists its STL, OBJ and PLY files and its tessellations), so it is not served.']);
       expect(await page.$$eval('.create-mesh', (bs) => bs.map((x) => (x as HTMLElement).dataset.createMesh))).not.toContain('refs/theirs.stl');
 
-      // every text of the tab at 11 px or more; the palette: no blue, purple or cyan, no green (nothing live or sealed here)
-      const look = await page.evaluate(() => {
-        const parse = (v: string): number[] | null => { const mm = /^rgba?\(([^)]+)\)$/.exec(v.trim()); if (!mm) return null; const p = mm[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; };
+      // every text of the tab at 11 px or more; the palette: no blue, purple or cyan of the page's own, no green (nothing live or
+      // sealed here). R11 round 7 (H176; DESIGN.md §10 B11): the page's sheet is the B11 registry's, whose darks and greys are
+      // slate-blue tinted (#111A23, #1C2936, #44586B, #BDCADA, #9AAFC3 …): a colour of the registry, or of its slate band (a mix of
+      // two of its colours), is not a hue of the page's own
+      const REGISTRY = ['8, 11, 15', '17, 26, 35', '28, 41, 54', '232, 239, 245', '68, 88, 107', '30, 42, 54', '236, 241, 245', '189, 202, 218', '154, 175, 195', '28, 48, 67', '59, 81, 104', '255, 176, 0', '40, 254, 20', '0, 215, 0', '255, 95, 86',
+        '214, 170, 100', '234, 208, 163', '64, 46, 20', '240, 229, 212', '138, 187, 227', '190, 217, 237', '29, 56, 72', '225, 238, 247',
+        '20, 30, 41', '14, 22, 31', '34, 48, 62', '22, 33, 44', '18, 26, 36', '10, 15, 21', '14, 21, 29', '242, 245, 248', '228, 234, 240', '189, 203, 217'];
+      const look = await page.evaluate((registry) => {
+        const parse = (v: string): number[] | null => {
+          const t = v.trim();
+          const mm = /^rgba?\(([^)]+)\)$/.exec(t);
+          if (mm) { const p = mm[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; }
+          const cc = /^color\(srgb ([^)]+)\)$/.exec(t); // Chromium's colour-mixed value, 0..1
+          if (cc) { const p = cc[1].split(/[\s/]+/).filter(Boolean).map(Number); return [Math.round(p[0] * 255), Math.round(p[1] * 255), Math.round(p[2] * 255), p[3] ?? 1]; }
+          return null;
+        };
+        const ofRegistry = (c: number[]): boolean => registry.includes(`${c[0]}, ${c[1]}, ${c[2]}`);
         const hsl = ([rr, gg, bb]: number[]) => { const [R, G, B] = [rr / 255, gg / 255, bb / 255]; const max = Math.max(R, G, B); const min = Math.min(R, G, B); const l = (max + min) / 2; const d = max - min; if (d === 0) return { h: 0, s: 0, l }; const h = max === R ? 60 * (((G - B) / d) % 6) : max === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4); return { h: (h + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
         const out = { small: [] as string[], hue: [] as string[], green: [] as string[], amber: [] as string[] };
         for (const el of document.querySelectorAll('#ws-create [data-panel-host="create"], #ws-create [data-panel-host="create"] *')) {
@@ -269,14 +290,16 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
           if ([...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) && parseFloat(cs.fontSize) < 11) out.small.push(`${el.tagName}.${el.className} ${cs.fontSize}`);
           for (const prop of ['color', 'background-color', 'border-top-color', 'border-left-color']) {
             const c = parse(cs.getPropertyValue(prop)); if (!c || c[3] === 0) continue;
+            if (c[0] === 255 && c[1] === 176 && c[2] === 0) { out.amber.push(`${el.tagName}.${el.className}`); continue; }
+            if (ofRegistry(c)) continue;
             const { h, s, l } = hsl(c); if (s < 0.2 || l < 0.08 || l > 0.92) continue;
+            if (h >= 200 && h <= 222 && s <= 0.45) continue; // the registry's own slate band
             if (h >= 150 && h <= 320) out.hue.push(`${el.tagName} ${prop}`);
             else if (h >= 75 && h < 150) out.green.push(`${el.tagName}.${el.className} ${prop}`);
-            else if (c[0] === 255 && c[1] === 176 && c[2] === 0) out.amber.push(`${el.tagName}.${el.className}`);
           }
         }
         return out;
-      });
+      }, REGISTRY);
       expect(look.small).toEqual([]);
       expect(look.hue).toEqual([]);
       expect(look.green).toEqual([]);
@@ -493,10 +516,21 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
     const at = companion.url.indexOf('#');
     const [base, hash] = at < 0 ? [companion.url, ''] : [companion.url.slice(0, at), companion.url.slice(at)];
     await page.goto(`${base}${base.includes('?') ? '&' : '?'}${query}${hash}`);
-    await landWorkspace(page);
+    await landedOn(page, 'motion');
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 15_000 });
     return { page, errors, bad };
+  }
+  /**
+   * R11 round 7 (H176; SHELL CONTRACT v1): an address that names a tab (?tab=create…) lands on that PAGE by the shell's own rule
+   * (shell.js land(): the page companion.js showed from the address, nothing to sign into here). The kit's landWorkspace sends
+   * every page but Chat to Chat (its round-4 reading of current() as a screen id), which would undo what the address asked: so
+   * here the landing itself is waited for and read — the page the address named, or the test says which page the shell chose.
+   */
+  async function landedOn(page: Page, id: string): Promise<void> {
+    await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
+    await page.waitForFunction((want) => { const sh = (window as unknown as { TimmyShell?: { current(): string } }).TimmyShell; return Boolean(sh && sh.current() === want); }, id, { timeout: 15_000 })
+      .catch(async () => { throw new Error(`the shell landed on ${await page.evaluate(() => (window as unknown as { TimmyShell?: { current(): string } }).TimmyShell?.current())}, not on ${id} as the address asked`); });
   }
   const text = (page: Page, sel: string): Promise<string> => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
   /** A capture of the recordings box with `row` in view (the box scrolls inside), and the box's whole text, row by row. */

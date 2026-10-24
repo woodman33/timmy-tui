@@ -1,1 +1,78 @@
-/* R11 round 7: H176's sheet (UI-OWNERSHIP.md). This stub ships empty until H176's commit replaces it. */
+/* R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): the Motion & 3D page's own sheet (src/companion/client/panel-create.js).
+   Every colour, face, radius and material is a --timmy-ui-* token (the hex beside it only its fallback); the page tints no
+   panel but the one light focal object (the step in focus, the Card Lab's paper card) and the raised sources. Served beside
+   companion.css once src/companion/server.ts lists it (the lead's line); until then the page falls back to companion.css's
+   boxes and reads the same, less the materials. */
+
+/* the chain companion.css gives the host (.create-host, a flex column) and its columns (.create-cols: flex 1 1 auto, min-height 0),
+   carried through the page's wrapper, so the view keeps its height and the sources scroll inside their boxes */
+.create-page { display: flex; flex-direction: column; gap: var(--timmy-ui-space-3, 12px); min-height: 0; min-width: 0; flex: 1 1 auto; }
+.create-page > .create-cols { flex: 1 1 auto; min-height: 0; }
+.create-page > .create-head, .create-page > .create-flow { flex: 0 0 auto; }
+
+/* the panel's own head, drawn only while the shell is not on the page (the shell's page head replaces it) */
+.create-head { display: grid; gap: 4px; padding: 0 0 var(--timmy-ui-space-2, 8px); }
+.create-kicker { margin: 0; font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/var(--timmy-ui-leading-label, 1.35) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
+  letter-spacing: var(--timmy-ui-tracking-kicker, .14em); text-transform: uppercase; color: var(--timmy-ui-accent, #D6AA64); }
+.create-title { margin: 0; font: var(--timmy-ui-weight-heading, 600) var(--timmy-ui-size-page, 30px)/var(--timmy-ui-leading-tight, 1.15) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
+  letter-spacing: var(--timmy-ui-tracking-title, -0.02em); color: var(--timmy-ui-text, #ECF1F5); }
+.create-intro { margin: 0; max-width: 64ch; font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text-secondary, #BDCADA); }
+
+/* the guided flow: three step cards in a row; the step in focus is the light focal object, the others raised */
+.create-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--timmy-ui-space-3, 12px); flex: 0 0 auto; }
+/* one line each — number · verb · state — so the row costs the view little height (the shell's head and band sit above it) */
+.create-step { display: grid; grid-template-columns: auto auto minmax(0, 1fr); grid-template-rows: auto; column-gap: var(--timmy-ui-space-3, 12px); align-items: baseline; text-align: left;
+  padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-4, 16px); border-radius: var(--timmy-ui-radius-control, 10px);
+  background: var(--timmy-ui-elev-raised, #1C2936); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); box-shadow: var(--timmy-ui-shadow-raised, none);
+  color: var(--timmy-ui-text, #ECF1F5); font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); cursor: pointer;
+  transition: background var(--timmy-ui-motion-state, 180ms) var(--timmy-ui-ease, ease), color var(--timmy-ui-motion-state, 180ms) var(--timmy-ui-ease, ease); }
+.create-step:hover { border-color: var(--timmy-ui-border, #44586B); }
+.create-step:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; box-shadow: 0 0 0 2px var(--timmy-ui-focus-halo, #080B0F); }
+.create-step-n { font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1 var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace); color: var(--timmy-ui-accent, #D6AA64); letter-spacing: .06em; }
+.create-step-verb { font-weight: var(--timmy-ui-weight-strong, 600); font-size: var(--timmy-ui-size-body, 14px); line-height: var(--timmy-ui-leading-label, 1.35); white-space: nowrap; }
+.create-step-state { color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.create-step[aria-pressed="true"] { background: var(--timmy-ui-elev-paper, #E8EFF5); border-color: var(--timmy-ui-paper, #E8EFF5); box-shadow: var(--timmy-ui-shadow-paper, none); color: var(--timmy-ui-ink, #1C3043); }
+.create-step[aria-pressed="true"] .create-step-state { color: var(--timmy-ui-ink-soft, #3B5168); }
+.create-step[aria-pressed="true"] .create-step-n { color: var(--timmy-ui-ink, #1C3043); }
+
+/* the sources: a parameter file, a workflow, a starter (raised, quiet) */
+.create-source, .create-starter { display: grid; gap: 4px; padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px); border-radius: var(--timmy-ui-radius-control, 10px);
+  background: var(--timmy-ui-raised, #1C2936); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); }
+.create-source + .create-source, .create-starter + .create-starter { margin-top: var(--timmy-ui-space-2, 8px); }
+.create-source-title { margin: 0; font: var(--timmy-ui-weight-strong, 600) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-label, 1.35) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text, #ECF1F5); overflow-wrap: anywhere; }
+.create-source-acts { margin: 2px 0 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.create-values { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 10px; margin: 2px 0; font-size: var(--timmy-ui-size-label, 13px); }
+.create-values dt { color: var(--timmy-ui-text-secondary, #BDCADA); font-family: var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace); }
+.create-values dd { margin: 0; color: var(--timmy-ui-text, #ECF1F5); font-family: var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace); overflow-wrap: anywhere; }
+.create-blocks { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.create-block { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding-left: 8px; border-left: 2px solid var(--timmy-ui-border, #44586B); font-size: var(--timmy-ui-size-label, 13px); }
+.create-block[data-block-word="running"] { border-left-color: var(--timmy-ui-text, #ECF1F5); }
+.create-block[data-block-word="failed"], .create-block[data-block-word="interrupted"] { border-left-color: var(--timmy-ui-focus, #FFB000); }
+.create-block-name { font-weight: var(--timmy-ui-weight-strong, 600); font-family: var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace); }
+.create-lane { margin: 0; padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px); border-radius: var(--timmy-ui-radius-control, 10px); border: 1px solid var(--timmy-ui-border, #44586B); border-left-width: 3px;
+  color: var(--timmy-ui-text, #ECF1F5); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-body, 1.55); overflow-wrap: anywhere; }
+/* an armed lane without its binary waits on the person (amber, with its words); on PATH is available, never green (nothing is observed) */
+.create-lane[data-create-lane="not_configured"] { border-left-color: var(--timmy-ui-focus, #FFB000); }
+.create-sub { margin: var(--timmy-ui-space-2, 8px) 0 0; font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1.35 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); letter-spacing: var(--timmy-ui-tracking-kicker, .14em); text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.create-starters { list-style: none; margin: 0; padding: 0; }
+.create-starter-steps { margin: 2px 0 0; padding: 0 0 0 2px; list-style: none; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.create-starter-steps .create-step-n { grid-row: auto; }
+.create-studio { text-decoration: none; }
+.create-details > summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); }
+
+/* the columns: the view central and tallest; the sources beside it. On the scaffold the page grows with its content (the window
+   scrolls it), so the stage keeps a height of its own: the view is the page's centre, never a strip under the sources. */
+.create-page .create-stage { flex: 0 0 auto; height: clamp(220px, 44vh, 640px); }
+/* (a height of its own, not the columns': the sources arriving beside it never resize the view, so what it draws stays comparable) */
+.create-cols .create-left > .box.create-params-box, .create-cols .create-left > .box.create-workflows-box { flex: 0 1 auto; max-height: 40%; min-height: 5em; }
+.create-cols .create-right > .box.create-houdini-box { flex: 0 1 auto; max-height: 46%; min-height: 6em; }
+
+/* a phone (D5): the flow stacks, the columns stack, nothing is cut */
+@media (max-width: 720px) {
+  .create-flow { grid-template-columns: minmax(0, 1fr); }
+  .create-step { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; }
+  .create-step-n { grid-row: 1 / span 2; }
+  .create-step-state { white-space: normal; overflow-wrap: anywhere; }
+  .create-cols { grid-template-columns: minmax(0, 1fr); }
+  .create-cols .create-left > .box, .create-cols .create-right > .box { max-height: none; }
+}

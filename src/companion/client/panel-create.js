@@ -19,6 +19,17 @@
 //
 // The view draws the bytes the list measured: it asks for them by their sha256, and a file changed since is read again.
 // Every number drawn is the list's; nothing here invents a value.
+//
+// R11 round 7 (H176; the operator's order "finish the product experience", SHELL CONTRACT v1): the page is Motion & 3D on the
+// scaffold: it registers itself with the shell (the shell's own words for the page — the rail's number, CREATE IN 3D, "From a
+// parameter to a possibility." — stand; the one primary next action Open the Houdini starter in Studio), and its work is the guided
+// starter flow (01 Define the geometry ·
+// 02 Set the parameters · 03 Cook in Houdini) over the three columns: the preview central (the view you can turn), the editable
+// sources beside it (the meshes, the project's parameter files with their values and the workflow documents with their blocks,
+// read by GET /api/panel/create/sources; editing, Save, Rebuild and Run are Studio's parameter and workflow nodes and the typed
+// commands: nothing on this page runs), and the measurements on the right. The Houdini lane is said as probed (flag off, armed
+// without a binary, or on PATH: available is not exercised), the three Houdini starters open in Studio's New board. Without the
+// shell (a page before it lands) the panel draws its own head, so the page reads the same.
 (() => {
   'use strict';
   if (typeof TimmyPanels === 'undefined') return;
@@ -64,7 +75,28 @@
     sel: '', mesh: null, meshAsk: 0, view: null, drag: null, frame: 0, observer: null, again: 0,
     // R10 (H167): the recording chosen (by an address or Home), the mesh Home asked for, and the tab's notice about what was asked
     rec: HINT_REC, wantMesh: '', notice: '', noticeAsked: false,
+    // R11 round 7 (H176): the guided flow's sources (parameter files, workflows, the starters, the Houdini lane), and the step in focus
+    sources: null, sourcesSig: '', sourcesAt: 0, askingSources: null, step: '01', pageSig: '',
   };
+  const HERE = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname);
+  // R11 round 7 (H176): the page's own sheet (src/companion/client/panel-create.css; src/companion/server.ts serves it beside
+  // companion.css). index.html links it once the shell's lines land; until then, and on any page without the line, the panel asks
+  // for it itself (the same file once: never a second link), so the view's flex chain holds in every order the branches land.
+  (function ensureSheet(href) {
+    try {
+      if (document.querySelector(`link[rel="stylesheet"][href="${href}"]`)) return;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet'; link.href = href; link.dataset.panelSheet = 'create';
+      document.head.appendChild(link);
+    } catch (e) { /* the page keeps companion.css's boxes */ }
+  })('/panel-create.css');
+  /** The shell, when it is on the page (SHELL CONTRACT v1); null before it lands: the panel then draws its own head. */
+  const shell = () => (typeof window.TimmyShell === 'object' && window.TimmyShell && typeof window.TimmyShell.page === 'function' ? window.TimmyShell : null);
+  const STEPS = [
+    { n: '01', verb: 'Define the geometry', guide: 'The meshes Timmy can read in this project, measured from the whole file, and the view you can turn.' },
+    { n: '02', verb: 'Set the parameters', guide: "The project's parameter files, as the live board reads them. Save and Rebuild are Studio's parameter node, or the typed command." },
+    { n: '03', verb: 'Cook in Houdini', guide: 'A cook is a workflow block a REPL runs, or Houdini itself. Nothing on this page calls Houdini.' },
+  ];
 
   const q = (name) => (S.root ? S.root.querySelector(`[data-create="${name}"]`) : null);
   const put = (el, ...kids) => { if (el) el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false)); };
@@ -84,6 +116,7 @@
 
   function reset(project) {
     S.project = project; S.list = null; S.listSig = ''; S.listAt = 0; S.sel = ''; S.mesh = null; S.meshAsk += 1; S.view = freshView(); S.drag = null;
+    S.sources = null; S.sourcesSig = ''; S.sourcesAt = 0; S.step = '01'; S.pageSig = '';
   }
 
   // ── the skeleton: three columns of boxes ──
@@ -92,10 +125,22 @@
       h('h2', { class: 'box-title', 'data-create': `${name}-title` }, title),
       h('div', { class: `box-body${body ? ` ${body}` : ''}`, 'data-create': name }, h('p', { class: 'empty' }, 'Reading…')));
     const key = (k, label, words) => h('button', { type: 'button', class: 'btn-action tiny create-key', 'data-create-key': k, 'aria-keyshortcuts': k === '+' ? 'Plus' : k === '-' ? 'Minus' : k.toUpperCase(), title: words }, label);
-    const root = h('div', { class: 'create-cols', 'data-create': 'root' },
+    const stepCard = (st) => h('button', { type: 'button', class: 'create-step', 'data-create-step': st.n, 'aria-pressed': st.n === S.step ? 'true' : 'false', title: `Go to step ${st.n}: ${st.verb}` },
+      h('span', { class: 'create-step-n' }, st.n), h('span', { class: 'create-step-verb' }, st.verb), h('span', { class: 'create-step-state', 'data-create-step-state': st.n }, 'reading…'));
+    const root = h('div', { class: 'create-page', 'data-create': 'root' },
+      // the panel's own head, drawn only while the shell is not on the page (the shell draws the page's head from the registration)
+      // (the page's words are the shell's: PAGES motion — a page without the shell has no rail number, so the kicker names the page)
+      shell() ? null : h('header', { class: 'create-head', 'data-create': 'head' },
+        h('p', { class: 'create-kicker' }, 'MOTION & 3D / CREATE IN 3D'),
+        h('h2', { class: 'create-title' }, 'From a parameter to a possibility.'),
+        h('p', { class: 'create-intro' }, 'Start with a guided template, then work through the native application.')),
+      h('div', { class: 'create-flow', role: 'group', 'aria-label': 'The guided starter flow', 'data-create': 'flow' }, STEPS.map(stepCard)),
+      h('div', { class: 'create-cols', 'data-create': 'cols' },
       h('div', { class: 'col-stack create-left' },
         h('p', { class: 'create-notice', 'data-create': 'notice', role: 'status', hidden: true }),
         box('Meshes in this project', 'meshes', 'create-meshes-box'),
+        box('Parameter files', 'params', 'create-params-box'),
+        box('Workflows', 'workflows', 'create-workflows-box'),
         box('Recordings Timmy can read (.rrd)', 'recordings', 'create-recordings-box')),
       h('div', { class: 'col-stack create-centre' },
         h('section', { class: 'box create-view-box', 'data-create-box': 'view' },
@@ -114,7 +159,8 @@
               key('+', '+ zoom in', 'Closer (key +, or the wheel)'), key('-', '− zoom out', 'Farther (key −, or the wheel)')),
             h('p', { class: 'create-hint' }, 'Drag or arrows: turn · wheel or + −: zoom · F T S I: front, top, side, isometric · R: reset')))),
       h('div', { class: 'col-stack create-right' },
-        box('Measured from the file', 'measure', 'create-measure-box', 'create-measure-body')));
+        box('Measured from the file', 'measure', 'create-measure-box', 'create-measure-body'),
+        box('Houdini', 'houdini', 'create-houdini-box'))));
     root.addEventListener('click', onClick);
     root.addEventListener('keydown', onKey);
     const cv = root.querySelector('[data-create="canvas"]');
@@ -129,6 +175,139 @@
       S.observer.observe(root.querySelector('[data-create="stage"]'));
     }
     return root;
+  }
+
+  // ── R11 round 7 (H176): the sources (parameter files, workflows, the starters, the Houdini lane), read only ──
+  async function refreshSources() {
+    const ctx = S.ctx;
+    if (S.askingSources) return S.askingSources;
+    S.sourcesAt = Date.now();
+    S.askingSources = (async () => {
+      let body = null;
+      let status = 0;
+      try {
+        const r = await ctx.fetch(ctx.api('sources'));
+        status = r.status;
+        body = await r.json().catch(() => null);
+      } catch (e) { body = null; }
+      if (S.project !== ctx.project) return;
+      if (!body || body.ok !== true) {
+        const words = `✕ The parameter files and workflows could not be read: ${(body && body.error) || (status ? `the companion answered HTTP ${status}` : 'the companion did not answer')}.`;
+        put(q('params'), ctx.h('p', { class: 'empty tone-failed', 'data-create-error': 'sources' }, words));
+        put(q('workflows'), ctx.h('p', { class: 'empty tone-failed' }, words));
+        return;
+      }
+      const sig = JSON.stringify([body.params, body.workflows, body.starters, body.houdini, body.studio, body.notes]);
+      if (sig === S.sourcesSig) return;
+      S.sourcesSig = sig;
+      S.sources = body;
+      drawSources();
+      drawFlow();
+      registerPage();
+      markMore();
+    })().finally(() => { S.askingSources = null; });
+    return S.askingSources;
+  }
+
+  /** Where Studio answers, for a link on this computer; elsewhere its address is said. */
+  const studioAt = () => String((S.sources && S.sources.studio) || '').replace(/\/+$/, '');
+  function studioLink(h, label, title) {
+    const at = studioAt();
+    if (!at) return h('span', { class: 'create-note' }, label);
+    return HERE
+      ? h('a', { class: 'btn-action tiny create-studio', 'data-create-studio': '1', href: `${at}/`, target: '_blank', rel: 'noopener noreferrer', title }, label)
+      : h('span', { class: 'create-note', 'data-create-studio': 'away' }, `${label}: open ${at}/ on the computer that runs Timmy`);
+  }
+
+  function drawSources() {
+    const h = S.ctx.h;
+    const src = S.sources;
+    if (!src) return;
+    // 02: the parameter files, each with its values as the live board reads them, what runs on it and where
+    put(q('params-title'), `Parameter files (${src.params.length})`);
+    if (!src.params.length) {
+      put(q('params'), h('p', { class: 'empty', 'data-create-empty': 'params' }, 'No parameter file in this project yet: a tray recipe (recipes/tray.params.json) or an OpenSCAD model with its parameters beside it is listed here, with its values.'));
+    } else {
+      put(q('params'), src.params.map((pf) => h('div', { class: 'create-source', 'data-create-params': pf.id, 'data-engine': pf.engine },
+        h('p', { class: 'create-source-title' }, pf.title),
+        h('p', { class: 'create-note' }, pf.state),
+        pf.values.length ? h('dl', { class: 'create-values' }, pf.values.map((v) => [h('dt', null, v.name), h('dd', null, `${v.value}${v.unit ? ` ${v.unit}` : ''}`)])) : null,
+        pf.more ? h('p', { class: 'create-note' }, `and ${pf.more} more values`) : null,
+        h('p', { class: 'create-source-acts' },
+          pf.save.offered ? h('span', { class: 'create-note' }, `Edit and ${pf.rebuild ? 'rebuild ' : 'save '}in Studio: its parameter node (Nodes), which runs through the live board.`) : h('span', { class: 'create-note' }, `Not editable from the board: ${pf.save.why || 'its detail was not read'}.`),
+          ' ', h('button', { type: 'button', class: 'cmd', 'data-copy': pf.command, title: 'Type this in Timmy' }, pf.command)),
+        pf.receipt ? h('details', { class: 'ui-details create-details' }, h('summary', null, 'Details'), h('p', { class: 'create-note' }, `receipt ${pf.receipt}${pf.file ? ` · ${pf.file}` : ''}`)) : null)));
+    }
+    // 03: the workflows, each block with the state its newest run left and the typed /run that takes it; which names hython
+    put(q('workflows-title'), `Workflows (${src.workflows.length})`);
+    if (!src.workflows.length) {
+      put(q('workflows'), h('p', { class: 'empty', 'data-create-empty': 'workflows' }, 'No workflow document in this project yet (a markdown document with named blocks). A cook is a block a REPL runs; nothing here runs one.'));
+    } else {
+      put(q('workflows'), src.workflows.map((w) => h('div', { class: 'create-source', 'data-create-workflow': w.id, 'data-houdini': w.houdini ? 'named' : 'none' },
+        h('p', { class: 'create-source-title' }, w.title),
+        h('p', { class: 'create-note' }, [w.state, w.houdini ? 'a block of it names hython or houdini' : 'no block of it names Houdini', w.running ? 'running now' : ''].filter(Boolean).join(' · ')),
+        w.notRunnable ? h('p', { class: 'create-note tone-failed' }, w.notRunnable) : null,
+        w.blocks.length ? h('ul', { class: 'create-blocks' }, w.blocks.map((b) => h('li', { class: 'create-block', 'data-block-word': b.word },
+          h('span', { class: 'create-block-name' }, `${b.glyph ? `${b.glyph} ` : ''}${b.name}`), ' ', h('span', { class: 'create-note' }, b.word), ' ',
+          b.command ? h('button', { type: 'button', class: 'cmd', 'data-copy': b.command, title: 'Type this in Timmy: it runs there, as a job of the REPL that holds the project' }, b.command) : h('span', { class: 'create-note' }, 'not offered to /run')))) : null,
+        w.last ? h('p', { class: 'create-note' }, `newest run: ${w.last.word}${w.last.met === true ? ' · prediction met' : w.last.met === false ? ' · prediction not met' : ''}${w.last.receipt ? ` · receipt ${w.last.receipt}` : ' · no receipt'}${w.last.endedAt ? ` · ended ${w.last.endedAt}` : ''}`) : h('p', { class: 'create-note' }, 'no run recorded here (this page names no jobs folder; Workflows reads the runs)'))));
+    }
+    // the Houdini lane as probed, and the starters that open in Studio
+    const lane = src.houdini;
+    put(q('houdini-title'), 'Houdini');
+    put(q('houdini'),
+      h('p', { class: 'create-lane', 'data-create-lane': lane.status }, lane.words),
+      h('p', { class: 'create-note' }, 'A snippet on a board is text to copy; a Houdini snippet\'s presence is never a working native operation.'),
+      h('h3', { class: 'create-sub' }, 'Guided blank starters'),
+      h('ul', { class: 'create-starters' }, src.starters.map((t) => h('li', { class: 'create-starter', 'data-create-starter': t.id },
+        h('p', { class: 'create-source-title' }, t.title),
+        h('p', { class: 'create-note' }, t.intro),
+        h('ol', { class: 'create-starter-steps' }, t.steps.map((st) => h('li', null, h('span', { class: 'create-step-n' }, st.n), ' ', st.verb)))))),
+      h('p', { class: 'create-source-acts' }, studioLink(h, 'Open a starter in Studio', 'Opens Timmy Studio on this computer: New board lists the Houdini starters under their own group'), ' ', h('span', { class: 'create-note' }, 'In Studio: New board → Houdini starters, blank. A starter opens on a page of this project\'s board; nodes added from Nodes land in its steps.')),
+      src.notes && src.notes.length ? h('details', { class: 'ui-details create-details' }, h('summary', null, 'Details'), src.notes.map((n) => h('p', { class: 'create-note' }, n))) : null);
+  }
+
+  /** The three step cards' one-line states, from what the page has read; the step in focus is pressed. */
+  function drawFlow() {
+    const L = S.list;
+    const src = S.sources;
+    const words = {
+      '01': !L ? 'reading…' : L.meshes.length ? `${L.meshes.length + L.more} mesh${L.meshes.length + L.more === 1 ? '' : 'es'}${S.sel ? ` · ${S.sel} in the view` : ''}` : 'no mesh yet: /add <file>',
+      '02': !src ? 'reading…' : src.params.length ? `${src.params.length} parameter file${src.params.length === 1 ? '' : 's'} · edit in Studio or by command` : 'no parameter file yet',
+      '03': !src ? 'reading…' : src.houdini.status === 'flag_off' ? `no native Houdini operation · ${src.workflows.length} workflow${src.workflows.length === 1 ? '' : 's'}` : src.houdini.status === 'not_configured' ? 'lane armed, no houdini-mcp on PATH' : 'houdini-mcp on PATH · not exercised here',
+    };
+    for (const st of STEPS) {
+      const el = S.root && S.root.querySelector(`[data-create-step-state="${st.n}"]`);
+      if (el) el.textContent = words[st.n];
+      const b = S.root && S.root.querySelector(`[data-create-step="${st.n}"]`);
+      if (b) b.setAttribute('aria-pressed', st.n === S.step ? 'true' : 'false');
+    }
+  }
+
+  /** The page on the scaffold (SHELL CONTRACT v1 §2.3): its kicker, title, intro, the one primary next action, its state. */
+  function registerPage() {
+    const sh = shell();
+    if (!sh) return;
+    const at = studioAt();
+    const L = S.list;
+    const empty = Boolean(L && !L.meshes.length && S.sources && !S.sources.params.length);
+    // registered again only as what it says changes (the shell redraws the head and dock on each call: a reading every few
+    // seconds that says the same must not take a focused button away)
+    const sig = JSON.stringify([at, empty]);
+    if (sig === S.pageSig) return;
+    S.pageSig = sig;
+    try {
+      // (no kicker, title or intro of the panel's own: the shell's words for Motion & 3D stand, with the rail's number)
+      sh.page('motion', {
+        primary: HERE && at
+          ? { label: 'Open the Houdini starter', run: () => { try { window.open(`${at}/`, '_blank', 'noopener'); } catch (e) { /* the link in the work is the same */ } } }
+          : { label: 'Open the Houdini starter', disabled: true, why: at ? `Studio runs on the computer that runs Timmy: open ${at}/ there` : 'Studio\'s address is not known yet' },
+        context: null,
+        dock: 'HOUDINI TOOLS',
+      });
+      if (empty) sh.state('motion', 'empty', { words: 'No mesh and no parameter file in this project yet. Add a mesh with /add <file>, or start from a Houdini starter in Studio.', next: { label: 'Open the Houdini starter', run: () => { if (HERE && at) window.open(`${at}/`, '_blank', 'noopener'); } } });
+      else sh.state('motion', 'content');
+    } catch (e) { /* the shell's registration is a courtesy: the panel's own work is drawn either way */ }
   }
 
   // ── the list ──
@@ -161,7 +340,7 @@
       const asked = S.wantMesh || (first ? HINT : '');
       if (asked && paths.includes(asked)) { S.sel = asked; S.wantMesh = ''; }
       else if (!S.sel || !paths.includes(S.sel)) S.sel = (body.meshes.find((m) => m.readback) || body.meshes[0] || { path: '' }).path;
-      drawList(); drawRecordings(); drawMeasure();
+      drawList(); drawRecordings(); drawMeasure(); drawFlow(); registerPage();
       if (first) void askNotice();
       const row = body.meshes.find((m) => m.path === S.sel);
       const want = row && row.readback ? row.readback.sha256 : '';
@@ -504,11 +683,19 @@
     const mesh = t.closest('[data-create-mesh]');
     if (mesh) {
       const p = mesh.dataset.createMesh;
-      if (p !== S.sel && S.list) { S.sel = p; markList(); drawMeasure(); void loadMesh(S.list.meshes.find((m) => m.path === p)); markMore(); }
+      if (p !== S.sel && S.list) { S.sel = p; markList(); drawMeasure(); drawFlow(); void loadMesh(S.list.meshes.find((m) => m.path === p)); markMore(); }
       return;
     }
     const key = t.closest('[data-create-key]');
-    if (key) act(key.dataset.createKey);
+    if (key) { act(key.dataset.createKey); return; }
+    // R11 round 7 (H176): a step card brings its box into view (01 the meshes and the view, 02 the parameter files, 03 the workflows and Houdini)
+    const step = t.closest('[data-create-step]');
+    if (step) {
+      S.step = step.dataset.createStep;
+      drawFlow();
+      const box = S.root && S.root.querySelector(`[data-create-box="${S.step === '01' ? 'meshes' : S.step === '02' ? 'params' : 'workflows'}"]`);
+      if (box && typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
+    }
   }
   function onKey(event) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
@@ -577,6 +764,8 @@
       }
       const now = Date.now();
       const rev = frame && frame.revision;
+      // R11 round 7 (H176): the sources (read only) beside the meshes, at most every LIST_AT_LEAST_MS or on a new frame
+      if (!S.sources || rev !== S.revision || now - S.sourcesAt >= LIST_AT_LEAST_MS) void refreshSources();
       if (S.list && now - S.listAt < LIST_EVERY_MS) return undefined;
       if (S.list && rev === S.revision && now - S.listAt < LIST_AT_LEAST_MS) return undefined;
       S.revision = rev;
