@@ -170,22 +170,35 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(timmy[3].slice(0, 2)).toEqual(['TIMMY', 'model not recorded']);
       // R11 step 2: the evidence line under each answer: "<model> · <where> · <seconds> · receipt <id> ✓" (✓ only when the
       // companion verified the receipt on this read); a hand-written receipt is "(not verified)"; no receipt says so
-      const lines = await page.$$eval('#cx-turns > .cx-turn.is-timmy .cx-evidence', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+      // (R11 round 7: the receipt is a LINK into Runs & receipts beside the line — the row reads as before, with → after the link)
+      const lines = await page.$$eval('#cx-turns > .cx-turn.is-timmy .cx-ev-row', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
       expect(lines).toEqual([
-        `▸ fake-qwen3:8b · this computer · 2.1 s · receipt ${ids.a1} ✓`,
-        '▸ fake-qwen3:8b · this computer · 0.9 s · receipt 7f7f7f7f',
-        `▸ fake-qwen3:8b · this computer · 1.2 s · receipt ${ids.stop} ✓`,
+        `▸ fake-qwen3:8b · this computer · 2.1 s · receipt ${ids.a1} ✓ →`,
+        '▸ fake-qwen3:8b · this computer · 0.9 s · receipt 7f7f7f7f →',
+        `▸ fake-qwen3:8b · this computer · 1.2 s · receipt ${ids.stop} ✓ →`,
         '▸ model not recorded · no receipt',
       ]);
+      expect(await page.$$eval('#cx-turns > .cx-turn.is-timmy .cx-receipt', (els) => els.map((e) => [e.getAttribute('href'), e.classList.contains('is-verified')]))).toEqual([[`#logs?receipt=${ids.a1}`, true], ['#logs?receipt=7f7f7f7f', false], [`#logs?receipt=${ids.stop}`, true]]);
       expect(await page.$('#cx-turns .cx-activity')).toBeNull();
+      // (R11 round 7) a receipt link is the way to Runs & receipts: the click fires timmy:open-receipt with the id, the address
+      // names it, the logs page is shown; key 2 brings Chat back (the link never leaves the page or reloads it)
+      await page.evaluate(() => { (window as unknown as { __receipts: unknown[] }).__receipts = []; document.addEventListener('timmy:open-receipt', (e) => (window as unknown as { __receipts: unknown[] }).__receipts.push((e as CustomEvent).detail)); });
+      await page.click(`#cx-turns > .cx-turn.is-timmy .cx-receipt[data-cx-receipt="${ids.a1}"]`);
+      await page.waitForFunction(() => document.body.dataset.dest === 'logs' && !(document.getElementById('ws-logs') as HTMLElement).hidden, null, { timeout: 10_000 });
+      expect(await page.evaluate(() => ({ events: (window as unknown as { __receipts: unknown[] }).__receipts, hash: location.hash }))).toEqual({ events: [{ id: ids.a1, from: 'chat' }], hash: `#logs?receipt=${ids.a1}` });
+      await page.keyboard.press('2');
+      await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
       // Enter on the line opens the activity: the tools as grouped lines (the receipt's outcomes, the result's first line), the receipt's facts
       await page.focus('#cx-turns > .cx-turn.is-timmy .cx-evidence');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#cx-turns .cx-activity', { timeout: 10_000 });
       expect(await page.getAttribute('#cx-turns > .cx-turn.is-timmy .cx-evidence', 'aria-expanded')).toBe('true');
       expect(await page.evaluate(() => document.activeElement?.className)).toBe('cx-evidence');
+      // (R11 round 7: each tool a collapsed card — the dot, the tool, its state, the verb and the result's first line on one row;
+      // the result's lines behind Details)
       const act = await page.$$eval('#cx-turns .cx-activity .cx-act-line, #cx-turns .cx-activity .cx-act-sub', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
-      expect(act).toEqual(['● list_project_files · completed', '└ README.md…']);
+      expect(act).toEqual(['● list_project_files · completed · Listed the project’s files · README.md…']);
+      expect(await page.$eval('#cx-turns .cx-activity .cx-tcard', (d) => ({ open: (d as HTMLDetailsElement).open, tool: d.getAttribute('data-tool'), pre: d.querySelector('pre')?.textContent }))).toEqual({ open: false, tool: 'list_project_files', pre: 'README.md\nSHOT.md' });
       const facts = await page.$$eval('#cx-turns .cx-activity .cx-facts dt, #cx-turns .cx-activity .cx-facts dd', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
       expect(facts).toEqual([
         'Receipt', `${ids.a1} · sealed by the Workbench · ok · 1 step`, 'Verified', '✓ its links, body hashes and signature verify on this computer (checked on this read)',
@@ -210,7 +223,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.isVisible('#cx-turns > .cx-turn.is-stopped details.cx-stop-record pre')).toBe(false);
       // (no standalone tool result stands between the turns any more: the tool's result folded into its answer's activity)
       expect(await page.$('#cx-turns details.cx-tool:not(.cx-stop-record)')).toBeNull();
-      expect(await text(page, '#cx-kicker')).toMatch(/^Chat \/ tray · since /);
+      // (R11 round 7: the kicker is the hierarchy's — 01 / <project> · <the current task>, the newest message of the person's)
+      expect(await text(page, '#cx-kicker')).toBe('01 / tray · One more question, then.');
       // the route of the next turn
       expect(await text(page, '#cx-route-words')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer');
       // the Models rail: Ollama local first (the route's), its installed model in use and selected
@@ -270,11 +284,20 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect((await page.$$eval('#cm-list .cm-row', (els) => els.map((e) => e.getAttribute('data-model')))).sort()).toEqual([...freeRows].sort());
       await page.click('[data-cx="clear-filters"]');
       await page.waitForFunction((n) => document.querySelectorAll('#cm-list .cm-row').length === n, TEXT.length, { timeout: 20_000 });
+      // (R11 round 7, H169's CATALOG METADATA v1 on the row) the capabilities the catalog lists as TRUE are chips, the provider
+      // named at the right; a price with other charges says so; nothing the catalog does not list is drawn as a no
+      const rowMeta = (id: string) => page.$eval(`#cm-list .cm-row[data-model="${id}"]`, (e) => ({ caps: [...e.querySelectorAll('.cm-cap')].map((c) => c.textContent?.trim()), src: e.querySelector('.cm-row-src')?.textContent?.trim(), facts: [...e.querySelectorAll('.cm-row-facts > span')].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim()) }));
+      expect(await rowMeta('anthropic/claude-haiku-5.5')).toEqual({ caps: ['tools', 'vision', 'reasoning'], src: 'OpenRouter', facts: ['1M ctx', '$0.1 / $0.5 per M + other charges'] });
+      expect(await rowMeta('recursive/flint-v1.0:free')).toEqual({ caps: ['tools', 'reasoning'], src: 'OpenRouter', facts: ['262K ctx', 'free · $0 / $0 per M'] });
       // a model not in use: its detail, and why it cannot be used from this page yet
       await page.click('#cm-list .cm-row[data-model="anthropic/claude-haiku-5.5"]');
       const detail = await text(page, '.cm-detail');
       expect(detail).toContain('Anthropic: Claude Haiku 5.5');
       expect(detail).toContain('Model idanthropic/claude-haiku-5.5');
+      // (round 7) the catalog's other charges and its "varies" are the detail's own rows, in the provider's words
+      expect(detail).toContain('Other chargesweb_search');
+      expect(detail).toContain('Pricevaries by request (the provider’s word)');
+      expect(detail).toContain('Tools · Vision · Reasoningyes · yes · yes');
       // (R11 step 1) a row can be chosen from here; this one needs the OpenRouter route, said when tried
       expect(await page.isDisabled('.cm-detail [data-cm-use]')).toBe(false);
       expect(detail).toContain('Kept in the settings and as Models’ record, as the Workbench keeps a choice');
@@ -329,7 +352,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // time this looks, so the end state is the chain's: one more TIMMY turn with the FAKE's answer and a receipt id
       await page.waitForFunction(() => document.querySelectorAll('#cx-turns .cx-turn.is-timmy').length >= 5 && document.querySelectorAll('#cx-own .cx-turn').length === 0, null, { timeout: 60_000 });
       expect(await page.inputValue('#cx-input')).toBe('');
-      const last = await page.$eval('#cx-turns .cx-turn.is-timmy:last-of-type', (e) => ({ text: (e.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), line: (e.querySelector('.cx-evidence')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
+      const last = await page.$eval('#cx-turns .cx-turn.is-timmy:last-of-type', (e) => ({ text: (e.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), line: (e.querySelector('.cx-ev-row')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
       expect(last.text).toBe('FAKE streamed answer from the test\'s stand-in.');
       // the evidence line is the terminal's: model · where · seconds · receipt <8>, the receipt's short id by the terminal's
       // rule (src/workbench/hub.ts receiptShort: the FIRST 8 hex after sha256_); the page's own copy folded into this turn
@@ -337,7 +360,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(last.line).toMatch(/^▸ fake-qwen3:8b · this computer · \d+(\.\d)? s · receipt [0-9a-f]{8}/);
       // (the fold above is the pin of that rule: the page drops its own copy only when its id, by receiptShort, equals the
       // chain's ReceiptFacts.id — hash.slice(7, 15) on the server; the last 8 never matched, and the turn was drawn twice)
-      const chainIds = await page.$$eval('#cx-turns .cx-turn.is-timmy .cx-evidence', (els) => els.map((e) => /receipt ([0-9a-f]{8})/.exec(e.textContent ?? '')?.[1] ?? ''));
+      const chainIds = await page.$$eval('#cx-turns .cx-turn.is-timmy .cx-ev-row', (els) => els.map((e) => /receipt ([0-9a-f]{8})/.exec(e.textContent ?? '')?.[1] ?? ''));
       expect(chainIds.at(-1)).toMatch(/^[0-9a-f]{8}$/);
       expect(ollama.chats().at(-1)?.messages?.at(-1)).toMatchObject({ role: 'user', content: 'Sketch the first screen.' });
       // the activity component was fed the turn's OWN events (the source names the request and the SSE event), in order: route
@@ -420,7 +443,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // (the frame itself is read again as the turn ends — the hold is gone there within its next answer)
       for (let i = 0; i < 40 && composer.chatTurn !== null; i++) { await page.waitForTimeout(500); composer = await composerState(); }
       expect(composer).toMatchObject({ send: expect.not.stringContaining('is-stop'), label: 'Send message', running: false, chatTurn: null });
-      await page.waitForFunction(() => document.querySelectorAll('#cx-own .cx-turn').length === 0 && [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].slice(-1).every((li) => li.classList.contains('is-stopped') && /receipt [0-9a-f]{8}/.test(li.querySelector('.cx-evidence')?.textContent ?? '')), null, { timeout: 30_000 });
+      await page.waitForFunction(() => document.querySelectorAll('#cx-own .cx-turn').length === 0 && [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].slice(-1).every((li) => li.classList.contains('is-stopped') && /receipt [0-9a-f]{8}/.test(li.querySelector('.cx-ev-row')?.textContent ?? '')), null, { timeout: 30_000 });
       const stoppedLast = await page.$eval('#cx-turns li.cx-turn.is-timmy:last-of-type', (li) => ({ text: (li.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), meta: (li.querySelector('.cx-meta')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
       expect(stoppedLast.text).toBe('Nothing was written before the stop.');
       expect(stoppedLast.meta).toMatch(/^■ stopped by you/);
@@ -644,20 +667,25 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(JSON.parse(answers[0])).toEqual({ id: boxId, choice: 'once' });
       // the real action behind the gate: the tool ran where the turn runs (the project's folder) — its line reads ran while the
       // FAKE's answer still streams (six chunks, 400 ms apart), the answered ask's box under it
-      await page.waitForFunction(() => /· ran$/.test((document.querySelector('#cx-own .cx-act-line[data-tool="write_project_file"]')?.textContent ?? '').replace(/\s+/g, ' ').trim()), null, { timeout: 30_000 });
+      await page.waitForFunction(() => /· ran\b/.test((document.querySelector('#cx-own .cx-act-line[data-tool="write_project_file"]')?.textContent ?? '').replace(/\s+/g, ' ').trim()), null, { timeout: 30_000 });
       expect(readFileSync(join(box, 'tray', 'notes-r6.md'), 'utf8')).toBe('from the FAKE model, allowed once on the page\n');
-      expect(await page.$$eval('#cx-own .cx-act-line[data-tool="write_project_file"]', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(['● write_project_file · ran']);
+      // (R11 round 7: the tool as a collapsed card — the dot, the tool, its state, the verb; Details hold its words)
+      expect(await page.$$eval('#cx-own .cx-act-line[data-tool="write_project_file"]', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(['● write_project_file · ran · Wrote a project file']);
+      expect(await page.$eval('#cx-own .cx-tcard[data-tool="write_project_file"]', (d) => ({ open: (d as HTMLDetailsElement).open, state: d.getAttribute('data-tool-state'), body: (d.querySelector('.cx-tcard-body')?.textContent ?? '').trim() }))).toEqual({ open: false, state: 'ran', body: 'write_project_file ran' });
       // (the installed capture of GATE 36, H172: the tool line was laid in the turn grid's MARK column, 30 px wide, and painted
       // over the ask's box beside it) the tool line is ONE row in the turn's text column — the glyph, the name, the state — its box
       // not overlapping the ask's box, which sits under it with its "answered: once" note; both start where the turn's text starts
       const rows = await page.evaluate(() => {
         const r = (el: Element | null) => { if (!el) return null; const b = el.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom), height: Math.round(b.height) }; };
         const li = document.querySelector('#cx-own li.cx-turn.is-timmy')!;
-        const line = li.querySelector('.cx-act-line[data-tool="write_project_file"]');
-        return { who: r(li.querySelector('.cx-who')), line: r(line), dot: r(line?.querySelector('.cx-act-dot') ?? null), needs: r(li.querySelector('.cx-needs')), note: r(li.querySelector('.cx-needs .cx-act-sub')), lineHeight: line ? parseFloat(getComputedStyle(line).lineHeight) : 0, answered: li.querySelector('.cx-needs .cx-act-sub')?.textContent?.trim() };
+        const row = li.querySelector('.cx-act-line[data-tool="write_project_file"]');
+        // (R11 round 7: the line is the summary row of a collapsed card; the card's box is what sits in the text column)
+        const line = row?.closest('.cx-tcard') ?? row;
+        return { who: r(li.querySelector('.cx-who')), line: r(line), row: r(row), dot: r(row?.querySelector('.cx-act-dot') ?? null), needs: r(li.querySelector('.cx-needs')), note: r(li.querySelector('.cx-needs .cx-act-sub')), lineHeight: row ? parseFloat(getComputedStyle(row).lineHeight) : 0, answered: li.querySelector('.cx-needs .cx-act-sub')?.textContent?.trim() };
       });
-      expect(rows.line && rows.needs && rows.who && rows.dot).toBeTruthy();
-      expect(rows.line!.height, 'one row').toBeLessThanOrEqual(Math.ceil(rows.lineHeight * 1.5));
+      expect(rows.line && rows.row && rows.needs && rows.who && rows.dot).toBeTruthy();
+      expect(rows.row!.height, 'one row').toBeLessThanOrEqual(Math.ceil(rows.lineHeight * 1.5));
+      expect(rows.line!.height, 'the closed card is that one row and its border').toBeLessThanOrEqual(Math.ceil(rows.lineHeight * 1.5) + 2);
       expect(rows.line!.left, 'in the text column, where TIMMY starts').toBe(rows.who!.left);
       expect(rows.needs!.left).toBe(rows.who!.left);
       expect(rows.line!.bottom, 'the ask\'s box under the tool line, not beside or over it').toBeLessThanOrEqual(rows.needs!.top);
@@ -716,6 +744,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
       expect(ollama.chats().length, 'the FAKE\'s queue: this case\'s tool-call script is the fifth').toBe(4);
+      // (the companion holds no turn of the case before: the composer reads Send, not another surface's turn)
+      await page.waitForFunction(() => document.getElementById('cx-send')?.getAttribute('aria-label') === 'Send message', null, { timeout: 20_000 });
       // the band starts folded on a phone; the viewer opens it (the choice kept)
       expect(await page.$eval('#cx-console', (b) => b.classList.contains('is-folded'))).toBe(true);
       await page.click('#cx-console-toggle');
@@ -890,7 +920,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.click('#cx-more');
       expect(await said('#cx-drawer [data-cx-ctl]')).toEqual(['Attach', 'Tools', 'Cloudflare optional']);
       await page.click('#cx-drawer [data-cx-ctl="attachments"]');
-      expect(await text(page, '#cx-drawer')).toContain('Not on this page yet: its Send carries text only.');
+      // (R11 round 7: Attach says what is allowed — a project file by its path, read by the turn's tools — and what is not yet)
+      expect(await text(page, '#cx-drawer')).toContain('Allowed: a file inside the project’s folder, named by its path there.');
+      expect(await text(page, '#cx-drawer')).toContain('Not yet: uploads from this computer');
+      expect(await page.isVisible('#cx-attach-path')).toBe(true);
       await page.keyboard.press('Escape');
       expect(await page.isVisible('#cx-drawer')).toBe(false);
       // (R11 round 4: FAKE is named on the descriptor; the next turn's model in the panel's NEXT TURN and the line above the composer)

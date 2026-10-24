@@ -143,7 +143,11 @@ function mountConsoleIn(host, size) {
   try {
     // (H174's CONTRACT of 06:37: size 'card' = 320 px / 'wide' = the host's width; the band's own CSS sets the face's height from
     // the window, in the artboard's proportions; no heading of the mount's — the band's head row is the heading)
-    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size, heading: null, label: 'Agent console: the turn’s state' });
+    // (H174's RIVE CONTRACT v2, 14:18: the same call + `identity` { project, session } and `caption` — the page's words, read
+    // by the v2 asset's Tag/Caption runs, ignored by the v1 bindings; the turn's id reaches the Tag from the 'turn' event itself)
+    const conv = cx.view && cx.view.conversation;
+    const identity = { project: cx.project && cx.project.name ? cx.project.name : undefined, session: conv && conv.session ? conv.session : undefined };
+    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size, heading: null, label: 'Agent console: the turn’s state', identity, caption: 'LIVE / THE TURN’S EVENTS' });
     // (until his mount is on this page: the bindings' component with the asset's documented names; bound to this page's activity feed)
     return R.component({ host, component: 'console', asset: TIMMY_UI_ASSET, artboard: 'AgentConsole', stateMachine: 'TimmyUI', role: 'img', heading: null, label: 'Agent console: the turn’s state', text: '>_', binds: ['activity'], size });
   } catch (e) { return null; }
@@ -200,6 +204,7 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
 }
 
 let consoleHandle = null;
+let consoleIdentitySaid = ''; // (RIVE CONTRACT v2: the project/session words last told to the console)
 const CONSOLE_FOLD_KEY = 'cx-console-fold';
 const COMPACT_VIEW = '(max-width: 760px), (max-height: 760px)';
 /** A phone's width or a short window: the band starts folded there (the conversation keeps its height) until this viewer opens it. */
@@ -258,6 +263,13 @@ function drawConsole() {
       let sized = 0;
       window.addEventListener('resize', () => { clearTimeout(sized); sized = setTimeout(() => { try { if (consoleHandle && consoleHandle.rive && typeof consoleHandle.rive.resizeDrawingSurfaceToCanvas === 'function') consoleHandle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ } }, 150); });
     } catch (e) { /* no media queries here */ }
+  }
+  // (RIVE CONTRACT v2: the identity words follow the conversation — a new conversation is another session; told only on a change)
+  const conv = cx.view && cx.view.conversation;
+  const idWords = `${cx.project && cx.project.name ? cx.project.name : ''}\u0000${conv && conv.session ? conv.session : ''}`;
+  if (idWords !== consoleIdentitySaid && consoleHandle && typeof consoleHandle.setIdentity === 'function') {
+    consoleIdentitySaid = idWords;
+    try { consoleHandle.setIdentity({ project: cx.project && cx.project.name ? cx.project.name : undefined, session: conv && conv.session ? conv.session : undefined }); } catch (e) { /* the handle's own */ }
   }
   band.hidden = false;
   syncConsoleClass();
@@ -569,26 +581,25 @@ const seconds = (ms) => (typeof ms === 'number' && Number.isFinite(ms) ? `${(ms 
 function evidence(key, model, rc, tools, extra) {
   const open = openActivity.has(key);
   // (as the terminal's line: ✓ only when the receipt verified on this read, no mark otherwise; "no receipt" when none seals it)
-  const mark = rc && rc.verified ? h('span', { class: 'cx-ev-ok' }, '✓') : null;
-  const line = rc ? `${model || 'model not recorded'} · ${rc.where} · ${seconds(rc.ms)} · receipt ${rc.id}${rc.verified ? ' ' : ''}`
-    : extra && extra.own ? `${model || 'no model'} · ${extra.where} · ${extra.seconds} · no receipt`
-      : `${model || 'model not recorded'} · no receipt`;
+  const line = extra && extra.own ? `${model || 'no model'} · ${extra.where} · ${extra.seconds} · no receipt` : `${model || 'model not recorded'} · no receipt`;
+  // R11 round 7: the receipt is a LINK to Runs & receipts (the record itself, selected there); the line before it toggles the activity
+  const before = rc ? `${model || 'model not recorded'} · ${rc.where} · ${seconds(rc.ms)} · ` : line;
   const btn = h('button', { type: 'button', class: 'cx-evidence', 'aria-expanded': open ? 'true' : 'false', 'data-activity': key },
-    h('span', { class: 'cx-ev-mark', 'aria-hidden': 'true' }, open ? '▾' : '▸'), ` ${line}`, mark);
-  if (!open) return [btn];
+    h('span', { class: 'cx-ev-mark', 'aria-hidden': 'true' }, open ? '▾' : '▸'), ` ${before}`);
+  const row = h('div', { class: 'cx-ev-row' }, btn, rc ? receiptLink(rc) : null);
+  if (!open) return [row];
   const act = h('div', { class: 'cx-activity', role: 'region', 'aria-label': 'Activity of this answer' });
   // the tools, grouped: the receipt's outcomes in order (its tool_outcomes), each with the result the conversation kept, cut to a line
   const said = new Map((tools || []).map((m) => [m.tool || '', m]));
   const lines = h('div', { class: 'cx-act-tools' });
+  const firstLine = (text) => { const t = String(text || ''); const l = t.split('\n')[0].slice(0, 120); return l + (t.includes('\n') || t.length > 120 ? '…' : ''); };
   if (rc && rc.tools.length) {
-    rc.tools.forEach((t) => {
-      const line = h('p', { class: 'cx-act-line' }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, t.outcome === 'completed' ? '●' : t.outcome === 'failed' ? '✕' : '○'), ` ${t.name} · ${t.outcome}${t.receipt ? ` · its own receipt ${t.receipt.slice(7)}` : ''}`);
-      lines.append(line);
+    rc.tools.forEach((t, k) => {
       const m = said.get(t.name);
-      if (m) lines.append(h('p', { class: 'cx-act-sub' }, `└ ${String(m.text || '').split('\n')[0].slice(0, 120)}${String(m.text || '').includes('\n') || String(m.text || '').length > 120 ? '…' : ''}`));
+      lines.append(toolCard(`${key}:${k}`, { name: t.name, status: t.outcome, receipt: t.receipt ? `sha256_${t.receipt.slice(7)}` : '', line: m ? firstLine(m.text) : '', text: m ? String(m.text || '') : '' }));
     });
   } else if (tools && tools.length) {
-    tools.forEach((m) => lines.append(h('p', { class: 'cx-act-line' }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, '●'), ` ${m.tool || 'a tool'} · result kept in the conversation`), h('p', { class: 'cx-act-sub' }, `└ ${String(m.text || '').split('\n')[0].slice(0, 120)}`)));
+    tools.forEach((m, k) => lines.append(toolCard(`${key}:${k}`, { name: m.tool || 'a tool', status: 'completed', line: firstLine(m.text), text: String(m.text || '') })));
   } else lines.append(h('p', { class: 'cx-act-line is-none' }, rc ? 'No tool ran: the answer came from the model alone.' : 'No tool ran in this turn.'));
   act.append(h('p', { class: 'cx-act-k' }, 'Tools'), lines);
   // the receipt's facts, each named; a FAKE receipt in a test is said not verified, never ✓
@@ -609,7 +620,43 @@ function evidence(key, model, rc, tools, extra) {
     else if (extra && extra.own) add('Spend', 'not reported: the turn ended before its facts came');
   }
   act.append(h('p', { class: 'cx-act-k' }, 'Receipt'), facts);
-  return [btn, act];
+  return [row, act];
+}
+
+/** A receipt as a link into Runs & receipts (the destination, with the record named: #logs?receipt=<id>); ✓ only when verified on this read. */
+function receiptLink(rc) {
+  return h('a', { class: `cx-receipt${rc.verified ? ' is-verified' : ''}`, href: `#logs?receipt=${encodeURIComponent(rc.id)}`, 'data-cx-receipt': rc.id, title: rc.verified ? 'Opens this receipt in Runs & receipts (verified on this read)' : `Opens this receipt in Runs & receipts (${rc.why || 'not verified'})` },
+    `receipt ${rc.id}`, rc.verified ? h('span', { class: 'cx-ev-ok' }, ' ✓') : null, h('span', { class: 'cx-receipt-go', 'aria-hidden': 'true' }, ' →'));
+}
+
+/** What a tool did, in a verb (the tool's name says its object): for the collapsed card's one line. */
+const TOOL_VERBS = {
+  list_project_files: ['Lists the project’s files', 'Listed the project’s files'], read_project_file: ['Reads a project file', 'Read a project file'],
+  write_project_file: ['Writes a project file', 'Wrote a project file'], search_project: ['Searches the project', 'Searched the project'], run_workflow: ['Runs a workflow', 'Ran a workflow'],
+};
+function toolVerb(name, status) {
+  const v = TOOL_VERBS[name] || [`Uses ${name}`, `Used ${name}`];
+  if (status === 'ran' || status === 'completed') return v[1];
+  if (status === 'refused') return `${v[0]} — did not run (denied)`;
+  if (status === 'failed') return `${v[0]} — failed`;
+  return `${v[0]} — asked`;
+}
+/**
+ * A tool call as a collapsed card (R11 round 7): the dot, the verb, the tool's name and its state on one line; Details hold its
+ * words, its result's lines (a saved turn's) and its own receipt. The card stays open across redraws by its key.
+ */
+function toolCard(key, x) {
+  const done = x.status === 'ran' || x.status === 'completed';
+  const bad = x.status === 'failed' || x.status === 'refused';
+  const card = h('details', { class: `cx-tcard${done ? ' is-done' : bad ? ' is-bad' : ' is-asked'}`, 'data-tool': x.name, 'data-tool-state': x.status, open: openTools.has(key) },
+    h('summary', { class: 'cx-act-line', 'data-tool': x.name }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, done ? '●' : bad ? '✕' : '○'), ` ${x.name} · ${x.status}`, h('span', { class: 'cx-tcard-verb' }, ` · ${toolVerb(x.name, x.status)}${x.line ? ` · ${x.line}` : ''}`)),
+    h('div', { class: 'cx-tcard-body' },
+      x.words ? h('p', null, x.words) : null,
+      x.text ? h('pre', null, x.text) : null,
+      x.receipt ? h('p', { class: 'cx-act-sub' }, `└ its own receipt ${receiptShort(x.receipt)}`) : null,
+      !x.words && !x.text && !x.receipt ? h('p', { class: 'cx-act-sub' }, '└ nothing more was recorded of it') : null));
+  card.addEventListener('toggle', () => { if (card.open) openTools.add(key); else openTools.delete(key); });
+  return card;
 }
 
 /** The saved turns drawn: a tool message folds into the answer that follows it (its activity); one after no answer stands alone. */
@@ -673,16 +720,24 @@ function ownTurn(t, i) {
   const meta = h('div', { class: 'cx-meta' });
   // R11 step 2: a running turn always shows an indicator with its words (the playbook §17)
   const toolsNow = (t.tools || []).length;
-  if (t.state === 'streaming' && t.stopping) meta.append(h('span', { class: 'cx-end cx-running is-stopping' }, spinner(), ` Stopping · asked ${Math.max(0, Math.round((Date.now() - t.stopping) / 1000))} s ago · the turn’s receipt comes as it stops (Stop again stops this page’s reading now)`));
+  // (round 7: Stop stays REQUESTED until the backend confirms it — the turn's own `done` with its receipt)
+  if (t.state === 'streaming' && t.stopping) meta.append(h('span', { class: 'cx-end cx-running is-stopping' }, spinner(), ` Stop requested · ${Math.max(0, Math.round((Date.now() - t.stopping) / 1000))} s ago · not confirmed yet: the turn’s receipt comes as it stops (Stop again stops this page’s reading now)`));
   else if (t.state === 'streaming') meta.append(h('span', { class: 'cx-end cx-running' }, spinner(), ` Answering · ${t.model || 'the model'} · ${where} · ${Math.max(0, Math.round(elapsed / 1000))} s · ${toolsNow ? `${toolsNow} tool${toolsNow === 1 ? '' : 's'}` : 'no tool yet'}`));
   else if (t.state === 'stopped') meta.append(h('span', { class: 'cx-end' }, '✕ stopped by you: the answer so far is kept here'));
   else if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, `✕ failed: ${t.words || 'no answer'}`));
   if (t.notice) meta.append(h('span', null, t.notice));
-  // R11 round 4: each tool as a line with its outcome (H169's `tool` events), as they come
-  const toolLines = (t.tools || []).length ? h('div', { class: 'cx-act-tools cx-own-tools' }, ...(t.tools || []).map((x) => h('p', { class: 'cx-act-line', 'data-tool': x.name }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, x.status === 'ran' || x.status === 'completed' ? '●' : x.status === 'failed' || x.status === 'refused' ? '✕' : '○'), ` ${x.name} · ${x.status}${x.receipt ? ` · its own receipt ${receiptShort(x.receipt)}` : ''}`))) : null;
+  // R11 round 7 (recovery): a failed turn keeps its text above and offers the way on — the same message again, another model, or a
+  // conversation of its own; a stopped one offers the same message again
+  const recovery = t.state === 'failed' || t.state === 'stopped' ? h('div', { class: 'cx-recover', role: 'group', 'aria-label': 'What next' },
+    h('button', { type: 'button', class: 'cx-btn is-primary', 'data-cx': 'retry', 'data-own': String(i) }, 'Retry'),
+    h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'change-model' }, 'Change model'),
+    h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'new-conversation' }, 'New conversation')) : null;
+  // R11 round 4: each tool as it comes (H169's `tool` events); round 7: a collapsed card — the verb, the tool, its state on one
+  // line, the rest (its words, its own receipt) behind Details
+  const toolLines = (t.tools || []).length ? h('div', { class: 'cx-act-tools cx-own-tools' }, ...(t.tools || []).map((x, k) => toolCard(`own:${i}:${k}`, { name: x.name, status: x.status, receipt: x.receipt, words: x.words || '' }))) : null;
   // NEEDS-YOU: the question inline with its options; the choice goes back to the turn
   const needs = needsBlock(t);
-  const li = h('li', { class: `cx-turn is-timmy is-${t.state}`, 'data-own': String(i), ...(t.id ? { 'data-turn-id': t.id } : {}) }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '>_'), who, textBlock(t.answer || ''), toolLines, needs, meta);
+  const li = h('li', { class: `cx-turn is-timmy is-${t.state}`, 'data-own': String(i), ...(t.id ? { 'data-turn-id': t.id } : {}) }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '>_'), who, textBlock(t.answer || ''), toolLines, needs, meta, recovery);
   // the evidence line from `done`: the sealed receipt (✓ only when the companion said it verified), else no receipt
   if (t.state !== 'streaming') {
     const rc = t.receipt ? (typeof t.receipt === 'string' ? { id: receiptShort(t.receipt), hash: t.receipt, verified: false, where, ms: elapsed, surface: 'companion', status: t.state, steps: t.steps, tools: (t.tools || []).map((x) => ({ name: x.name, outcome: x.status, receipt: x.receipt || '' })), cost: t.cost && typeof t.cost.usd === 'number' ? t.cost : null } : { id: String(t.receipt.id || receiptShort(t.receipt.hash)), hash: t.receipt.hash || '', verified: t.receipt.verified === true, why: t.receipt.why || (t.receipt.verified === true ? '' : 'not checked on this read: Runs & receipts verifies it'), where: t.receipt.where || where, ms: typeof t.receipt.ms === 'number' ? t.receipt.ms : elapsed, surface: t.receipt.surface || 'companion', status: t.receipt.status || t.state, steps: typeof t.steps === 'number' ? t.steps : t.receipt.steps, tools: (t.tools || []).map((x) => ({ name: x.name, outcome: x.status, receipt: x.receipt || '' })), cost: t.cost && typeof t.cost.usd === 'number' ? t.cost : (t.receipt.cost || null) }) : null;
@@ -741,6 +796,162 @@ function routeWhere(r) {
   return 'no route';
 }
 
+// ── R11 round 7: the page's three answers — where I am (the kicker), what I can do (the title, one line), what happens next (the ONE
+// primary action) — computed from the chat's state, drawn into the shell's page head (H175's SHELL CONTRACT) and, until that
+// lands, into the chat's own head and descriptor. The order's hierarchy: Timmy → project → current task → primary next action. ──
+
+/** The current task's words: the newest message of the person's (the conversation's or this page's), cut for a kicker. */
+function taskWords() {
+  const own = cx.own[cx.own.length - 1];
+  const conv = cx.view && cx.view.conversation;
+  const saved = conv ? [...conv.turns].reverse().find((t) => t.kind === 'you') : null;
+  const words = own ? own.you : saved ? saved.text : '';
+  const one = String(words || '').replace(/\s+/g, ' ').trim();
+  return one.length > 44 ? `${one.slice(0, 43)}…` : one;
+}
+
+/**
+ * The ONE primary next action — Send / Choose a model / Answer / Stop / Sign in — the one that applies now (D4: every state has a
+ * verb-led next action). `go` names what it does on the page; the composer's button and the page head's button both draw it.
+ */
+function primaryAction() {
+  const st = centerState();
+  const own = cx.own[cx.own.length - 1];
+  if (st === 'first-run') return { id: 'choose-way', words: 'Choose how to run', go: 'first-run' };
+  if (st === 'setup') return { id: 'setup', words: 'Continue the setup', go: 'setup' };
+  if (cx.running) {
+    if (own && own.needs && !own.needs.answered) return { id: 'answer', words: 'Answer Timmy', go: 'needs' };
+    return { id: 'stop', words: own && own.stopping ? 'Stop requested' : 'Stop', go: 'stop', pending: Boolean(own && own.stopping) };
+  }
+  const other = otherTurn();
+  if (other) return { id: 'stop-other', words: 'Stop', go: 'stop', other };
+  const r = routeOf(cx.view);
+  if (!cx.view) return { id: 'reading', words: 'Reading…', go: 'none', off: true };
+  if (!(r && r.ready)) return { id: 'choose-model', words: 'Choose a model', go: 'models' };
+  if (!signedIn()) return { id: 'sign-in', words: 'Sign in', go: 'account' };
+  return { id: 'send', words: 'Send', go: 'send' };
+}
+
+/** The page head's words by state (D4: empty / content / running / approval / error, each with its next action). */
+function pageWords() {
+  const st = centerState();
+  const proj = cx.project && cx.project.name ? cx.project.name : 'this project';
+  const own = cx.own[cx.own.length - 1];
+  const conv = cx.view && cx.view.conversation;
+  const n = conv ? conv.turns.filter((t) => t.kind !== 'tool').length : 0;
+  const r = routeOf(cx.view);
+  const task = taskWords();
+  const kick = task ? `01 / ${proj} · ${task}` : '01 / START A CONVERSATION';
+  if (!companion.token || companion.refused) return { kicker: '01 / CHAT', title: 'Open this page from Timmy.', line: 'Nothing is read without the companion’s token; the note above says how.', state: 'error' };
+  if (st === 'reading') return { kicker: '01 / CHAT', title: 'Reading the project’s conversation…', line: cx.viewFailed || 'The companion is asked for the conversation and the next turn’s route.', state: cx.viewFailed ? 'error' : 'reading' };
+  if (st === 'first-run' || st === 'setup') return { kicker: '01 / START A CONVERSATION', title: 'How would you like to run chat?', line: 'Choose one; you can add the others later. No account is needed to explore.', state: 'empty' };
+  if (own && own.state === 'streaming' && own.needs && !own.needs.answered) return { kicker: kick, title: 'Timmy needs you.', line: own.needs.words || 'A tool asks before it runs: answer below.', state: 'approval' };
+  if (own && own.state === 'streaming') return { kicker: kick, title: own.stopping ? 'Stop requested.' : 'Timmy is answering.', line: own.stopping ? 'Not confirmed yet: the turn’s receipt comes as it stops.' : `${own.model || 'the model'} · ${own.where || 'where it runs is not known yet'} · Stop keeps what was written so far.`, state: 'running' };
+  if (own && own.state === 'failed') return { kicker: kick, title: 'The turn did not finish.', line: own.words || 'No answer came.', state: 'error' };
+  if (own && own.state === 'stopped') return { kicker: kick, title: 'Stopped.', line: 'The answer so far is kept; the receipt says it was stopped by you.', state: 'content' };
+  if (st === 'no-model') return { kicker: '01 / START A CONVERSATION', title: 'A model is optional until you need an answer.', line: 'Write a draft now; choose a model when you want one.', state: 'empty' };
+  if (st === 'empty') return { kicker: '01 / START A CONVERSATION', title: 'What would you like to make?', line: 'Your models, tools and ideas share one workspace.', state: 'empty' };
+  return { kicker: kick, title: 'Think, make and check your work.', line: `${n} message${n === 1 ? '' : 's'} in the project’s conversation${r && r.ready ? ` · the next answer from ${r.model}` : ''} · every answer sealed with its receipt.`, state: 'content' };
+}
+
+/** The shell of H175's SHELL CONTRACT v1 (§2.3), when this page runs on it: TimmyShell.page/state/band are functions there. */
+function shell() {
+  const S = typeof TimmyShell !== 'undefined' ? TimmyShell : null;
+  return S && typeof S.page === 'function' ? S : null;
+}
+
+/** SHELL CONTRACT v1 §6 (H171): on the scaffold, the Chat's parts take the page's regions — the Models rail is the page's context
+ *  column (a sheet on a phone), the controls sit in the task dock, the status row in the records — moved once, when the regions
+ *  exist; on an older shell (none of them) #cx stays whole and nothing here runs. Said on body.cx-on-scaffold for the sheet. */
+let scaffoldAdopted = false;
+function adoptScaffold() {
+  if (scaffoldAdopted) return true;
+  const page = $('ws-chat');
+  if (!page || !page.classList.contains('page')) return false;
+  const ctx = page.querySelector('.page-context');
+  const dock = page.querySelector('.page-dock');
+  const rec = page.querySelector('.page-records');
+  if (!ctx && !dock && !rec) return false;
+  const models = $('cx-models');
+  if (ctx && models && !ctx.contains(models)) ctx.appendChild(models);
+  const controls = $('cx-controls');
+  if (dock && controls && !dock.contains(controls)) dock.appendChild(controls);
+  const status = $('cx-status');
+  if (rec && status && !rec.contains(status)) {
+    let d = rec.querySelector('details.records');
+    if (!d) { d = h('details', { class: 'records' }, h('summary', null, 'Records')); rec.appendChild(d); }
+    d.appendChild(status);
+  }
+  scaffoldAdopted = true;
+  document.body.classList.add('cx-on-scaffold');
+  return true;
+}
+
+/** The last registration's words: the shell redraws its head on every page() call, so it is told only what changed. */
+let headSaid = '';
+
+/** The page head drawn: through the shell's registration when it has one (SHELL CONTRACT v1 §2.3), else the chat's own head and descriptor. */
+function drawHead() {
+  const w = pageWords();
+  const a = primaryAction();
+  document.body.dataset.chatPrimary = a.id;
+  const S = shell();
+  if (S) {
+    adoptScaffold();
+    const r = routeOf(cx.view);
+    const model = r && r.ready ? r.model : cx.view ? 'none chosen' : 'not known yet';
+    // (the band's Records cell: what the conversation's answers carry — sealed receipts counted, verified ones said as such;
+    // a conversation not read yet claims nothing)
+    const conv = cx.view && cx.view.conversation;
+    const withReceipt = conv ? conv.turns.filter((t) => t.kind === 'timmy' && t.receipt && t.receipt.id) : [];
+    const verified = withReceipt.filter((t) => t.receipt.verified).length;
+    const records = !cx.view ? 'not read yet' : !withReceipt.length ? 'no receipt yet · local' : `${withReceipt.length} receipt${withReceipt.length === 1 ? '' : 's'}${verified ? ` · ${verified} verified` : ''} · local`;
+    // (the contract's five states: reading is said as content — nothing claimed until the view is read)
+    const state = w.state === 'reading' ? 'content' : w.state;
+    const said = JSON.stringify([w.kicker, w.title, w.line, state, a.id, a.words, Boolean(a.off), Boolean(a.pending), model, records]);
+    if (said !== headSaid) {
+      headSaid = said;
+      try {
+        S.page('chat', { kicker: w.kicker, title: w.title, intro: w.line, primary: { label: a.words, run: () => actPrimary(primaryAction()), disabled: Boolean(a.off), why: a.off ? 'Reading the project’s conversation first' : (a.pending ? 'Stop requested; not confirmed yet' : '') }, context: 'models', dock: 'CHAT TOOLS' });
+        if (typeof S.state === 'function') S.state('chat', state, state === 'error' || state === 'approval' ? { words: w.line, next: a.off ? undefined : { label: a.words, run: () => actPrimary(primaryAction()) } } : undefined);
+        if (typeof S.band === 'function') S.band('chat', { model, records });
+      } catch (e) { /* the shell's own; the chat's head below says the same */ }
+    }
+  }
+  const kicker = $('cx-kicker');
+  const title = $('cx-title');
+  const sub = $('cx-sub');
+  if (kicker) kicker.textContent = w.kicker;
+  if (title) title.textContent = w.title;
+  if (sub) sub.textContent = w.line;
+  // the one primary action beside the descriptor (until the shell's head carries it)
+  const right = document.querySelector('#cx-descriptor .cx-descriptor-right');
+  if (right) {
+    let btn = $('cx-primary');
+    if (!btn) { btn = h('button', { type: 'button', class: 'cx-btn is-primary cx-primary', id: 'cx-primary' }); right.prepend(btn); }
+    btn.textContent = a.words;
+    btn.disabled = Boolean(a.off);
+    btn.dataset.act = a.id;
+    btn.classList.toggle('is-pending', Boolean(a.pending));
+    btn.classList.toggle('is-stop', a.go === 'stop');
+    btn.hidden = a.id === 'send' && !$('cx-send'); // (Send is the composer's: the head's says it only while the composer is away)
+  }
+}
+
+/** The primary action acted on: what each one does on this page. */
+function actPrimary(a) {
+  switch (a.go) {
+    case 'send': { const input = $('cx-input'); if (input && !input.value.trim()) { input.focus(); return; } sendNow(); return; }
+    case 'stop': { if (cx.running) stopNow(); else { const other = otherTurn(); if (other) { const b = h('button', { 'data-stop-turn': other.id }); stopOther(b); } } return; }
+    case 'needs': { const box = document.querySelector('#cx-own .cx-needs'); if (box) { box.scrollIntoView({ block: 'nearest' }); const b = box.querySelector('button:not([hidden]):not([disabled])'); if (b) b.focus(); } return; }
+    case 'models': toggleModels(true); return;
+    case 'account': { if (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.go === 'function') TimmyShell.go('account'); return; }
+    case 'first-run': { const w = document.querySelector('#cx-empty .cx-way.is-suggested, #cx-empty .cx-way'); if (w) w.focus(); return; }
+    case 'setup': { const t = $('cx-setup-title'); if (t) t.focus(); return; }
+    default: return;
+  }
+}
+
 function drawChat() {
   const v = cx.view;
   const turns = $('cx-turns');
@@ -748,19 +959,11 @@ function drawChat() {
   const scroll = $('cx-scroll');
   const atEnd = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40 : true;
   const conv = v && v.conversation;
-  const sub = $('cx-sub');
-  const kicker = $('cx-kicker');
   const tag = $('cx-tag');
-  // R11 round 4: the descriptor keeps the preview's sentence; the saved conversation's facts are the list's label (and its title)
-  if (!companion.token || companion.refused) {
-    if (sub) sub.textContent = 'Nothing is read without the companion’s token (the note above says how to open this page from Timmy).';
-  } else if (!v) {
-    if (sub) sub.textContent = cx.viewFailed || 'Think, make and check your work.';
-  } else {
+  // R11 round 7: the page's words (the kicker, the title, the line) and its one primary action come from the state (drawHead);
+  // the saved conversation's facts are the list's label (and its title)
+  if (v) {
     const n = conv ? conv.turns.filter((t) => t.kind !== 'tool').length : 0;
-    const since = conv && conv.session ? Number((/^session-(\d{10,14})-/.exec(conv.session) || [])[1]) : NaN;
-    if (kicker) kicker.textContent = `Chat / ${cx.project ? cx.project.name : 'this project'}${Number.isFinite(since) ? ` · since ${new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${clock(new Date(since).toISOString())}` : ''}`;
-    if (sub) sub.textContent = 'Think, make and check your work.';
     const facts = conv && conv.session
       ? `The project’s saved conversation, kept in its .sessions folder and continued by the Workbench, the REPL and the monitor: ${n} message${n === 1 ? '' : 's'}${conv.total > conv.turns.length ? `, the newest ${conv.turns.length} of ${conv.total} shown` : ''}. Each answer names the model its sealed receipt records.`
       : 'No conversation saved here yet; the first turn sent from this page begins it.';
@@ -784,6 +987,7 @@ function drawChat() {
   drawComposer();
   drawControls();
   drawStatus();
+  drawHead();
   drawModelsRail();
   const socket = $('cx-socket');
   if (socket) {
@@ -903,6 +1107,7 @@ function drawStreaming() {
   drawOwn();
   drawComposer();
   drawStatus();
+  drawHead();
   if (scroll && cx.follow && atEnd) scroll.scrollTop = scroll.scrollHeight;
 }
 
@@ -1124,10 +1329,10 @@ function drawComposer() {
     send.disabled = false;
     send.classList.add('is-stop');
     send.classList.remove('is-muted');
-    send.textContent = 'Stop';
-    send.setAttribute('aria-label', 'Stop');
-    send.title = own && own.stopping ? 'Stopping: the companion was asked; the turn’s receipt comes as it stops. Press again to stop this page’s reading now.' : 'Stops this page’s turn; the answer so far is kept here';
-    if (why) why.textContent = own && own.stopping ? 'Stopping…' : '';
+    send.textContent = own && own.stopping ? 'Stop…' : 'Stop';
+    send.setAttribute('aria-label', own && own.stopping ? 'Stop requested, not confirmed yet; press again to stop this page’s reading now' : 'Stop');
+    send.title = own && own.stopping ? 'Stop requested: the companion was asked; it is confirmed by the turn’s receipt as it stops. Press again to stop this page’s reading now.' : 'Stops this page’s turn; the answer so far is kept here';
+    if (why) why.textContent = own && own.stopping ? 'Stop requested · waiting for the turn to confirm' : '';
     return;
   }
   // R11 step 3: Stop lives in the composer: while another surface answers a turn of this project, it asks that turn to stop
@@ -1236,9 +1441,9 @@ async function sendNow() {
         else if (event === 'delta' && data) { turn.answer += typeof data === 'string' ? data : (data.text || ''); redraw(); }
         else if (event === 'tool' && data) {
           const name = String(data.name || 'a tool');
-          const had = turn.tools.find((t) => t.name === name && t.status !== 'completed' && t.status !== 'failed');
-          if (had) Object.assign(had, { status: data.status || had.status, receipt: data.receipt || had.receipt });
-          else turn.tools.push({ name, status: data.status || 'started', receipt: data.receipt || '' });
+          const had = turn.tools.find((t) => t.name === name && t.status !== 'completed' && t.status !== 'failed' && t.status !== 'ran' && t.status !== 'refused');
+          if (had) Object.assign(had, { status: data.status || had.status, receipt: data.receipt || had.receipt, words: typeof data.words === 'string' ? data.words : had.words });
+          else turn.tools.push({ name, status: data.status || 'started', receipt: data.receipt || '', words: typeof data.words === 'string' ? data.words : '' });
           redraw();
         } else if (event === 'needs-you' && data) {
           // (R11 round 6, the operator's bar on rapid events: a duplicate ask — the same id again, in a burst — changes nothing
@@ -1379,6 +1584,69 @@ async function answerNeedsYou(id, choice) {
  * closes Models where it is a drawer, keeps the draft, gives the composer the keyboard and says the next turn's model on the
  * status row; a failure stays on the row with its reason, nothing changed.
  */
+/** The Attach drawer's picker: one folder of the project's files from H173's FILES ROUTE v1 (GET /api/files?project=&path=) —
+ *  folders first, then files; a folder opens, a file goes into the path field. A companion without the route (404) leaves the
+ *  path field alone and says so; a refusal is said in the route's words. Nothing here reads a file's bytes. */
+let attachSeq = 0;
+function readAttachFolder(rel) {
+  const host = $('cx-attach-pick');
+  if (!host) return;
+  const seq = ++attachSeq;
+  const q = new URLSearchParams();
+  if (cx.project && cx.project.id) q.set('project', cx.project.id);
+  if (rel) q.set('path', rel);
+  userFetch(`/api/files?${q}`)
+    .then(async (r) => {
+      if (seq !== attachSeq || !$('cx-attach-pick')) return;
+      if (r.status === 404) { drawAttachPick({ none: 'This companion has no Files route yet: name the file by its path above.' }); return; }
+      let body = null;
+      try { body = await r.json(); } catch (e) { body = null; }
+      if (!r.ok || !body || !body.ok) { drawAttachPick({ none: (body && (body.error || body.words)) || `The project’s files could not be read (HTTP ${r.status}).` }); return; }
+      drawAttachPick(body);
+    })
+    .catch(() => { if (seq === attachSeq) drawAttachPick({ none: 'The companion did not answer the files’ read.' }); });
+}
+function drawAttachPick(a) {
+  const host = $('cx-attach-pick');
+  if (!host) return;
+  if (a.none) { host.replaceChildren(h('p', { class: 'cx-act-sub' }, a.none)); return; }
+  const entries = Array.isArray(a.entries) ? a.entries : [];
+  const here = a.path || '';
+  const head = h('p', { class: 'cx-attach-here' }, h('span', { class: 'cx-act-k' }, 'In the project'), ' ', h('code', null, here ? `/${here}` : '/'),
+    a.parent !== null && a.parent !== undefined ? h('button', { type: 'button', class: 'cx-link', 'data-cx-attach-dir': a.parent }, '↑ up') : null);
+  const list = h('ul', { class: 'cx-attach-list' }, ...entries.filter((e) => e.kind === 'dir' || e.kind === 'file').slice(0, 120).map((e) => h('li', null,
+    e.kind === 'dir'
+      ? h('button', { type: 'button', class: 'cx-link', 'data-cx-attach-dir': e.path }, `${e.name}/${e.heavy ? ' · heavy, listed on demand' : ''}`)
+      : h('button', { type: 'button', class: 'cx-link is-file', 'data-cx-attach-file': e.path }, e.name, typeof e.size === 'number' ? h('span', { class: 'cx-act-sub' }, ` · ${e.size < 1024 ? `${e.size} B` : `${Math.round(e.size / 1024)} KB`}`) : null))));
+  host.replaceChildren(head, entries.length ? list : h('p', { class: 'cx-act-sub' }, 'An empty folder.'), a.truncated ? h('p', { class: 'cx-act-sub' }, a.words || 'Not every entry is listed; name the rest by its path.') : null);
+}
+
+/** Retry: the same message sent again (a failed or stopped turn keeps its text above; the new turn is a new one, with its own receipt). */
+function retryTurn(i) {
+  const t = cx.own[i];
+  const input = $('cx-input');
+  if (!t || !input || cx.running) return;
+  input.value = t.you || '';
+  saveDraft();
+  drawComposer();
+  input.focus();
+  if (input.value.trim()) sendNow();
+}
+/**
+ * A receipt opened in Runs & receipts (R11 round 7): the destination, with the record named in the address (#logs?receipt=<id>)
+ * and said to the page (the event timmy:open-receipt { id }) so that page selects it when it listens (H169's records).
+ */
+function openReceipt(id) {
+  try { history.replaceState(null, '', `#logs?receipt=${encodeURIComponent(id)}`); } catch (e) { /* the address stays */ }
+  try { document.dispatchEvent(new CustomEvent('timmy:open-receipt', { detail: { id, from: 'chat' } })); } catch (e) { /* nobody listens yet */ }
+  document.body.classList.remove('rail-open');
+  // (SHELL CONTRACT v1 §2.3: on the scaffold the page is reached through the shell — go('runs') is Runs & receipts; the legacy
+  // tab switch stays for an older shell)
+  const S = shell();
+  if (S && typeof S.go === 'function') { try { S.go('runs', 'chat-receipt'); return; } catch (e) { /* the shell's own; the tab switch below */ } }
+  showWorkspaceTab('logs');
+}
+
 async function chooseRow(id) {
   if (!id || cx.choosing) return;
   const m = cx.models;
@@ -1454,7 +1722,7 @@ async function stopOther(btn) {
 
 const PROVIDERS = [['openrouter', 'local', 'OpenRouter'], ['ollama', 'local', 'Ollama local'], ['ollama', 'cloud', 'Ollama cloud'], ['cloudflare', 'local', 'Cloudflare']];
 // R11 round 4: the preview's words for the sort (the companion's sort keys stay)
-const SORT_WORDS = { recent: 'Newest first', name: 'Name', price: 'Lowest cost', context: 'Largest context' };
+const SORT_WORDS = { recent: 'Newest first', name: 'Name', price: 'Lowest cost', context: 'Largest context' }; // (recent = the provider's own "added" date; a row without one sorts last)
 /** The preview's description of each provider tab and its one action (the connections screen does the connecting). */
 const PROVIDER_WORDS = {
   'openrouter:local': { name: 'OpenRouter', state: 'openrouter', words: 'Use models from many makers through your OpenRouter account.', act: 'Connect with OpenRouter ↗' },
@@ -1541,10 +1809,13 @@ function readToolsInventory() {
 
 const money = (n) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toPrecision(2)}` : `$${Number(n.toFixed(2))}`);
 const ctxWords = (n) => (typeof n !== 'number' ? 'context unknown' : n >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M ctx` : `${Math.round(n / 1000)}K ctx`);
+/** The row's price words from H169's CATALOG METADATA v1: a number only when the provider gave one; `free: 'unknown'` (a variable or
+ *  absent price) and a missing price both read "price unknown" — never free, never a guess (D6). */
 function priceWords(p) {
   if (!p) return 'price unknown';
   if (p.free === true) return 'free · $0 / $0 per M';
-  if (typeof p.inPerM === 'number' && typeof p.outPerM === 'number') return `${money(p.inPerM)} / ${money(p.outPerM)} per M`;
+  if (typeof p.inPerM === 'number' && typeof p.outPerM === 'number') return `${money(p.inPerM)} / ${money(p.outPerM)} per M${p.other && p.other.length ? ' + other charges' : ''}`;
+  if (p.varies) return 'price varies · unknown';
   return 'price unknown';
 }
 const capWord = (v) => (v === true ? 'yes' : v === false ? 'no' : 'unknown');
@@ -1575,8 +1846,18 @@ function modelRow(row, first = false) {
   h('span', { class: 'cm-row-name' }, h('span', { class: 'cm-name' }, row.name), inUse(row) ? h('span', { class: 'cm-inuse' }, '✓ in use') : rowState(row)),
   row.name !== row.id ? h('span', { class: 'cm-row-id' }, row.id) : null,
   row.description ? h('span', { class: 'cm-row-desc' }, row.description) : null,
-  h('span', { class: 'cm-row-facts' }, h('span', null, row.source === 'openrouter' ? ctxWords(row.contextLength) : row.installed ? `installed${typeof row.sizeBytes === 'number' ? ` · ${(row.sizeBytes / 1e9).toFixed(1)} GB` : ''}` : 'cloud-backed'), h('span', null, row.source === 'ollama-local' ? 'no charge' : priceWords(row.price))));
+  h('span', { class: 'cm-row-facts' }, h('span', null, row.source === 'openrouter' ? ctxWords(row.contextLength) : row.installed ? `installed${typeof row.sizeBytes === 'number' ? ` · ${(row.sizeBytes / 1e9).toFixed(1)} GB` : ''}` : 'cloud-backed'), h('span', { title: row.price && row.price.why ? row.price.why : null }, row.source === 'ollama-local' ? 'no charge' : priceWords(row.price))),
+  // R11 round 7 (H169's CATALOG METADATA v1): the capabilities the provider LISTS as true, as chips on the row; one it does not
+  // list is unknown — never drawn as no
+  capChips(row));
   return h('li', { class: sel ? 'is-selected' : null }, btn, sel ? modelDetail(row) : null);
+}
+function capChips(row) {
+  const caps = row.caps || {};
+  const on = [['tools', 'tools'], ['vision', 'vision'], ['reasoning', 'reasoning']].filter(([k]) => caps[k] === true);
+  const unknown = [['tools', 'tools'], ['vision', 'vision'], ['reasoning', 'reasoning']].filter(([k]) => caps[k] === undefined);
+  return h('span', { class: 'cm-row-caps' }, ...on.map(([, w]) => h('span', { class: 'cm-cap' }, w)), unknown.length === 3 ? h('span', { class: 'cm-cap is-unknown' }, 'capabilities unknown') : null,
+    h('span', { class: 'cm-row-src' }, row.source === 'openrouter' ? 'OpenRouter' : row.source === 'ollama-local' ? 'Ollama · this computer' : row.cloudVia === 'ollama.com' ? 'Ollama cloud' : 'Ollama cloud · through this computer'));
 }
 
 const tokensWords = (n) => (typeof n !== 'number' ? 'unknown' : n >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M tokens` : `${n.toLocaleString('en-US')} tokens`);
@@ -1589,9 +1870,12 @@ function modelDetail(row) {
   if (row.source === 'openrouter') {
     add('Context', tokensWords(row.contextLength));
     add('Added', row.created ? new Date(row.created * 1000).toISOString().slice(0, 10) : 'unknown');
-    add('Input', typeof row.price.inPerM === 'number' ? `${money(row.price.inPerM)} per 1M` : 'unknown');
+    add('Input', typeof row.price.inPerM === 'number' ? `${money(row.price.inPerM)} per 1M` : `unknown${row.price.why ? ` — ${row.price.why}` : ''}`);
     add('Output', typeof row.price.outPerM === 'number' ? `${money(row.price.outPerM)} per 1M` : 'unknown');
+    if (Array.isArray(row.price.other) && row.price.other.length) add('Other charges', row.price.other.join(', '), true);
+    if (row.price.varies) add('Price', 'varies by request (the provider’s word)', true);
     add('Tools · Vision · Reasoning', `${capWord(row.caps.tools)} · ${capWord(row.caps.vision)} · ${capWord(row.caps.reasoning)}`, true);
+    if (row.aliasOf) add('Alias of', row.aliasOf, true);
   } else {
     add('Runs', row.source === 'ollama-local' ? 'on this computer (local weights)' : 'in Ollama’s cloud: the chat leaves this computer', true);
     if (row.parameterSize) add('Parameters', row.parameterSize);
@@ -1803,7 +2087,16 @@ function drawerBody(id) {
         h('div', { class: 'cx-more-list' }, ...MORE_CONTROLS.filter(([k]) => k !== 'tools').map(([k, glyph, words]) => h('button', { type: 'button', class: 'cx-btn', 'data-cx-ctl': k, 'aria-controls': 'cx-drawer' }, h('span', { 'aria-hidden': 'true' }, `${glyph} `), words, counts[k] ? h('span', { class: 'cx-ctl-n' }, ` ${counts[k]}`) : null))),
         h('p', { class: 'cx-setup-note' }, 'Stop lives in the composer: it stops this page’s turn, or asks the turn another surface is answering to stop.')]];
     }
-    case 'attachments': return ['Attach', [h('p', null, 'Not on this page yet: its Send carries text only. It needs a Send that carries files, which this revision does not have. In the terminal, /add <file> puts a file in the project, where its preview shows on Home.')]];
+    case 'attachments': return ['Attach a project file', [
+      // R11 round 7: what is allowed, exactly — a file inside the project's folder, read by the turn's tools; nothing is uploaded
+      h('p', null, 'A project file goes with your message by its name: the turn reads it with its tools (read_project_file) before answering. Allowed: a file inside the project’s folder, named by its path there.'),
+      h('form', { class: 'cx-attach-form', id: 'cx-attach-form' },
+        h('label', { for: 'cx-attach-path' }, 'Path inside the project'),
+        h('input', { id: 'cx-attach-path', class: 'cx-attach-path', type: 'text', placeholder: 'notes/plan.md', autocomplete: 'off', spellcheck: 'false' }),
+        h('button', { type: 'submit', class: 'cx-btn is-primary' }, 'Add to the message')),
+      // the project's files to pick from (H173's FILES ROUTE v1, GET /api/files?path=): listed when the companion has the route
+      h('div', { class: 'cx-attach-pick', id: 'cx-attach-pick', 'aria-live': 'polite' }, h('p', { class: 'cx-act-sub' }, 'Reading the project’s files…')),
+      h('p', { class: 'cx-setup-note' }, 'Not yet: uploads from this computer — no route of this page carries bytes. In the terminal, /add <file> puts a file in the project.')]];
     case 'plan': return ['Plan / Run', [h('p', null, 'Plans and runs are the project’s workflows. Workflows shows each run’s progress, result and receipt here; a run starts in the terminal (/run <workflow> <block>).'), h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx-dest': 'workflows' }, 'Open Workflows'))]];
     case 'budget': return ['Budget', [h('div', { class: 'cx-drawer-grid' },
       h('section', null, h('h4', null, 'Free-only'), h('p', { class: 'cx-d-state' }, v && v.policy ? (v.policy.freeOnly ? 'on: a model not known to be free is not sent' : 'off') : 'not known yet'), h('p', null, 'Set in the REPL with /model free-only on or off (or TIMMY_CHAT_FREE_ONLY). Unknown pricing is never free.')),
@@ -1848,6 +2141,7 @@ function openDrawer(id, from) {
   drawer.hidden = false;
   $('cx-keys')?.setAttribute('aria-expanded', id === 'keys' ? 'true' : 'false');
   drawControls();
+  if (id === 'attachments') readAttachFolder('');
 }
 
 function closeDrawer() {
@@ -1946,6 +2240,18 @@ document.addEventListener('click', (event) => {
   if (at.closest('#cx-console-toggle')) { const band = $('cx-console'); if (band) setConsoleFold(!band.classList.contains('is-folded'), true); return; }
   const answer = at.closest('[data-cx-answer]');
   if (answer) { answerNeedsYou(answer.dataset.cxAnswerId, answer.dataset.cxAnswer); return; }
+  // R11 round 7: the page's one primary action (the head's button); a failed or stopped turn's way on; a receipt into Runs & receipts
+  if (at.closest('#cx-primary')) { actPrimary(primaryAction()); return; }
+  const retry = at.closest('[data-cx="retry"]');
+  if (retry) { retryTurn(Number(retry.dataset.own)); return; }
+  if (at.closest('[data-cx="change-model"]')) { toggleModels(true); return; }
+  const attachDir = at.closest('[data-cx-attach-dir]');
+  if (attachDir) { readAttachFolder(attachDir.dataset.cxAttachDir || ''); return; }
+  const attachFile = at.closest('[data-cx-attach-file]');
+  if (attachFile) { const input = $('cx-attach-path'); if (input) { input.value = attachFile.dataset.cxAttachFile || ''; input.focus(); } return; }
+  if (at.closest('[data-cx="new-conversation"]')) { newConversation(); return; }
+  const receipt = at.closest('[data-cx-receipt]');
+  if (receipt) { event.preventDefault(); openReceipt(receipt.dataset.cxReceipt); return; }
   const userProject = at.closest('[data-cx-project]');
   if (userProject) { chooseUserProject(userProject.dataset.cxProject); return; }
   // the right panel's tabs (Models | Tools); the composer's ⌘ Tools opens the Tools tab (and the panel, when it is a drawer)
@@ -2060,6 +2366,7 @@ const narrow = () => { try { return matchMedia(NARROW).matches; } catch (e) { re
 let modelsFrom = null;
 
 function modelsShown() {
+  if (scaffoldAdopted) { const ctx = document.querySelector('#ws-chat .page-context'); return Boolean(ctx && (!narrow() || ctx.classList.contains('is-open'))); }
   const body = $('cx-body');
   if (!body) return false;
   return narrow() ? body.classList.contains('models-open') : !body.classList.contains('models-closed');
@@ -2068,6 +2375,15 @@ function modelsShown() {
 function toggleModels(open) {
   const body = $('cx-body');
   const btn = $('cx-models-toggle');
+  // SHELL CONTRACT v1 §4: on the scaffold the Models are the page's context column — a sheet on a phone (the shell's), the column
+  // itself otherwise (always shown; "open" puts the keyboard in its search)
+  if (scaffoldAdopted) {
+    const S = shell();
+    const show = open === undefined ? !modelsShown() : open;
+    if (narrow() && S && typeof S.sheet === 'function') { try { S.sheet('context', show); } catch (e) { /* the shell's own */ } }
+    if (show) $('cm-search')?.focus();
+    return;
+  }
   if (!body || !btn) return;
   const show = open === undefined ? !modelsShown() : open;
   // hiding the rail that holds the keyboard: the focus goes to the control that shows it again
@@ -2125,6 +2441,21 @@ document.addEventListener('input', (event) => {
   if (el instanceof HTMLTextAreaElement && el.id === 'cx-input') { saveDraft(); drawComposer(); }
 });
 document.addEventListener('submit', (event) => {
+  // R11 round 7: Attach — the named project file goes into the message as the first line the turn reads
+  if (event.target instanceof HTMLFormElement && event.target.id === 'cx-attach-form') {
+    event.preventDefault();
+    const path = String(($('cx-attach-path') && $('cx-attach-path').value) || '').trim().replace(/^\/+/, '');
+    const input = $('cx-input');
+    if (!path || !input) { $('cx-attach-path')?.focus(); return; }
+    const line = `Read the project file ${path} first.`;
+    input.value = input.value.trim() ? `${line}\n${input.value}` : line;
+    saveDraft();
+    closeDrawer();
+    drawComposer();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return;
+  }
   if (event.target instanceof HTMLFormElement && event.target.id === 'rail-new-form') {
     event.preventDefault();
     const name = String(new FormData(event.target).get('name') || '').trim();
