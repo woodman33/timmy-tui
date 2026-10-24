@@ -20,7 +20,8 @@
  *     back; a project switch → the other project's board has none; reduced motion (emulateMedia) → the asset's own
  *     ReducedMotion input true and the pose settles.
  *   390x844   the console folds to its label and opens on a tap; nothing overflows the viewport; no page error anywhere.
- *   INSTALLED   the companion and the Studio both serve GET /assets/rive/timmy-ui/timmy-ui.riv (200, 405,278 bytes, the sha256).
+ *   INSTALLED   the companion and the Studio both serve GET /assets/rive/timmy-ui/timmy-ui.riv (200, the bytes and the sha256 the
+ *     listing names — v1 405,278 bytes / 9fd9ae7c…, or H174's v2 rebuild; the three production artboards, TimmyUI and its inputs).
  *
  * FAKE here, named: the identity provider (an RSA pair made by the test; its public key is CLERK_JWT_KEY; the session minted by
  * the test, verified by the REAL verifier), the Ollama on 127.0.0.1 (no model: one tool call, then a fixed answer; a gated tool
@@ -107,7 +108,14 @@ const SEL = {
   consoleFold: '#cx-console button[aria-expanded="false"]',
 };
 const PROVIDERS = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];
-const NATIVE = { name: 'timmy-ui.riv', bytes: 405_278, sha256: '9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
+/**
+ * The asset's contract (RIVE CONTRACT v1 = the round-6 asset, 405,278 bytes, sha256 9fd9ae7c…; v2 = H174's round-7 rebuild, compiled on the
+ * Mac: ActionButtonGlacier and the three Preview artboards added, the named runs Title / Tag / Caption / ProviderName …): the file's bytes
+ * and sha256 are read from the listing (GET /api/rive/assets) and checked against what both servers serve, never pinned to one build;
+ * the three PRODUCTION artboards, the state machine and its four inputs are what every build keeps.
+ */
+const NATIVE = { name: 'timmy-ui.riv', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
+const KNOWN_BUILDS: Record<string, string> = { '9fd9ae7c0981': 'v1 (the round-6 asset, 405,278 bytes)' };
 const SIZES = [{ width: 1440, height: 900 }, { width: 390, height: 844 }];
 
 const caps = capturer('tests/journey-rive-product.test.ts', [
@@ -307,10 +315,13 @@ const label = (page: Page, key: string): Promise<string> => page.locator(`[data-
 const captionOf = (page: Page, key: string): Promise<string> => page.evaluate((k) => {
   const R = (window as unknown as { TimmyRive?: { handles?: () => Array<{ component?: string; rive: { getTextRunValue?: (name: string) => string | undefined } | null }> } }).TimmyRive;
   const h = R?.handles?.().find((x) => x.component === k);
-  try { const v = h?.rive?.getTextRunValue?.('PREVIEW  /  NOT A LIVE JOB'); return typeof v === 'string' ? v : '(not readable)'; } catch { return '(not readable)'; }
+  // v2 (RIVE CONTRACT v2): the run is NAMED "Caption"; v1: the run was named by its baked words (the page overwrote it)
+  for (const name of ['Caption', 'PREVIEW  /  NOT A LIVE JOB']) { try { const v = h?.rive?.getTextRunValue?.(name); if (typeof v === 'string') return v; } catch { /* the other name */ } }
+  return '(not readable)';
 }, key);
-const LIVE_TURN = 'LIVE  /  THE TURN’S EVENTS';
-const LIVE_CONNECTIONS = 'LIVE  /  GET /api/connections';
+/** the caption a live face carries (v1 "LIVE  /  THE TURN’S EVENTS" with two spaces; v2 "LIVE / THE TURN'S EVENTS"): never PREVIEW */
+const LIVE_TURN = /^LIVE\s*\/\s*THE TURN.S EVENTS$/;
+const LIVE_CONNECTIONS = /^LIVE\s*\/\s*GET \/api\/connections$/;
 /** The handles per component key, as "key×n" sorted — ONE runtime instance per mounted component is the invariant. */
 async function handleCensus(page: Page): Promise<string[]> {
   const hs = await handles(page);
@@ -359,21 +370,28 @@ async function toChat(o: Opened, size: { width: number; height: number }, capPre
 // ── the leg ───────────────────────────────────────────────────────────────────
 
 describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAKE identity provider\'s RS256 session verified by the real verifier, a FAKE Ollama on 127.0.0.1, the REAL runtime and the operator\'s timmy-ui.riv (R11 round 6, H172)', { timeout: 300_000 }, () => {
-  it('INSTALLED: the companion and the Studio both serve the asset by exact name (200, 405,278 bytes, the sha256), and the listing names it with its contract', async () => {
+  it('INSTALLED: the companion and the Studio both serve the asset by exact name (200, the same bytes, the sha256 the listing names), and the listing names it with its contract', async () => {
     const { createHash } = await import('node:crypto');
-    const fromCompanion = await fetch(new URL('/assets/rive/timmy-ui/timmy-ui.riv', companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } });
-    expect(fromCompanion.status).toBe(200);
-    const bytes = Buffer.from(await fromCompanion.arrayBuffer());
-    expect(bytes.length).toBe(NATIVE.bytes);
-    expect(createHash('sha256').update(bytes).digest('hex')).toBe(NATIVE.sha256);
-    const fromStudio = await fetch(`${studioBase}/assets/rive/timmy-ui/timmy-ui.riv`);
-    expect(fromStudio.status).toBe(200);
-    expect(createHash('sha256').update(Buffer.from(await fromStudio.arrayBuffer())).digest('hex')).toBe(NATIVE.sha256);
     const listing = await fetch(new URL('/api/rive/assets', companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } }).then((r) => r.json()) as { runtime: boolean; components: Array<{ component: string; riv: { name: string; bytes: number; sha256: string } | null; meta: { stateMachine?: string; artboards?: string[]; inputs?: string[] } }> };
     expect(listing.runtime, 'the runtime (@rive-app/canvas) served at /vendor/rive/').toBe(true);
     const ui = listing.components.find((c) => c.component === 'timmy-ui')!;
-    expect(ui.riv).toEqual({ name: NATIVE.name, bytes: NATIVE.bytes, sha256: NATIVE.sha256.slice(0, 12) });
-    expect(ui.meta).toMatchObject({ stateMachine: NATIVE.stateMachine, artboards: NATIVE.artboards, inputs: NATIVE.inputs });
+    expect(ui.riv, 'the listing names the file').toBeTruthy();
+    expect(ui.riv!.name).toBe(NATIVE.name);
+    expect(ui.riv!.bytes).toBeGreaterThan(100_000);
+    const fromCompanion = await fetch(new URL('/assets/rive/timmy-ui/timmy-ui.riv', companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } });
+    expect(fromCompanion.status).toBe(200);
+    const bytes = Buffer.from(await fromCompanion.arrayBuffer());
+    const sha = createHash('sha256').update(bytes).digest('hex');
+    expect(bytes.length, 'the companion serves the bytes the listing counts').toBe(ui.riv!.bytes);
+    expect(sha.startsWith(ui.riv!.sha256), 'the companion serves the file the listing names (its sha256)').toBe(true);
+    const fromStudio = await fetch(`${studioBase}/assets/rive/timmy-ui/timmy-ui.riv`);
+    expect(fromStudio.status).toBe(200);
+    expect(createHash('sha256').update(Buffer.from(await fromStudio.arrayBuffer())).digest('hex'), 'the Studio serves the same file').toBe(sha);
+    console.warn(`journey-rive-product: the served timmy-ui.riv is ${bytes.length} bytes, sha256 ${sha.slice(0, 12)}… = ${KNOWN_BUILDS[sha.slice(0, 12)] ?? 'a build this test does not know by sha (v2 or later: the contract\'s names are read, not pinned)'}`);
+    // the contract every build keeps: TimmyUI with its four inputs on the three PRODUCTION artboards (v2 adds ActionButtonGlacier and the Preview artboards)
+    expect(ui.meta.stateMachine).toBe(NATIVE.stateMachine);
+    expect(ui.meta.artboards ?? [], 'the three production artboards').toEqual(expect.arrayContaining(NATIVE.artboards));
+    expect(ui.meta.inputs ?? [], 'the four inputs').toEqual(expect.arrayContaining(NATIVE.inputs));
     const policy = (await fetch(new URL('/', companion.address), { headers: { Authorization: `Bearer ${TOKEN}` } })).headers.get('content-security-policy') || '';
     expect(policy, 'the page\'s policy carries the WebAssembly keyword with a file to draw and a runtime to draw it').toContain('wasm-unsafe-eval');
   });
@@ -405,7 +423,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         const h = (await handleOf(o.page, key))!;
         expect(h.state, 'drawn by the runtime').toBe('drawn');
         expect(h.contract).toBe('TimmyUI');
-        expect(h.runtime!.artboardNames).toEqual(NATIVE.artboards);
+        expect(h.runtime!.artboardNames, 'the three production artboards in the file').toEqual(expect.arrayContaining(NATIVE.artboards));
         expect((await root.getAttribute('data-artboard')) || h.artboard, 'the console takes the AgentConsole artboard').toBe('AgentConsole');
         const boxOf = await o.page.locator(`canvas[data-timmy-rive="${key}"]`).first().boundingBox();
         expect(boxOf, 'the console\'s canvas has a box').toBeTruthy();
@@ -417,7 +435,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(await label(o.page, key)).toBe('idle');
         expect(await inputValue(o.page, key, 'State'), 'State 0 Idle before any turn').toBe(0);
         const consoleCaption = await captionOf(o.page, key);
-        if (consoleCaption !== '(not readable)') expect(consoleCaption, 'a live face says LIVE (the runtime\'s own text run), never PREVIEW').toBe(LIVE_TURN);
+        if (consoleCaption !== '(not readable)') expect(consoleCaption, 'a live face says LIVE (the runtime\'s own text run), never PREVIEW').toMatch(LIVE_TURN);
         await caps.cap(o.page, size, 'chat-console-idle', ['The AgentConsole in the chat, drawn, idle (State 0); the model chosen for the next turn.', `The face\'s caption, read back from the runtime\'s text run: "${consoleCaption}".`], { to: root, what: 'the console' });
         seen.push('the console drawn, idle (State 0)');
         // ── the focus order: Tab from the textarea reaches Send; no canvas takes the focus ──
@@ -604,7 +622,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
           expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
         }
         const cardCaptions: string[] = [];
-        for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; const c = await captionOf(o.page, k); cardCaptions.push(`${id}: "${c}"`); if (c !== '(not readable)') expect(c, `${id}'s live face says LIVE, never PREVIEW`).toBe(LIVE_CONNECTIONS); }
+        for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; const c = await captionOf(o.page, k); cardCaptions.push(`${id}: "${c}"`); if (c !== '(not readable)') expect(c, `${id}'s live face says LIVE, never PREVIEW`).toMatch(LIVE_CONNECTIONS); }
         const cardWords: string[] = [];
         for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; cardWords.push(`${id}: card state "${await o.page.locator(SEL.card(id)).first().getAttribute('data-state')}", the face's word "${await label(o.page, k)}", State ${JSON.stringify(await inputValue(o.page, k, 'State'))}`); }
         await caps.cap(o.page, size, 'connections-cards', ['The connections screen: a ProviderCard drawn in each of the four cards; the cards\' buttons stay HTML buttons.', `Each card as it stands in this picture — ${cardWords.join(' · ')}.`, `The faces\' captions, read back from the runtime\'s text runs: ${cardCaptions.join(' · ')}.`]);
@@ -729,7 +747,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       await page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
       const hs = await handles(page);
-      for (const h of hs) { expect(h.contract).toBe('TimmyUI'); expect(h.runtime!.artboardNames).toEqual(NATIVE.artboards); }
+      for (const h of hs) { expect(h.contract).toBe('TimmyUI'); expect(h.runtime!.artboardNames, 'the three production artboards in the file').toEqual(expect.arrayContaining(NATIVE.artboards)); }
       expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(3);
       await caps.cap(page, size, 'canvas-three-shapes', ['Timmy Canvas (the Studio, licensed tldraw with the key the environment gives, or a FAKE one the SDK rejects), Timmy\'s lists folded: the three timmy-rive shapes placed apart — AgentConsole at the left, ProviderCard to its right, ActionButton below — drawn by the runtime, each with its state word; the board re-fit to the window.']);
       seen.push(`the license verdict "${license}"`, 'the three shapes placed apart, drawn by the runtime');
