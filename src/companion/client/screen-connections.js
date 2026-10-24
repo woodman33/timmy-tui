@@ -122,7 +122,7 @@
         if (c.key) row.append(h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => check(c, 'ollama-cloud') }, 'Check the key'), h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => forget(c) }, 'Forget the key'));
       } else if (c.id === 'cloudflare') {
         const cf = c.cloudflare || { gatewayUrl: null, cloudLogs: false };
-        const url = h('input', { type: 'url', class: 'sh-input', id: 'cn-cloudflare-gateway', autocomplete: 'off', placeholder: 'https://gateway.ai.cloudflare.com/…', value: cf.gatewayUrl || '', 'aria-label': 'AI Gateway address (optional)' });
+        const url = h('input', { type: 'url', class: 'sh-input', id: 'cn-cloudflare-gateway', autocomplete: 'off', placeholder: 'gateway.ai.cloudflare.com/<account>/<gateway>', value: cf.gatewayUrl || '', 'aria-label': 'AI Gateway address (optional)' });
         const logs = h('input', { type: 'checkbox', id: 'cn-cloudflare-logs', checked: cf.cloudLogs === true });
         const form = h('form', { class: 'cn-form', onSubmit: async (e) => {
           e.preventDefault();
