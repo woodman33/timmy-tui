@@ -680,7 +680,9 @@ function connect() {
         // R11 round 4 (H171): the hello's session did not verify (or names no project of the account's): the shell forgets
         // it and lands on the account screen, in the companion's words; this page shows no project meanwhile
         appendToLocalLogs('WARN', `Session refused by the companion: ${String(msg.words || '')}`);
-        if (typeof TimmyShell !== 'undefined' && TimmyShell) { TimmyShell.toast(String(msg.words || 'Sign in to continue.')); if (msg.needs === 'session') { TimmyShell.session.clear(); TimmyShell.land(); } }
+        // (a hello sent without a session on a configured companion is told so and waits: the shell is already landing on
+        // the account screen, nothing more to say; a session the page held that did not verify is forgotten, and said)
+        if (typeof TimmyShell !== 'undefined' && TimmyShell && TimmyShell.session.get()) { TimmyShell.toast(String(msg.words || 'Sign in to continue.')); if (msg.needs === 'session') { TimmyShell.session.clear(); TimmyShell.land(); } }
       } else if (msg.type === 'connections' && typeof msg.provider === 'string') {
         // R11 round 4 (H170): a connection of this account changed (saved, checked, downloaded): the connections screen reads
         // again, and the Chat's models and route follow

@@ -174,7 +174,7 @@ async function open(width: number, height: number): Promise<{ page: Page; w: Wat
   return { page, w };
 }
 
-const state = (page: Page) => page.evaluate(() => (window as unknown as { timmyAccount: { state(): { view: string; configured: boolean; module: boolean; clerk: boolean; loading: boolean; words: string; verified: unknown } } }).timmyAccount.state());
+const state = (page: Page) => page.evaluate(() => (window as unknown as { timmyAccount: { state(): { view: string; configured: boolean; module: boolean; clerk: boolean; loading: boolean; words: string; verified: unknown; clerkSession: boolean } } }).timmyAccount.state());
 
 describe('the account screen in Chromium (FAKE shell on H171\'s surface, real routes, Clerk\'s real module from 127.0.0.1)', () => {
   it('1440x900: the words of the preview; Clerk\'s module fetched from this companion only and run; the instance unreachable → the words beside disabled buttons; no script from any other host', async () => {
@@ -255,7 +255,22 @@ describe('the account screen in Chromium (FAKE shell on H171\'s surface, real ro
       for (const r of w.requests) expect(r.url).not.toContain(good);
       const me = w.requests.find((r) => r.url === `${base}/api/identity/me`);
       expect(me?.status).toBe(200);
-      // sign out: the page forgets (no Clerk here to tell), the shell's session is cleared, the sign-in card is drawn
+      // Clerk's state with NO session while the page holds a server-verified one: NOT cleared (the lead's 22:31 ruling: the
+      // seam, or an instance momentarily unreachable); a session Clerk itself gave, then gone (active → none): cleared
+      await page.evaluate(() => (window as unknown as { timmyAccount: { clerkState(s: unknown): Promise<void> } }).timmyAccount.clerkState({ session: null, user: null }));
+      expect(await page.evaluate(() => (window as unknown as { TimmyShell: { session: { get(): string | null } } }).TimmyShell.session.get())).toBe(good);
+      expect(await page.getByRole('heading', { level: 2, name: 'You\'re signed in' }).count()).toBe(1);
+      expect((await state(page)).clerkSession).toBe(false);
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { clerkState(s: unknown): Promise<void> } }).timmyAccount.clerkState({ session: { id: 'sess_FAKEclerkheld0001', status: 'active', getToken: async () => t }, user: { id: 'user_2abcDEF0123456789', username: 'fake-alice' } }), good);
+      expect((await state(page)).clerkSession).toBe(true);
+      expect(await page.locator('.sh-sub').first().textContent()).toBe('fake-alice'); // Clerk's user view, the id verified by this companion
+      await page.evaluate(() => (window as unknown as { timmyAccount: { clerkState(s: unknown): Promise<void> } }).timmyAccount.clerkState({ session: null, user: null }));
+      await page.getByRole('heading', { level: 2, name: 'Welcome back to Timmy' }).waitFor();
+      expect(await page.evaluate(() => (window as unknown as { TimmyShell: { session: { get(): string | null } } }).TimmyShell.session.get())).toBeNull();
+      expect((await state(page)).clerkSession).toBe(false);
+      // signed in again through the seam, then sign out: the page forgets (no Clerk here to tell), the sign-in card is drawn
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      await page.getByRole('heading', { level: 2, name: 'You\'re signed in' }).waitFor();
       await page.getByRole('button', { name: 'Sign out' }).click();
       await page.getByRole('heading', { level: 2, name: 'Welcome back to Timmy' }).waitFor();
       expect(await page.evaluate(() => (window as unknown as { TimmyShell: { session: { get(): string | null } } }).TimmyShell.session.get())).toBeNull();
