@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { chromium, type Browser } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closedPort, startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+import { landWorkspace, openWorkspaceTab } from './helpers/companion-page-kit.js';
 import { sealTurn } from '../src/repl/seal.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { projectId } from '../src/project/index.js';
@@ -145,6 +146,10 @@ describe.skipIf(!browserPath)('Ollama answering through a FAKE after a stopped c
       const page = await context.newPage();
       page.on('pageerror', (e) => errors.push(e.message));
       await page.goto(hello.url);
+      // R11 round 4: the page lands by the shell's rule (the account screen when no identity provider is configured); the
+      // workspace is reached as a person reaches it (tests/helpers/companion-page-kit.ts landWorkspace), then Home by its key
+      await landWorkspace(page);
+      await openWorkspaceTab(page, 'home');
       const ol = '#home-connections [data-connection="ollama"]';
       await page.waitForFunction((sel) => document.querySelector(`${sel} .conn-state`)?.textContent === '● live', ol, { timeout: 30_000 });
       expect(await page.getAttribute(`${ol} .conn-state`, 'class')).toContain('is-live');
@@ -154,8 +159,9 @@ describe.skipIf(!browserPath)('Ollama answering through a FAKE after a stopped c
       const body = await page.evaluate(() => document.body.innerText);
       expect(body).not.toMatch(/needs setup|brew install/i);
       if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: join(process.env.TIMMY_CAPTURE_DIR, 'companion-ollama-fake-after-stop-home.png'), fullPage: false });
-      // R10 CHAT (H171): the shell's left menu opens Control Room (the old tab row is not drawn on Chat, where the page opens)
-      await page.click('#rail-menu .rail-item[data-dest="control"]');
+      // R10 CHAT (H171): Control Room by the control drawn for it; R11 round 4 (H169): the preview's rail lists no Control Room
+      // (the finder finds it; it keeps its key 7), so the kit opens it by its key
+      await openWorkspaceTab(page, 'control');
       const list = '#control-now [data-control="chat-turn-list"]';
       await page.waitForSelector(list, { timeout: 10_000 });
       expect(await page.textContent(list)).toContain(`turn stopped (asked from the companion) in the Workbench · ${MODEL} · receipt ${turn.id}`);
