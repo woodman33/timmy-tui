@@ -447,6 +447,8 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
   .cx-body, .cx-body.models-closed { grid-template-columns: minmax(0, 1fr); }
   .cx-body .cx-models { display: none; }
   .cx-body.models-open .cx-models { display: flex; position: absolute; top: 0; right: 0; bottom: 0; z-index: 20; width: min(340px, 92%); background: var(--timmy-ground); border-left: 1px solid var(--timmy-line-strong); }
+  /* (the overlay's list keeps room for an opened row and its action under it) */
+  .cx-body.models-open .cx-models .cm-list { min-height: 240px; }
   .cx-center { padding: 0 18px 10px; }
   .cx-saved { display: none; }
 }

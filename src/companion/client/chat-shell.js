@@ -60,6 +60,9 @@ const projectQuery = (sep = '?') => (cx.project && cx.project.id ? `${sep}projec
 const $ = (id) => document.getElementById(id);
 const clock = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? '' : `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; };
 const fakeModel = (m) => /\bfake\b|^fake-|-fake\b/i.test(String(m || ''));
+// a receipt's short id, the terminal's rule (src/workbench/hub.ts receiptShort; the view's ReceiptFacts.id): the FIRST 8 hex
+// after the sha256_ / sha256: prefix — "receipt e5a16414" means the same receipt on the page and in the terminal
+const receiptShort = (h) => (/^sha256[:_][0-9a-f]{8}/.test(String(h || '')) ? String(h).slice(7, 15) : String(h || ''));
 const shown = (el) => el instanceof HTMLElement && document.contains(el) && el.getClientRects().length > 0;
 // R11 round 4 (H169's contract C3; the lead's ruling of 21:48): with an identity provider configured the turn runs in a
 // signed-in user's own Timmy home, so Send needs the shell's session; with none configured this page is this computer's
@@ -474,7 +477,7 @@ function ownTurn(t, i) {
   else if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, `✕ failed: ${t.words || 'no answer'}`));
   if (t.notice) meta.append(h('span', null, t.notice));
   // R11 round 4: each tool as a line with its outcome (H169's `tool` events), as they come
-  const toolLines = (t.tools || []).length ? h('div', { class: 'cx-act-tools cx-own-tools' }, ...(t.tools || []).map((x) => h('p', { class: 'cx-act-line', 'data-tool': x.name }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, x.status === 'completed' ? '●' : x.status === 'failed' ? '✕' : '○'), ` ${x.name} · ${x.status}${x.receipt ? ` · its own receipt ${String(x.receipt).slice(-8)}` : ''}`))) : null;
+  const toolLines = (t.tools || []).length ? h('div', { class: 'cx-act-tools cx-own-tools' }, ...(t.tools || []).map((x) => h('p', { class: 'cx-act-line', 'data-tool': x.name }, h('span', { class: 'cx-act-dot', 'aria-hidden': 'true' }, x.status === 'completed' ? '●' : x.status === 'failed' ? '✕' : '○'), ` ${x.name} · ${x.status}${x.receipt ? ` · its own receipt ${receiptShort(x.receipt)}` : ''}`))) : null;
   // NEEDS-YOU: the question inline with its options; the choice goes back to the turn
   const needs = t.needs ? h('div', { class: 'cx-needs', role: 'group', 'aria-label': 'Timmy needs you', 'data-needs': t.needs.id },
     h('p', { class: 'cx-needs-k' }, 'Needs you'), h('p', null, t.needs.words),
@@ -483,7 +486,7 @@ function ownTurn(t, i) {
   const li = h('li', { class: `cx-turn is-timmy is-${t.state}`, 'data-own': String(i), ...(t.id ? { 'data-turn-id': t.id } : {}) }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, '>_'), who, textBlock(t.answer || ''), toolLines, needs, meta);
   // the evidence line from `done`: the sealed receipt (✓ only when the companion said it verified), else no receipt
   if (t.state !== 'streaming') {
-    const rc = t.receipt ? (typeof t.receipt === 'string' ? { id: t.receipt.slice(-8), hash: t.receipt, verified: false, where, ms: elapsed, surface: 'companion', status: t.state, steps: t.steps, tools: (t.tools || []).map((x) => ({ name: x.name, outcome: x.status, receipt: x.receipt || '' })), cost: t.cost && typeof t.cost.usd === 'number' ? t.cost : null } : { id: String(t.receipt.id || String(t.receipt.hash || '').slice(-8)), hash: t.receipt.hash || '', verified: t.receipt.verified === true, why: t.receipt.why || (t.receipt.verified === true ? '' : 'not checked on this read: Runs & receipts verifies it'), where: t.receipt.where || where, ms: typeof t.receipt.ms === 'number' ? t.receipt.ms : elapsed, surface: t.receipt.surface || 'companion', status: t.receipt.status || t.state, steps: typeof t.steps === 'number' ? t.steps : t.receipt.steps, tools: (t.tools || []).map((x) => ({ name: x.name, outcome: x.status, receipt: x.receipt || '' })), cost: t.cost && typeof t.cost.usd === 'number' ? t.cost : (t.receipt.cost || null) }) : null;
+    const rc = t.receipt ? (typeof t.receipt === 'string' ? { id: receiptShort(t.receipt), hash: t.receipt, verified: false, where, ms: elapsed, surface: 'companion', status: t.state, steps: t.steps, tools: (t.tools || []).map((x) => ({ name: x.name, outcome: x.status, receipt: x.receipt || '' })), cost: t.cost && typeof t.cost.usd === 'number' ? t.cost : null } : { id: String(t.receipt.id || receiptShort(t.receipt.hash)), hash: t.receipt.hash || '', verified: t.receipt.verified === true, why: t.receipt.why || (t.receipt.verified === true ? '' : 'not checked on this read: Runs & receipts verifies it'), where: t.receipt.where || where, ms: typeof t.receipt.ms === 'number' ? t.receipt.ms : elapsed, surface: t.receipt.surface || 'companion', status: t.receipt.status || t.state, steps: typeof t.steps === 'number' ? t.steps : t.receipt.steps, tools: (t.tools || []).map((x) => ({ name: x.name, outcome: x.status, receipt: x.receipt || '' })), cost: t.cost && typeof t.cost.usd === 'number' ? t.cost : (t.receipt.cost || null) }) : null;
     li.append(...evidence(`own:${i}`, t.model, rc, [], { own: true, where, seconds: seconds(elapsed), cost: t.cost && t.cost.words ? t.cost.words : '' }));
   }
   if (t.answer) li.append(h('div', { class: 'cx-actions' }, h('button', { type: 'button', class: 'cx-link', 'data-cx-copy-text': '1' }, 'Copy text')));
@@ -647,7 +650,7 @@ function drawOwn() {
   if (!own) return;
   // (a turn of this page that the project's conversation now holds, by its receipt, is drawn there, not twice)
   const saved = new Set((((cx.view && cx.view.conversation) || {}).turns || []).map((t) => t.receipt && (t.receipt.id || t.receipt.hash)).filter(Boolean));
-  const mine = cx.own.filter((t) => !(t.receipt && saved.has(typeof t.receipt === 'string' ? t.receipt.slice(-8) : (t.receipt.id || t.receipt.hash))));
+  const mine = cx.own.filter((t) => !(t.receipt && saved.has(typeof t.receipt === 'string' ? receiptShort(t.receipt) : (t.receipt.id || t.receipt.hash))));
   if (!mine.length) { own.replaceChildren(); return; }
   const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s turns in the project’s conversation' });
   mine.forEach((t) => list.append(ownTurn(t, cx.own.indexOf(t))));
@@ -1616,7 +1619,15 @@ document.addEventListener('click', (event) => {
   const prov = at.closest('[data-cm-provider]');
   if (prov) { cx.models.provider = prov.dataset.cmProvider; cx.models.sub = prov.dataset.cmSub || 'local'; cx.models.chosenProvider = true; cx.models.answer = null; cx.models.selected = ''; drawModelsRail(); readModels(); document.getElementById(prov.id)?.focus(); return; }
   const row = at.closest('[data-model]');
-  if (row && row.classList.contains('cm-row')) { cx.models.selected = row.dataset.model; drawModelsRail(); document.querySelector(`.cm-row[data-model="${CSS.escape(row.dataset.model)}"]`)?.focus(); return; }
+  if (row && row.classList.contains('cm-row')) {
+    cx.models.selected = row.dataset.model; drawModelsRail();
+    document.querySelector(`.cm-row[data-model="${CSS.escape(row.dataset.model)}"]`)?.focus();
+    // the row's detail (its facts and "Use for the next turn") opens under it: brought into the list's view, so on a phone's
+    // short list the action is reachable at once (the lead's journey item d)
+    const detail = $('cm-detail');
+    if (detail && typeof detail.scrollIntoView === 'function') { try { detail.scrollIntoView({ block: 'nearest' }); } catch (e) { /* drawn where it is */ } }
+    return;
+  }
   const way = at.closest('[data-cx-way]');
   if (way) { chooseWay(way.dataset.cxWay); return; }
   const start = at.closest('[data-cx-start]');

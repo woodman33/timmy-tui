@@ -233,6 +233,8 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
     try {
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
+      // (the draft is kept by project: the socket has named it before the person types)
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 30_000 });
       await page.fill('#cx-input', 'A draft that survives the reopen.');
       await page.waitForTimeout(200);
       expect(errors).toEqual([]);
@@ -246,16 +248,18 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // no identity provider: the landing rule opens the workspace (a remembered screen counts only when signed in)
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'fresh', null, { timeout: 30_000 });
+      await page.waitForFunction(() => (document.getElementById('cx-input') as HTMLTextAreaElement | null)?.value === 'A draft that survives the reopen.', null, { timeout: 10_000 });
       expect(await page.inputValue('#cx-input')).toBe('A draft that survives the reopen.');
       // Send (H169's POST /api/chat/turn) as this computer's operator (no identity provider here): the turn runs in the
       // companion's own project with the FAKE Ollama's answer streamed as this page's turn (the shell gave the screen's
       // heading the keyboard on arrival; a person clicks in first)
       await page.focus('#cx-input');
       await page.keyboard.press('Enter');
-      await page.waitForSelector('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', { timeout: 60_000 });
-      expect(await page.$eval('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', (e) => `${e.className} · ${e.querySelector('.cx-end')?.textContent ?? ''}`)).toMatch(/is-answered/);
-      await page.waitForFunction(() => document.querySelector('#cx-own .cx-spin') === null, null, { timeout: 20_000 });
-      expect(await text(page, '#cx-own .cx-turn.is-answered .cx-text')).toBe('FAKE answer.');
+      // (the own turn folds into the project's saved conversation once its receipt is read back: the end state is the chain's)
+      await page.waitForFunction(() => document.querySelectorAll('#cx-turns .cx-turn.is-timmy').length >= 1 && document.querySelectorAll('#cx-own .cx-turn').length === 0 && document.body.dataset.chatState !== 'empty', null, { timeout: 60_000 });
+      expect(await page.$eval('#cx-turns .cx-turn.is-timmy:last-of-type .cx-text', (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim())).toBe('FAKE answer.');
+      expect(await page.$eval('#cx-turns .cx-turn.is-timmy:last-of-type .cx-evidence', (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim())).toMatch(/· receipt [0-9a-f]{8}/);
       expect(await page.inputValue('#cx-input')).toBe('');
       // New conversation puts this page's turns away and clears the draft
       await page.click('#rail-new-conv');
