@@ -45,8 +45,8 @@ const FAKE_ANSWER = 'FAKE answer: the time was read by a tool (no model behind t
 /** FAKE: the Ollama cloud key pasted on the connections screen; its value must reach no screen and no DOM afterwards */
 const FAKE_CLOUD_KEY = `FAKE-ollama-cloud-key-${'j'.repeat(24)}`;
 const DRAFT = 'FIXTURE draft typed before the page was reopened';
-/** the page's session seam (H171's shell contract, 19:37 PT): the same call H173's account screen makes after a Clerk sign-in */
-const SESSION_SEAM = 'window.TimmyShell.session.set(token, user); TimmyShell.land()';
+/** the page's session seam: H173's window.timmyAccount.useSession(token) (the lead's 19:41), else H171's TimmyShell.session.set(token, user) + land() */
+const SESSION_SEAM = 'window.timmyAccount.useSession(token), else TimmyShell.session.set(token, user) + land()';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/chromium', '/usr/bin/google-chrome'].find((p): p is string => Boolean(p) && existsSync(p!));
 if (!browserPath) console.warn('journey-account-connections-chat: no Chromium found, so the journey is skipped here (said, not passed)');
@@ -123,10 +123,11 @@ async function open(server: CompanionServer, size: { width: number; height: numb
 async function useSession(page: Page, token: string, go?: 'account' | 'connections' | 'chat'): Promise<void> {
   await page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: unknown }).TimmyShell), null, { timeout: 15_000 }).catch(() => undefined);
   const ok = await page.evaluate(async ([t, id, target]) => {
-    const w = window as unknown as { TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
-    if (!w.TimmyShell?.session?.set) return 'absent';
-    await w.TimmyShell.session.set(t, { id });
-    if (target && w.TimmyShell.go) await w.TimmyShell.go(target); else await w.TimmyShell.land?.();
+    const w = window as unknown as { timmyAccount?: { useSession?: (token: string) => unknown }; TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
+    if (w.timmyAccount?.useSession) await w.timmyAccount.useSession(t);
+    else if (w.TimmyShell?.session?.set) await w.TimmyShell.session.set(t, { id });
+    else return 'absent';
+    if (target && w.TimmyShell?.go) await w.TimmyShell.go(target); else await w.TimmyShell?.land?.();
     return 'ok';
   }, [token, USER, go ?? ''] as const);
   expect(ok, `the page's session seam ${SESSION_SEAM} (H171's shell contract, 19:37; H173 sets it the same way)`).toBe('ok');

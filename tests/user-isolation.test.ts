@@ -266,13 +266,15 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     const done = turn.events.find((e) => e.event === 'done')!.data;
     expect(typeof done.receipt, JSON.stringify(done)).toBe('string');
     expect(ollama.chats().length, 'the FAKE Ollama answered A\'s turn (two requests: the tool call, then the answer)').toBeGreaterThanOrEqual(2);
-    // B's list has nothing of A's
+    // B's list has nothing of A's: only B's own default project (C1: "Untitled project" made under B's home when B has none)
     const bList = await call('GET', ROUTES.projects, { session: identity.token(B) });
     expect(bList.status, `B's GET ${ROUTES.projects}: ${bList.text.slice(0, 200)}`).toBe(200);
-    const bRows = Array.isArray(bList.json) ? bList.json : bList.json?.projects ?? [];
-    expect(bRows, `B's projects: ${bList.text.slice(0, 300)}`).toEqual([]);
+    const bRows: Array<{ id?: string; name?: string; root?: string }> = Array.isArray(bList.json) ? bList.json : bList.json?.projects ?? [];
+    expect(bRows.length, `B's projects: ${bList.text.slice(0, 300)}`).toBeLessThanOrEqual(1);
+    for (const p of bRows) expect(String(p.root).startsWith(join(userHome(B), 'projects')), `B's project root under B's home: ${p.root}`).toBe(true);
     expect(bList.text).not.toContain('FAKE-a-project');
     expect(bList.text).not.toContain(id);
+    expect(bList.text).not.toContain(userHome(A));
   });
 
   it('B cannot read A\'s conversation nor run a turn on A\'s root: refused with words; A\'s logs and receipts are in none of B\'s reads', async () => {
