@@ -717,9 +717,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       const about = await page.evaluate(() => document.getElementById('about')?.textContent || document.body.innerText);
       expect(about).not.toContain('FAKE-license-key');
       // the three shapes placed (H174's timmy-rive shape), drawn by the runtime
-      // the three shapes APART (H174's placeRive(component, { at }): the console at the left, the card 480 px to its right, the button
+      // the three shapes APART (H174's placeRive(component, { at }): the console (480 wide by default) at the left, the card at x 760 (280 px of air between them), the button
       // below them, clear of the console card's words) so that an arrow between the console and the card has length, and every face reads at 100 %
-      placed = await page.evaluate(() => { const W = window as unknown as Win; return { activity: W.timmyCanvas.placeRive('activity', { at: { x: 0, y: 0 } }), connection: W.timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local', at: { x: 480, y: 0 } }), welcome: W.timmyCanvas.placeRive('welcome', { at: { x: 200, y: 420 } }) }; });
+      placed = await page.evaluate(() => { const W = window as unknown as Win; return { activity: W.timmyCanvas.placeRive('activity', { at: { x: 0, y: 0 } }), connection: W.timmyCanvas.placeRive('connection', { provider: 'ollama-local', label: 'Ollama · local', at: { x: 760, y: 0 } }), welcome: W.timmyCanvas.placeRive('welcome', { at: { x: 200, y: 420 } }) }; });
       await page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
       // Timmy's lists folded (the Studio's own Fold button), so the board is the picture
       await page.locator('#side-fold').first().click({ timeout: 5_000 }).catch(() => undefined);
@@ -730,16 +730,16 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(3);
       await caps.cap(page, size, 'canvas-three-shapes', ['Timmy Canvas (the Studio, licensed tldraw with the key the environment gives, or a FAKE one the SDK rejects), Timmy\'s lists folded: the three timmy-rive shapes placed apart — AgentConsole at the left, ProviderCard to its right, ActionButton below — drawn by the runtime, each with its state word; the board re-fit to the window.']);
       seen.push(`the license verdict "${license}"`, 'the three shapes placed apart, drawn by the runtime');
-      // move and resize through the editor (what a drag does): the console 40 px down, the card widened to 420 (expanded)
-      await page.evaluate((ids) => { const e = (window as unknown as Win).timmyCanvas.editor; const a = e.getShape(ids.activity)!; e.updateShape({ id: ids.activity, type: 'timmy-rive', x: a.x, y: a.y + 40 }); const c = e.getShape(ids.connection)!; e.updateShape({ id: ids.connection, type: 'timmy-rive', props: { ...c.props, w: 420 } }); }, placed);
-      await page.waitForFunction((ids) => { const e = (window as unknown as Win).timmyCanvas.editor; return (e.getShape(ids.connection)?.props.w as number) === 420; }, placed, { timeout: 10_000 });
-      await page.waitForSelector('[data-timmy-rive-shape].is-expanded', { timeout: 10_000 });
+      // move and resize through the editor (what a drag does): the console 40 px down, the card widened to 520 (≥ 1.5 × its own default 320 = 480: expanded, H174's EXPAND_AT)
+      await page.evaluate((ids) => { const e = (window as unknown as Win).timmyCanvas.editor; const a = e.getShape(ids.activity)!; e.updateShape({ id: ids.activity, type: 'timmy-rive', x: a.x, y: a.y + 40 }); const c = e.getShape(ids.connection)!; e.updateShape({ id: ids.connection, type: 'timmy-rive', props: { ...c.props, w: 520 } }); }, placed);
+      await page.waitForFunction((ids) => { const e = (window as unknown as Win).timmyCanvas.editor; return (e.getShape(ids.connection)?.props.w as number) === 520; }, placed, { timeout: 30_000 });
+      await page.waitForSelector('[data-timmy-rive-shape].is-expanded', { timeout: 30_000 }); // (the runner's time: the shape re-renders its expanded state)
       // an arrow BOUND between the console and the card (tldraw's bindings: the records the board keeps)
       const arrowId = await page.evaluate((ids) => {
         const e = (window as unknown as Win).timmyCanvas.editor;
         const a = e.getShape(ids.activity)!; const c = e.getShape(ids.connection)!;
         const id = `shape:arrow-${Date.now().toString(36)}`;
-        // from the console's right edge to the card's left edge (the shapes are 480 px apart: a readable arrow, not a stub)
+        // from the console's right edge to the card's left edge (280 px of air between the console's right edge and the card: a readable arrow, not a stub)
         const aw = Number(a.props.w) || 240; const ah = Number(a.props.h) || 200; const ch = Number(c.props.h) || 200;
         e.createShape({ id, type: 'arrow', x: 0, y: 0, props: { start: { x: a.x + aw, y: a.y + ah / 2 }, end: { x: c.x, y: c.y + ch / 2 } } });
         e.createBindings([{ type: 'arrow', fromId: id, toId: ids.activity, props: { terminal: 'start' } }, { type: 'arrow', fromId: id, toId: ids.connection, props: { terminal: 'end' } }]);
@@ -752,7 +752,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       await page.evaluate((ids) => { const e = (window as unknown as Win).timmyCanvas.editor as unknown as { setCamera: (c: { x: number; y: number; z: number }) => unknown; getShape: (id: string) => { x: number; y: number; props: Record<string, unknown> } | undefined }; const shapes = [ids.activity, ids.connection, ids.welcome].map((i) => e.getShape(i)!); const minX = Math.min(...shapes.map((sh) => sh.x)); const minY = Math.min(...shapes.map((sh) => sh.y)); const maxX = Math.max(...shapes.map((sh) => sh.x + (Number(sh.props.w) || 240))); const maxY = Math.max(...shapes.map((sh) => sh.y + (Number(sh.props.h) || 200))); e.setCamera({ x: (window.innerWidth - (maxX - minX)) / 2 - minX, y: (window.innerHeight - (maxY - minY)) / 2 - minY, z: 1 }); }, placed);
       await page.waitForTimeout(400);
       const arrowBox = await page.locator('[data-shape-type="arrow"], .tl-shape[data-shape-type="arrow"]').first().boundingBox().catch(() => null);
-      await caps.cap(page, size, 'canvas-arrow-bound', ['Timmy Canvas at 100 % with Timmy\'s lists folded: the AgentConsole (moved 40 px down), the ProviderCard (resized to 420 wide, expanded) 480 px to its right, the ActionButton below, and the arrow BOUND from the console\'s right edge to the card\'s left edge (two binding records) — saved through Timmy\'s project storage (the board under the project).', `The arrow\'s box on screen: ${arrowBox ? `${Math.round(arrowBox.width)} × ${Math.round(arrowBox.height)} px` : 'not read'}.`]);
+      await caps.cap(page, size, 'canvas-arrow-bound', ['Timmy Canvas at 100 % with Timmy\'s lists folded: the AgentConsole (moved 40 px down), the ProviderCard (resized to 520 wide — past 1.5 × its default, so expanded) 280 px to its right, the ActionButton below, and the arrow BOUND from the console\'s right edge to the card\'s left edge (two binding records) — saved through Timmy\'s project storage (the board under the project).', `The arrow\'s box on screen: ${arrowBox ? `${Math.round(arrowBox.width)} × ${Math.round(arrowBox.height)} px` : 'not read'}.`]);
       await page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       seen.push('the console moved, the card resized (expanded), an arrow bound between them, saved; the picture at 100 %');
       before = await page.evaluate(() => { const m = (window as unknown as Win).timmyCanvas.editor.store.serialize('document'); return Object.fromEntries(Object.entries(m).filter(([, r]) => r.typeName !== 'user')); });
@@ -798,8 +798,8 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       await again.page.waitForFunction(() => document.querySelectorAll('[data-timmy-rive-shape]').length >= 3, null, { timeout: 20_000 });
       await again.page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
       await again.page.waitForFunction(() => { const hs = (window as unknown as Win).TimmyRive.inspect(); return hs.length >= 3 && hs.every((x) => x.state === 'drawn'); }, null, { timeout: 30_000 });
-      expect(await again.page.evaluate((ids) => (window as unknown as Win).timmyCanvas.editor.getShape(ids.connection)?.props.w, placed)).toBe(420);
-      await caps.cap(again.page, size, 'canvas-reopened', ['The board reopened in a new page: the three shapes with their props (the card at 420 wide), the arrow and its two bindings exactly as saved; drawn again by the runtime.']);
+      expect(await again.page.evaluate((ids) => (window as unknown as Win).timmyCanvas.editor.getShape(ids.connection)?.props.w, placed)).toBe(520);
+      await caps.cap(again.page, size, 'canvas-reopened', ['The board reopened in a new page: the three shapes with their props (the card at 520 wide), the arrow and its two bindings exactly as saved; drawn again by the runtime.']);
       // a project switch: the active-project record names the other project (as the Workbench's picker writes it; the Studio's own
       // follower sees it): the other project's board has none of this
       const switchTo = (name: string, root: string): void => { mkdirSync(join(studioHome, 'state'), { recursive: true }); writeFileSync(activeProjectFile({ TIMMY_HOME: studioHome, HOME: studioHome }), `${JSON.stringify({ name, root, at: new Date().toISOString() })}\n`); };
