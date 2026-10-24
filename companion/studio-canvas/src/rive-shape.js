@@ -88,13 +88,43 @@ export function createRiveShape(deps) {
       });
       return () => { off(); try { if (handle.rive) handle.rive.cleanup(); } catch (e) { /* gone */ } handleRef.current = null; };
     }, [shape.id, p.component, p.provider]);
+    // the height follows the content (the artboard at the shape's width, the lines under it), as the cards' does
+    const innerRef = React.useRef(null);
+    React.useLayoutEffect(() => {
+      const el = innerRef.current;
+      const ed = deps.editor();
+      if (!el || !ed || typeof ResizeObserver === 'undefined') return undefined;
+      const fit = () => {
+        const want = Math.max(80, Math.ceil(el.scrollHeight) + 2);
+        const now = ed.getShape(shape.id);
+        if (now && Math.abs(now.props.h - want) > 1) { try { ed.run(() => ed.updateShape({ id: shape.id, type: shape.type, props: { h: want } }), { history: 'ignore' }); } catch (e) { /* the next frame */ } }
+      };
+      fit();
+      const ro = new ResizeObserver(fit);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [shape.id, shape.type]);
     // selection and expansion: tldraw's own facts, as the two Bool inputs
     React.useEffect(() => { const rive = R(); const hd = handleRef.current; if (rive && hd) rive.set(hd, 'selected', selected, 'tldraw selection'); }, [selected]);
     React.useEffect(() => { const rive = R(); const hd = handleRef.current; if (rive && hd) rive.set(hd, 'expanded', expanded, `tldraw size (w ${Math.round(p.w)} ≥ ${RIVE_WIDTH * EXPAND_AT} is expanded)`); }, [expanded]);
     const handled = (e) => { const ed = deps.editor(); if (ed) ed.markEventAsHandled(e); };
+    // R11 round 6: the artboard chosen on the shape itself (a native <select>, keyboard reachable): the props change, the board
+    // save (save-state.js) carries them, the component is made again for the new artboard (the effect above keys on it)
+    const choose = (e) => {
+      const next = String(e.target.value);
+      const ed = deps.editor();
+      if (!ed || !RIVE_COMPONENTS[next] || next === p.component) return;
+      const fresh = riveProps(next, { w: p.w, h: p.h, provider: p.provider });
+      ed.updateShape({ id: shape.id, type: shape.type, props: { component: next, state: fresh.state, label: fresh.label } });
+    };
+    const ARTBOARD_WORDS = { welcome: 'ActionButton', connection: 'ProviderCard', activity: 'AgentConsole' };
     return h(HTMLContainer, { className: `tr-shape tr-shape-${p.component}${selected ? ' is-selected' : ''}${expanded ? ' is-expanded' : ''}`, 'data-timmy-rive-shape': shape.id, 'data-component': p.component, 'data-state': word, style: { width: p.w, height: p.h, pointerEvents: 'all' } },
-      h('div', { className: 'tr-shape-inner', role: 'group', 'aria-label': `${p.label}: ${word}` },
-        h('div', { className: 'tr-shape-head' }, h('strong', { className: 'tr-shape-title' }, p.label), h('span', { className: 'tr-badge' }, 'RIVE')),
+      h('div', { ref: innerRef, className: 'tr-shape-inner', role: 'group', 'aria-label': `${p.label}: ${word}` },
+        h('div', { className: 'tr-shape-head' }, h('strong', { className: 'tr-shape-title' }, p.label),
+          h('label', { className: 'tr-shape-pick' }, h('span', { className: 'tr-visually-hidden' }, 'Artboard'),
+            h('select', { className: 'tr-shape-select', value: p.component, 'aria-label': 'Artboard', 'data-rive-pick': shape.id, onPointerDown: handled, onChange: choose },
+              ...Object.keys(RIVE_COMPONENTS).map((k) => h('option', { key: k, value: k }, ARTBOARD_WORDS[k])))),
+          h('span', { className: 'tr-badge' }, 'RIVE')),
         h('div', { ref, className: 'tr-shape-art', onPointerDown: handled }),
         h('p', { className: 'tr-shape-source', title: source }, source.startsWith('derived') ? 'derived from the page’s drawing of a backend event' : source === SAVED_WORDS ? SAVED_WORDS : `from ${source}`),
         expanded ? h('p', { className: 'tr-shape-more' }, `${def.artboard} · ${def.stateMachine}: State, Hover, Pressed, ReducedMotion · this page's ${def.input}: ${def.words.join(' · ')} · selected → Hover · expanded: HTML only`) : null,
@@ -109,7 +139,8 @@ export function createRiveShape(deps) {
     hideRotateHandle() { return true; }
     canEdit() { return false; }
     // The width is the person's (it is what expands the component); the height follows the content's minimum.
-    onResize(shape, info) { const next = resizeBox(shape, info); return { ...next, props: { ...next.props, h: Math.max(RIVE_HEIGHT, next.props.h) } }; }
+    // The width is the person's (it is what expands the component and scales the artboard); the height follows the content.
+    onResize(shape, info) { const next = resizeBox(shape, info); return { ...next, y: shape.y, props: { ...next.props, h: shape.props.h } }; }
     getText(shape) { return `${shape.props.label}\n${shape.props.state}`; }
     component(shape) { return h(RiveFace, { shape }); }
     getIndicatorPath(shape) { const path = new Path2D(); path.rect(0, 0, shape.props.w, shape.props.h); return path; }

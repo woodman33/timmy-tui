@@ -252,7 +252,7 @@
   /** A Trigger fired only by the person: a trusted click, or Enter / Space on the component. Never automatic. */
   function trigger(handle, input, event) {
     const trusted = event && event.isTrusted === true && (event.type === 'click' || (event.type === 'keydown' && (event.key === 'Enter' || event.key === ' ')));
-    if (!trusted) return null;
+    if (!trusted || handle.disabled) return null;
     return set(handle, input, input === 'welcome' ? 'welcome' : true, `user ${event.type}${event.key ? ` ${event.key === ' ' ? 'Space' : event.key}` : ''}`);
   }
 
@@ -330,7 +330,7 @@
       : h('div', { class: 'tr-face', role: 'img', 'aria-label': o.label || o.component, tabindex: '0', 'data-rive-face': o.component }, canvas, fallback);
     const label = h('span', { class: 'tr-status sh-state', 'aria-live': 'polite', 'data-rive-status': o.component }, o.word || (o.binds && o.binds.some((b) => b.startsWith('connection')) ? 'disconnected' : 'idle'));
     const note = h('span', { class: 'tr-note sh-note', 'data-rive-note': o.component });
-    const root = h('div', { class: `tr-component tr-${o.component}`, 'data-rive-component': o.component, 'data-rive': 'loading', ...(o.artboard ? { 'data-artboard': o.artboard } : {}) }, face, h('span', { class: 'tr-words' }, o.heading ? h('span', { class: 'tr-heading' }, o.heading) : null, label, note));
+    const root = h('div', { class: `tr-component tr-${o.component}`, 'data-rive-component': o.component, 'data-rive': 'loading', ...(o.artboard ? { 'data-artboard': o.artboard } : {}), ...(o.size ? { 'data-size': o.size } : {}) }, face, h('span', { class: 'tr-words' }, o.heading ? h('span', { class: 'tr-heading' }, o.heading) : null, label, note));
     if (host) host.append(root);
     const handle = load(canvas, o.asset, { ...o, label, root, fallback, word: label.textContent });
     handle.note = note;
@@ -341,7 +341,7 @@
     if (role === 'button') face.addEventListener('click', fire);
     else face.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') fire(ev); });
     // the person's pointer and keys on the face → the native Hover / Pressed (trusted events only; never recorded as a state)
-    const nat = (input, value, ev) => { if (!ev.isTrusted) return; if (!handle.rive) return; const n = nativeOf(handle, input, value); if (!n) return; const i = inputOf(handle, n.name); if (i && i.type === 59) { try { i.value = Boolean(value); } catch (e) { /* the pose stands */ } } };
+    const nat = (input, value, ev) => { if (!ev.isTrusted || handle.disabled) return; if (!handle.rive) return; const n = nativeOf(handle, input, value); if (!n) return; const i = inputOf(handle, n.name); if (i && i.type === 59) { try { i.value = Boolean(value); } catch (e) { /* the pose stands */ } } };
     face.addEventListener('pointerenter', (ev) => nat('hover', true, ev));
     face.addEventListener('pointerleave', (ev) => { nat('hover', false, ev); nat('pressed', false, ev); });
     face.addEventListener('pointerdown', (ev) => nat('pressed', true, ev));
@@ -351,6 +351,95 @@
     face.addEventListener('keyup', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') nat('pressed', false, ev); });
     face.addEventListener('focus', (ev) => nat('hover', true, ev));
     face.addEventListener('blur', (ev) => { nat('hover', false, ev); nat('pressed', false, ev); });
+    return handle;
+  }
+
+  // ── R11 round 6: the mounts the screens call (the real native UI in the product, not thumbnails) ─────────────────────
+  const NATIVE_ASSET = '/assets/rive/timmy-ui/timmy-ui.riv';
+  const ARTBOARD = Object.freeze({
+    AgentConsole: { w: 640, h: 380, component: 'activity', text: '>_' },
+    ProviderCard: { w: 400, h: 260, component: 'connection', text: '○' },
+    ActionButton: { w: 240, h: 72, component: 'welcome', text: '→' },
+  });
+
+  /** The canvas drawn again at the element's size (a mount in a host shown later draws when it is shown). */
+  function fitWhenShown(handle) {
+    if (typeof ResizeObserver === 'undefined' || !handle.face) return;
+    const ro = new ResizeObserver(() => { try { if (handle.rive && handle.face.clientWidth > 0) handle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ } });
+    ro.observe(handle.face);
+    handle.observer = ro;
+  }
+
+  /** What every mount adds to its handle: where it lives, unmount(), setLabel(). */
+  function finishMount(handle, o, place) {
+    handle.place = place;
+    handle.size = o.size || 'card';
+    if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
+    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } };
+    handle.unmount = () => {
+      try { if (handle.observer) handle.observer.disconnect(); } catch (e) { /* gone */ }
+      try { if (handle.rive) { handle.rive.cleanup(); handle.rive = null; } } catch (e) { /* gone */ }
+      const i = handles.indexOf(handle);
+      if (i >= 0) handles.splice(i, 1);
+      if (handle.root && handle.root.parentNode) handle.root.remove();
+      handle.state = 'unmounted';
+    };
+    fitWhenShown(handle);
+    return handle;
+  }
+
+  /**
+   * AgentConsole in a screen (the Chat: H171's call): FED by the activity feed (fromSse / stopping; the derivation stays the
+   * fallback), scaled to the host's width at the artboard's 640:380 ('wide' = 100% of the host; 'card' = 320 px); the HTML
+   * status label beside it. Returns the handle (handle.root the element, handle.unmount()).
+   */
+  function mountConsole(host, o = {}) {
+    const handle = component({
+      host, component: o.name || 'console', asset: NATIVE_ASSET, artboard: 'AgentConsole', stateMachine: TIMMY_UI.stateMachine, role: 'img',
+      label: o.label || 'Agent activity', heading: o.heading === undefined ? 'AGENT ACTIVITY' : o.heading, text: ARTBOARD.AgentConsole.text, binds: ['activity'], word: o.word || 'idle', size: o.size,
+    });
+    return finishMount(handle, o, o.place || 'chat');
+  }
+
+  /**
+   * ProviderCard on a provider's card (the Connections screen: H170's call): bound 'connection:<providerId>', its State from
+   * fromProviderState(providerId, stateWord) (and, until that line, from the card's drawn data-state); connected = State 0 +
+   * the label (no success pose is authored).
+   */
+  function mountProviderCard(host, providerId, o = {}) {
+    const id = String(providerId || '');
+    const handle = component({
+      host, component: o.name || `provider:${id}`, asset: NATIVE_ASSET, artboard: 'ProviderCard', stateMachine: TIMMY_UI.stateMachine, role: 'img',
+      label: o.label || `Connection to ${id}`, heading: o.heading === undefined ? null : o.heading, text: ARTBOARD.ProviderCard.text, binds: [`connection:${id}`], word: o.word || 'disconnected', size: o.size,
+    });
+    handle.provider = id;
+    return finishMount(handle, o, o.place || 'connections');
+  }
+
+  /**
+   * ActionButton wired to a REAL action of the screen's (the NEEDS-YOU answer through POST /api/chat/answer, the welcome's
+   * starter: H171's handlers; never a route of this module's): a real <button type="button" aria-label=label> wrapping the
+   * canvas; Hover/Pressed native from the person's pointer and keys; a TRUSTED click / Enter / Space calls `action(event)`;
+   * setDisabled(bool) sets the button's disabled attribute (the label says "unavailable"); the HTML label beside it is `label`.
+   */
+  function mountActionButton(host, o = {}) {
+    const words = String(o.label || 'Action');
+    const handle = component({
+      host, component: o.name || 'action', asset: NATIVE_ASSET, artboard: 'ActionButton', stateMachine: TIMMY_UI.stateMachine, role: 'button',
+      label: words, heading: o.heading === undefined ? null : o.heading, text: o.text || words, binds: [], word: words, size: o.size,
+      triggerInput: 'welcome',
+      onTrigger: (hd, ev) => { if (hd.disabled) return; if (typeof o.action === 'function') { try { o.action(ev); } catch (e) { /* the screen's own */ } } },
+    });
+    finishMount(handle, o, o.place || 'chat');
+    handle.setDisabled = (on) => {
+      handle.disabled = Boolean(on);
+      if (handle.face) { if (handle.disabled) handle.face.setAttribute('disabled', ''); else handle.face.removeAttribute('disabled'); handle.face.setAttribute('aria-disabled', String(handle.disabled)); }
+      if (handle.label) handle.label.textContent = handle.disabled ? `${words} · unavailable` : words;
+      if (handle.root) handle.root.dataset.disabled = String(handle.disabled);
+      // the native poses off while it cannot be pressed
+      if (handle.disabled && handle.rive) { for (const n of ['Hover', 'Pressed']) { const i = inputOf(handle, n); if (i) { try { i.value = false; } catch (e) { /* the pose stands */ } } } }
+    };
+    if (o.disabled) handle.setDisabled(true);
     return handle;
   }
 
@@ -482,7 +571,7 @@
     return handles.map((x) => ({
       id: x.id, component: x.component, asset: x.asset, artboard: x.artboard, stateMachine: x.stateMachine, state: x.state, why: x.why, still: x.still,
       word: x.word, values: { ...x.values }, binds: x.binds.slice(), events: x.events.slice(), runtime: report(x), sources: x.sources.slice(),
-      nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null,
+      nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null, place: x.place || 'inspect', disabled: Boolean(x.disabled),
     }));
   }
 
@@ -492,6 +581,7 @@
   W.TimmyRive = Object.freeze({
     VERSION: 'r11-r5', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, nativeOf,
     component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, watchPage, connectionWordOf, activityWordOf, absentWords,
+    mountConsole, mountProviderCard, mountActionButton, NATIVE_ASSET, ARTBOARD,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     reducedMotion: still,
     /** For a page that unloads: the runtimes let go. */

@@ -273,6 +273,73 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
     } finally { await o.context.close(); }
   }, LONG);
 
+  it('the mounts the screens call (R11 round 6): mountConsole follows the activity feed, mountProviderCard its provider, mountActionButton is a real button whose REAL action runs on a trusted click / Enter only, never when disabled; each drawn by the runtime, unmount cleans up', async () => {
+    const o = await open({ width: 1440, height: 900 });
+    try {
+      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string }> }>; handles: () => unknown[] };
+      // the test's own host on the page (the screens' calls are H171's and H170's; the API is what is tested here)
+      await o.page.evaluate(() => {
+        const W = window as unknown as { TimmyRive: R; __acted: string[] };
+        W.__acted = [];
+        const host = document.createElement('section');
+        host.id = 'h174-mounts';
+        host.setAttribute('aria-label', 'H174 mounts (the test)');
+        document.body.append(host);
+        const c = document.createElement('div'); c.id = 'm-console'; host.append(c);
+        const p = document.createElement('div'); p.id = 'm-provider'; host.append(p);
+        const a = document.createElement('div'); a.id = 'm-action'; host.append(a);
+        W.TimmyRive.mountConsole(c, { size: 'wide', name: 'console' });
+        W.TimmyRive.mountProviderCard(p, 'ollama-local', { name: 'provider:ollama-local' });
+        W.TimmyRive.mountActionButton(a, { name: 'action', label: 'Answer: once', action: (ev: Event) => { W.__acted.push(`${ev.type}:${ev.isTrusted}`); } });
+      });
+      await o.page.waitForFunction(() => [...document.querySelectorAll('#h174-mounts canvas')].length === 3 && [...document.querySelectorAll('#h174-mounts canvas')].every((c) => c.getAttribute('data-loaded') === 'true'), null, { timeout: 30_000 });
+      // what they are: a role=img console at the host's width, a role=img card, a real <button aria-label>
+      const faces = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [e.tagName, e.getAttribute('role'), e.getAttribute('aria-label'), e.closest('[data-artboard]')!.getAttribute('data-artboard'), e.closest('[data-size]')?.getAttribute('data-size') ?? null]));
+      expect(faces).toEqual([['DIV', 'img', 'Agent activity', 'AgentConsole', 'wide'], ['DIV', 'img', 'Connection to ollama-local', 'ProviderCard', null], ['BUTTON', null, 'Answer: once', 'ActionButton', null]]);
+      const widths = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [e.clientWidth, e.clientHeight]));
+      expect(widths[0][0]).toBeGreaterThan(600); // wide: the host's width (the body's), at 640:380
+      expect(Math.abs(widths[0][0] / widths[0][1] - 640 / 380)).toBeLessThan(0.05);
+      expect(widths[1]).toEqual([240, 156]);
+      expect(widths[2]).toEqual([240, 72]);
+      // the console follows the activity feed (the same handle vocabulary as the Inspect view's)
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('needs-you', { id: 'ask-fake' }, 'FAKE (the test): SSE needs-you'));
+      expect(await text(o.page, '#m-console [data-rive-status]')).toBe('awaiting approval');
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'console')!.runtime!.inputs.find((i) => i.name === 'State')!.value)).toBe(2);
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('done', { status: 'answered' }, 'FAKE (the test): SSE done'));
+      expect(await text(o.page, '#m-console [data-rive-status]')).toBe('idle');
+      // the provider card follows its provider only
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('openrouter', 'checked', 'FAKE (the test): another provider'));
+      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('disconnected');
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'pending', 'FAKE (the test): pending'));
+      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('checking');
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'provider:ollama-local')!.runtime!.inputs.find((i) => i.name === 'State')!.value)).toBe(1);
+      // the action: a synthetic click runs nothing; the person's click runs it once; Enter on the focused button runs it again
+      await o.page.evaluate(() => (document.querySelector('#m-action button') as HTMLButtonElement).click());
+      expect(await o.page.evaluate(() => (window as unknown as { __acted: string[] }).__acted)).toEqual([]);
+      await o.page.click('#m-action button');
+      expect(await o.page.evaluate(() => (window as unknown as { __acted: string[] }).__acted)).toEqual(['click:true']);
+      await o.page.focus('#m-action button');
+      await o.page.keyboard.press('Enter');
+      expect(await o.page.evaluate(() => (window as unknown as { __acted: string[] }).__acted)).toEqual(['click:true', 'click:true']);
+      // disabled: the button's attribute, the label, nothing runs; enabled again: it runs
+      await o.page.evaluate(() => { const W = window as unknown as { TimmyRive: R; __btn?: { setDisabled: (b: boolean) => void; unmount: () => void } }; const hd = W.TimmyRive.inspect().find((x) => x.component === 'action')!; (W.TimmyRive.handles() as Array<{ id: string; setDisabled: (b: boolean) => void; unmount: () => void }>).find((x) => x.id === hd.id)!.setDisabled(true); });
+      expect(await o.page.$eval('#m-action button', (b) => (b as HTMLButtonElement).disabled)).toBe(true);
+      expect(await text(o.page, '#m-action [data-rive-status]')).toBe('Answer: once · unavailable');
+      await o.page.click('#m-action button', { force: true }).catch(() => undefined);
+      expect(await o.page.evaluate(() => (window as unknown as { __acted: string[] }).__acted)).toEqual(['click:true', 'click:true']);
+      await o.page.evaluate(() => { const W = window as unknown as { TimmyRive: R }; const hd = W.TimmyRive.inspect().find((x) => x.component === 'action')!; (W.TimmyRive.handles() as Array<{ id: string; setDisabled: (b: boolean) => void }>).find((x) => x.id === hd.id)!.setDisabled(false); });
+      await o.page.click('#m-action button');
+      expect(await o.page.evaluate(() => (window as unknown as { __acted: string[] }).__acted)).toEqual(['click:true', 'click:true', 'click:true']);
+      // the Inspect list names where each lives; unmount removes it
+      const places = await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().filter((x) => ['console', 'provider:ollama-local', 'action'].includes(x.component)).map((x) => [x.component, x.place, x.state]));
+      expect(places).toEqual([['console', 'chat', 'drawn'], ['provider:ollama-local', 'connections', 'drawn'], ['action', 'chat', 'drawn']]);
+      await o.page.evaluate(() => { const W = window as unknown as { TimmyRive: R }; const hd = W.TimmyRive.inspect().find((x) => x.component === 'action')!; (W.TimmyRive.handles() as Array<{ id: string; unmount: () => void }>).find((x) => x.id === hd.id)!.unmount(); });
+      expect(await o.page.$$eval('#m-action button', (els) => els.length)).toBe(0);
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().some((x) => x.component === 'action'))).toBe(false);
+      expect(o.errors).toEqual([]);
+    } finally { await o.context.close(); }
+  }, LONG);
+
   it('PREVIEW: labelled, moves the word only, records a PREVIEW event; no receipt and no progress number in the view; reduced motion is read; 390x844 fits', async () => {
     const o = await open({ width: 390, height: 844 }, true);
     try {

@@ -21,7 +21,7 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .find((p): p is string => Boolean(p) && existsSync(p!));
 
-type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string } };
+type Win = { timmyCanvas: { editor: { getShape: (id: string) => { props: Record<string, unknown>; x: number; y: number } | undefined; select: (...ids: string[]) => void; selectNone: () => void; updateShape: (s: unknown) => void; createShape: (s: unknown) => void; createBindings: (b: unknown[]) => void; getBindingsToShape: (id: string, type: string) => unknown[]; getShapePageBounds: (id: string) => { x: number; y: number; w: number; h: number } | undefined; getCurrentPageShapes: () => Array<{ id: string; type: string; props: Record<string, unknown> }>; licenseManager?: { state: { get: () => string }; isDevelopment: boolean } }; placeRive: (c: string, o?: Record<string, unknown>) => string }; TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ component: string; state: string; why: string; runtime: { inputs: Array<{ name: string; value: unknown }> }; events: Array<{ input: string; value: unknown; source: string }> }>; runtimeState: () => string } };
 
 describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from the operator\'s native asset (R11 round 5, H174)', () => {
   let root = '';
@@ -120,6 +120,49 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 120_000);
+
+  it('R11 round 6: an arrow BINDS to the shape through tldraw\'s default binding and follows its move; the artboard is picked on the shape (a <select>, keyboard reachable) and the props are SAVED through the Studio\'s board save, present on reopen', async () => {
+    const { page, context, errors } = await open();
+    try {
+      const id = await page.evaluate(() => (window as unknown as Win).timmyCanvas.placeRive('activity', { label: 'Console on the board' }));
+      await page.waitForSelector('[data-timmy-rive-shape][data-component="activity"]', { state: 'attached', timeout: 20_000 });
+      // an arrow bound to the shape (tldraw's own arrow binding; ShapeUtil.canBind's default is true, read in @tldraw/editor)
+      const bound = await page.evaluate((sid) => {
+        const ed = (window as unknown as Win).timmyCanvas.editor;
+        const shape = ed.getShape(sid)!;
+        const arrowId = `shape:h174-arrow-${Date.now()}`;
+        ed.createShape({ id: arrowId, type: 'arrow', x: shape.x - 200, y: shape.y - 100, props: { start: { x: 0, y: 0 }, end: { x: 200, y: 100 } } });
+        ed.createBindings([{ id: `binding:h174-${Date.now()}`, type: 'arrow', fromId: arrowId, toId: sid, props: { terminal: 'end', normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false } }]);
+        const before = ed.getShapePageBounds(arrowId)!;
+        ed.updateShape({ id: sid, type: 'timmy-rive', x: shape.x + 300, y: shape.y + 120 });
+        const after = ed.getShapePageBounds(arrowId)!;
+        return { bindings: ed.getBindingsToShape(sid, 'arrow').length, arrowId, moved: Math.round(after.x + after.w - (before.x + before.w)), movedY: Math.round(after.y + after.h - (before.y + before.h)) };
+      }, id);
+      expect(bound.bindings).toBe(1);
+      expect(bound.moved).toBeGreaterThan(200); // the arrow's far end followed the shape's move
+      expect(bound.movedY).toBeGreaterThan(80);
+      // the artboard picked on the shape: the <select> is a native control; its change writes the props
+      const select = page.locator(`[data-rive-pick="${id}"]`);
+      expect(await select.evaluate((e) => (e as HTMLSelectElement).value)).toBe('activity');
+      await select.selectOption('connection');
+      await page.waitForFunction((sid) => (window as unknown as Win).timmyCanvas.editor.getShape(sid)?.props.component === 'connection', id, { timeout: 10_000 });
+      await page.waitForSelector(`[data-timmy-rive-shape][data-component="connection"]`, { state: 'attached', timeout: 10_000 });
+      expect(await page.evaluate((sid) => { const p = (window as unknown as Win).timmyCanvas.editor.getShape(sid)!.props; return [p.component, p.label, p.state]; }, id)).toEqual(['connection', 'Provider connection', 'disconnected']);
+      // the board save (the Studio's own, under the project): saved, then the same shape with its props in a new page
+      await page.waitForFunction(() => document.getElementById('save')?.dataset.state === 'saved', null, { timeout: 20_000 });
+      const saved = await page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.getCurrentPageShapes().filter((s) => s.type === 'timmy-rive' || s.type === 'arrow').map((s) => [s.id, s.type]));
+      expect(saved.map((s) => s[1]).sort()).toEqual(['arrow', 'timmy-rive']);
+      expect(errors).toEqual([]);
+      await context.close();
+      const again = await open();
+      try {
+        const reopened = await again.page.evaluate(() => { const ed = (window as unknown as Win).timmyCanvas.editor; return ed.getCurrentPageShapes().filter((s) => s.type === 'timmy-rive').map((s) => [s.id, s.props.component, s.props.label, s.props.state, ed.getBindingsToShape(s.id, 'arrow').length]); });
+        expect(reopened).toEqual([[id, 'connection', 'Provider connection', 'disconnected', 1]]);
+        await again.page.waitForSelector('[data-timmy-rive-shape][data-component="connection"] canvas[data-loaded]', { state: 'attached', timeout: 20_000 });
+        expect(again.errors).toEqual([]);
+      } finally { await again.context.close(); }
+    } finally { try { await context.close(); } catch { /* closed above */ } }
+  }, 180_000);
 
   it('places a welcome shape: a real button; its trigger fires for the person\'s click only; the activity shape\'s word is idle', async () => {
     const { page, context, errors } = await open();

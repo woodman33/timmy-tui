@@ -513,6 +513,16 @@
   .tr-component[data-state="connected"] .tr-status { color: var(--timmy-live); }
   .tr-component[data-state="checking"] .tr-status, .tr-component[data-state="awaiting"] .tr-status, .tr-component[data-state="stopping"] .tr-status, .tr-component[data-state="failed"] .tr-status { color: var(--timmy-accent); }
   .tr-note, .tr-shape-source, .tr-shape-foot, .tr-shape-more { font-size: 12px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+  /* R11 round 6: the artboard picked on the shape; the mounts' artboards at their proportions on the board */
+  .tr-shape-pick { display: inline-flex; }
+  .tr-shape-select { font: inherit; font-size: 11px; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 1px 4px; }
+  .tr-shape-select:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+  .tr-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tr-shape .tr-component[data-artboard] { grid-template-columns: 1fr; }
+  .tr-shape .tr-component[data-artboard] .tr-face { width: 100%; height: auto; border-radius: 8px; }
+  .tr-shape .tr-component[data-artboard="AgentConsole"] .tr-face { aspect-ratio: 640 / 380; }
+  .tr-shape .tr-component[data-artboard="ProviderCard"] .tr-face { aspect-ratio: 400 / 260; }
+  .tr-shape .tr-component[data-artboard="ActionButton"] .tr-face { aspect-ratio: 240 / 72; font-size: 14px; }
   .tr-note:empty { display: none; }
   .ta { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
     font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
