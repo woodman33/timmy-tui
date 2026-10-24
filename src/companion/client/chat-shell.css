@@ -522,9 +522,14 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
 .cx-twin > .cx-way[hidden], .cx-twin > .cx-btn[hidden] { display: none; } /* (the twin's own display rule would keep a hidden card on the page) */
 .cx-rive-host { display: inline-grid; gap: 4px; justify-items: start; }
 .cx-rive-host.is-loading { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; }
-.cx-rive-host .tr-component, .cx-rive-host .tr-component[data-artboard] { display: inline-grid; grid-template-columns: 1fr; gap: 4px; }
-.cx-rive-host .tr-component .tr-words { display: none; } /* (a button's state is its label: no state word stands beside a button) */
+.cx-rive-host .tr-component, .cx-rive-host .tr-component[data-artboard] { display: inline-grid; grid-template-columns: 1fr; gap: 4px; justify-items: start; }
+/* the word beside a native button IS its label (the native text is the asset's own): read under the face, 13 px, in the text colour */
+.cx-rive-host .tr-component .tr-words { font-size: 13px; }
+.cx-rive-host .tr-component .tr-status { font-size: 13px; color: var(--timmy-text); }
 .cx-rive-host .tr-face .tr-fallback { font-size: 14px; font-weight: var(--timmy-weight-strong); }
+/* the native buttons at 180 × 54 (the artboard's 240 × 72 at 75 %) so once · session · deny sit in one row of the turn's box */
+#cx-own .cx-needs .cx-rive-host .tr-face { width: 180px; height: auto; aspect-ratio: 240 / 72; }
+#cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 200px; height: auto; aspect-ratio: 240 / 72; }
 .cx-needs-opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: start; }
 /* the welcome's primary starter: the native button in the first starter's cell, its words under it; the card is its twin */
 .cx-way-twin { display: grid; }

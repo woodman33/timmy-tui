@@ -141,18 +141,22 @@ function mountConsoleIn(host, size) {
   const R = riveApi();
   if (!R) return null;
   try {
-    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size });
-    // (until H174's mountConsole: the bindings' component with the asset's documented names; bound to this page's activity feed)
-    return R.component({ host, component: 'activity', asset: TIMMY_UI_ASSET, artboard: 'AgentConsole', stateMachine: 'TimmyUI', role: 'img', heading: 'Agent console', label: 'Agent console: the turn’s state', text: '>_', binds: ['activity'] });
+    // (H174's CONTRACT of 06:37: size 'card' = 320 px / 'wide' = the host's width; the band's own CSS sets the face's height from
+    // the window, in the artboard's proportions; no heading of the mount's — the band's head row is the heading)
+    if (typeof R.mountConsole === 'function') return R.mountConsole(host, { size, heading: null, label: 'Agent console: the turn’s state' });
+    // (until his mount is on this page: the bindings' component with the asset's documented names; bound to this page's activity feed)
+    return R.component({ host, component: 'console', asset: TIMMY_UI_ASSET, artboard: 'AgentConsole', stateMachine: 'TimmyUI', role: 'img', heading: null, label: 'Agent console: the turn’s state', text: '>_', binds: ['activity'], size });
   } catch (e) { return null; }
 }
 function mountActionButtonIn(host, label, action) {
   const R = riveApi();
   if (!R) return null;
   try {
+    // (H174's CONTRACT: a real <button aria-label=label> face; `action(event)` on a trusted click / Enter / Space; the HTML label
+    // beside it carries the words — the native text is the asset's own, so the word beside the face is how the option reads)
     if (typeof R.mountActionButton === 'function') return R.mountActionButton(host, { label, action });
-    // (until H174's mountActionButton: the bindings' button component; its trigger fires for a trusted click / Enter / Space only)
-    return R.component({ host, component: 'welcome', asset: TIMMY_UI_ASSET, artboard: 'ActionButton', stateMachine: 'TimmyUI', role: 'button', label, text: label, binds: [], onTrigger: () => { try { action(); } catch (e) { /* the action's own */ } } });
+    // (until his mount is on this page: the bindings' button component; its trigger fires for a trusted click / Enter / Space only)
+    return R.component({ host, component: 'action', asset: TIMMY_UI_ASSET, artboard: 'ActionButton', stateMachine: 'TimmyUI', role: 'button', label, text: label, word: label, binds: [], onTrigger: () => { try { action(); } catch (e) { /* the action's own */ } } });
   } catch (e) { return null; }
 }
 /**
@@ -166,6 +170,7 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
   const host = h('span', { class: 'cx-rive-host is-loading', 'data-rive-action': label });
   const handle = mountActionButtonIn(host, label, action);
   if (!handle) return wrap;
+  wrap.riveHandle = handle; // (unmount() when the wrap is let go: the runtime instance with it)
   if (o.words) host.append(h('span', { class: 'cx-way-words cx-twin-words' }, o.words));
   wrap.append(host);
   wrap.dataset.rive = 'loading';
@@ -213,7 +218,7 @@ function drawConsole() {
   const away = st === 'first-run' || st === 'setup';
   if (away || !riveApi()) { band.hidden = true; return; }
   if (!consoleHandle) {
-    consoleHandle = mountConsoleIn(body, { width: 320, height: 190 });
+    consoleHandle = mountConsoleIn(body, 'card');
     if (!consoleHandle) { band.hidden = true; return; }
     setConsoleFold(consoleFolded(), false);
     try {
@@ -670,11 +675,14 @@ function needsBlock(t) {
   const key = `${n.answered || ''}|${n.failed || ''}|${n.words}|${(n.options || []).map((o) => (typeof o === 'string' ? o : o.id || o.value || '')).join(',')}`;
   const had = needsBoxes.get(n.id);
   if (had && had.key === key) return had.box;
+  if (had) letGoTwins(had.box);
   const opts = (n.options.length ? n.options : ['yes', 'no']).map((o) => {
     const choice = String(typeof o === 'string' ? o : o.id || o.value || '');
     const label = typeof o === 'string' ? o : (o.label || o.id || String(o.value || ''));
     const btn = h('button', { type: 'button', class: 'cx-btn', 'data-cx-answer': choice, 'data-cx-answer-id': n.id }, label);
-    return twinActionButton(btn, label, () => answerNeedsYou(n.id, choice), { class: 'cx-needs-opt' });
+    // (the answer in flight: every option's native button and twin off until the ask is drawn as answered)
+    const act = () => { for (const w of box.querySelectorAll('.cx-twin')) { const b = w.querySelector('[data-cx-answer]'); if (b) b.disabled = true; if (w.riveHandle && typeof w.riveHandle.setDisabled === 'function') { try { w.riveHandle.setDisabled(true); } catch (e) { /* the pose stands */ } } } answerNeedsYou(n.id, choice); };
+    return twinActionButton(btn, label, act, { class: 'cx-needs-opt' });
   });
   const box = h('div', { class: 'cx-needs', role: 'group', 'aria-label': 'Timmy needs you', 'data-needs': n.id },
     h('p', { class: 'cx-needs-k' }, 'Needs you'), h('p', null, n.words),
@@ -682,6 +690,10 @@ function needsBlock(t) {
     n.failed ? h('p', { class: 'cx-act-sub' }, `└ ${n.failed}`) : null);
   needsBoxes.set(n.id, { key, box });
   return box;
+}
+/** The native buttons of a box that is let go: their runtime instances with them (H174's handle.unmount). */
+function letGoTwins(box) {
+  for (const w of box.querySelectorAll('.cx-twin')) { if (w.riveHandle && typeof w.riveHandle.unmount === 'function') { try { w.riveHandle.unmount(); } catch (e) { /* gone */ } } }
 }
 
 function routeOf(v) { return (v && v.route) || null; }
@@ -1230,6 +1242,7 @@ async function sendNow() {
 function endOwnTurn(turn, controller) {
   if (!turn.ended) turn.ended = Date.now();
   if (cx.running === controller) { cx.running = null; cx.runningTurn = null; }
+  for (const { box } of needsBoxes.values()) letGoTwins(box);
   needsBoxes.clear(); // (the turn's asks are over: their boxes, and the native buttons in them, are not kept)
   drawChat();
   drawStatus();
