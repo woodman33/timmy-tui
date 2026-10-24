@@ -88,6 +88,14 @@ export function setPagePolicyConnect(extra: string): void {
  */
 let policyWasm = false;
 export function setPagePolicyWasm(on: boolean): void { policyWasm = on === true; }
+/**
+ * R11 round 4 (H171, step 4): Clerk's script (served by this companion from /vendor/clerk/) makes a Web Worker from a blob:
+ * of its own code; with no worker-src the policy falls back to script-src 'self', which refuses a blob: worker, and Clerk
+ * falls back to page timers. Set by the server only when the identity provider is configured: worker-src 'self' blob: —
+ * a worker made of the page's own scripts, never a fetched one from elsewhere. Absent, the page declares no worker-src.
+ */
+let policyWorker = false;
+export function setPagePolicyWorker(on: boolean): void { policyWorker = on === true; }
 
 export function pagePolicy(host: string | undefined): string {
   const socket = typeof host === 'string' && HOST.test(host) ? ` ws://${host}` : '';
@@ -98,6 +106,7 @@ export function pagePolicy(host: string | undefined): string {
     "font-src 'self'",
     PAGE_IMG_SRC,
     `connect-src 'self'${socket}${policyConnect}`,
+    ...(policyWorker ? ["worker-src 'self' blob:"] : []),
     "frame-src 'self'",
     "object-src 'none'",
     "base-uri 'none'",
@@ -203,7 +212,14 @@ export function mountMark(app: express.Application, assetsDir?: string): void {
   const dir = markDir(assetsDir);
   // the policy's WebAssembly keyword only when there is a mark to draw and a runtime to draw it with (see setPagePolicyWasm)
   const rive = riveDir();
-  setPagePolicyWasm(existsSync(join(dir, 'timmy-mark.riv')) && rive !== null && existsSync(join(rive, 'rive.wasm')));
+  const hasMark = (): boolean => existsSync(join(dir, 'timmy-mark.riv'));
+  const hasRuntime = (): boolean => rive !== null && existsSync(join(rive, 'rive.js')) && existsSync(join(rive, 'rive.wasm'));
+  setPagePolicyWasm(hasMark() && hasRuntime());
+  // what the page may draw (chat-shell.js asks before loading the runtime): always 200, so an installation without the mark
+  // records no failed request on every open
+  app.get('/assets/mark.json', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ mark: hasMark(), runtime: hasRuntime(), words: hasMark() ? 'The T mark is drawn by its Rive file.' : MARK_ABSENT });
+  });
   app.get('/assets/:file', (req, res, next) => {
     const file = String(req.params.file);
     const type = MARK_FILES[file];

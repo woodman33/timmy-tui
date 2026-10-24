@@ -278,7 +278,8 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     expect(body.conversation.turns.map((t: { kind: string }) => t.kind)).toEqual(['you', 'timmy', 'tool', 'you', 'timmy']);
     expect(body.conversation.turns[1].model).toBe('fake-qwen3:8b');
     expect(body.route).toMatchObject({ kind: 'local', ready: true, model: 'fake-qwen3:8b', loopback: true, cloud: false });
-    expect(body.scope).toMatchObject({ conversation: 'this page', tools: 'none', receipt: false });
+    // (R11 round 4, H169's contract C3: the page's Send is the project's conversation, the agent's gated tools, a receipt)
+    expect(body.scope).toMatchObject({ conversation: 'project', tools: 'gated', receipt: true });
     expect(body.policy).toEqual({ freeOnly: false, localOnly: false, from: { freeOnly: 'settings', localOnly: 'settings' } });
     // (R11 step 1) the choice: the setup's local model, ready only because Ollama listed it at this read (its /api/show passed)
     expect(body.choice).toMatchObject({ chosen: true, source: 'ollama-local', model: 'fake-qwen3:8b', from: 'the setup', check: { state: 'ready' }, words: 'Next turn: fake-qwen3:8b on this computer.' });
@@ -445,7 +446,7 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
     expect(ollama.chats()).toHaveLength(0);
   });
 
-  it('a key with no chat answer: no model is chosen (Send is off, nothing sent); an OpenRouter model chosen on the page is kept as a choice and is what /chat asks', async () => {
+  it('a key with no chat answer: no model is chosen (Send is off, nothing sent); an OpenRouter model chosen on the page is kept as a choice; the legacy POST /chat is gone (404 in words, nothing sent upstream)', async () => {
     // the setup's local answer gone: a home with a key and no chat answer
     writeFileSync(join(env.TIMMY_HOME!, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { ollama: ollama.host } }));
     env.OPENROUTER_API_KEY = 'FAKE-key-never-sent';
@@ -454,9 +455,11 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
     expect(v.route).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen', label: 'No model chosen: choose one in Models · Send is off' });
     expect(v.route.words).toMatch(/^Send is off: No model chosen: choose one in Models \(this page's Chat, or M in timmy workbench: the same choice serves both\), and nothing is sent to a model nobody chose\. Nothing is sent from this page until then\. /);
     expect(v.choice).toMatchObject({ chosen: false, check: { state: 'failed' }, words: 'No model chosen: choose one in Models.' });
+    // (R11 round 4, H169: POST /chat is removed, never kept as a fallback: 404 in the companion's words; nothing goes upstream.
+    // The page's turn is POST /api/chat/turn, under a signed-in user: tests/companion-chat-run.test.ts)
     const refused = await chat('hello');
-    expect(refused).toContain('event: error');
-    expect(refused).toContain('No model chosen: choose one in Models');
+    expect(refused).toContain('The browser companion has nothing at');
+    expect(refused).not.toContain('event:');
     expect(upstream).toHaveLength(0);
     // the choice: a free row of the kept catalog
     const r = await post('/api/chat/choose', { source: 'openrouter', model: 'recursive/flint-v1.0:free' });
@@ -466,14 +469,12 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
     expect(JSON.parse(readFileSync(join(env.TIMMY_SETTINGS_DIR!, 'workbench.json'), 'utf8')).openRouterModel).toBe('recursive/flint-v1.0:free');
     v = await view();
     expect(v.route).toMatchObject({ kind: 'openrouter', ready: true, model: 'recursive/flint-v1.0:free' });
-    expect(v.route.label).toMatch(/^recursive\/flint-v1\.0:free · OpenRouter · this page's own chat/);
+    expect(v.route.label).toMatch(/^recursive\/flint-v1\.0:free · OpenRouter · the project's conversation/);
     // the key is saved, not checked: the chip's dot stays grey (unknown), never green without an answer
     expect(v.choice).toMatchObject({ chosen: true, source: 'openrouter', model: 'recursive/flint-v1.0:free', check: { state: 'unknown' } });
     const sent = await chat('hello');
-    expect(sent).toContain('FAKE answer');
-    expect(upstream).toHaveLength(1);
-    expect(JSON.parse(upstream[0].body).model).toBe('recursive/flint-v1.0:free');
-    expect(upstream[0].auth).toBe('Bearer FAKE-key-never-sent');
+    expect(sent).toContain('The browser companion has nothing at');
+    expect(upstream).toHaveLength(0);
     expect(JSON.stringify(v)).not.toContain('FAKE-key-never-sent');
     // a model not in the kept catalog is not chosen
     expect((await post('/api/chat/choose', { source: 'openrouter', model: 'nobody/made-this' })).body).toMatchObject({ ok: false, state: 'not listed' });

@@ -158,12 +158,23 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     // R5 (H132's layout): a panel lives under one of the workspace's ten tabs (its data-ws), and the chat's two views
     // under Chat's view switch; a package without workspace tabs keeps its flat buttons
     const tab = async (name) => {
+      // R11 round 4 (H171): the page opens on the shell's landing screen (the account screen where no identity provider is
+      // configured); the workspace is the Chat screen, which the shell shows on request (as a person's click would)
+      await page.evaluate(() => { const sh = window.TimmyShell; if (sh && typeof sh.current === 'function' && sh.current() !== 'chat') sh.go('chat', 'probe'); }).catch(() => undefined);
       const ws = await page.getAttribute(`#tab-${name}`, 'data-ws').catch(() => null);
       // R10 CHAT (H171): the tab row is not drawn on Chat (where the page opens): there the shell's left menu opens the tab
       if (ws && (await page.getAttribute('body', 'data-dest').catch(() => null)) !== ws) {
         const row = page.locator(`#ws-tabs [data-ws-tab="${ws}"]`);
         if (await row.isVisible().catch(() => false)) await row.click();
-        else await page.click(`#rail-menu .rail-item[data-dest="${ws}"]`);
+        else {
+          // (R11 round 4: a destination the rail does not list — Home, Control Room, Fleet — is found by the rail's finder)
+          const item = page.locator(`#rail-menu .rail-item[data-dest="${ws}"]`);
+          const found = !(await item.isVisible().catch(() => false));
+          if (found) { await page.click('#rail-find-btn'); await page.fill('#rail-find', ws); }
+          await item.click();
+          // (the finder closed again, so the rail lists every destination for the next tab)
+          if (found) await page.evaluate(() => { const b = document.getElementById('rail-find-btn'); if (b && b.getAttribute('aria-expanded') === 'true') b.click(); });
+        }
       }
       if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
       else if (!ws) await page.click(`[data-tab="${name}"]`);
@@ -226,11 +237,13 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     });
 
     await workflow('chat send (FAKE upstream)', async () => {
+      // R11 round 4 (H169's contract C3): the legacy POST /chat is gone and the older Streamdown view sends nothing: its Send
+      // says so in words, asks nothing of the FAKE upstream (the real turn is POST /api/chat/turn under a signed-in user)
       await page.fill('#sd-input', 'SYNTHETIC: a message for the FAKE upstream');
       await page.click('#sd-send');
-      await until(() => /FAKE answer/.test([...document.querySelectorAll('#sd-messages .sd-answer')].pop()?.textContent ?? '') && document.getElementById('sd-status')?.textContent === 'IDLE');
-      const tokens = await page.textContent('#sd-tokens');
-      return /21 tokens \(reported by the provider\)/.test(tokens ?? '') ? { answer: 'drawn', tokens } : { ok: false, why: `its counter said ${tokens}` };
+      await until(() => /This older view sends nothing/.test(document.querySelector('.sd-error')?.textContent ?? '') && document.getElementById('sd-status')?.textContent === 'IDLE');
+      const said = await page.textContent('.sd-error');
+      return { answer: 'none (the older view sends nothing; it said so)', said };
     });
 
     await workflow('slate 3d', async () => {

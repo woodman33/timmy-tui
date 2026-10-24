@@ -9,7 +9,7 @@
 // The page's Send is POST /api/chat/turn (R11 round 4, H169's agent turn): the project's conversation, with the project's
 // tools and a sealed receipt, as the turn's evidence line says. Nothing here sends a key, a prompt or a request elsewhere.
 
-/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader */
+/* global companion, workspace, h, showWorkspaceTab, pinProject, copyCommand, typingIn, projectHeader, onConnectionsChanged */
 
 const cx = {
   /** the destination shown ('chat', or one of the workspace's tabs) */
@@ -61,6 +61,12 @@ const $ = (id) => document.getElementById(id);
 const clock = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? '' : `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; };
 const fakeModel = (m) => /\bfake\b|^fake-|-fake\b/i.test(String(m || ''));
 const shown = (el) => el instanceof HTMLElement && document.contains(el) && el.getClientRects().length > 0;
+// R11 round 4 (H169's contract C3; the lead's ruling of 21:48): with an identity provider configured the turn runs in a
+// signed-in user's own Timmy home, so Send needs the shell's session; with none configured this page is this computer's
+// operator (H173's operator principal: the companion's own env and projects) and Send works as before accounts
+const identityConfigured = () => Boolean(typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.identity === 'function' && TimmyShell.identity() && TimmyShell.identity().configured);
+const signedIn = () => !identityConfigured() || Boolean(TimmyShell.session.user());
+const SIGN_IN_TO_SEND = 'Sign in to send: the turn runs in your own Timmy home.';
 
 /**
  * A region's children replaced, the keyboard kept where it was: the menu and the controls are drawn again every few seconds
@@ -104,6 +110,8 @@ const DESTS = [
   { id: 'tools', label: 'Tools & integrations', glyph: '⌘' },
   { id: 'control', label: 'Control Room', glyph: '▦', find: true },
   { id: 'fleet', label: 'Fleet & Clef', glyph: '⋔', find: true },
+  // (R10's Home page — the project's newest run image, its strip — keeps its route: the finder finds it)
+  { id: 'home', label: 'Home', glyph: '⌂', find: true },
 ];
 
 function drawRail() {
@@ -159,6 +167,7 @@ function railProject() {
   if (!menu || menu.hidden) return;
   const f = workspace.frame;
   const mode = !p ? 'The companion has not said which project this page shows yet.'
+    : p.user ? 'Your project, in your own Timmy home: its conversation, tools and receipts are yours alone.'
     : p.mode === 'fixed' ? 'A setting fixed this companion’s folder: it follows no project.'
       : p.mode === 'pinned' ? `Pinned on this page${p.active && p.active.id !== p.id ? `; the active project is ${p.active.name}` : ''}.`
         : 'Following the active project: this page moves when Timmy’s active project changes.';
@@ -175,7 +184,7 @@ function railProject() {
     else for (const r of list.rows) kids.push(h('button', { type: 'button', class: `rail-small-btn rail-project-row${p && r.root === p.root ? ' is-current' : ''}`, 'data-cx-project': r.id || r.root, title: r.root ? 'In your Timmy home' : '' }, r.name || r.id));
     kids.push(h('form', { class: 'rail-new-form', id: 'rail-new-form' }, h('label', { class: 'sh-field' }, h('span', { class: 'sh-field-k' }, 'New project'), h('input', { class: 'sh-input', name: 'name', placeholder: 'Its name', autocomplete: 'off', required: '' })), h('button', { type: 'submit', class: 'sh-btn is-small' }, '+ New project')));
   }
-  if (p && p.mode !== 'fixed') {
+  if (p && p.mode !== 'fixed' && !p.user) {
     const pinned = p.mode === 'pinned';
     kids.push(h('button', { type: 'button', class: 'rail-small-btn', 'data-cx': pinned ? 'unpin' : 'pin' }, pinned ? 'Follow the active project' : `Keep this page on ${p.name}`));
   }
@@ -723,15 +732,17 @@ function drawMarks() {
 }
 /**
  * The mark's runtime (/vendor/rive/rive.js, the companion's own copy of @rive-app/canvas), loaded once and only when the companion
- * serves the mark's file (a HEAD of /assets/timmy-mark.riv answers 200): without a mark to draw the page loads no runtime, compiles
- * no WebAssembly and asks no CDN, and the text mark stays. (The page's policy allows the WebAssembly only then too: page.ts.)
+ * says it serves the mark's file and the runtime (GET /assets/mark.json → { mark, runtime }; always 200, so a page without the
+ * mark records no failed request): without a mark to draw the page loads no runtime, compiles no WebAssembly and asks no CDN,
+ * and the text mark stays. (The page's policy allows the WebAssembly only then too: page.ts.)
  */
 function loadMarkRuntime() {
   if (drawMarks.runtime || typeof fetch !== 'function') return;
   if (!document.querySelector('canvas[data-timmy-mark]')) return;
   drawMarks.runtime = 'asking';
-  fetch('/assets/timmy-mark.riv', { method: 'HEAD', cache: 'no-store', credentials: 'omit' }).then((r) => {
-    if (r.status !== 200) { drawMarks.runtime = 'none'; return; }
+  fetch('/assets/mark.json', { cache: 'no-store', credentials: 'omit' }).then(async (r) => {
+    const b = r.status === 200 ? await r.json().catch(() => null) : null;
+    if (!b || b.mark !== true || b.runtime !== true) { drawMarks.runtime = 'none'; return; }
     const s = document.createElement('script');
     s.src = '/vendor/rive/rive.js';
     s.onload = () => { drawMarks.runtime = 'here'; drawMarks(); };
@@ -844,10 +855,11 @@ function drawComposer() {
   send.replaceChildren(h('span', { 'aria-hidden': 'true' }, '↑'));
   send.setAttribute('aria-label', 'Send message');
   const ready = Boolean(r && r.ready);
-  send.disabled = !ready || !input.value.trim();
-  const reason = !cx.view ? 'Reading the next turn’s route…' : !r ? 'The companion said no route.' : !ready ? (c && !c.chosen ? 'No model chosen: choose one in Models' : (r.label || 'Send is off')) : '';
-  if (why) { why.textContent = reason; why.title = r && r.words ? r.words : ''; }
-  send.title = !ready ? (r ? r.words || 'Send is off' : 'The route is not known yet') : !input.value.trim() ? 'Write a message first' : `Sends to ${r.model}: ${r.words || ''}`;
+  const user = signedIn();
+  send.disabled = !ready || !user || !input.value.trim();
+  const reason = !cx.view ? 'Reading the next turn’s route…' : !r ? 'The companion said no route.' : !ready ? (c && !c.chosen ? 'No model chosen: choose one in Models' : (r.label || 'Send is off')) : !user ? SIGN_IN_TO_SEND : '';
+  if (why) { why.textContent = reason; why.title = reason === SIGN_IN_TO_SEND ? SIGN_IN_TO_SEND : r && r.words ? r.words : ''; }
+  send.title = !ready ? (r ? r.words || 'Send is off' : 'The route is not known yet') : !user ? SIGN_IN_TO_SEND : !input.value.trim() ? 'Write a message first' : `Sends to ${r.model}: ${r.words || ''}`;
   input.placeholder = 'Message Timmy…';
 }
 
@@ -897,7 +909,7 @@ function restoreDraft() {
 async function sendNow() {
   const input = $('cx-input');
   const r = routeOf(cx.view);
-  if (!input || cx.running || !r || !r.ready) return;
+  if (!input || cx.running || !r || !r.ready || !signedIn()) return;
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
@@ -913,7 +925,9 @@ async function sendNow() {
   const redraw = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawStreaming(); }); };
   const fetcher = typeof TimmyShell !== 'undefined' ? TimmyShell.fetch : companion.fetch;
   try {
-    const res = await fetcher('/api/chat/turn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, ...(cx.project && cx.project.id ? { project: cx.project.id } : {}) }), signal: controller.signal });
+    // (H169's contract C3: { message, project: { root } }; the root is the user's project's, as the companion's socket named it
+    // for a signed-in page (project.root); without a session the turn is refused with words, and nothing is sent anywhere)
+    const res = await fetcher('/api/chat/turn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, ...(cx.project && cx.project.root ? { project: { root: cx.project.root } } : {}) }), signal: controller.signal });
     if (res.status === 404) { turn.state = 'failed'; turn.words = 'this companion has no POST /api/chat/turn yet (the agent turn’s server side); nothing was sent'; }
     else if (res.status === 401) { turn.state = 'failed'; turn.words = 'sign in first: the turn runs in your own Timmy home'; }
     else if (!res.ok || !res.body) { let words = `the companion answered HTTP ${res.status}`; try { const b = await res.json(); if (b && (b.words || b.error)) words = b.words || b.error; } catch (e) { /* no body */ } turn.state = 'failed'; turn.words = words; }
@@ -1067,7 +1081,9 @@ async function stopOther(btn) {
   btn.setAttribute('aria-busy', 'true');
   btn.disabled = true;
   try {
-    const r = await companion.fetch(`/api/chat/stop${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ turn: id }) });
+    const fetcher = typeof TimmyShell !== 'undefined' ? TimmyShell.fetch : companion.fetch;
+    // (the operator's page names the turn; a signed-in page names it with its project's root too: H169's /api/chat/stop)
+    const r = await fetcher(`/api/chat/stop${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ turn: id, id, ...(cx.project && cx.project.root ? { project: { root: cx.project.root } } : {}) }) });
     const body = await r.json().catch(() => null);
     chatNote(body && typeof (body.words || body.error) === 'string' ? (body.words || body.error) : `The companion answered HTTP ${r.status}.`, r.ok ? null : 'failed');
   } catch (err) {
@@ -1378,7 +1394,7 @@ function controlCounts() {
   const f = workspace.frame;
   const v = cx.view;
   const waiting = f && f.activity ? f.activity.waitingOnYou : null;
-  return { tools: waiting ? String(waiting) : '', attachments: '', plan: '', budget: v && v.policy && v.policy.freeOnly ? 'free-only' : '', approvals: waiting === null ? '' : String(waiting), logs: '', cloudflare: '' };
+  return { tools: waiting ? String(waiting) : '', attachments: '', plan: '', budget: v && v.policy && v.policy.freeOnly ? 'free-only' : '', approvals: waiting ? String(waiting) : '', logs: '', cloudflare: '' };
 }
 
 /** Another surface's turn of this project being answered now (the frame's activity), for the composer's Stop and the status row. */
@@ -1811,14 +1827,23 @@ $('cx-scroll')?.addEventListener('scroll', () => {
       const box = $('rail-account');
       if (!box) return;
       box.dataset.signed = user ? 'yes' : 'no';
-      const name = user ? String(user.username || user.email || user.id || 'Signed in') : 'Not signed in';
+      // (the lead's ruling of 21:48: with no identity provider configured the page is this computer's operator, and the block
+      // names the dependency; configured and not signed in → "Not signed in")
+      const idc = typeof TimmyShell.identity === 'function' ? TimmyShell.identity() : null;
+      const configured = Boolean(idc && idc.configured);
+      const needs = idc && Array.isArray(idc.needs) && idc.needs.length ? idc.needs.join(', ') : 'CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY';
+      const name = user ? String(user.username || user.email || user.id || 'Signed in') : configured ? 'Not signed in' : 'This computer’s operator';
       $('rail-account-name').textContent = name;
-      $('rail-account-sub').textContent = user ? 'your Timmy home' : 'this companion’s own workspace';
+      $('rail-account-sub').textContent = user ? 'your Timmy home' : configured ? 'this companion’s own workspace' : `no identity provider configured (${needs})`;
       $('rail-avatar').textContent = user ? (name.trim()[0] || 'T').toUpperCase() : 'T';
       $('rail-signout').hidden = !user;
     };
     drawAccount(TimmyShell.session.user());
+    TimmyShell.on('identity', () => { drawAccount(TimmyShell.session.user()); drawComposer(); });
     TimmyShell.on('session', ({ user }) => { drawAccount(user); cx.view = null; cx.userProjects = null; cx.toolsInv = null; cx.models.answer = null; if (cx.dest === 'chat') { readView(true); drawChat(); readModels(); } });
+    // R11 round 4 (H170's socket event): a connection of this account changed: the models' states and the route are read again
+    // eslint-disable-next-line no-global-assign
+    onConnectionsChanged = () => { cx.models.answer = null; if (cx.dest === 'chat') { readView(true, true); readModels(); } };
     TimmyShell.on('screen', ({ id }) => {
       if (id !== 'chat' || cx.dest !== 'chat') return;
       readView(true); drawChat(); readModels();

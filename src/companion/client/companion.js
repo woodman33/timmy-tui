@@ -138,6 +138,9 @@ function proofShown() {
 }
 
 let wsConnection = null;
+// R11 round 4 (H170's socket event): what the Chat does when a connection of the account changed (chat-shell.js sets it)
+// eslint-disable-next-line prefer-const
+let onConnectionsChanged = null;
 let activeChatHistory = [];
 let isViewingSaved = false;
 let loadedChatId = null;
@@ -673,6 +676,19 @@ function connect() {
         appendToLocalLogs('INFO', `Project: ${String(msg.project.name)} (${String(msg.project.folder)}), ${String(msg.project.mode)}${msg.reason ? ` (${String(msg.reason)})` : ''}`);
         if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
         if (moved) updateMirrorStatus(mirrorHasSession() ? 'LIVE' : 'WAITING');
+      } else if (msg.type === 'session' && msg.ok === false) {
+        // R11 round 4 (H171): the hello's session did not verify (or names no project of the account's): the shell forgets
+        // it and lands on the account screen, in the companion's words; this page shows no project meanwhile
+        appendToLocalLogs('WARN', `Session refused by the companion: ${String(msg.words || '')}`);
+        if (typeof TimmyShell !== 'undefined' && TimmyShell) { TimmyShell.toast(String(msg.words || 'Sign in to continue.')); if (msg.needs === 'session') { TimmyShell.session.clear(); TimmyShell.land(); } }
+      } else if (msg.type === 'connections' && typeof msg.provider === 'string') {
+        // R11 round 4 (H170): a connection of this account changed (saved, checked, downloaded): the connections screen reads
+        // again, and the Chat's models and route follow
+        appendToLocalLogs('INFO', `Connections: ${String(msg.provider)} ${String(msg.state || '')}`);
+        const host = document.getElementById('screen-connections');
+        const scr = host && host._cxScreen;
+        if (scr && typeof scr.update === 'function') { try { scr.update(msg); } catch (e) { /* its own */ } }
+        if (typeof onConnectionsChanged === 'function') { try { onConnectionsChanged(msg); } catch (e) { /* its own */ } }
       } else if (msg.type === 'bus.tail' && Array.isArray(msg.events)) {
         // R4 (H84): the event bus, as it reached this page: the tail on connecting, then each event
         appendToLocalLogs('INFO', `Event bus: ${msg.events.length} recent event${msg.events.length === 1 ? '' : 's'}${msg.events.length ? `, latest ${String(msg.events[msg.events.length - 1].kind)}` : ''}`);

@@ -60,7 +60,9 @@ body.shell:not([data-dest="chat"]) .ws-menu { display: inline-flex; }
 .rail-foot-keys { display: flex; gap: 14px; padding: 6px 14px 4px; }
 .rail-account { display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px; border-top: 1px solid var(--timmy-line); }
 .rail-avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--timmy-line-strong); border-radius: 50%; font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-.rail-account-words { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rail-account-words { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; flex: 1; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.rail-account-words:hover { background: var(--timmy-surface); }
+.rail-account-words > * { max-width: 100%; }
 .rail-account-name { font-size: 13px; color: var(--timmy-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-account-sub { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-new-conv { margin: 6px 14px 4px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
@@ -219,7 +221,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-compose-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px 10px 12px; }
 /* R11 step 3: while another surface answers a turn, the reason beside Stop takes a row of its own under the controls */
 .cx-send-why[data-row="own"] { flex: 1 1 100%; order: 4; text-align: left; }
-.cx-send-why { margin-left: auto; min-width: 0; font-size: 13px; color: var(--timmy-text); text-align: right; }
+.cx-send-why { flex: 1 1 0; margin-left: auto; min-width: 0; font-size: 13px; color: var(--timmy-text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* (shrinks before Send leaves its row; its whole sentence is the title and the panel's NEXT TURN words) */
 .cx-send-why:empty { display: none; }
 .cx-compose-foot .cx-send-why ~ .cx-send, .cx-compose-foot .cx-chip ~ .cx-send { margin-left: 0; }
 /* R11 Phase 2 (R52): the chip never forces Send off its row and is never cut: its basis is 0 and its words wrap inside it
@@ -387,6 +389,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 
 /* the first run, a provider's setup, no model (the handoff's captures 02, 04, 06; the terminal target's first run) */
 .cx-empty { max-width: 860px; margin: 14px auto 10px; padding: 0 6px; }
+body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the welcome is the head of an empty conversation) */
 .cx-empty .cx-title { margin-top: 6px; }
 .cx-ways { margin-top: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .cx-way { display: flex; flex-direction: column; gap: 8px; min-height: 150px; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); color: var(--timmy-text); text-align: left; cursor: pointer; }
@@ -437,7 +440,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-controls { min-height: 40px; }
 }
 @media (max-width: 1180px) { .cx-controls .cx-ctl.is-minor { display: none; } .cx-more { display: inline-flex; } }
-@media (max-width: 520px) { .cx-controls .cx-ctl-n { display: none; } .cx-controls { gap: 2px; } .cx-ctl, .cx-more { padding: 4px 6px; } .cx-controls .cx-ctl > span[aria-hidden] { display: none; } }
+@media (max-width: 520px) { .cx-controls .cx-ctl-n { display: none; } .cx-controls { gap: 2px; padding: 0 6px; } .cx-ctl, .cx-more { padding: 4px 4px; } .cx-controls .cx-ctl > span[aria-hidden] { display: none; } }
 /* R11 round 4 (capture 09): on a phone the bottom row is Plan / Run · Permissions · Budget · Logs · More; Cloudflare optional sits in More */
 @media (max-width: 760px) { .cx-controls .cx-ctl-right .cx-ctl { display: none; } }
 @media (max-width: 1180px) {
@@ -456,6 +459,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-top { padding: 0 12px; gap: 10px; min-height: 52px; }
   .cx-socket, .cx-state-words { display: none; }
   .cx-descriptor { flex-wrap: wrap; gap: 4px 12px; }
+  .cx-descriptor .cx-descriptor-state { display: none; } /* (the status row's "Logs stay on this computer" says it on a phone) */
   .cx-ctl-running { display: none; }
   .cx-center { padding: 0 12px 8px; }
   .cx-turn { grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; }
@@ -464,6 +468,14 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-head-words { flex: 1 1 100%; }
   .cx-tag { white-space: normal; }
   .cx-ways, .cx-ways.cx-starters { grid-template-columns: minmax(0, 1fr); }
+  /* (R11 round 4: the welcome compact on a phone, so its three starters stay above the composer at 390 × 844) */
+  .cx-welcome-mark.sh-mark.is-big { width: 40px; height: 40px; font-size: 22px; border-radius: 6px; }
+  .cx-welcome-title { margin-top: 10px; font-size: 24px; }
+  .cx-welcome-line { margin-top: 6px; font-size: 14px; line-height: 1.4; }
+  .cx-ways.cx-starters { margin-top: 10px; gap: 6px; }
+  .cx-starters .cx-way-compact { padding: 5px 12px; }
+  .cx-empty { margin-top: 6px; }
+  .cx-scroll { padding-top: 10px; }
   .cx-controls { padding: 0 10px; }
   .cx-hint { flex-direction: column; gap: 2px; }
   .cx-compose-foot { flex-wrap: wrap; gap: 8px 12px; }

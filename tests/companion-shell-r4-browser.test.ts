@@ -30,6 +30,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
   let ollama: FakeOllama;
   let withRoute: CompanionServer;
   let noRoute: CompanionServer;
+  let phone: CompanionServer; // the same home (a ready route) on a project of its own, untouched by the turn sent above
   const urlOf = (c: CompanionServer): string => `http://127.0.0.1:${c.port}`;
   const tokenOf = (c: CompanionServer): string => /#t=([0-9a-f]{64})$/.exec(c.url)![1];
 
@@ -56,10 +57,15 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
     mkdirSync(settings2, { recursive: true });
     const env2 = { TIMMY_HOME: home2, TIMMY_SETTINGS_DIR: settings2 };
     noRoute = await startCompanionServer(0, { chatEnv: env2, workspace: { env: env2 } });
+    const root3 = join(box, 'fresh-phone');
+    mkdirSync(join(root3, '.timmy'), { recursive: true });
+    process.env.TIMMY_REPO = root3;
+    phone = await startCompanionServer(0, { chatEnv: env, workspace: { env } });
     if (kept.TIMMY_REPO === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = kept.TIMMY_REPO;
   }, LONG);
   afterAll(async () => {
     await withRoute?.shutdown();
+    await phone?.shutdown();
     await noRoute?.shutdown();
     await ollama?.close();
     await browser?.close();
@@ -75,22 +81,35 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
     return o;
   }
 
-  it('lands on the account screen when no identity provider is configured (the dependency named, nothing signed in), then the connections and the chat screens by the shell', async () => {
+  it('with no identity provider configured the page is this companion\'s own workspace (Chat; the rail says This computer\'s operator and names the dependency); the account screen says what is missing; the connections screen reads as the operator', async () => {
     const { context, page, errors } = await land(withRoute, { width: 1440, height: 900 });
     try {
-      expect(await page.evaluate(() => document.body.dataset.screen)).toBe('account');
+      // (the landing rule: nothing to sign into here, so the workspace, as before accounts; configured and not signed in →
+      // the account screen; signed in → connections until a route is ready: H172's journey)
+      expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       expect(await page.evaluate(() => (window as unknown as { TimmyShell: { current(): string; SCREENS: string[] } }).TimmyShell.SCREENS)).toEqual(['account', 'connections', 'chat']);
-      expect(await page.isVisible('#screen-account')).toBe(true);
+      expect(await page.isVisible('#screen-chat')).toBe(true);
+      expect(await page.isVisible('#screen-account')).toBe(false);
+      expect(await text(page, '#rail-account-name')).toBe('This computer’s operator');
+      // the rail's account block opens H173's account screen, mounted into the shell: "Identity · not configured" (GET
+      // /api/identity names what is missing), the sign-up card with its primary step off; nothing signs in
+      await page.click('#rail-account-go');
+      expect(await page.evaluate(() => document.body.dataset.screen)).toBe('account');
       expect(await page.isVisible('#screen-chat')).toBe(false);
-      // the shell's placeholder (the account screen's own script is H173's): what is missing, in words; nothing signs in
       expect(await text(page, '#screen-account h2')).toBe('Create your Timmy account');
-      expect(await text(page, '#screen-account')).toContain('no GET /api/identity');
-      expect(await page.$$eval('#screen-account input', (els) => els.length)).toBe(0);
-      // the shell remembers the screen id only: never a token, never a key
-      await page.click('#screen-account [data-shell-go="connections"]');
+      expect(await text(page, '#screen-account')).toContain('Identity · not configured');
+      expect(await page.isDisabled('#screen-account .sh-btn-primary')).toBe(true);
+      // the shell remembers the screen id only: never a token, never a key (the screens are reached by the shell: the
+      // account screen has no way around sign-in; H170's connections screen has Explore without a model → chat)
+      // the rail's Models & accounts opens H170's connections screen, mounted: its routes read as this computer's operator
+      // (no provider configured: the operator principal), the preview's four cards; Explore without a model → Chat
+      await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
+      await page.click('#rail-menu .rail-item[data-shell-go="connections"]');
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('connections');
-      expect(await text(page, '#screen-connections h2')).toBe('Choose how you want to run.');
-      await page.click('#screen-connections [data-shell-go="chat"]');
+      await page.waitForSelector('#screen-connections .cx-card', { timeout: 20_000 });
+      expect(await text(page, '#screen-connections h1')).toBe('Choose how you want to run.');
+      expect(await page.$$eval('#screen-connections .cx-card', (els) => els.length)).toBe(4);
+      await page.click('#screen-connections button:has-text("Explore without a model")');
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       expect(await page.isVisible('#screen-chat')).toBe(true);
       const stored = await page.evaluate(() => Object.entries(localStorage).map(([k, v]) => `${k}=${v}`).join('\n'));
@@ -116,8 +135,9 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await page.getAttribute('#rail-menu .rail-item[data-dest="chat"]', 'aria-current')).toBe('page');
       expect(await page.getAttribute('#rail-menu .rail-item[data-shell-go]', 'data-shell-go')).toBe('connections');
       expect(await text(page, '#rail-avatar')).toBe('T');
-      expect(await text(page, '#rail-account-name')).toBe('Not signed in');
-      expect(await text(page, '#rail-account-sub')).toBe('this companion’s own workspace');
+      // (the lead's ruling of 21:48: no identity provider → this computer's operator, the dependency named)
+      expect(await text(page, '#rail-account-name')).toBe('This computer’s operator');
+      expect(await text(page, '#rail-account-sub')).toMatch(/^no identity provider configured \(CLERK_[A-Z_]+(, CLERK_[A-Z_]+)*\)$/);
       expect(await page.isVisible('#rail-signout')).toBe(false);
       // the top line: "<project> / Chat", the state words, Connections
       expect(await text(page, '.cx-crumb')).toBe('fresh / Chat');
@@ -144,6 +164,8 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await page.isDisabled('#cx-send')).toBe(true);
       expect(await text(page, '.cx-hint')).toBe('Messages and records stay local unless you choose cloud services.Enter to send · Shift + Enter for a new line');
       await page.fill('#cx-input', 'Plan the first slice.');
+      // (no identity provider configured: the page is this computer's operator, so Send is amber with a draft and a route;
+      // with a provider configured and no session it is off, saying "Sign in to send: the turn runs in your own Timmy home.")
       expect(await page.isDisabled('#cx-send')).toBe(false);
       expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
       // the bottom row
@@ -151,12 +173,17 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // the right panel: Models | Tools; the provider tabs; the chosen tab's description and its action; the five controls
       expect(await texts(page, '#cx-models .cx-panel-tab')).toEqual(['Models', 'Tools']);
       expect(await texts(page, '#cx-models .cm-provider')).toEqual(['OpenRouter', 'Ollama local', 'Ollama cloud', 'Cloudflare']);
+      // (the chosen tab is the route's provider: this home's route is the FAKE local Ollama; OpenRouter's description when
+      // its tab is chosen)
+      expect(await text(page, '#cm-desc h3')).toBe('Ollama · local');
+      await page.click('[data-cm-provider="openrouter"]');
       expect(await text(page, '#cm-desc h3')).toBe('OpenRouter');
       expect(await text(page, '#cm-desc > p')).toBe('Use models from many makers through your OpenRouter account.');
       expect(await text(page, '#cm-desc .cm-connect')).toBe('Connect with OpenRouter ↗');
       expect(await page.getAttribute('#cm-desc .cm-connect', 'data-shell-go')).toBe('connections');
       expect(await page.getAttribute('#cm-search', 'placeholder')).toBe('Search models or makers');
-      expect(await page.$$eval('#cx-models .cm-filters select', (els) => els.map((e) => [(e as HTMLSelectElement).getAttribute('aria-label'), (e as HTMLSelectElement).selectedOptions[0]?.textContent]))).toEqual([
+      // (each control has its own <label for>: the words a reader hears; the first option is the preview's)
+      expect(await page.$$eval('#cx-models .cm-filters select', (els) => els.map((e) => [(e as HTMLSelectElement).labels?.[0]?.textContent ?? null, (e as HTMLSelectElement).selectedOptions[0]?.textContent]))).toEqual([
         ['Sort', 'Newest first'], ['Maker', 'All makers'], ['Capability', 'All capabilities'], ['Cost', 'Any cost'], ['Context', 'Any context'],
       ]);
       // OpenRouter's catalog here is empty: the preview's words, nothing invented
@@ -216,17 +243,19 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(kept.origins.flatMap((o) => o.localStorage.map((e) => e.name)).sort()).toEqual(expect.arrayContaining(['timmy.shell.screen']));
       await context.close();
       ({ context, page, errors } = await land(withRoute, { width: 1440, height: 900 }, kept));
-      // not signed in: the landing rule lands on the account screen again (a remembered screen counts only when signed in)
-      expect(await page.evaluate(() => document.body.dataset.screen)).toBe('account');
-      await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
+      // no identity provider: the landing rule opens the workspace (a remembered screen counts only when signed in)
+      expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
       expect(await page.inputValue('#cx-input')).toBe('A draft that survives the reopen.');
-      // Send: this branch has no POST /api/chat/turn (H169's): the turn says so, nothing streams, nothing is invented
-      // (the shell gave the screen's heading the keyboard on arrival; a person clicks into the composer first)
+      // Send (H169's POST /api/chat/turn) as this computer's operator (no identity provider here): the turn runs in the
+      // companion's own project with the FAKE Ollama's answer streamed as this page's turn (the shell gave the screen's
+      // heading the keyboard on arrival; a person clicks in first)
       await page.focus('#cx-input');
       await page.keyboard.press('Enter');
-      await page.waitForSelector('#cx-own .cx-turn.is-failed', { timeout: 20_000 });
-      expect(await text(page, '#cx-own .cx-turn.is-failed .cx-end')).toContain('no POST /api/chat/turn yet');
+      await page.waitForSelector('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', { timeout: 60_000 });
+      expect(await page.$eval('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', (e) => `${e.className} · ${e.querySelector('.cx-end')?.textContent ?? ''}`)).toMatch(/is-answered/);
+      await page.waitForFunction(() => document.querySelector('#cx-own .cx-spin') === null, null, { timeout: 20_000 });
+      expect(await text(page, '#cx-own .cx-turn.is-answered .cx-text')).toBe('FAKE answer.');
       expect(await page.inputValue('#cx-input')).toBe('');
       // New conversation puts this page's turns away and clears the draft
       await page.click('#rail-new-conv');
@@ -236,7 +265,8 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
   }, LONG);
 
   it('at 390 × 844 the rail folds behind Menu; Connections and Models are the top buttons; the starters stack; nothing overflows sideways', async () => {
-    const { context, page, errors } = await land(withRoute, { width: 390, height: 844 });
+    // (a project of its own with no conversation, so the welcome shows; withRoute's project holds the turn sent above)
+    const { context, page, errors } = await land(phone, { width: 390, height: 844 });
     try {
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
