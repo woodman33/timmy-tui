@@ -182,8 +182,11 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
     const st = root ? root.dataset.rive : handle.state;
     if (st === 'drawn') {
       host.classList.remove('is-loading'); htmlBtn.hidden = true; wrap.dataset.rive = 'drawn';
-      // (the face was laid out while hidden from view: the runtime draws to its size now)
+      // (the face was laid out while hidden from view: the runtime draws to its size now; an ask's box grows as its faces come,
+      // so it is brought into view again then — H168's R65)
       try { if (handle.rive && typeof handle.rive.resizeDrawingSurfaceToCanvas === 'function') requestAnimationFrame(() => handle.rive.resizeDrawingSurfaceToCanvas()); } catch (e) { /* drawn at its size */ }
+      const ask = wrap.closest('.cx-needs');
+      if (ask) requestAnimationFrame(() => { try { if (ask.isConnected) ask.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* where it is */ } });
       return true;
     }
     if (st === 'words') { host.remove(); htmlBtn.hidden = false; wrap.dataset.rive = 'words'; return true; }
@@ -211,6 +214,27 @@ function setConsoleFold(folded, remember) {
   band.classList.toggle('is-folded', folded);
   if (btn) btn.setAttribute('aria-expanded', String(!folded));
   if (remember) { try { localStorage.setItem(CONSOLE_FOLD_KEY, folded ? 'folded' : 'open'); } catch (e) { /* not kept: the band still folds */ } }
+  syncConsoleClass();
+}
+/** body.console-open while the band is shown and open: the welcome draws compact then, so its starters stay whole (H168's R65). */
+function syncConsoleClass() {
+  const band = $('cx-console');
+  document.body.classList.toggle('console-open', Boolean(band && !band.hidden && !band.classList.contains('is-folded')));
+}
+/**
+ * A phone's width while an ask is OPEN (H168's R65: the gate's third answer was below the fold with the band open): the band
+ * folds itself so every option is on screen, and comes back as it was once the ask is answered or the turn ends; the viewer's
+ * own choice is not rewritten. (Said in the handoff: my call — the permission gate matters more than the console's face.)
+ */
+function consoleForAsk() {
+  const band = $('cx-console');
+  if (!band || band.hidden) return;
+  const open = [...document.querySelectorAll('#cx-own .cx-needs')].find((b) => b.querySelector('.cx-needs-opts')) || null;
+  const askId = open ? open.getAttribute('data-needs') || '' : '';
+  const phone = (() => { try { return typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches; } catch (e) { return false; } })();
+  // (folded ONCE per ask: a viewer who opens the band over the ask is not fought with; restored once no ask is open)
+  if (open && phone && !band.classList.contains('is-folded') && band.dataset.autoFoldedFor !== askId) { band.dataset.autoFoldedFor = askId; band.dataset.autoFolded = '1'; setConsoleFold(true, false); }
+  else if (!open && band.dataset.autoFolded) { delete band.dataset.autoFolded; delete band.dataset.autoFoldedFor; setConsoleFold(consoleFolded(), false); }
 }
 /** The console band: shown with the composer (never on the first run's or a setup's panel), mounted once, folded as chosen. */
 function drawConsole() {
@@ -221,7 +245,7 @@ function drawConsole() {
   const away = st === 'first-run' || st === 'setup';
   // (no mount before the companion answered the chat's read for a signed-in page: the runtime's listing is a user-data read,
   // and a page landing on the account screen asks for nothing of the chat's)
-  if (away || !cx.view || !signedIn() || !riveApi()) { band.hidden = true; return; }
+  if (away || !cx.view || !signedIn() || !riveApi()) { band.hidden = true; syncConsoleClass(); return; }
   if (!consoleHandle) {
     consoleHandle = mountConsoleIn(body, 'card');
     if (!consoleHandle) { band.hidden = true; return; }
@@ -236,6 +260,7 @@ function drawConsole() {
     } catch (e) { /* no media queries here */ }
   }
   band.hidden = false;
+  syncConsoleClass();
 }
 const sessionNeeded = () => Boolean(typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.sessionNeeded === 'function' && TimmyShell.sessionNeeded());
 
@@ -697,6 +722,8 @@ function needsBlock(t) {
     n.answered ? h('p', { class: 'cx-act-sub' }, `└ answered: ${n.answered}`) : h('div', { class: 'cx-needs-opts' }, ...opts),
     n.failed ? h('p', { class: 'cx-act-sub' }, `└ ${n.failed}`) : null);
   needsBoxes.set(n.id, { key, box });
+  // an ask that opens is brought into view, every option on screen (the conversation scrolls to what matters: H168's R65)
+  if (!n.answered) requestAnimationFrame(() => { try { if (box.isConnected) box.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* where it is */ } });
   return box;
 }
 /** The native buttons of a box that is let go: their runtime instances with them (H174's handle.unmount). */
@@ -862,10 +889,11 @@ function drawOwn() {
   // (a turn of this page that the project's conversation now holds, by its receipt, is drawn there, not twice)
   const saved = new Set((((cx.view && cx.view.conversation) || {}).turns || []).map((t) => t.receipt && (t.receipt.id || t.receipt.hash)).filter(Boolean));
   const mine = cx.own.filter((t) => !(t.receipt && saved.has(typeof t.receipt === 'string' ? receiptShort(t.receipt) : (t.receipt.id || t.receipt.hash))));
-  if (!mine.length) { own.replaceChildren(); return; }
+  if (!mine.length) { own.replaceChildren(); consoleForAsk(); return; }
   const list = h('ol', { class: 'cx-turns', 'aria-label': 'This page’s turns in the project’s conversation' });
   mine.forEach((t) => list.append(ownTurn(t, cx.own.indexOf(t))));
   own.replaceChildren(h('p', { class: 'cx-divider' }, 'This page’s turns · sealed to the project’s conversation as they end'), list);
+  consoleForAsk();
 }
 
 /** While an answer streams: this page's turns, the composer and the status line, following the end when the person is there. */
@@ -1991,6 +2019,23 @@ function newConversation() {
   drawChat();
   document.body.classList.remove('rail-open');
   if (input) input.focus();
+  // R11 round 6 (H172's GATE 38 observation): on a project WITH a saved conversation this page's New conversation put the page's own
+  // turns away and the saved conversation stayed — the next turn continues it (the project's one conversation, every surface's),
+  // so no welcome came. A conversation of its own is the REPL's /new (src/agent/core.ts startSession): asked of the companion
+  // here when it has the route (POST /api/chat/new, H169's), after which the chat's read answers an empty conversation and the
+  // welcome with its starters comes by itself; without the route the page says plainly what its New conversation is
+  const conv = cx.view && cx.view.conversation;
+  const n = conv ? conv.turns.filter((t) => t.kind !== 'tool').length : 0;
+  if (!n || !companion.token || companion.refused || sessionNeeded()) return;
+  userFetch(`/api/chat/new${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(cx.project && cx.project.root ? { project: { root: cx.project.root } } : {}) }) })
+    .then(async (r) => {
+      if (r.ok) { chatNote('New conversation: the project’s next turn starts a conversation of its own (the saved one is kept in .sessions).', null); return readView(true, true); }
+      let why = r.status === 404 ? 'this companion has no POST /api/chat/new yet' : `the companion answered HTTP ${r.status}`;
+      try { const b = await r.json(); if (b && (b.words || b.error)) why = b.words || b.error; } catch (e) { /* no body */ }
+      chatNote(`New conversation on this page: its own turns are put away and the composer is clear; the project’s saved conversation (${n} message${n === 1 ? '' : 's'}) stays and the next turn continues it — a conversation of its own is the REPL’s /new today (${why}).`, null);
+      return undefined;
+    })
+    .catch(() => { chatNote(`New conversation on this page: its own turns are put away and the composer is clear; the project’s saved conversation (${n} message${n === 1 ? '' : 's'}) stays and the next turn continues it.`, null); });
 }
 
 /** A first-run choice: a provider's setup in the center with the Models rail on it, or exploring without a model. */
