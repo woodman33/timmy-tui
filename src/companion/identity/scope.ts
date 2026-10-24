@@ -77,12 +77,10 @@ export function userEnv(user: UserRef, base: Env = process.env): Env {
   env.TIMMY_SETTINGS_DIR = join(home, 'settings');
   env.TIMMY_MCP_HOME = join(home, 'mcp');
   env.TIMMY_PRIVATE_DIR = join(home, 'private');
-  // the operator's keys are not the user's; a user's own are in their providers.json
+  // the operator's keys are not the user's; a user's own are in their providers.json. Everything else of the base env
+  // passes through (TIMMY_REPO_ROOT and the store pin included: the receipts' rules are the workspace's, not a user's)
   delete env.OPENROUTER_API_KEY;
   delete env.OLLAMA_API_KEY;
-  // the user's folder is never fixed to a repository checkout of the operator's
-  delete env.TIMMY_REPO;
-  delete env.TIMMY_REPO_ROOT;
   ensure0700(join(baseHome(base), USERS_DIR));
   for (const d of [home, env.TIMMY_SETTINGS_DIR, env.TIMMY_MCP_HOME, env.TIMMY_PRIVATE_DIR, join(home, 'projects'), join(home, 'state')]) ensure0700(d);
   return env;
@@ -114,9 +112,9 @@ function writeRegistry(file: string, projects: RegistryEntry[]): void {
 /**
  * The user's project registry and roots (see the module's words). `env` is the user's (userEnv): its TIMMY_HOME is the
  * user's home, and the registry and the projects folder are read under it. The default project is made and registered when
- * the user has none, so a signed-in user always has a project to open.
+ * the user has none, so a signed-in user always has a project to open ({ make: false } reads only: roots then may be empty).
  */
-export function userProjects(user: UserRef, env: Env): UserProjects {
+export function userProjects(user: UserRef, env: Env, o: { make?: boolean } = {}): UserProjects {
   const id = checkId(user);
   const home = resolve(timmyHome(env));
   if (basename(home) !== id || basename(dirname(home)) !== USERS_DIR) throw new Error('Refused: userProjects takes the user\'s own env (userEnv), whose TIMMY_HOME is the user\'s home.');
@@ -138,6 +136,7 @@ export function userProjects(user: UserRef, env: Env): UserProjects {
     const real = realOrNull(e.path);
     if (real && real !== realProjects && under(real, realProjects) && isDir(real)) roots.add(real);
   }
+  if (roots.size === 0 && o.make === false) return { registry, roots: [], default: '' };
   if (roots.size === 0) {
     const root = join(projectsDir, DEFAULT_PROJECT.folder);
     ensure0700(root);
@@ -182,15 +181,15 @@ export function userProjectFor(user: UserRef, env: Env, asked?: unknown): UserPr
   let own: UserProjects;
   try { own = userProjects(user, env); } catch { return null; }
   const entries = readRegistry(own.registry);
-  const as = (root: string): UserProject => ({ id: projectId(root), name: nameOf(root, entries), root, chosen: true });
-  if (asked === undefined || asked === null || asked === '') return as(own.default);
+  const view = (root: string): UserProject => ({ id: projectId(root), name: nameOf(root, entries), root, chosen: true });
+  if (asked === undefined || asked === null || asked === '') return view(own.default);
   if (typeof asked !== 'string') return null;
   const byId = own.roots.find((r) => projectId(r) === asked);
-  if (byId) return as(byId);
+  if (byId) return view(byId);
   if (isAbsolute(asked) && isOwnedRoot(user, asked, env)) {
     const real = realOrNull(asked);
     const root = real ? own.roots.find((r) => under(real, r)) : undefined;
-    if (root) return as(root);
+    if (root) return view(root);
   }
   return null;
 }
@@ -224,7 +223,7 @@ export function isOwnedRoot(user: UserRef, root: unknown, env: Env): boolean {
   try { checkId(user); } catch { return false; }
   if (typeof root !== 'string' || !root.trim() || root.includes('\0') || !isAbsolute(root)) return false;
   let own: UserProjects;
-  try { own = userProjects(user, env); } catch { return false; }
+  try { own = userProjects(user, env, { make: false }); } catch { return false; }
   // the path as named: a link anywhere in it is resolved by realpath; a path that does not exist is nobody's
   let st;
   try { st = lstatSync(root); } catch { return false; }
