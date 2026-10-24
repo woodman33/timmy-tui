@@ -618,6 +618,28 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cx-console [data-rive-status]')).toBe('idle');
       expect(await page.evaluate(() => document.activeElement?.closest('#cx-console') !== null)).toBe(false);
       expect(answers, 'one answer, and no second one from the twin or the face').toHaveLength(1);
+      // the operator's bar of 07:06 (rapid backend events): a dense burst through THIS PAGE's feed (riveFeed, the one the turn's
+      // SSE goes through) leaves the band's word at the LAST event's state, no lag, no intermediate word; a run of deltas is one
+      // event (the feed collapses a repeated word), every other event is fed as it comes
+      const burst = await page.evaluate(() => {
+        // @ts-expect-error -- riveFeed is a function of the page's classic script chat-shell.js
+        const feed = riveFeed as (e: string, d: unknown, s: string) => void;
+        const R = (window as unknown as { TimmyRive: { inspect(): Array<{ component: string; events: Array<{ source: string; value: unknown }> }> } }).TimmyRive;
+        for (let i = 0; i < 300; i++) feed('delta', { text: 'x' }, 'burst');
+        feed('tool', { name: 'list_project_files', status: 'asked' }, 'burst');
+        feed('needs-you', { id: 'burst-ask' }, 'burst');
+        for (let i = 0; i < 300; i++) feed('delta', { text: 'y' }, 'burst');
+        feed('done', { status: 'cancelled' }, 'burst');
+        const h = R.inspect().find((x) => x.component === 'console');
+        return { word: document.querySelector('#cx-console [data-rive-status]')?.textContent?.trim(), burstEvents: h ? h.events.filter((e) => e.source === 'burst').map((e) => e.value) : null };
+      });
+      expect(burst.word).toBe('stopped');
+      expect(burst.burstEvents).toEqual(['working', 'working', 'awaiting', 'working', 'stopped']);
+      // a duplicate ask of one this page answered, arriving again: nothing changes, nothing is sent (the id was answered once)
+      // @ts-expect-error -- answerNeedsYou is a function of the page's classic script chat-shell.js
+      await page.evaluate((id) => answerNeedsYou(id, 'once'), boxId);
+      await page.waitForTimeout(300);
+      expect(answers, 'the same ask answered again sends nothing').toHaveLength(1);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 180_000);
