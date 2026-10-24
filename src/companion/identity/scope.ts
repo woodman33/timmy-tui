@@ -86,8 +86,16 @@ export function userEnv(user: UserRef, base: Env = process.env): Env {
   return env;
 }
 
-/** The user's projects folder: <userHome>/projects. */
+/** The user's projects folder, <userHome>/projects, from the BASE env (the companion's; not a user's env, which already names the user's home). */
 export const userProjectsDir = (user: UserRef, base: Env = process.env): string => join(userHome(user, base), 'projects');
+
+/** The user's home as a USER's env names it (userEnv's TIMMY_HOME), checked to be one: never nested under itself again. */
+function homeOfUserEnv(user: UserRef, env: Env): string {
+  const id = checkId(user);
+  const home = resolve(timmyHome(env));
+  if (basename(home) !== id || basename(dirname(home)) !== USERS_DIR) throw new Error('Refused: this takes the user\'s own env (userEnv), whose TIMMY_HOME is the user\'s home.');
+  return home;
+}
 
 const realOrNull = (p: string): string | null => { try { return realpathSync(p); } catch { return null; } };
 const isDir = (p: string): boolean => { try { return statSync(p).isDirectory(); } catch { return false; } };
@@ -115,9 +123,7 @@ function writeRegistry(file: string, projects: RegistryEntry[]): void {
  * the user has none, so a signed-in user always has a project to open ({ make: false } reads only: roots then may be empty).
  */
 export function userProjects(user: UserRef, env: Env, o: { make?: boolean } = {}): UserProjects {
-  const id = checkId(user);
-  const home = resolve(timmyHome(env));
-  if (basename(home) !== id || basename(dirname(home)) !== USERS_DIR) throw new Error('Refused: userProjects takes the user\'s own env (userEnv), whose TIMMY_HOME is the user\'s home.');
+  const home = homeOfUserEnv(user, env);
   const projectsDir = join(home, 'projects');
   ensure0700(projectsDir);
   const realProjects = realOrNull(projectsDir) ?? projectsDir;
@@ -206,7 +212,7 @@ export function createUserProject(user: UserRef, env: Env, name: unknown): UserP
   if (typeof name !== 'string' || !PROJECT_NAME.test(name.trim())) return { error: 'a project name uses letters, digits, spaces, dots, dashes or underscores (1 to 64)' };
   const clean = name.trim();
   const folder = clean.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
-  const root = join(userProjectsDir(user, env), folder);
+  const root = join(homeOfUserEnv(user, env), 'projects', folder);
   if (existsSync(root)) return { error: `${clean} already exists; open it instead` };
   ensure0700(root);
   writeRegistry(own.registry, [...readRegistry(own.registry), { name: clean, path: root, created: new Date().toISOString() }]);

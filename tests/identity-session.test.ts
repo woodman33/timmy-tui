@@ -12,13 +12,14 @@
  */
 import { createServer, type Server } from 'node:http';
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exportJWK, SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectSrcFor, frontendApiOf, IDENTITY_ENV, identityConfig, pageIdentity, pemOf } from '../src/companion/identity/config.js';
 import { forgetKeys, originsOf, SESSION_WORDS, USER_ID, verifySession } from '../src/companion/identity/session.js';
+import { CLERK_SCRIPT, findClerkDist } from '../src/companion/identity/routes.js';
 import { createUserProject, DEFAULT_PROJECT, isOwnedRoot, userEnv, userHome, userProjectFor, userProjects } from '../src/companion/identity/scope.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 
@@ -308,9 +309,45 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     expect(r.body).toMatchObject({ ok: true, configured: true, publishableKey: PK, frontendApi: FRONTEND, needs: [], clerkScript: null });
     expect(r.body.clerkWords).toContain('not installed');
     expect(JSON.stringify(r.body)).not.toContain('PUBLIC KEY');
-    const vendor = await fetch(`${base}/vendor/clerk/clerk.headless.browser.js`);
+    const vendor = await fetch(`${base}/vendor/clerk/${CLERK_SCRIPT}`);
     expect(vendor.status).toBe(404);
     expect(await vendor.text()).toContain('Clerk\'s script is not installed in this build');
+  });
+  it('GET /vendor/clerk/<file>: the whole dist/ by plain name, .js and .mjs as text/javascript; a path, a link, types, maps, package files → 404; the installed package found', async () => {
+    // a FAKE dist of this test's: the module the page loads, a chunk, a map, a types folder, and a link out of the folder
+    const dist = join(box, 'fake-clerk-dist'); mkdirSync(join(dist, 'types'), { recursive: true });
+    writeFileSync(join(dist, CLERK_SCRIPT), 'export class Clerk {}\n');
+    writeFileSync(join(dist, 'vendors_clerk.browser_d0e7c9_6.40.1.js'), '/* FAKE chunk */\n');
+    writeFileSync(join(dist, 'clerk.no-rhc.mjs.map'), '{}\n');
+    writeFileSync(join(dist, 'types', 'index.d.ts'), 'export {};\n');
+    writeFileSync(join(box, 'outside.js'), '/* not Clerk\'s */\n');
+    symlinkSync(join(box, 'outside.js'), join(dist, 'link.js'));
+    const withDist = await startCompanionServer(0, { chatEnv: { TIMMY_HOME: join(box, 'home2'), ...ENV }, workspace: { env: { TIMMY_HOME: join(box, 'home2'), ...ENV } }, clientDir: join(box, 'no-client'), identity: { clerkDir: dist } });
+    try {
+      const b = `http://127.0.0.1:${withDist.port}`;
+      const t = /#t=([0-9a-f]{64})$/.exec(withDist.url)![1];
+      const id = await (await fetch(`${b}/api/identity`, { headers: { Authorization: `Bearer ${t}` } })).json();
+      expect(id.clerkScript).toBe(`/vendor/clerk/${CLERK_SCRIPT}`);
+      expect(id.clerkWords).toBeUndefined();
+      const mod = await fetch(`${b}/vendor/clerk/${CLERK_SCRIPT}`); // no launch token: the module is public, as any script of the page's
+      expect(mod.status).toBe(200);
+      expect(mod.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+      expect(mod.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(await mod.text()).toBe('export class Clerk {}\n');
+      const chunk = await fetch(`${b}/vendor/clerk/vendors_clerk.browser_d0e7c9_6.40.1.js`);
+      expect(chunk.status).toBe(200);
+      expect(chunk.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+      // not JavaScript, not a plain name, not there, a link leading out of dist/, a path: each 404
+      for (const name of ['clerk.no-rhc.mjs.map', 'types', '.hidden.js', 'missing.js', 'package.json', 'link.js', 'types/index.d.ts', '../package.json', '..%2Fpackage.json', 'types%2Findex.d.ts']) expect((await fetch(`${b}/vendor/clerk/${name}`)).status, name).toBe(404);
+    } finally { await withDist.shutdown(); }
+    // the installed package, when this checkout has it: found from this module's folder upward, and it holds the file the page loads
+    const installed = findClerkDist();
+    if (existsSync(join(process.cwd(), 'node_modules', '@clerk', 'clerk-js', 'dist', CLERK_SCRIPT))) {
+      expect(realpathSync(installed!)).toBe(realpathSync(join(process.cwd(), 'node_modules', '@clerk', 'clerk-js', 'dist')));
+      expect(statSync(join(installed!, CLERK_SCRIPT)).size).toBeGreaterThan(100_000);
+    } else {
+      expect(installed).toBeNull();
+    }
   });
   it('no session → 401 with words; a body or query clerk_user_id never reaches a user; a forged token → 401', async () => {
     const origin = `http://127.0.0.1:${companion!.port}`;
@@ -344,8 +381,15 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     expect(list.body.default).toBe(list.body.projects[0].id);
     const made = await call('/api/projects', { session: a, method: 'POST', body: { name: 'Short Film', clerk_user_id: USER_B } });
     expect(made.status).toBe(201);
+    // under the user's home ONCE (H172's 20:14 finding: the route's user env fed back into userHome nested it twice), and
+    // listed back by the same route from the same registry
     expect(made.body.root).toBe(join(box, 'home', 'users', USER_A, 'projects', 'short-film'));
-    expect((await call('/api/projects', { session: a })).body.projects.map((p: { name: string }) => p.name).sort()).toEqual(['Short Film', DEFAULT_PROJECT.name].sort());
+    expect(statSync(made.body.root).isDirectory()).toBe(true);
+    expect(() => statSync(join(box, 'home', 'users', USER_A, 'users'))).toThrow();
+    const listed = await call('/api/projects', { session: a });
+    expect(listed.body.projects.map((p: { name: string }) => p.name).sort()).toEqual(['Short Film', DEFAULT_PROJECT.name].sort());
+    expect(listed.body.projects.find((p: { id: string }) => p.id === made.body.id)).toEqual({ id: made.body.id, name: 'Short Film', root: made.body.root });
+    expect(JSON.parse(readFileSync(join(box, 'home', 'users', USER_A, 'projects.json'), 'utf8')).projects.map((p: { path: string }) => p.path).sort()).toEqual([made.body.root, join(box, 'home', 'users', USER_A, 'projects', DEFAULT_PROJECT.folder)].sort());
     const bad = await call('/api/projects', { session: a, method: 'POST', body: { name: '../escape' } });
     expect(bad.status).toBe(400);
     const b = await mint({ sub: USER_B, azp: origin });
