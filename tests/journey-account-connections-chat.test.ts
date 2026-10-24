@@ -144,6 +144,9 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
   // token set while the page's session-less first requests are still in flight is wiped by their refusals (gate run, 22:10)
   await page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen')), null, { timeout: 15_000 }).catch(() => undefined);
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+  // and the account script's Clerk load has ended (its first state, "no session", fires then — gate 4, 22:24: account.js
+  // onClerkState clears the shell's session whenever Clerk reports none, so one adopted before that fire is wiped)
+  await page.waitForFunction(() => { const a = (window as unknown as { timmyAccount?: { state?: () => { loading?: boolean } } }).timmyAccount; return !a?.state || a.state().loading === false; }, null, { timeout: 15_000 }).catch(() => undefined);
   const ok = await page.evaluate(async ([t, id, target]) => {
     const w = window as unknown as { timmyAccount?: { useSession?: (token: string) => unknown }; TimmyShell?: { session?: { set?: (token: string, user?: unknown) => unknown }; land?: () => unknown; go?: (id: string) => unknown } };
     if (w.timmyAccount?.useSession) await w.timmyAccount.useSession(t);
