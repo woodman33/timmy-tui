@@ -323,12 +323,27 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.evaluate(() => typeof (window as unknown as { TimmyRive?: unknown }).TimmyRive)).toBe('undefined');
     const hosts = await page.locator('.cn-card .cn-card-foot > .cn-rive:first-child').evaluateAll((els) => els.map((e) => ({ id: e.getAttribute('data-rive-host'), empty: e.childNodes.length === 0, display: getComputedStyle(e).display })));
     expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, empty: true, display: 'none' })));
-    expect(await page.locator('.cn-card .cn-card-title').allTextContents()).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
-    expect(await page.locator('.cn-card .cn-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
-    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama', 'Download a local model', 'Check', 'Save the key', 'Save Cloudflare settings', 'Continue to the workspace →']) {
-      await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
-    }
+    // the same companion, the same user (the cases above saved and checked a cloud key and checked the local Ollama): the words
+    // with and without the module are the same — the titles, the state words, the words under them, every button
+    const words = async (p: typeof page) => ({
+      titles: await p.locator('.cn-card .cn-card-title').allTextContents(),
+      states: await p.locator('.cn-card .cn-state-word').allTextContents(),
+      under: await p.locator('.cn-card .cn-words').allTextContents(),
+      buttons: await p.getByRole('button').allTextContents(),
+      head: [await p.locator('.cn-kicker').textContent(), await p.locator('h1').textContent(), await p.locator('.cn-lead').textContent()],
+    });
+    const bare = await words(page);
+    expect(bare.titles).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
+    expect(bare.states.length).toBe(4);
+    const withModule = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await withModule.goto(`${base}/`);
+    await withModule.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
+    await withModule.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+    expect(await withModule.locator('.cn-card .cn-rive [data-fake-rive="ProviderCard"]').count()).toBe(4);
+    const full = await words(withModule);
+    expect(bare).toEqual(full);
     expect(errors).toEqual([]);
+    await withModule.close();
     await page.close();
   }, 60_000);
 
