@@ -378,13 +378,24 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
         // a turn: the REAL agent through H169's SSE; the FAKE model calls one tool, then answers
         const composer = o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i));
+        // the conversation is the USER's project's and persists across this file's sizes: the answer counted is a NEW one, and the
+        // tool line is read from that newest turn's own node (its activity folds into the answer once the receipt is read back, so
+        // the visible text alone is not the measure — gates 19–20)
+        const answersBefore = await o.page.evaluate((a) => [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)).length, FAKE_ANSWER);
         await composer.first().fill('FAKE: what time is it?');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
-        const answered = await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
-        // the tool line (the turn's activity: p.cx-act-line[data-tool]) — drawn with the turn, folded into the answer's activity once
-        // the receipt is read back, so it is found in the DOM, not in the visible text alone (gate 19: the text had the answer first)
-        await o.page.waitForSelector('[data-tool="get_current_time"]', { state: 'attached', timeout: 10_000 }).catch(async () => { throw new Error(`the tool line get_current_time is not on the page after the answer; the page read:\n${(await text(o.page)).slice(0, 1500)}`); });
-        const evidenceLine = answered.split('\n').find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l) && l.includes(MODEL)) ?? answered.split('\n').find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l)) ?? '';
+        await o.page.waitForFunction(([a, n]) => [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)).length > n, [FAKE_ANSWER, answersBefore] as const, { timeout: 60_000 });
+        const answered = await text(o.page);
+        expect(answered).toContain(FAKE_ANSWER);
+        await o.page.waitForFunction((a) => { const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a)); const last = lis[lis.length - 1]; return Boolean(last && /get_current_time/.test(last.textContent || '')); }, FAKE_ANSWER, { timeout: 15_000 })
+          .catch(async () => { throw new Error(`the newest turn carries no tool line get_current_time; the page read:\n${(await text(o.page)).slice(0, 1500)}`); });
+        // the newest turn's evidence line, once its receipt is sealed and read back ("<model> · this computer · <s> · receipt <8 hex> ✓")
+        const evidenceLine = await o.page.waitForFunction((a) => {
+          const lis = [...document.querySelectorAll('#cx-own li, #cx-turns li')].filter((li) => (li.textContent || '').includes(a));
+          const last = lis[lis.length - 1];
+          const line = last ? (last.textContent || '').split('\n').map((l) => l.trim()).find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l)) : undefined;
+          return line || false;
+        }, FAKE_ANSWER, { timeout: 20_000 }).then((h) => h.jsonValue() as Promise<string>).catch(async () => `(no receipt line on the newest turn; the page read: ${(await text(o.page)).slice(0, 800)})`);
         const evidence = /receipt\W{0,3}(?:sha256_)?([0-9a-f]{8})/i.exec(evidenceLine);
         expect(evidence, `the evidence line with its receipt (the lines: ${answered.split('\n').filter((l) => /receipt/i.test(l)).join(' | ').slice(0, 400)})`).toBeTruthy();
         expect(ollama.chats().length).toBeGreaterThanOrEqual(2);
