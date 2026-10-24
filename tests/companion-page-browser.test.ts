@@ -312,7 +312,11 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
       // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, marked): no page of the
       // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's three fonts.
-      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/|web\/fonts\/(?:outfit|inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
+      // R11 round 6: what the page may ask for under /vendor/ is what this server serves from its own installed packages —
+      // the Rive runtime (rive-assets.ts: /vendor/rive/rive.js + rive.wasm, for the Chat's AgentConsole band) and, on a
+      // Clerk-configured companion, Clerk's module (/vendor/clerk/, identity) — nothing else there (the old marked copy above all).
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/(?!rive\/|clerk\/)|web\/fonts\/(?:outfit|inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
+      for (const p of seen.requests.map((r) => new URL(r).pathname).filter((p) => p.startsWith('/vendor/'))) expect(p, 'under /vendor/ only the Rive runtime or Clerk').toMatch(/^\/vendor\/(?:rive\/rive\.(?:js|wasm)|clerk\/)/);
       // (R11 round 4: the ✨ sample asks no model: the FAKE Ollama saw no chat request for this page)
       expect(ollama.chats().length).toBe(chatsBefore);
       expect(seen.sockets).toEqual([`ws://127.0.0.1:${server.port}/`]);
