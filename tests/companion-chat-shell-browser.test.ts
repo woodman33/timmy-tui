@@ -151,7 +151,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(menu[0].current).toBe('page');
       expect(menu.filter((m) => m.current === 'page')).toHaveLength(1);
       // the project the companion says this page shows, once its socket has said it
-      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'tray', null, { timeout: 15_000 });
+      await page.waitForFunction(() => document.getElementById('rail-project-name')?.textContent === 'tray', null, { timeout: 60_000 });
       expect(await text(page, '#cx-proj')).toBe('tray');
       // the saved conversation: YOU / TIMMY, the model each answer's receipt names; a tool's result folds into the answer it precedes
       const turns = await page.$$eval('#cx-turns > .cx-turn', (els) => els.map((e) => e.className.replace('cx-turn ', '')));

@@ -20,6 +20,8 @@
   <link rel="stylesheet" href="/chat-shell.css">
   <!-- R11 round 4 (H170): the Connections screen's own styles (src/companion/client/screen-connections.css) -->
   <link rel="stylesheet" href="/screen-connections.css">
+  <!-- R11 round 5 (H174): the Rive components and the Inspect animation view (src/companion/client/rive-components.css) -->
+  <link rel="stylesheet" href="/rive-components.css">
   <!-- R11 round 4 (H173): the account screen's own layout (src/companion/client/account.css) -->
   <link rel="stylesheet" href="/account.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
@@ -572,6 +574,9 @@
   <script src="/companion.js"></script>
   <!-- R11 round 4 (H171): the shell's screens and what they share (window.TimmyShell), before the screens' own scripts -->
   <script src="/shell.js"></script>
+  <!-- R11 round 5 (H174): window.TimmyRive — the Rive components' runtime bindings (the runtime itself is loaded by it only when
+       GET /assets/mark.json says the companion serves it; no .riv → the state word, never an error) -->
+  <script src="/rive-bindings.js"></script>
   <!-- R11 round 4 (H171, step 3): the Rive runtime (@rive-app/canvas, served by the companion from node_modules at /vendor/rive/;
        no CDN) is loaded by chat-shell.js only when the companion serves the mark (GET /assets/timmy-mark.riv), since WebAssembly
        needs a policy keyword the page carries only then (page.ts); where the mark is absent the text mark stays and nothing loads -->
@@ -579,6 +584,8 @@
   <script src="/screen-connections.js"></script>
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
+  <!-- R11 round 5 (H174): the Inspect animation view (#inspect until the shell knows the screen) -->
+  <script src="/screen-inspect-animation.js"></script>
   <!-- R11 round 4 (H173): the account screen (Clerk's flows; the session this companion verifies), drawn into #screen-account -->
   <script src="/account.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>

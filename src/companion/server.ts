@@ -137,6 +137,7 @@ import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
 import { mountPanels } from './panels.js';
 // R10 (H164): the journey's read-only routes (src/journey/routes.ts)
 import { mountJourneyRoutes } from '../journey/routes.js';
+import { mountRiveAssets } from './rive-assets.js';
 // R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
 import { mountChatView } from './chat-view.js';
 import type { InventorySource } from './panels/tools.js';
@@ -174,7 +175,7 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
 // R11 round 4 (H171): shell.js, the journey's three screens and what they share (window.TimmyShell)
 // R11 round 4 (H170): screen-connections.js and .css, the Connections screen (src/companion/connections.ts serves its data)
 // R11 round 4 (H173): account.js and account.css, the account screen; account-callback.js, the OAuth callback's token keeper
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js'];
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css', 'shell.js', 'screen-connections.js', 'screen-connections.css', 'account.js', 'account.css', 'account-callback.js', 'rive-bindings.js', 'rive-components.css', 'screen-inspect-animation.js'];
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -844,6 +845,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R11 round 4 (H169, contract C3): the page's chat is the real agent turn (POST /api/chat/turn SSE, /api/chat/answer,
   // /api/chat/stop { id }) in the user's own project under the user's env
   mountChatRun(app, { withToken, withUser: withUserOrOperator, json: express.json({ limit: '80kb' }), userEnv: (u, base) => principalEnv(u, base), isOwnedRoot: principalOwns });
+  // R11 round 5 (H174, contract 23:52): the Rive components' listing (GET /api/rive/assets: each component's .riv when it is
+  // here, its editable source beside it) and their files (/assets/rive/<component>/<file>), for the page's Inspect animation view
+  mountRiveAssets(app, { withToken, withUser: withUserOrOperator });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.

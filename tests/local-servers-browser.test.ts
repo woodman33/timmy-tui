@@ -178,8 +178,10 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       expect(bare.seen.map((s) => s.path)).toContain('/');
       // R4 (H95): and the built chat's code, its styles and the page's fonts (/web/); R4 (H97): nothing else (no theme, fonts
       // or marked of H92's page); R4 (H104, r25's D11): and the page's icon, the companion's own
-      // R11 round 4 (H171's shell): and the mark's static assets (/assets/mark.json, its .riv), which need no token either
-      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|favicon\.svg|[\w-]+\.(?:js|css)|assets\/[\w.-]+\.(?:json|riv)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
+      // R11 round 4 (H171): and the T mark's presence (GET /assets/mark.json, no token: whether the mark and its runtime are here;
+      // the runtime itself, /vendor/rive/, and the mark's .riv are asked only when it says so, never on this bare page)
+      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|favicon\.svg|assets\/mark\.json|[\w-]+\.(?:js|css)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
+      expect(bare.seen.map((s) => s.path)).not.toContain('/vendor/rive/rive.js');
       for (const s of bare.seen) expect(s.auth).toBe('');
     } finally { await bare.context.close(); }
     const wrong = await open(base, `${base}/#t=${OTHER}`);

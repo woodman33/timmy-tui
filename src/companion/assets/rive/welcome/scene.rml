@@ -1,0 +1,31 @@
+<Rive version="1" kind="fragment">
+<Artboard defaultStateMachineId="0:30" styleId="0:5" width="128" height="128" name="TimmyWelcome" id="0:2">
+<LayoutComponentStyle name="Artboard Style" id="0:5"/>
+<Fill name="Background"><SolidColor colorValue="FF000000" name="Black"/></Fill>
+<Shape x="64" y="40" name="T Bar" id="0:10"><Rectangle width="64" height="12" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FFFFB000"/></Fill></Shape>
+<Shape x="64" y="67" name="T Stem" id="0:11"><Rectangle width="12" height="54" originX="0.5" originY="0.5"/><Fill name="Fill"><SolidColor colorValue="FFFFB000"/></Fill></Shape>
+<Shape x="64" y="64" opacity="0" name="Guide Ring" id="0:20"><Ellipse width="104" height="104" originX="0.5" originY="0.5"/><Stroke thickness="3" name="Ring"><SolidColor colorValue="FFFFB000"/></Stroke></Shape>
+<Shape x="64" y="64" name="Frame"><Rectangle width="110" height="110" originX="0.5" originY="0.5" cornerRadiusTL="18"/><Stroke thickness="2" name="Outline"><SolidColor colorValue="FF333333"/></Stroke></Shape>
+<!-- Idle: the mark rests (a slow breath of the stem's opacity, 0.8 → 1). -->
+<LinearAnimation duration="180" fps="60" loopValue="pingPong" name="Idle" id="0:6"><KeyedObject objectId="0:11"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0.8" interpolationType="linear"/><KeyFrameDouble value="1" interpolationType="linear" frame="180"/></KeyedProperty></KeyedObject></LinearAnimation>
+<!-- Guide: ONE pass (loopValue oneShot) when the person triggers it: the ring draws in and fades; back to Idle at its end. -->
+<LinearAnimation duration="90" fps="60" loopValue="oneShot" name="Guide" id="0:7"><KeyedObject objectId="0:20"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0" interpolationType="linear"/><KeyFrameDouble value="1" interpolationType="linear" frame="30"/><KeyFrameDouble value="0" interpolationType="linear" frame="90"/></KeyedProperty></KeyedObject></LinearAnimation>
+<!-- Selected / Expanded: the frame's outline brightens (selected) and the ring stays faintly on (expanded); both Bool inputs. -->
+<LinearAnimation duration="1" fps="60" loopValue="oneShot" name="Selected" id="0:8"><KeyedObject objectId="0:20"><KeyedProperty propertyKey="18"><KeyFrameDouble value="0.25" interpolationType="hold"/></KeyedProperty></KeyedObject></LinearAnimation>
+<StateMachine name="Welcome" id="0:30">
+<StateMachineTrigger name="welcome" id="0:31"/>
+<StateMachineBool name="selected" value="false" id="0:32"/>
+<StateMachineBool name="expanded" value="false" id="0:33"/>
+<StateMachineLayer name="Visual" id="0:34">
+<AnyState x="200" y="-120"/><ExitState x="400" y="-120"/>
+<EntryState x="0" y="0"><StateTransition stateToId="0:35"/></EntryState>
+<AnimationState x="200" y="0" animationId="0:6" name="Idle" id="0:35"><StateTransition stateToId="0:36" duration="100"><TransitionTriggerCondition inputId="0:31"/></StateTransition></AnimationState>
+<AnimationState x="400" y="0" animationId="0:7" name="Guide" id="0:36"><StateTransition stateToId="0:35" duration="150" exitTime="1" exitTimeIsPercentage="true"/></AnimationState>
+</StateMachineLayer>
+<StateMachineLayer name="Selection" id="0:37">
+<EntryState x="0" y="0"><StateTransition stateToId="0:38"/></EntryState>
+<AnimationState x="200" y="0" name="Plain" id="0:38"><StateTransition stateToId="0:39" duration="120"><TransitionBoolCondition inputId="0:32" op="true"/></StateTransition></AnimationState>
+<AnimationState x="400" y="0" animationId="0:8" name="Selected" id="0:39"><StateTransition stateToId="0:38" duration="120"><TransitionBoolCondition inputId="0:32" op="false"/></StateTransition></AnimationState>
+</StateMachineLayer>
+</StateMachine>
+</Artboard></Rive>

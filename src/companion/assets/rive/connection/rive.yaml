@@ -1,0 +1,8 @@
+name: connection
+file: connection.riv
+artboard: TimmyConnection
+stateMachine: Connection
+inputs: connection, selected, expanded
+logs:
+  file: build/rive.log
+  problems: build/problems.log

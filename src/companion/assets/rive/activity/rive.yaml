@@ -1,0 +1,8 @@
+name: activity
+file: activity.riv
+artboard: TimmyActivity
+stateMachine: Activity
+inputs: activity, selected, expanded
+logs:
+  file: build/rive.log
+  problems: build/problems.log
