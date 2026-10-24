@@ -61,7 +61,7 @@
       const done = async () => {
         try {
           if (!window.Clerk) throw new Error('Clerk\'s script loaded but did not define window.Clerk.');
-          await window.Clerk.load({ standardBrowser: true });
+          await window.Clerk.load();
           clerk = window.Clerk;
           clerk.addListener((state) => { onClerkState(state); });
           resolve(clerk);
@@ -428,7 +428,7 @@
     if (configured() && !clerk && !loadWords && !S().session.get()) {
       loadClerk().then(() => {
         if (location.pathname.replace(/\/$/, '') === '/account/callback') run(flows.callback);
-        else if (clerk.session && clerk.session.status === 'active') onClerkState({ session: clerk.session, user: clerk.user });
+        else if (clerk.session && clerk.session.status === 'active' && !S().session.get()) onClerkState({ session: clerk.session, user: clerk.user });
         redraw();
       }, () => { redraw(); });
     }
