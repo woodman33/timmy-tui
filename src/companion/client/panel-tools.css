@@ -1,1 +1,49 @@
-/* R11 round 7: H170's sheet (UI-OWNERSHIP.md). This stub ships empty until H170's commit replaces it. */
+/* R11 round 7 (H170; UI-OWNERSHIP.md): the Tools & integrations page's own sheet (src/companion/client/panel-tools.js),
+   beside the .tools-* and .tl-* rules companion.css keeps for the inspector and the capability cards. The page's head when
+   the shell's scaffold is absent, "Where tools work" first (each group with the pages that use it and its rows in the three
+   words — green only on exercised, a verified receipt), the directory second (collapsible), the page's tools in the shell's
+   dock. Theme variables only; no colour is written here. */
+.tools-own-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 0 0 12px; }
+.tools-own-head[hidden] { display: none; }
+.tools-head-words { min-width: 0; }
+.tools-kicker { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--timmy-accent); }
+.tools-title { margin: 0 0 6px; font-size: 24px; line-height: 1.15; font-weight: var(--timmy-weight-heading); color: var(--timmy-text); }
+.tools-intro { margin: 0; font-size: 14px; color: var(--timmy-text-secondary); }
+.tools-head-actions { flex: 0 0 auto; }
+.tools-primary { border-color: var(--timmy-accent); color: var(--timmy-text); }
+.tools-primary:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+
+/* where tools work */
+.tools-wherebox { flex: 0 0 auto; margin: 0 0 12px; }
+.tools-wherebox > .box-body { overflow: visible; }
+.tools-own-head { flex: 0 0 auto; }
+.tools-directory { flex: 0 0 auto; }
+.tools-where-lead { margin: 0 0 10px; font-size: 13px; color: var(--timmy-text-secondary); }
+.tools-where { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.tools-where-group { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--timmy-line); border-radius: 8px; min-width: 0; }
+.tools-where-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tools-where-k { margin: 0; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.tools-where-pages { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools-where-page { font: inherit; font-size: 13px; padding: 3px 9px; border: 1px solid var(--timmy-line-strong); border-radius: 999px; background: transparent; color: var(--timmy-text); cursor: pointer; }
+.tools-where-page:hover { border-color: var(--timmy-text-secondary); }
+.tools-where-page:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+.tools-where-how { margin: 0; font-size: 12px; color: var(--timmy-text-secondary); }
+.tools-where-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.tools-where-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+.tools-where-name { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.tools-where-next { color: var(--timmy-text-secondary); font-size: 12px; }
+.tools-where-routes { margin: 4px 0 0; font-size: 12px; color: var(--timmy-text-secondary); }
+
+/* the directory, secondary */
+.tools-directory { margin: 12px 0; border: 1px solid var(--timmy-line); border-radius: 8px; padding: 0 14px; }
+.tools-directory-summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.tools-directory-summary:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; border-radius: 4px; }
+.tools-directory[open] .tools-directory-summary { border-bottom: 1px solid var(--timmy-line); margin-bottom: 10px; }
+.tools-directory .tools-caps { padding-bottom: 12px; }
+
+@media (max-width: 720px) {
+  .tools-own-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .tools-title { font-size: 21px; }
+  .tools-where { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .tools-panel * { transition: none !important; animation: none !important; } }

@@ -16,7 +16,36 @@
 //                      the route printed, how long it took, the route, and the record and receipt Timmy keeps (verified now)
 // A call that would need a person is refused before anything runs: NEEDS YOU, with the line to type in Timmy's terminal.
 // The panel's one primary next step is amber; green only for an observed answer and a receipt verified now.
+//
+// R11 round 7 (H170; the operator's order of 2026-10-24: "Tools appear in real workflows and their proper pages; a global
+// directory is secondary"; H175's SHELL CONTRACT v1): the page's words ("09 / FIND THE RIGHT TOOL · Find the right tool for
+// the task."), then WHERE TOOLS WORK first — each inventory group with the pages that use it (a button opens the page) and
+// its rows in the three words (available · configured · exercised, never a fourth), the MCP ↔ CLI routes named with their
+// rungs where they exist — then the inspector (this page's own workflow: list → check → call → record) and, secondary, the
+// DIRECTORY (every capability as a card, collapsible), the project's calls as the records. With the shell's scaffold the panel
+// registers the page (TimmyShell.page / state) and puts its tools in the dock; without it, its own head above the work.
 (() => {
+  if (!document.querySelector('link[href="/panel-tools.css"]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/panel-tools.css'; document.head.append(l); }
+  const PAGE_WORDS = Object.freeze({
+    kicker: '09 / FIND THE RIGHT TOOL',
+    title: 'Find the right tool for the task.',
+    intro: 'Discover capabilities here, and use them in the workflow where they belong.',
+    where: 'Where tools work',
+    whereLead: 'Each capability in the page that uses it, in the three words of its state: available (the files or binaries are here) · configured (the key, setting or address is set) · exercised (a receipt of a real run exists).',
+    directory: 'Directory · every capability, secondary',
+  });
+  /**
+   * The pages that use each inventory group (the product's own structure: src/contracts/workspace.ts' destinations), as the
+   * page names them; the page id is the shell's (TimmyShell.go) and the legacy tab id is what the old shell shows.
+   */
+  const WHERE = Object.freeze({
+    Models: [{ page: 'chat', legacy: 'chat', name: 'Chat', how: 'the turn’s route and its model' }, { page: 'connections', legacy: 'connections', name: 'Models & accounts', how: 'connect, check, download' }],
+    Tools: [{ page: 'voxvision', legacy: 'voxvision', name: 'VoxVision', how: '/detect, /measure, /inspect records' }],
+    Integrations: [{ page: 'chat', legacy: 'chat', name: 'Chat', how: 'tool calls, gated at NEEDS YOU' }, { page: 'tools', legacy: 'tools', name: 'this page', how: 'the inspector: list, check, call' }],
+    Lanes: [{ page: 'workflows', legacy: 'workflows', name: 'Workflows', how: 'a lane’s steps' }, { page: 'runs', legacy: 'logs', name: 'Runs & receipts', how: 'what each run did' }],
+    Vision: [{ page: 'voxvision', legacy: 'voxvision', name: 'VoxVision', how: 'the vision bridge' }, { page: 'canvas', legacy: 'studio', name: 'Canvas', how: 'references on the board' }],
+    Receipts: [{ page: 'runs', legacy: 'logs', name: 'Runs & receipts', how: 'every sealed turn, job and record' }],
+  });
   /** The panel's state, kept across the page's redraws (a frame that moves must not wipe a form being filled). */
   const P = {
     host: null, project: null, ctx: null, built: false,
@@ -97,16 +126,102 @@
     const result = box('tools-resultbox', 'Result, record & receipt', e.result);
     e.calls = h('div', { class: 'tools-calls' });
     const calls = box('tools-callsbox', 'This project\'s newest calls · from their records', e.calls);
-    // R11 Phase 2 (H171): the capabilities first, one card each, in the three words every surface keeps apart
+    // R11 Phase 2 (H171): the capabilities, one card each, in the three words every surface keeps apart. R11 round 7: the
+    // directory is SECONDARY (a collapsible section after the inspector); WHERE TOOLS WORK comes first
     e.caps = h('div', { class: 'tools-caps', 'data-tools-caps': '' });
-    const caps = box('tools-capsbox', 'Capabilities · what Timmy can do here, each in the three words of its state', e.caps);
+    e.where = h('div', { class: 'tools-where', 'data-tools-where': '' });
+    const where = box('tools-wherebox', PAGE_WORDS.where, h('p', { class: 'tools-where-lead' }, PAGE_WORDS.whereLead), e.where);
+    // (open: secondary by its place, after the pages that use the tools, never hidden from a reader who scrolls to it)
+    e.directory = h('details', { class: 'tools-directory', 'data-tools-directory': '', open: true }, h('summary', { class: 'tools-directory-summary' }, PAGE_WORDS.directory), e.caps);
+    e.ownHead = h('header', { class: 'tools-own-head page-head', 'data-tools-own-head': '', hidden: true });
     const root = h('div', { class: 'tools-panel', 'data-tools-panel': '' },
-      caps.box,
+      e.ownHead,
+      where.box,
       e.steps,
       h('div', { class: 'tools-grid' }, ingest.box, request.box, wire.box, result.box),
+      e.directory,
       calls.box);
     put(host, root);
     P.built = true;
+    registerPage();
+  }
+
+  // ── the page (R11 round 7): the shell's scaffold, or the panel's own head; where tools work ──
+  const shellOf = () => (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.page === 'function' ? TimmyShell : null);
+  function scaffoldOf() {
+    const section = P.host ? (P.host.closest('section.page') || P.host.closest('.ws-page')) : null;
+    const head = section ? section.querySelector('.page-head') : null;
+    return head ? { section, head, dock: section.querySelector('.page-dock'), records: section.querySelector('.page-records') } : null;
+  }
+  /** The ONE primary next action: the inspector's next step (a real tools/list on the picked server, then the call). */
+  function primaryOf() {
+    const listed = Boolean(P.listing && P.listing.ok && P.listing.key === serverKey(P.server));
+    if (!listed) return { label: 'List the tools', run: () => { const b = P.el.listCtl && P.el.listCtl.querySelector('[data-tools-action="list"]'); if (b && !b.disabled) b.click(); }, why: '' };
+    if (!P.tool) return { label: 'Pick a tool', run: () => { const b = P.el.tools && P.el.tools.querySelector('button'); if (b) b.focus(); }, why: '' };
+    return { label: `Call ${P.tool.name}`, run: () => { const b = P.el.callCtl && P.el.callCtl.querySelector('[data-tools-action]'); if (b && !b.disabled) b.click(); }, why: '' };
+  }
+  function registerPage() {
+    const sh = shellOf();
+    const word = P.stateError ? 'error' : (P.listBusy || P.callBusy) ? 'running' : 'content';
+    if (sh) {
+      const pr = primaryOf();
+      try { sh.page('tools', { kicker: PAGE_WORDS.kicker, title: PAGE_WORDS.title, intro: PAGE_WORDS.intro, primary: { label: pr.label, run: pr.run }, context: null, dock: 'TOOLS & INTEGRATIONS' }); } catch (e) { /* the shell says */ }
+      if (typeof sh.state === 'function') { try { sh.state('tools', word, word === 'error' ? { words: `The inspector could not read its state: ${P.stateError}`, next: { label: 'Read again', run: () => void loadState() } } : undefined); } catch (e) { /* as above */ } }
+    }
+    drawOwnHead();
+    drawDock();
+  }
+  function drawOwnHead() {
+    const el = P.el.ownHead;
+    if (!el) return;
+    const sc = scaffoldOf();
+    el.hidden = Boolean(sc);
+    if (sc) { put(el); return; }
+    const pr = primaryOf();
+    const btn = h('button', { type: 'button', class: 'btn-action tools-primary', 'data-tools-primary': '' }, pr.label);
+    btn.addEventListener('click', () => pr.run());
+    put(el,
+      h('div', { class: 'tools-head-words' }, h('p', { class: 'tools-kicker page-kicker' }, PAGE_WORDS.kicker), h('h2', { class: 'tools-title page-title' }, PAGE_WORDS.title), h('p', { class: 'tools-intro page-intro' }, PAGE_WORDS.intro)),
+      h('div', { class: 'tools-head-actions page-primary' }, btn));
+  }
+  /** The page's tools in the shell's dock: the inventory read again, the directory, the records (the calls). */
+  function drawDock() {
+    const sc = scaffoldOf();
+    if (!sc || !sc.dock) return;
+    for (const old of sc.dock.querySelectorAll('[data-tools-dock]')) old.remove();
+    const mk = (key, label, onClick, title) => { const b = h('button', { type: 'button', class: 'dock-btn tools-dock-btn', 'data-tools-dock': key, title: title || null }, label); b.addEventListener('click', onClick); return b; };
+    sc.dock.append(
+      mk('check', '⟳ Check again', () => void loadInventory(true), 'Reads this computer again: files, settings and this project’s receipts; nothing runs'),
+      mk('directory', '▦ Directory', () => { const d = P.el.directory; if (d) { d.open = !d.open; d.scrollIntoView({ block: 'nearest' }); } }),
+      mk('records', '▤ Records', () => { const c = P.host && P.host.querySelector('.tools-callsbox'); if (c) c.scrollIntoView({ block: 'start' }); }));
+  }
+  /**
+   * Where tools work: the inventory's groups, each with the pages that use it (the WHERE map) and its rows in their standing
+   * word (the same rows the directory draws; never a fourth word); the MCP ↔ CLI routes named with their rungs where they exist.
+   */
+  function renderWhere() {
+    const el = P.el.where;
+    if (!el) return;
+    const inv = P.inventory;
+    if (!inv) { put(el, h('p', { class: 'empty' }, P.inventoryBusy ? 'Reading this computer: files, settings and this project’s receipts (no model runs)…' : P.inventoryError ? `The inventory could not be read: ${P.inventoryError}` : 'Not read yet.')); return; }
+    const byId = new Map(inv.inventory.rows.map((r) => [r.id, r]));
+    const standing = new Map(inv.cards.map((c) => [c.id, c.standing]));
+    const routes = (P.state && P.state.routes) || [];
+    const goTo = (w) => h('button', { type: 'button', class: 'tools-where-page', 'data-tools-go': w.page, 'data-dest': w.legacy, title: w.how }, `${w.name} →`);
+    const groups = inv.inventory.groups.map((g) => {
+      const rows = inv.cards.filter((c) => c.group === g && byId.has(c.id)).map((c) => byId.get(c.id));
+      if (!rows.length) return null;
+      const where = WHERE[g] || [];
+      return h('section', { class: 'tools-where-group', 'data-tools-where-group': g },
+        h('div', { class: 'tools-where-head' }, h('h3', { class: 'tools-where-k' }, g), h('div', { class: 'tools-where-pages' }, where.length ? where.map(goTo) : h('span', { class: 'tools-dim' }, 'no page uses this group yet'))),
+        where.length ? h('p', { class: 'tools-where-how' }, where.map((w) => `${w.name}: ${w.how}`).join(' · ')) : null,
+        h('ul', { class: 'tools-where-rows' }, ...rows.map((r) => { const s = standing.get(r.id) || 'none'; return h('li', { class: 'tools-where-row', 'data-tools-where-row': r.id, 'data-state': s },
+          h('span', { class: 'tools-where-name' }, r.name), ' ',
+          s === 'none' ? h('span', { class: 'tools-dim' }, 'none of the three') : h('span', { class: `tl-chip is-${s}${s === 'exercised' ? ' is-verified' : ''}`, 'data-tl-word': s }, `● ${s}`),
+          r.next ? h('span', { class: 'tools-where-next' }, ` · next: ${r.next}`) : null); })),
+        g === 'Integrations' && routes.length ? h('p', { class: 'tools-where-routes', 'data-tools-routes': '' }, 'MCP ↔ CLI routes: ', ...routes.map((r, i) => h('span', { 'data-tools-where-route': r.id }, `${i ? ' · ' : ''}${r.id === 'sdk' ? 'the SDK route' : 'the mcporter route'} — ${r.rung}${r.version ? ` ${r.version}` : ''}`))) : null);
+    });
+    put(el, ...groups);
   }
 
   // ── reading ──
@@ -175,6 +290,7 @@
       return h('section', { class: 'tl-group', 'data-tl-group': g }, h('h3', { class: 'tl-group-k' }, g), h('div', { class: 'tl-cards' }, ...cards.map((c) => capCard({ ...byId.get(c.id), standing: c.standing, step: c.step, nextIsCredential: c.nextIsCredential }))));
     }) : [];
     put(el, head, legend, inv ? h('p', { class: 'tl-note' }, `Read: ${inv.read}. ${inv.note}`) : null, ...groups);
+    renderWhere();
   }
 
   async function loadServers() {
@@ -849,7 +965,22 @@
     renderGate();
     renderResult();
     renderCalls();
+    renderWhere();
+    registerPage();
   }
+
+  // a page named in "where tools work" opens through the shell (its page id), or the old shell's tab (the legacy id)
+  document.addEventListener('click', (ev) => {
+    const b = ev.target instanceof Element ? ev.target.closest('[data-tools-go]') : null;
+    if (!b) return;
+    ev.preventDefault();
+    const sh = typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.go === 'function' ? TimmyShell : null;
+    const page = b.getAttribute('data-tools-go');
+    const legacy = b.getAttribute('data-dest');
+    if (sh) { try { sh.go(page, 'tools-where'); return; } catch (e) { /* the old shell knows the screens only */ } }
+    const tab = document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(legacy)}"]`);
+    if (tab) tab.click();
+  });
 
   TimmyPanels.register('tools', {
     draw(host, frame, ctx) {
