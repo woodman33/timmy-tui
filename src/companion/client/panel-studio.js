@@ -13,6 +13,15 @@
 // routes with the page's token in a header and are shown as data: images (the page's policy allows those). Every word drawn is
 // the board's or the route's; nothing here invents a value. The panel reads again every few seconds while its tab is on screen,
 // and drops an answer that comes back after the page changed project.
+//
+// R11 round 7 (H176; the operator's order "finish the product experience", SHELL CONTRACT v1): the page is Canvas on the scaffold.
+// It registers itself with the shell (the shell's own words for the page — the rail's number, SHAPE THE WORK, "A workspace you can
+// think in." — stand; the one primary next action Open Timmy Studio; the selected item as the page's context), its dock holds the
+// page's tools (Open Timmy Studio · Read the board again), its records the
+// board's revision, where Studio answers and the Houdini starters New board offers; the empty, content and error states are the
+// shell's (an unreadable board is the error state, with Read again as its next action). The work stays the list: a row chosen
+// (a click, Enter) is the selected item, drawn in the context column with its links. Without the shell (a page before it lands)
+// the panel draws its own head, dock, context and records inside its host, so the page reads the same.
 (() => {
   'use strict';
   if (typeof TimmyPanels === 'undefined') return;
@@ -21,15 +30,33 @@
   const AT_LEAST_MS = 1500;
   const CACHE_MAX = 48;
   const HERE = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname);
+  // R11 round 7 (H176): the page's own sheet (src/companion/client/panel-studio.css; src/companion/server.ts serves it beside
+  // companion.css). index.html links it once the shell's lines land; until then, and on any page without the line, the panel asks
+  // for it itself (the same file once: never a second link), so the list's flex chain holds in every order the branches land.
+  (function ensureSheet(href) {
+    try {
+      if (document.querySelector(`link[rel="stylesheet"][href="${href}"]`)) return;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet'; link.href = href; link.dataset.panelSheet = 'studio';
+      document.head.appendChild(link);
+    } catch (e) { /* the page keeps companion.css's boxes */ }
+  })('/panel-studio.css');
   const SUB_WORDS = {
     vox: 'VoxVision record', run: 'operation', receipt: 'receipt', workflow: 'workflow', params: 'parameters', result: 'result', flow: 'flow',
     note: 'note', text: 'text', geo: 'shape', frame: 'frame',
   };
 
-  const S = { project: null, host: null, root: null, ctx: null, at: 0, sig: '', answer: null, asking: null, ticket: 0, thumbs: new Map(), timer: null };
+  const S = { project: null, host: null, root: null, ctx: null, at: 0, sig: '', answer: null, asking: null, ticket: 0, thumbs: new Map(), timer: null,
+    // R11 round 7 (H176): the selected item (its shape id), drawn in the page's context; what the page last registered with the shell
+    selected: '', pageSig: '' };
+  /** The shell, when it is on the page (SHELL CONTRACT v1); null before it lands: the panel then draws its own head, dock, context and records. */
+  const shell = () => (typeof window.TimmyShell === 'object' && window.TimmyShell && typeof window.TimmyShell.page === 'function' ? window.TimmyShell : null);
+  /** The page's section on the scaffold (its dock, context and records), or null. */
+  const section = () => (S.host ? S.host.closest('section.page[data-page="canvas"], section[data-page="canvas"]') : null);
+  const region = (cls) => { const sec = section(); return sec ? sec.querySelector(`.${cls}`) : null; };
 
   const put = (el, ...kids) => { if (el) el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false)); };
-  const q = (name) => (S.root ? S.root.querySelector(`[data-studio="${name}"]`) : null);
+  const q = (name) => (S.root ? (S.root.matches(`[data-studio="${name}"]`) ? S.root : S.root.querySelector(`[data-studio="${name}"]`)) : null);
   const pageProject = () => document.getElementById('project')?.dataset.project || '';
   const when = (iso) => {
     const t = new Date(iso);
@@ -63,17 +90,138 @@
   }
 
   function reset(project) {
-    S.project = project; S.ticket += 1; S.answer = null; S.sig = ''; S.at = 0; S.root = null;
+    S.project = project; S.ticket += 1; S.answer = null; S.sig = ''; S.at = 0; S.root = null; S.selected = ''; S.pageSig = '';
     S.thumbs.clear();
   }
 
   function skeleton(h) {
-    return h('section', { class: 'box sb-box', 'aria-labelledby': 'studio-board-title', 'data-studio': 'root' },
-      h('h2', { class: 'box-title', id: 'studio-board-title', 'data-studio': 'title' }, 'On the board'),
-      h('div', { class: 'box-body' },
-        h('p', { class: 'sb-summary', 'data-studio': 'summary', role: 'status' }, 'Reading the board…'),
-        h('ol', { class: 'sb-list', 'data-studio': 'list' }),
-        h('p', { class: 'sb-foot', 'data-studio': 'foot' })));
+    const root = h('div', { class: 'sb-page', 'data-studio': 'page' },
+      // the panel's own head, drawn only while the shell is not on the page (the shell's page head replaces it)
+      // (the page's words are the shell's: PAGES canvas — a page without the shell has no rail number, so the kicker names the page)
+      shell() ? null : h('header', { class: 'sb-page-head', 'data-studio': 'head' },
+        h('p', { class: 'sb-page-kicker' }, 'CANVAS / SHAPE THE WORK'),
+        h('h2', { class: 'sb-page-title' }, 'A workspace you can think in.'),
+        h('p', { class: 'sb-page-intro' }, 'Arrange references, parameters and results on a persistent project canvas.')),
+      h('div', { class: 'sb-body' },
+        h('section', { class: 'box sb-box', 'aria-labelledby': 'studio-board-title', 'data-studio': 'root' },
+          h('h2', { class: 'box-title', id: 'studio-board-title', 'data-studio': 'title' }, 'On the board'),
+          h('div', { class: 'box-body' },
+            h('p', { class: 'sb-summary', 'data-studio': 'summary', role: 'status' }, 'Reading the board…'),
+            h('ol', { class: 'sb-list', 'data-studio': 'list' }),
+            h('p', { class: 'sb-foot', 'data-studio': 'foot' }))),
+        // the selected item's context, drawn here while the shell's context column is not on the page
+        shell() ? null : h('aside', { class: 'box sb-context', 'data-studio': 'context-own', 'aria-label': 'The selected item' },
+          h('h2', { class: 'box-title' }, 'Selected'), h('div', { class: 'box-body', 'data-studio': 'context' }, h('p', { class: 'empty' }, 'Choose an item on the board: its links and words show here.')))),
+      shell() ? null : h('div', { class: 'sb-dock', 'data-studio': 'dock-own' }, h('span', { class: 'sb-dock-label' }, 'CANVAS TOOLS'), h('span', { 'data-studio': 'dock' })),
+      shell() ? null : h('div', { class: 'sb-records', 'data-studio': 'records-own' }));
+    root.addEventListener('click', onClick);
+    root.addEventListener('keydown', onKey);
+    return root;
+  }
+
+  /** The page on the scaffold (SHELL CONTRACT v1 §2.3): its head, the one primary next action, the state; drawn again as the board is read. */
+  function registerPage() {
+    const sh = shell();
+    if (!sh) return;
+    const a = S.answer;
+    const studio = String((a && a.studio) || '').replace(/\/+$/, '');
+    const name = a && a.project ? a.project.name : 'this project';
+    const state = !a ? 'content' : a.board.unreadable ? 'error' : !a.items.length ? 'empty' : 'content';
+    // registered again only as what it says changes (the shell redraws the head and dock on each call: a reading every few
+    // seconds that says the same must not take a focused button away)
+    const sig = JSON.stringify([studio, name, state]);
+    if (sig === S.pageSig) return;
+    S.pageSig = sig;
+    try {
+      // (no kicker, title or intro of the panel's own: the shell's words for Canvas stand, with the rail's number)
+      sh.page('canvas', {
+        primary: HERE && studio
+          ? { label: 'Open Timmy Studio', run: () => { try { window.open(`${studio}/`, '_blank', 'noopener'); } catch (e) { /* the link in the records is the same */ } } }
+          : { label: 'Open Timmy Studio', disabled: true, why: studio ? `Studio runs on the computer that runs Timmy: open ${studio}/ there` : 'Studio\'s address is not known yet' },
+        context: 'selection',
+        dock: 'CANVAS TOOLS',
+      });
+      if (!a) sh.state('canvas', 'content');
+      else if (a.board.unreadable) sh.state('canvas', 'error', { words: `${name}'s saved board could not be read, so nothing of it is listed. Studio keeps such a file aside when it opens the board; nothing was changed here.`, next: { label: 'Read the board again', run: () => { S.sig = ''; void read(); } } });
+      else if (!a.items.length) sh.state('canvas', 'empty', { words: `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts, reference images and nodes on it, and New board opens a guided starter.`, next: HERE && studio ? { label: 'Open Timmy Studio', run: () => window.open(`${studio}/`, '_blank', 'noopener') } : undefined });
+      else sh.state('canvas', 'content');
+    } catch (e) { /* the shell's registration is a courtesy: the panel's own work is drawn either way */ }
+  }
+
+  /** The page's tools, in the shell's dock when it is there (else the panel's own row): Open Timmy Studio, Read the board again. */
+  function drawDock(h) {
+    const a = S.answer;
+    const studio = String((a && a.studio) || '').replace(/\/+$/, '');
+    // the shell's dock keeps a slot for the page's own tools (.dock-tools, beside its label and the frame's strip); without the shell, the panel's own row
+    const shellDock = region('page-dock');
+    const dock = (shellDock && (shellDock.querySelector(':scope > .dock-tools') || shellDock)) || (S.root && S.root.querySelector('[data-studio="dock"]'));
+    if (!dock) return;
+    const own = dock.querySelector('[data-studio-dock="canvas"]');
+    const tools = h('span', { 'data-studio-dock': 'canvas', class: 'sb-tools' },
+      HERE && studio ? h('a', { class: 'dock-btn btn-action tiny sb-link', 'data-studio-open': '1', href: `${studio}/`, target: '_blank', rel: 'noopener noreferrer' }, 'Open Timmy Studio') : h('span', { class: 'dock-btn sb-addr', title: 'Studio runs on the computer that runs Timmy' }, studio ? `Studio: ${studio}/ on the computer that runs Timmy` : 'Studio: address not known yet'),
+      h('button', { type: 'button', class: 'dock-btn btn-action tiny', 'data-studio-act': 'again', title: 'Reads the board from Timmy\'s home again' }, 'Read the board again'));
+    if (own) own.replaceWith(tools); else dock.append(tools);
+  }
+
+  /** The page's records: the board's revision and where it is saved, Studio's address, the starters New board offers (quiet, expandable). */
+  function drawRecords(h) {
+    const a = S.answer;
+    const host = region('page-records') || (S.root && S.root.querySelector('[data-studio="records-own"]'));
+    if (!host || !a) return;
+    const studio = String(a.studio || '').replace(/\/+$/, '');
+    const own = host.querySelector('[data-studio-records="canvas"]');
+    const rec = h('details', { class: 'records sb-rec', 'data-studio-records': 'canvas' },
+      h('summary', null, `Records · revision ${a.board.revision ?? 'none'}${a.board.savedAt ? `, saved ${when(a.board.savedAt)}` : ''}`),
+      h('p', { class: 'sb-rec-line' }, a.board.unreadable ? 'The saved board could not be read.' : `${a.project.name}'s board, as Studio last saved it: ${countWords(a.counts) || 'nothing on it'}${a.drafts.length ? ` · ${plural(a.drafts.length, 'draft', 'drafts')} waiting for Accept or Discard in Studio` : ''}.`),
+      a.oldLayout ? h('p', { class: 'sb-rec-line' }, a.oldLayout) : null,
+      h('p', { class: 'sb-rec-line' }, 'Studio: ', HERE ? h('a', { class: 'sb-link', href: `${studio}/`, target: '_blank', rel: 'noopener noreferrer' }, `${studio}/`) : h('code', null, `${studio}/`), HERE ? '' : ' on the computer that runs Timmy'),
+      Array.isArray(a.starters) && a.starters.length ? h('details', { class: 'ui-details sb-starters' }, h('summary', null, `Houdini starters New board offers (${a.starters.length})`),
+        h('ul', { class: 'sb-starter-list' }, a.starters.map((t) => h('li', { 'data-studio-starter': t.id }, h('strong', null, t.title), ' — ', t.steps.join(' · '), '. ', h('span', { class: 'sb-rec-muted' }, t.intro))))) : null);
+    if (own) own.replaceWith(rec); else host.append(rec);
+  }
+
+  /** The selected item in the page's context (the shell's column, else the panel's own box): its kind, words, page and links. */
+  function drawContext(h) {
+    const a = S.answer;
+    const host = region('page-context') || (S.root && S.root.querySelector('[data-studio="context"]'));
+    if (!host) return;
+    const it = a && a.items.find((x) => x.shape === S.selected);
+    const own = host.querySelector('[data-studio-context="canvas"]');
+    const box = h('div', { 'data-studio-context': 'canvas', class: 'sb-ctx' },
+      !it ? h('p', { class: 'empty', 'data-studio': 'context-empty' }, a && a.items.length ? 'Choose an item on the board (a click, or Enter on its row): its links and words show here.' : 'Nothing to choose yet.') : [
+        h('p', { class: 'sb-kind' }, kindWords(it)),
+        h('p', { class: 'sb-ctx-title' }, it.title),
+        it.excerpt && it.excerpt !== it.title ? h('p', { class: 'sb-excerpt' }, it.excerpt) : null,
+        h('p', { class: 'sb-where' }, `on ${it.page}`),
+        it.draft ? h('p', { class: 'sb-draft' }, `Timmy's draft ${it.draft}: waiting for your Accept or Discard in Studio.`) : null,
+        it.fake ? h('p', { class: 'sb-fake' }, 'FAKE: made by a test double, as its record says.') : null,
+        actsOf(it, h),
+        it.ref ? h('details', { class: 'ui-details' }, h('summary', null, 'Details'), h('p', { class: 'sb-rec-muted' }, `${it.ref.path} · ${it.ref.bytes} bytes · sha256 ${it.ref.sha256.slice(0, 12)}… · from ${it.ref.from}`)) : null,
+        h('details', { class: 'ui-details' }, h('summary', null, 'Details'), h('p', { class: 'sb-rec-muted' }, `shape ${it.shape}`)),
+      ]);
+    if (own) own.replaceWith(box); else host.append(box);
+  }
+
+  function select(shape) {
+    S.selected = shape === S.selected ? '' : shape;
+    for (const li of S.root ? S.root.querySelectorAll('[data-shape]') : []) li.setAttribute('aria-current', li.dataset.shape === S.selected ? 'true' : 'false');
+    drawContext(S.ctx.h);
+  }
+  function onClick(event) {
+    const t = event.target instanceof Element ? event.target : null;
+    if (!t) return;
+    if (t.closest('[data-studio-act="again"]')) { S.sig = ''; void read(); return; }
+    // a row chosen (not one of its own controls: Open in VoxVision, Open run, a receipt link, a thumbnail)
+    if (t.closest('button, a, summary')) return;
+    const row = t.closest('[data-shape]');
+    if (row) select(row.dataset.shape);
+  }
+  function onKey(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const t = event.target instanceof Element ? event.target : null;
+    if (!t || !t.matches('[data-shape]')) return;
+    event.preventDefault();
+    select(t.dataset.shape);
   }
 
   // ── reading ──
@@ -99,6 +247,8 @@
         put(q('summary'), `✕ The board could not be read: ${(body && body.error) || (status ? `the companion answered HTTP ${status}` : 'the companion did not answer')}.`);
         q('summary')?.classList.add('tone-failed');
         put(q('list'));
+        const sh = shell();
+        if (sh) { try { sh.state('canvas', 'error', { words: `The board could not be read: ${(body && body.error) || (status ? `the companion answered HTTP ${status}` : 'the companion did not answer')}.`, next: { label: 'Read the board again', run: () => { S.sig = ''; void read(); } } }); } catch (e) { /* the summary says it */ } }
         return;
       }
       if (project && body.project && body.project.id !== project) return;
@@ -165,7 +315,8 @@
   }
 
   function itemOf(it, h) {
-    return h('li', { class: `sb-item kind-${it.kind}${it.thumb ? '' : ' no-thumb'}`, 'data-shape': it.shape, 'data-kind': it.kind, 'data-sub': it.sub || '' },
+    // R11 round 7 (H176): a row is a choice (the selected item is the page's context): focusable, chosen by a click or Enter
+    return h('li', { class: `sb-item kind-${it.kind}${it.thumb ? '' : ' no-thumb'}`, 'data-shape': it.shape, 'data-kind': it.kind, 'data-sub': it.sub || '', tabindex: '0', 'aria-current': it.shape === S.selected ? 'true' : 'false', title: 'Choose this item: its links and words show in the page\'s context' },
       thumbOf(it, h),
       h('div', { class: 'sb-text' },
         h('p', { class: 'sb-head' },
@@ -212,6 +363,12 @@
       const el = li && (kept.cls ? [...li.querySelectorAll(`.${kept.cls}`)].find((e) => !kept.attr || e.getAttribute('data-open-vox') === kept.attr || e.getAttribute('data-open-run') === kept.attr) : null);
       if (el) el.focus({ preventScroll: true });
     }
+    // R11 round 7 (H176): the page on the scaffold follows the board: its state, its dock, its records, its context
+    if (S.selected && !a.items.some((it) => it.shape === S.selected)) S.selected = '';
+    registerPage();
+    drawDock(h);
+    drawRecords(h);
+    drawContext(h);
   }
 
   /** Read again every few seconds while the tab is on screen and the page is visible (the frame alone may not change). */
@@ -236,6 +393,7 @@
         reset(ctx.project);
         S.root = skeleton(ctx.h);
         put(host, S.root);
+        registerPage();
       }
       ensureTimer();
       if (S.answer && Date.now() - S.at < AT_LEAST_MS) return undefined;
