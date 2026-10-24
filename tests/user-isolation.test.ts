@@ -27,6 +27,7 @@ const ORIGIN = `http://127.0.0.1:${PORT}`;
 const SESSION_HEADER = 'X-Timmy-Session';
 const ROUTES = {
   identity: '/api/identity',
+  me: '/api/identity/me',
   connections: '/api/connections',
   ollamaCloudKey: '/api/connections/ollama-cloud/key',
   projects: '/api/projects',
@@ -143,18 +144,34 @@ async function sse(path: string, o: { session: string; body: unknown; query?: Re
   return { status: res.status, events, text };
 }
 
-/** Every route of the server behind the user middleware (`withUser`, C1), from the router's own table. */
+/** Every route of the server behind the user middleware (`withUser`, C1), from the router's own table, nested routers included. */
 function userRoutes(): Array<{ method: string; path: string }> {
+  interface Layer { name?: string; route?: { path: string | string[]; methods: Record<string, boolean>; stack: Layer[] }; handle?: { name?: string; stack?: Layer[] }; regexp?: RegExp; path?: string }
   const out: Array<{ method: string; path: string }> = [];
-  const router = (companion.app as unknown as { _router?: { stack: Array<{ route?: { path: string; methods: Record<string, boolean>; stack: Array<{ name: string; handle: { name: string } }> } }> } })._router;
-  for (const layer of router?.stack ?? []) {
-    const r = layer.route;
-    if (!r) continue;
-    const guarded = r.stack.some((h) => h.name === 'withUser' || h.handle?.name === 'withUser');
-    if (!guarded) continue;
-    for (const [m, on] of Object.entries(r.methods)) if (on) out.push({ method: m.toUpperCase(), path: String(r.path) });
-  }
+  const isUser = (l: Layer): boolean => l.name === 'withUser' || l.handle?.name === 'withUser';
+  const walk = (layers: Layer[], prefix: string): void => {
+    for (const layer of layers) {
+      const r = layer.route;
+      if (r) {
+        if (!r.stack.some(isUser)) continue;
+        for (const path of Array.isArray(r.path) ? r.path : [r.path]) for (const [m, on] of Object.entries(r.methods)) if (on) out.push({ method: m.toUpperCase(), path: `${prefix}${path}` });
+      } else if (layer.handle?.stack) {
+        // a nested router: its mount path from its regexp (express keeps no plain string for it)
+        const src = layer.regexp?.source ?? '';
+        const mount = src.replace(/^\^\\\/?/, '/').replace(/\\\/\?\(\?=\\\/\|\$\)\$?.*$/, '').replace(/\\\//g, '/').replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, ':x');
+        walk(layer.handle.stack, `${prefix}${mount === '/' ? '' : mount}`);
+      }
+    }
+  };
+  const router = (companion.app as unknown as { _router?: { stack: Layer[] } })._router;
+  walk(router?.stack ?? [], '');
   return out;
+}
+/** The router's table in words, for a failure's message. */
+function routeTable(): string {
+  interface Layer { name?: string; route?: { path: string | string[]; stack: Array<{ name?: string }> }; handle?: { stack?: unknown[] } }
+  const router = (companion.app as unknown as { _router?: { stack: Layer[] } })._router;
+  return (router?.stack ?? []).map((l) => (l.route ? `${String(l.route.path)} [${l.route.stack.map((h) => h.name ?? '?').join(',')}]` : `${l.name ?? '?'}${l.handle?.stack ? ' (nested)' : ''}`)).join('; ');
 }
 
 const userHome = (id: string): string => join(timmyHome, 'users', id);
@@ -187,8 +204,8 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
 
   it('every route behind withUser answers 401 with words to a request without a session (enumerated from the route table)', async () => {
     const routes = userRoutes();
-    expect(routes.length, 'routes behind withUser in the router (none: H173\'s middleware, or an owner\'s route, is not there)').toBeGreaterThan(0);
-    for (const name of ['connections', 'projects', 'chatView', 'chatTurn'] as const) expect(routes.map((r) => r.path), `${ROUTES[name]} is behind withUser`).toContain(ROUTES[name]);
+    expect(routes.length, `routes behind withUser in the router (none: H173's middleware, or an owner's route, is not there); the table: ${routeTable().slice(0, 3000)}`).toBeGreaterThan(0);
+    for (const name of ['me', 'projects', 'connections', 'chatView', 'chatTurn'] as const) expect(routes.map((r) => r.path), `${ROUTES[name]} is behind withUser (the routes found: ${routes.map((r) => `${r.method} ${r.path}`).join(', ')})`).toContain(ROUTES[name]);
     for (const r of routes) {
       const path = r.path.replace(/:[^/]+/g, 'x');
       const a = await call(r.method, path, r.method === 'GET' || r.method === 'DELETE' ? {} : { body: {} });
@@ -207,13 +224,16 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
       ['expired', identity.expired(A)],
       ['not a token', 'FAKE.not.a.jwt'],
     ];
+    // (against the identity's own route: GET /api/identity/me, this server's verdict on the session the page holds)
     for (const [what, session] of cases) {
-      const r = await call('GET', ROUTES.connections, { session });
+      const r = await call('GET', ROUTES.me, { session });
       expect(r.status, `${what}: ${r.text.slice(0, 160)}`).toBe(401);
+      expect(r.text).not.toContain(session!.slice(0, 40));
     }
-    const valid = await call('GET', ROUTES.connections, { session: identity.token(A) });
-    expect(valid.status, `A's valid token: ${valid.text.slice(0, 200)} (H170's GET ${ROUTES.connections})`).toBe(200);
-    const noLaunch = await call('GET', ROUTES.connections, { session: identity.token(A), token: null });
+    const valid = await call('GET', ROUTES.me, { session: identity.token(A) });
+    expect(valid.status, `A's valid token: ${valid.text.slice(0, 200)} (H173's GET ${ROUTES.me})`).toBe(200);
+    expect(valid.json?.user?.id).toBe(A);
+    const noLaunch = await call('GET', ROUTES.me, { session: identity.token(A), token: null });
     expect(noLaunch.status, 'the session without the launch token').toBe(401);
   });
 
@@ -236,7 +256,10 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(statSync(files[0]).mode & 0o777).toBe(0o600);
   });
 
-  it('the user\'s home is 0700 under <TIMMY_HOME>/users/<id>; nothing of a user is written outside it', () => {
+  it('the user\'s home is 0700 under <TIMMY_HOME>/users/<id>; nothing of a user is written outside it', async () => {
+    // (the home is made on the user's first use: A's project list, which also makes A's default project)
+    const first = await call('GET', ROUTES.projects, { session: identity.token(A) });
+    expect(first.status, `A's GET ${ROUTES.projects}: ${first.text.slice(0, 200)}`).toBe(200);
     const home = userHome(A);
     expect(existsSync(home), `A's home ${home}`).toBe(true);
     expect(statSync(home).mode & 0o777).toBe(0o700);
