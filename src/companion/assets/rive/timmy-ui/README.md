@@ -5,8 +5,8 @@
 on the operator's machine from the editable source beside it — nothing compiles in this repo's build — and committed with
 its records (`BUILD.txt`, `rive-build-log.txt`, `rive-build-problems.txt`, `INSPECT-summary.txt`) and its sha256 in `CONTRACT.json`. The repo's `.gitignore` keeps `*.riv` out except
 under `src/companion/assets/rive/` (`!src/companion/assets/rive/**/*.riv`). The round-5 asset (the operator's own build,
-contract v1, sha256 `9fd9ae7c…`, 405,278 bytes) was the served file until the v2 build landed (the build of 4e8d4905's
-source, sha256 `e97d28dc…`, 93,211 bytes); `CONTRACT.json` `asset` says which build is served and what the source has changed since.
+contract v1, sha256 `9fd9ae7c…`, 405,278 bytes) was the served file until the v2 builds landed (4e8d4905's source, then this
+folder's source at 44c4605f: sha256 `b493297a…`, 93,256 bytes); `CONTRACT.json` `asset` says which build is served.
 
 ## The source (R11 round 7, H174: the operator's order "Make the native UI coherent")
 
@@ -17,7 +17,6 @@ source, sha256 `e97d28dc…`, 93,211 bytes); `CONTRACT.json` `asset` says which 
 | `rive.yaml` | the CLI's four lines (name + logs: its yaml parser takes nothing else); the listing's facts are `CONTRACT.json`'s `meta` block, which the generator writes |
 | `Outfit.ttf` + `Outfit-OFL.txt` | the embedded font: Outfit (variable, wght 100–900; SIL OFL 1.1, no Reserved Font Name declared), made by `make-font.py` from `@fontsource-variable/outfit`'s latin WOFF2 — the same font this product serves for its HTML (DESIGN.md B11 D2: one UI face across HTML and the native faces). Montserrat (v1) is dropped. |
 | `make-font.py` | the reproducible font step (fontTools; Brotli through Node's zlib when the module is absent); prints the TTF's sha256 |
-| `Montserrat.ttf` + `OFL.txt` | v1's font, kept only while `scripts/copy-runtime-assets.mjs` (the packaging allowlist, not this folder's) names them — the v2 source does not use them; they go when that list names the v2 files |
 | `CONTRACT.json` | the contract: version, the served asset's identity and build, artboards, runs, inputs, materials, the consumers' API; its `meta` block (generator-written) is what the listing reads |
 | `BUILD.txt`, `rive-build-log.txt`, `rive-build-problems.txt`, `INSPECT-summary.txt` | the build's records (the Rive CLI on the operator's machine) |
 
