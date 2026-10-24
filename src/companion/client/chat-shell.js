@@ -521,7 +521,8 @@ function ownTurn(t, i) {
   const meta = h('div', { class: 'cx-meta' });
   // R11 step 2: a running turn always shows an indicator with its words (the playbook §17)
   const toolsNow = (t.tools || []).length;
-  if (t.state === 'streaming') meta.append(h('span', { class: 'cx-end cx-running' }, spinner(), ` Answering · ${t.model || 'the model'} · ${where} · ${Math.max(0, Math.round(elapsed / 1000))} s · ${toolsNow ? `${toolsNow} tool${toolsNow === 1 ? '' : 's'}` : 'no tool yet'}`));
+  if (t.state === 'streaming' && t.stopping) meta.append(h('span', { class: 'cx-end cx-running is-stopping' }, spinner(), ` Stopping · asked ${Math.max(0, Math.round((Date.now() - t.stopping) / 1000))} s ago · the turn’s receipt comes as it stops (Stop again stops this page’s reading now)`));
+  else if (t.state === 'streaming') meta.append(h('span', { class: 'cx-end cx-running' }, spinner(), ` Answering · ${t.model || 'the model'} · ${where} · ${Math.max(0, Math.round(elapsed / 1000))} s · ${toolsNow ? `${toolsNow} tool${toolsNow === 1 ? '' : 's'}` : 'no tool yet'}`));
   else if (t.state === 'stopped') meta.append(h('span', { class: 'cx-end' }, '✕ stopped by you: the answer so far is kept here'));
   else if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, `✕ failed: ${t.words || 'no answer'}`));
   if (t.notice) meta.append(h('span', null, t.notice));
@@ -885,13 +886,14 @@ function drawComposer() {
   fitInput(input);
   drawChip();
   if (cx.running) {
+    const own = cx.own[cx.own.length - 1];
     send.disabled = false;
     send.classList.add('is-stop');
     send.classList.remove('is-muted');
     send.textContent = 'Stop';
     send.setAttribute('aria-label', 'Stop');
-    send.title = 'Stops this page’s turn; the answer so far is kept here';
-    if (why) why.textContent = '';
+    send.title = own && own.stopping ? 'Stopping: the companion was asked; the turn’s receipt comes as it stops. Press again to stop this page’s reading now.' : 'Stops this page’s turn; the answer so far is kept here';
+    if (why) why.textContent = own && own.stopping ? 'Stopping…' : '';
     return;
   }
   // R11 step 3: Stop lives in the composer: while another surface answers a turn of this project, it asks that turn to stop
@@ -973,7 +975,7 @@ async function sendNow() {
   input.value = '';
   saveDraft();
   // the route snapshotted as the turn starts: a later change applies to the next turn, never this one
-  const turn = { id: '', you: text, answer: '', model: r.model, label: r.label, state: 'streaming', words: '', at: new Date().toISOString(), started: Date.now(), ended: 0, where: routeWhere(r), tools: [], needs: null, receipt: null, steps: null };
+  const turn = { id: '', you: text, answer: '', model: r.model, label: r.label, state: 'streaming', words: '', at: new Date().toISOString(), started: Date.now(), ended: 0, where: routeWhere(r), tools: [], needs: null, receipt: null, steps: null, stopping: 0 };
   cx.own.push(turn);
   riveLastWord = '';
   const controller = new AbortController();
@@ -1059,23 +1061,42 @@ async function readSse(body, on, signal) {
   }
 }
 
-/** Stop: the companion is asked to stop the turn by its id (POST /api/chat/stop), and this page stops reading. */
+/** How long this page keeps reading after it asked the companion to stop the turn: the turn's own `done` (cancelled, with its receipt) comes within this, or the read is dropped. */
+const STOP_PATIENCE_MS = 8000;
+
+/**
+ * Stop: the companion is asked to stop the turn by its id (POST /api/chat/stop) and this page KEEPS READING until the turn's
+ * own `done` (status cancelled, the sealed receipt) arrives — so the stopped turn folds into the project's conversation by
+ * its receipt as an answered one does, and the component's `stopped` is the turn's own event. The read is dropped when the
+ * companion refuses the stop, when nothing comes within STOP_PATIENCE_MS, when the turn has no id yet, or when Stop is pressed
+ * again (R11 round 5: before, the page aborted at once, kept a receipt-less copy of the stopped turn beside the chain's, and
+ * — as the operator — asked a route that took { turn } only: 400, the turn running on).
+ */
 function stopNow() {
   const t = cx.own[cx.own.length - 1];
-  // (R11 round 5: the activity component hears the Stop as it is asked — H174's TimmyRive.stopping)
-  if (cx.running) riveStopping(t && t.id ? `POST /api/chat/stop { id: ${t.id} } (this page's Stop)` : 'POST /api/chat/turn: this page stops reading (its Stop; the turn has no id yet)');
-  if (t && t.id) {
-    const fetcher = typeof TimmyShell !== 'undefined' ? TimmyShell.fetch : companion.fetch;
-    // (as stopOther sends it: the turn's id under both names — H169's /api/chat/stop { id } for a signed-in page, and the
-    // operator's /api/chat/stop { turn } of the shown project (server.ts), which answered the page's { id } alone with 400
-    // and left the turn running: R11 round 5, found by the Stop pin)
-    fetcher(`/api/chat/stop${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, turn: t.id, ...(cx.project && cx.project.root ? { project: { root: cx.project.root } } : {}) }) })
-      // the companion's answer is read (never left unread) and, when it did NOT stop the turn, said in the chat's note: a Stop
-      // that only stopped this page's reading while the turn ran on is what the pin above found
-      .then(async (r) => { const b = await r.json().catch(() => null); if (!r.ok) chatNote(`Not stopped where it runs: ${b && (b.error || b.words) ? b.error || b.words : `the companion answered HTTP ${r.status}`}`, 'failed'); })
-      .catch((err) => chatNote(`Not stopped where it runs: the companion could not be reached (${err && err.message ? err.message : String(err)}).`, 'failed'));
-  }
-  if (cx.running) cx.running.abort();
+  const ctl = cx.running;
+  if (!ctl) return;
+  if (t && t.stopping) { ctl.abort(); return; } // pressed again: this page stops reading now
+  // (the activity component hears the Stop as it is asked — H174's TimmyRive.stopping)
+  riveStopping(t && t.id ? `POST /api/chat/stop { id: ${t.id} } (this page's Stop)` : 'POST /api/chat/turn: this page stops reading (its Stop; the turn has no id yet)');
+  if (!t || !t.id) { ctl.abort(); return; }
+  t.stopping = Date.now();
+  drawStreaming();
+  const fetcher = typeof TimmyShell !== 'undefined' ? TimmyShell.fetch : companion.fetch;
+  // (as stopOther sends it: the turn's id under both names — H169's /api/chat/stop { id } for a signed-in page, and the
+  // operator's /api/chat/stop { turn } of the shown project (server.ts), which answered the page's { id } alone with 400
+  // and left the turn running: found by the Stop pin)
+  fetcher(`/api/chat/stop${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, turn: t.id, ...(cx.project && cx.project.root ? { project: { root: cx.project.root } } : {}) }) })
+    // the companion's answer is read (never left unread); a refusal is said in the chat's note and the read is dropped (the
+    // turn will not end for this Stop)
+    .then(async (r) => {
+      const b = await r.json().catch(() => null);
+      if (r.ok) return;
+      chatNote(`Not stopped where it runs: ${b && (b.error || b.words) ? b.error || b.words : `the companion answered HTTP ${r.status}`}`, 'failed');
+      if (cx.running === ctl) ctl.abort();
+    })
+    .catch((err) => { chatNote(`Not stopped where it runs: the companion could not be reached (${err && err.message ? err.message : String(err)}).`, 'failed'); if (cx.running === ctl) ctl.abort(); });
+  setTimeout(() => { if (cx.running === ctl) { chatNote(`The turn's end did not come within ${STOP_PATIENCE_MS / 1000} s of the Stop: this page stopped reading it; its receipt is read back from the conversation when it ends.`, null); ctl.abort(); } }, STOP_PATIENCE_MS);
 }
 
 /** NEEDS-YOU answered: the choice goes to the companion (POST /api/chat/answer); the turn goes on in the same stream. */

@@ -380,11 +380,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const stopAnswer = page.waitForResponse((r) => r.url().includes('/api/chat/stop'), { timeout: 15_000 });
       stopAnswer.catch(() => undefined);
       await page.click('#cx-send.is-stop', { timeout: 10_000 });
-      console.error('[h171 mark] Stop clicked');
       // the companion took the stop (200, its words), by the turn's id
       const stopRes = await stopAnswer;
       const stopBody = await stopRes.json().catch(() => null) as { ok?: boolean; words?: string; error?: string } | null;
-      console.error('[h171 mark] stop answered', stopRes.status(), JSON.stringify(stopBody));
       expect({ status: stopRes.status(), body: stopBody }).toMatchObject({ status: 200, body: { ok: true, words: expect.stringMatching(/^Stop asked of the turn being answered in the companion/) } });
       await page.waitForFunction(() => document.querySelector('#cx-own li.cx-turn.is-timmy.is-stopped') !== null || [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].some((li) => li.classList.contains('is-stopped')), null, { timeout: 30_000 });
       // the turn ENDED where it ran, not only on this page: the companion's hold is released (the frame's activity names no
@@ -398,12 +396,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         running: Boolean(cx.running), chatTurn: (workspace as { frame: { activity?: { chatTurn?: unknown } } | null }).frame?.activity?.chatTurn ?? null,
       }));
       let composer = await composerState();
-      console.error('[h171 mark] composer after the stop', JSON.stringify(composer));
       for (let i = 0; i < 60 && (composer.send?.includes('is-stop') || composer.label !== 'Send message'); i++) { await page.waitForTimeout(500); composer = await composerState(); }
-      console.error('[h171 mark] composer settled', JSON.stringify(composer));
       expect(composer).toMatchObject({ send: expect.not.stringContaining('is-stop'), label: 'Send message', running: false, chatTurn: null });
       await page.waitForFunction(() => document.querySelectorAll('#cx-own .cx-turn').length === 0 && [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy')].slice(-1).every((li) => li.classList.contains('is-stopped') && /receipt [0-9a-f]{8}/.test(li.querySelector('.cx-evidence')?.textContent ?? '')), null, { timeout: 30_000 });
-      console.error('[h171 mark] chain has the stopped turn');
       const stoppedLast = await page.$eval('#cx-turns li.cx-turn.is-timmy:last-of-type', (li) => ({ text: (li.querySelector('.cx-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), meta: (li.querySelector('.cx-meta')?.textContent ?? '').replace(/\s+/g, ' ').trim() }));
       expect(stoppedLast.text).toBe('Nothing was written before the stop.');
       expect(stoppedLast.meta).toMatch(/^■ stopped by you/);
