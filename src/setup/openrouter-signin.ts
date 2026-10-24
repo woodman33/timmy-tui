@@ -95,7 +95,45 @@ const page = (title: string, body: string): string =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body style="background:${HOMEBREW.ground};color:${HOMEBREW.text};font:16px monospace;padding:2em"><h1 style="font-size:18px">${title}</h1><p>${body}</p></body></html>`;
 
 /** A code as OpenRouter's answer holds one (never shown); anything else is no code. */
-const codeShape = (v: string | null): v is string => typeof v === 'string' && v.length > 0 && v.length <= 2048 && /^[\x21-\x7e]+$/.test(v);
+export const codeShape = (v: string | null): v is string => typeof v === 'string' && v.length > 0 && v.length <= 2048 && /^[\x21-\x7e]+$/.test(v);
+
+export type ExchangeResult =
+  | { ok: true; fingerprint: string; at: string; path: string; words: string }
+  | { ok: false; reason: 'refused' | 'unreachable' | 'not saved'; at: string; words: string };
+
+/**
+ * R11 round 4 (H170): the exchange alone, step 4 and 5 of the flow above, for any surface that received a code (the terminal's
+ * callback server below, the browser companion's callback route): POST OPENROUTER_EXCHANGE_URL {code, code_verifier,
+ * code_challenge_method S256}; the key in the answer saved with `save` (providers.json through saveKey when none is given).
+ * Nothing of the code, the verifier or the key enters a word. One exchange per code: the caller sees to that.
+ */
+export async function exchangeOpenRouterCode(code: string, verifier: string, o: { fetch?: typeof fetch; signal?: AbortSignal; save?: (key: string) => SaveKeyResult; env?: Env; cwd?: string } = {}): Promise<ExchangeResult> {
+  const doFetch = o.fetch ?? fetch;
+  const at = (): string => new Date().toISOString();
+  const refused = (words: string): ExchangeResult => ({ ok: false, reason: 'refused', at: at(), words });
+  let res: Response;
+  try {
+    res = await doFetch(OPENROUTER_EXCHANGE_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'error',
+      signal: o.signal ? AbortSignal.any([o.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      body: JSON.stringify({ code, code_verifier: verifier, code_challenge_method: 'S256' }),
+    });
+  } catch {
+    return { ok: false, reason: 'unreachable', at: at(), words: 'OpenRouter did not answer the exchange (no network, or it is down): nothing was saved. Try again, or paste a key from openrouter.ai/keys.' };
+  }
+  if (!res.ok) {
+    try { await res.body?.cancel(); } catch { /* nothing to read */ }
+    const why = res.status === 400 ? 'the code challenge method did not match'
+      : res.status === 403 ? 'the code or its verifier is not valid, or the sign-in expired' : 'it refused the exchange';
+    return refused(`OpenRouter refused the exchange (HTTP ${res.status}: ${why}): nothing was saved. Sign in again, or paste a key from openrouter.ai/keys.`);
+  }
+  let key: unknown;
+  try { key = ((await res.json()) as { key?: unknown } | null)?.key; } catch { key = undefined; }
+  if (typeof key !== 'string' || !key) return refused('OpenRouter\'s answer to the exchange holds no key: nothing was saved. Sign in again, or paste a key from openrouter.ai/keys.');
+  const saved = (o.save ?? ((k: string) => saveKey('openrouter', k, o.env ?? process.env, o.cwd ?? process.cwd())))(key);
+  if (!saved.ok) return { ok: false, reason: 'not saved', at: at(), words: `OpenRouter gave a key, and it was not saved: ${saved.why}` };
+  return { ok: true, fingerprint: saved.fingerprint, at: at(), path: saved.path, words: `Signed in: ${saved.words}` };
+}
 
 /**
  * Starts a sign-in: the callback server listens before this returns, so the address shown works at once. Refused (thrown)
@@ -128,31 +166,12 @@ export async function startOpenRouterSignIn(o: SignInOptions = {}): Promise<Sign
   };
   const failed = (reason: Extract<SignInResult, { ok: false }>['reason'], words: string): void => finish({ ok: false, reason, at: new Date().toISOString(), words });
 
+  // the exchange itself is exchangeOpenRouterCode (R11 round 4: the browser companion's callback route redeems the same way)
   const redeem = async (code: string): Promise<void> => {
-    let res: Response;
-    try {
-      res = await doFetch(OPENROUTER_EXCHANGE_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.any([exchange.signal, AbortSignal.timeout(30_000)]),
-        body: JSON.stringify({ code, code_verifier: verifier, code_challenge_method: 'S256' }),
-      });
-    } catch {
-      if (!settled) failed('unreachable', 'OpenRouter did not answer the exchange (no network, or it is down): nothing was saved. Try again, or paste a key from openrouter.ai/keys.');
-      return;
-    }
-    if (!res.ok) {
-      try { await res.body?.cancel(); } catch { /* nothing to read */ }
-      const why = res.status === 400 ? 'the code challenge method did not match'
-        : res.status === 403 ? 'the code or its verifier is not valid, or the sign-in expired' : 'it refused the exchange';
-      failed('refused', `OpenRouter refused the exchange (HTTP ${res.status}: ${why}): nothing was saved. Sign in again, or paste a key from openrouter.ai/keys.`);
-      return;
-    }
-    let key: unknown;
-    try { key = ((await res.json()) as { key?: unknown } | null)?.key; } catch { key = undefined; }
-    if (typeof key !== 'string' || !key) { failed('refused', 'OpenRouter\'s answer to the exchange holds no key: nothing was saved. Sign in again, or paste a key from openrouter.ai/keys.'); return; }
+    const r = await exchangeOpenRouterCode(code, verifier, { fetch: doFetch, signal: exchange.signal, env, cwd, ...(o.save ? { save: o.save } : {}) });
     if (settled) return;
-    const saved = (o.save ?? ((k: string) => saveKey('openrouter', k, env, cwd)))(key);
-    if (!saved.ok) { failed('not saved', `OpenRouter gave a key, and it was not saved: ${saved.why}`); return; }
-    finish({ ok: true, fingerprint: saved.fingerprint, at: new Date().toISOString(), path: saved.path, words: `Signed in: ${saved.words}` });
+    if (r.ok) finish(r);
+    else failed(r.reason, r.words);
   };
 
   server.on('request', (req: IncomingMessage, res: ServerResponse) => {

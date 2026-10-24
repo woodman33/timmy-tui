@@ -311,9 +311,9 @@ describe('Ollama Cloud: its own key, checked by listing models (no inference); C
     expect(none.lines).toEqual([
       'Worker: not set up (no edge host in the private overlay or TIMMY_EDGE_HOST)',
       'Commander: not set up (no commander_ws)',
-      'AI Gateway: not configured (Timmy has no AI Gateway setting yet)',
+      'AI Gateway / model routing: not set (optional)',
       'Workers AI: not configured (no decision model uses it)',
-      'Cloud log sync: off: logs and run events stay on this computer',
+      'Cloud logs: off; local logs are already part of the design',
     ]);
     const e2 = { ...env, TIMMY_EDGE_HOST: 'fake-edge.example.invalid', TIMMY_COMMANDER_WS: 'ws://127.0.0.1:1' };
     const set = providerState('cloudflare', { ...ctx(), env: e2 });
