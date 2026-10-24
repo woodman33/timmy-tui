@@ -123,7 +123,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 7: the Control Room\'s panes
       text: (p.textContent ?? '').replace(/\s+/g, ' ').trim(),
     };
   }));
-  /** Every text of the panel at 11 px or more; colours: no blue, purple or cyan; green and amber only where they are allowed. */
+  /** Every text of the panel at 11 px or more; colours: green and amber only where they are allowed (the hue list is kept for a reading, not pinned: B11's surfaces carry hue since R11 round 7). */
   const look = (page: Page) => page.evaluate(() => {
     const parse = (v: string): number[] | null => { const mm = /^rgba?\(([^)]+)\)$/.exec(v.trim()); if (!mm) return null; const p = mm[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; };
     const hsl = ([rr, gg, bb]: number[]) => { const [R, G, B] = [rr / 255, gg / 255, bb / 255]; const max = Math.max(R, G, B); const min = Math.min(R, G, B); const l = (max + min) / 2; const d = max - min; if (d === 0) return { h: 0, s: 0, l }; const h = max === R ? 60 * (((G - B) / d) % 6) : max === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4); return { h: (h + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
@@ -185,7 +185,11 @@ describe.skipIf(!browserPath)('the companion\'s tab 7: the Control Room\'s panes
       expect(panes[0].x).toBe(panes[2].x);
       expect(panes[1].x).toBeGreaterThan(panes[0].x + panes[0].w - 1);
       expect(panes[2].y).toBeGreaterThanOrEqual(panes[0].bottom);
-      for (const p of panes) { expect(p.bottom, `${p.id} in the window`).toBeLessThanOrEqual(768); expect(p.w).toBeGreaterThan(200); expect(p.h).toBeGreaterThan(90); }
+      // R11 round 7 (H169; SHELL CONTRACT v1 §2.2): the page scrolls on the one shell (its head and band sit above the work), so
+      // the glance is the HOST's: the panes' host is no taller than the window and every pane sits inside it (panel-control.css)
+      const host = await page.$eval('[data-panel-host="control"]', (e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height }; });
+      expect(host.h, 'the panes host within one window').toBeLessThanOrEqual(768);
+      for (const p of panes) { expect(p.bottom, `${p.id} inside the host`).toBeLessThanOrEqual(host.bottom + 1); expect(p.y, `${p.id} inside the host`).toBeGreaterThanOrEqual(host.top - 1); expect(p.w).toBeGreaterThan(200); expect(p.h).toBeGreaterThan(90); }
       expect(await page.$eval('[data-control="title"]', (e) => (e.textContent ?? '').trim())).toBe('Panes (4) · 2 running · 2 newest ended');
 
       // the running job: its mark and word, its name, who started it, its newest log lines, how often it is read, the frame's stop
@@ -229,10 +233,10 @@ describe.skipIf(!browserPath)('the companion\'s tab 7: the Control Room\'s panes
       expect(await page.$('[data-control="more"]')).toBeNull();
       await shot(page, 'h155-01-tab7-grid-1376x768');
 
-      // text 11 px or more; green only on the verified receipt; amber only on a failure's ✕ words; no other hue
+      // text 11 px or more; green only on the verified receipt; amber only on a failure's ✕ words
+      // (R11 round 7, the lead's 15:29 ruling: B11's surfaces carry hue (DESIGN.md B11), so the B10 no-hue pin goes; the GREEN rule stays)
       const l = await look(page);
       expect(l.small).toEqual([]);
-      expect(l.hue).toEqual([]);
       expect(l.green.length).toBeGreaterThan(0);
       for (const g of l.green) expect(g).toMatch(/is-verified color "✓ receipt [0-9a-f]{8} verified"/);
       for (const a of l.amber) expect(a).toMatch(/color "✕ /);
@@ -306,8 +310,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 7: the Control Room\'s panes
       expect(Math.max(m.page, m.body)).toBeLessThanOrEqual(m.inner);
       const l = await look(page);
       expect(l.small).toEqual([]);
-      expect(l.hue).toEqual([]);
-      expect(l.green).toEqual([]);
+      expect(l.green).toEqual([]); // (the no-hue pin dropped here too: B11)
       await page.$eval('[data-panel-host="control"]', (e) => e.scrollIntoView());
       await shot(page, 'h155-03-tab7-stacked-390x844');
       expect(seen.writes).toEqual([]);

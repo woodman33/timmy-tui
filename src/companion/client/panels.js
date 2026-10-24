@@ -22,6 +22,8 @@ const TimmyPanels = (() => {
       panels.set(String(tab), panel);
     },
     has: (tab) => panels.has(String(tab)),
+    /** The panel registered for `tab`, or null (R11 round 7, H169: a page script wraps an earlier panel of the same tab). */
+    get: (tab) => panels.get(String(tab)) || null,
     /** Draws the panel of `tab` into its host, if both exist; returns whether one was drawn. */
     draw(tab, frame, base) {
       const panel = panels.get(String(tab));
