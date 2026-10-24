@@ -496,7 +496,8 @@ describe('every major page on the shell, from the running companion and Studio: 
         const crumb = await top.locator('.crumb').first().innerText().catch(() => '');
         const status = await top.locator('#shell-status').first().innerText().catch(() => '');
         if (!phone) {
-          expect(crumb, 'the crumb reads "Workspace / <page name>"').toMatch(/Workspace/i);
+          // (§3.2: "Workspace / <page name>" where the first crumb reads #project-name's words — the project's name on a signed-in page)
+          expect(crumb.replace(/\s+/g, ' '), 'the crumb reads "<workspace / project> / <page name>"').toMatch(/\S.* \/ .*\S/);
           expect(status.length, 'the status word in the topbar (#shell-status)').toBeGreaterThan(0);
         } // (§4: the phone's top strip is the mark, the project's name and the menu button; the crumb and the status may fold — read, said)
         const sheet = phone ? await openRailSheet(o) : null;
@@ -580,7 +581,7 @@ describe('every major page on the shell, from the running companion and Studio: 
           await o.page.keyboard.press('Tab');
           const a = await activeOf(o.page);
           seenFocus.push(a);
-          if (primary < 0 && s.primary && a.includes(s.primary.slice(0, 20))) { primary = i; await caps.cap(o.page, size, 'chat-focus-primary', { line: line('Chat', 'the keyboard focus on the primary next action'), facts: [`Tab ${i + 1} from the start: the focus on the primary next action "${s.primary}" (its focus ring is the picture's point).`] }); }
+          if (primary < 0 && s.primary && a.replace(/\s+/g, '').includes(s.primary.replace(/\s+/g, '').slice(0, 16))) { primary = i; await caps.cap(o.page, size, 'chat-focus-primary', { line: line('Chat', 'the keyboard focus on the primary next action'), facts: [`Tab ${i + 1} from the start: the focus on the primary next action "${s.primary}" (its focus ring is the picture's point).`] }); }
           if (composer < 0 && COMPOSER.test(a)) { composer = i; await caps.cap(o.page, size, 'chat-focus-composer', { line: line('Chat', 'the keyboard focus on the composer'), facts: [`Tab ${i + 1} from the start: the focus on the composer.`] }); }
           if (canvas < 0 && /^canvas/.test(a)) canvas = i;
         }
@@ -901,7 +902,8 @@ const PROBES: Record<string, Probe> = {
       // the starters listed (GET /api/canvas/templates: guided, blank first; a Houdini starter when H176 ships one — said which);
       // below 1100 px the Studio's lists start folded behind #side-fold (R7, H151): shown first so New board's controls can be used
       if ((await first.page.locator('#side').first().getAttribute('data-folded').catch(() => null)) === 'true') await first.page.locator('#side-fold').first().click({ timeout: 3_000 }).catch(() => undefined);
-      const options = await first.page.locator('#board-pick option').allTextContents().catch(() => [] as string[]);
+      // (the picker's first entry "Blank board" has no value and opens nothing to read: the starters are the options WITH a value)
+      const options = await first.page.locator('#board-pick option').evaluateAll((els) => els.filter((e) => (e as HTMLOptionElement).value).map((e) => (e.textContent || '').trim())).catch(() => [] as string[]);
       const houdini = options.find((x) => /houdini/i.test(x));
       const pick = houdini ?? options[0];
       facts.push(`The Studio's starters (#board-pick): ${options.length} listed${houdini ? `, a Houdini starter among them ("${houdini}")` : ', no Houdini starter on this head (H176\'s templates)'}; opened: "${pick ?? '(none listed)'}".`);
