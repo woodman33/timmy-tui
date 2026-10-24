@@ -283,6 +283,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." before anything
         // is pulled; "Confirm the download" → progress "<x> MB of <y> MB · <status> (<n>%)"; Cancel → "Cancelled…", the FAKE
         // /api/pull sees the abort
+        const pullsBefore = ollama.pulls().length; // (the FAKE keeps every pull across the sizes)
         await o.page.getByRole('button', { name: /Download a local model/ }).first().click();
         const nameField = o.page.getByRole('textbox', { name: /model|name/i }).or(o.page.getByPlaceholder(/model|name/i));
         if (await nameField.count()) await nameField.first().fill(PULL.name);
@@ -291,16 +292,17 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // for another name: "<model>: size unknown (not a starter model, and Ollama does not hold it yet). Confirm to download it into the
         // Ollama on this computer from Ollama's library; nothing else is installed.")
         const asked = await until(o.page, 'the download\'s confirmation sentence', (s) => /Ollama downloads it from its library|Confirm to download it into the Ollama on this computer/.test(s), 20_000, undefined, facts(o));
-        expect(ollama.pulls().length, 'nothing is pulled before the confirmation').toBe(0);
+        expect(ollama.pulls().length - pullsBefore, 'nothing is pulled before the confirmation').toBe(0);
         expect(asked).toMatch(new RegExp(`${PULL.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[:\\s(]`));
         expect(asked).toMatch(/size unknown|\d+(\.\d+)? ?[GM]B/);
         await o.page.getByRole('button', { name: /Confirm the download/ }).first().click();
         await until(o.page, 'the download\'s progress', (s) => /MB of .*\(\d+%\)|\d+ ?%/i.test(s), 20_000);
-        expect(ollama.pulls().length, 'one /api/pull after the confirmation').toBe(1);
+        expect(ollama.pulls().length - pullsBefore, 'one /api/pull after the confirmation').toBe(1);
         await o.page.getByRole('button', { name: /^Cancel/ }).first().click();
         const end = Date.now() + 10_000;
-        while (!ollama.pulls()[0].aborted && Date.now() < end) await o.page.waitForTimeout(100);
-        expect(ollama.pulls()[0].aborted, 'the FAKE /api/pull saw the abort').toBe(true);
+        const thisPull = ollama.pulls()[pullsBefore];
+        while (!thisPull.aborted && Date.now() < end) await o.page.waitForTimeout(100);
+        expect(thisPull.aborted, 'the FAKE /api/pull saw the abort').toBe(true);
         const cancelled = await until(o.page, 'the download cancelled, said', (s) => /Cancelled/.test(s), 10_000);
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
         // the screen's own heading (SCREEN_WORDS: the kicker, the title "Choose how you want to run.", the lead) is on the page
@@ -350,7 +352,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await row.scrollIntoViewIfNeeded().catch(() => undefined);
         await row.click({ timeout: 10_000 });
         // the model's detail opens; "Use for the next turn" is the choice (POST /api/chat/choose: Ollama asked for the exact name first)
-        await o.page.getByRole('button', { name: /Use for the next turn/ }).first().click();
+        const use = o.page.getByRole('button', { name: /Use for the next turn/ }).first();
+        await use.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
+        await use.click({ timeout: 10_000 }).catch(async (e: unknown) => { throw new Error(`"Use for the next turn" after the model's row was clicked (${at}): ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; the panel read: ${(await text(o.page)).slice(-1200)}`); });
         const chosen = await until(o.page, 'the model chosen', (s) => new RegExp(`Next turn: ${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}|${MODEL.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}[^\\n]*(ready|chosen|this computer)`).test(s), 20_000);
         expect(chosen).not.toContain(FAKE_CLOUD_KEY);
         // a turn: the REAL agent through H169's SSE; the FAKE model calls one tool, then answers
@@ -359,8 +363,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         const answered = await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
         expect(answered).toMatch(/get_current_time/);
-        const evidence = /receipt\W{0,3}(?:sha256_)?([0-9a-f]{8})/i.exec(answered);
-        expect(evidence, 'the evidence line with its receipt').toBeTruthy();
+        const evidenceLine = answered.split('\n').find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l) && l.includes(MODEL)) ?? answered.split('\n').find((l) => /receipt\W{0,3}(?:sha256_)?[0-9a-f]{8}/i.test(l)) ?? '';
+        const evidence = /receipt\W{0,3}(?:sha256_)?([0-9a-f]{8})/i.exec(evidenceLine);
+        expect(evidence, `the evidence line with its receipt (the lines: ${answered.split('\n').filter((l) => /receipt/i.test(l)).join(' | ').slice(0, 400)})`).toBeTruthy();
         expect(ollama.chats().length).toBeGreaterThanOrEqual(2);
         // the receipt verifies in the user's project chain
         const projects = await api(configured!, 'GET', '/api/projects', { session });
@@ -369,11 +374,12 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(typeof root, `the user's project root from GET /api/projects: ${projects.text.slice(0, 200)}`).toBe('string');
         const chain = readChain('runs', root!);
         expect(verifyChain('runs', root!).ok, 'the project\'s chain verifies').toBe(true);
-        const sealed = chain.find((r) => String(r.hash).replace(/^sha256_/, '').startsWith(evidence![1]));
+        // (the page's short id is the hash's last 8 — chat-shell.js `t.receipt.slice(-8)`; a first-8 convention is accepted too)
+        const sealed = chain.find((r) => { const h = String(r.hash).replace(/^sha256_/, ''); return h.startsWith(evidence![1]) || h.endsWith(evidence![1]); });
         // (for a failure's words: every receipts file under the test's box, and which of them holds the hash)
         const files = (): string[] => { const out: string[] = []; const walk = (d: string): void => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = join(d, e.name); if (e.isDirectory()) walk(f); else if (/\.jsonl$/.test(e.name) && /receipts/.test(f)) out.push(f); } }; walk(box); return out; };
         const holders = files().filter((f) => readFileSync(f, 'utf8').includes(evidence![1])).map((f) => f.replace(box, '<box>'));
-        const line = answered.split('\n').find((l) => /receipt/i.test(l)) ?? '';
+        const line = evidenceLine;
         expect(sealed, `the receipt ${evidence![1]} is on the project's runs chain (${root!.replace(box, '<box>')}: ${chain.length} receipts: ${chain.map((r) => `${String(r.kind)} ${String(r.hash).slice(0, 15)}`).join(', ')}); the evidence line: "${line}"; files holding the hash: ${holders.join(', ') || 'none'}; receipts files: ${files().map((f) => f.replace(box, '<box>')).join(', ')}`).toBeTruthy();
         expect(verifyReceiptIn(chain, String(sealed!.hash)).ok).toBe(true);
         // Stop: a second, slow turn ended by Stop with its stage
