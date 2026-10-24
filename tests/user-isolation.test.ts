@@ -299,7 +299,7 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     // A's chat asks the FAKE Ollama: its address into A's providers.json (what timmy init --ollama records), then the model chosen
     pointAtFakeOllama(A);
     const chosen = await call('POST', ROUTES.chatChoose, { session: identity.token(A), query: { project: id }, body: { source: 'ollama-local', model: MODEL } });
-    expect(chosen.status, `POST ${ROUTES.chatChoose}: ${chosen.text.slice(0, 300)}`).toBe(200);
+    expect(chosen.status, `POST ${ROUTES.chatChoose}?project=<A's id>: ${chosen.text.slice(0, 300)} (H171's chat-view behind identity.withUser, the user's project resolved by id — H173's userProjectFor)`).toBe(200);
     expect(chosen.json?.ok, chosen.text.slice(0, 300)).toBe(true);
     // (H169's body: { message, project: { root } }; a root that is not this account's → 400 before any stream)
     const turn = await sse(ROUTES.chatTurn, { session: identity.token(A), body: { message: 'FAKE: what time is it?', project: { root } }, until: (e) => e.event === 'done' || e.event === 'error', ms: 60_000 });
@@ -323,6 +323,9 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
 
   it('B cannot read A\'s conversation nor run a turn on A\'s root: refused with words; A\'s logs and receipts are in none of B\'s reads', async () => {
     expect(aProject, 'A\'s project (the case above)').toBeTruthy();
+    // A reads A's conversation first: a refusal that refuses everyone (a route that knows no user's project) is no isolation
+    const own = await call('GET', ROUTES.chatView, { session: identity.token(A), query: { project: aProject!.id } });
+    expect(own.status, `A's own GET ${ROUTES.chatView}?project=<A's id>: ${own.text.slice(0, 200)} (H171's chat-view behind identity.withUser, the user's project by id)`).toBe(200);
     const view = await call('GET', ROUTES.chatView, { session: identity.token(B), query: { project: aProject!.id } });
     expect([400, 403, 404], `B's GET ${ROUTES.chatView}?project=<A's>: ${view.status} ${view.text.slice(0, 200)}`).toContain(view.status);
     expect(view.text.trim().length).toBeGreaterThan(0);
