@@ -8,15 +8,21 @@
  * nothing else happens: no body is read, nothing is written. It NEVER reads a user id from a body, a query string, a cookie
  * or a default: `clerk_user_id` and the like are not looked at, so a request that names one changes nothing.
  *
+ * NO IDENTITY PROVIDER CONFIGURED (the lead's ruling of 21:48): the launch token's holder IS this computer's operator, so
+ * withUser sets req.user = operatorUser() ({ id: 'operator', operator: true }) and never answers 401 needs:'session'; the
+ * session header, if any, is not looked at (nothing could verify it). The launch token is the companion's existing trust
+ * boundary, not a caller-supplied id. With a provider configured there is NO operator fallback.
+ *
  * The WebSocket hello carries the same token in its `session` field; `verifyHello(msg, cfg, host)` verifies it the same way
- * (H171 wires the socket: a hello without a verified user is told why and gets no user data).
+ * (H171 wires the socket: a hello without a verified user is told why and gets no user data); not configured, it answers the
+ * operator too, as withUser does.
  *
  * `userOf(req)` is for a route mounted after withUser that wants the user without an `as` cast; it throws when withUser
  * did not run (a mount order error, never a request's doing).
  */
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { IdentityConfig } from './config.js';
-import { originsOf, sessionTokenOf, SESSION_WORDS, verifySession, type SessionResult, type SessionUser, type VerifyOptions } from './session.js';
+import { operatorUser, originsOf, sessionTokenOf, SESSION_WORDS, verifySession, type SessionResult, type SessionUser, type VerifyOptions } from './session.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -48,6 +54,7 @@ export function withUser(cfg: IdentityConfig | (() => IdentityConfig), options: 
   // named, so a test can find the routes behind it in express's router by this handler's name (H172's isolation test)
   const withUser = (req: Request, res: Response, next: NextFunction): void => {
     const c = config();
+    if (!c.configured) { req.user = operatorUser(); next(); return; } // the operator principal: the launch token's holder
     const token = sessionTokenOf(req.headers);
     const verify: VerifyOptions = {
       origins: options.origins ? options.origins(req) : originsOf(req.headers.host, options.lan),
@@ -89,6 +96,7 @@ export function userOf(req: Request): SessionUser {
  * (the page's origin for azp), `lan` the companion's LAN addresses with --lan.
  */
 export function verifyHello(msg: unknown, cfg: IdentityConfig, host: string | undefined, options: Pick<WithUserOptions, 'lan' | 'jwks' | 'now'> = {}): Promise<SessionResult> {
+  if (!cfg.configured) return Promise.resolve({ ok: true, user: operatorUser() });
   const session = msg && typeof msg === 'object' ? (msg as { session?: unknown }).session : undefined;
   return verifySession(session, cfg, {
     origins: originsOf(host, options.lan),

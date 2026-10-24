@@ -18,7 +18,9 @@ import { join } from 'node:path';
 import { exportJWK, SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectSrcFor, frontendApiOf, IDENTITY_ENV, identityConfig, pageIdentity, pemOf } from '../src/companion/identity/config.js';
-import { forgetKeys, originsOf, SESSION_WORDS, USER_ID, verifySession } from '../src/companion/identity/session.js';
+import { forgetKeys, OPERATOR_ID, OPERATOR_WORDS, operatorUser, originsOf, SESSION_WORDS, USER_ID, verifySession } from '../src/companion/identity/session.js';
+import { verifyHello } from '../src/companion/identity/middleware.js';
+import { projectId } from '../src/project/index.js';
 import { CLERK_SCRIPT, findClerkDist } from '../src/companion/identity/routes.js';
 import { createUserProject, DEFAULT_PROJECT, isOwnedRoot, userEnv, userHome, userProjectFor, userProjects } from '../src/companion/identity/scope.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
@@ -276,6 +278,59 @@ describe('scope: a user\'s own corner, and nothing outside it (C1)', () => {
   });
 });
 
+describe('scope: the OPERATOR principal — the companion as it always was (the lead\'s 21:48 ruling)', () => {
+  let box = '';
+  beforeAll(() => { box = realpathSync(mkdtempSync(join(tmpdir(), 'h173-operator-'))); });
+  afterAll(() => { rmSync(box, { recursive: true, force: true }); });
+  it('userEnv(operator, base) IS base (keys kept, nothing made); the home is the Timmy home; the projects are the follower\'s: fixed, else active, else here; plus <home>/projects', () => {
+    const home = join(box, 'home'); mkdirSync(join(home, 'projects', 'studio'), { recursive: true }); mkdirSync(join(box, 'repo'));
+    const op = operatorUser();
+    expect(op).toEqual({ id: OPERATOR_ID, operator: true });
+    expect(USER_ID.test(OPERATOR_ID)).toBe(false); // no token can name the operator (badSubject)
+    const base = { TIMMY_HOME: home, OPENROUTER_API_KEY: 'FAKE-key-of-the-operator', TIMMY_REPO: join(box, 'repo') };
+    expect(userEnv(op, base)).toBe(base);
+    expect(userHome(op, base)).toBe(home);
+    expect(existsSync(join(home, 'users'))).toBe(false);
+    // fixed (TIMMY_REPO) first
+    const fixed = userProjects(op, base);
+    expect(fixed.roots).toEqual([join(box, 'repo'), join(home, 'projects', 'studio')].sort());
+    expect(fixed.default).toBe(join(box, 'repo'));
+    expect(fixed.registry).toBe(join(home, 'projects.json'));
+    expect(userProjectFor(op, base)).toEqual({ id: projectId(join(box, 'repo')), name: 'repo', root: join(box, 'repo'), chosen: true });
+    expect(userProjectFor(op, base, projectId(join(home, 'projects', 'studio')))!.root).toBe(join(home, 'projects', 'studio'));
+    expect(isOwnedRoot(op, join(box, 'repo', 'deep'), base)).toBe(false); // does not exist
+    mkdirSync(join(box, 'repo', 'deep'));
+    expect(isOwnedRoot(op, join(box, 'repo', 'deep'), base)).toBe(true);
+    expect(isOwnedRoot(op, join(home, 'projects', 'studio'), base)).toBe(true);
+    expect(isOwnedRoot(op, home, base)).toBe(false);
+    expect(isOwnedRoot(op, box, base)).toBe(false);
+    expect(isOwnedRoot(op, '/', base)).toBe(false);
+    // the active project when nothing is fixed
+    const unfixed = { TIMMY_HOME: home };
+    mkdirSync(join(box, 'active')); mkdirSync(join(home, 'state'), { recursive: true });
+    writeFileSync(join(home, 'state', 'active-project.json'), JSON.stringify({ name: 'Active', root: join(box, 'active') }));
+    expect(userProjects(op, unfixed).default).toBe(join(box, 'active'));
+    expect(userProjects(op, unfixed).roots).toContain(join(box, 'active'));
+    // nothing fixed, nothing active: the folder the companion runs in (the follower's rule), and no default project is MADE
+    rmSync(join(home, 'state', 'active-project.json'));
+    expect(userProjects(op, unfixed).default).toBe(realpathSync(process.cwd()));
+    expect(existsSync(join(home, 'projects', DEFAULT_PROJECT.folder))).toBe(false);
+    // a project made as the operator: under <home>/projects, in the companion's own registry
+    const made = createUserProject(op, base, 'Op Film');
+    expect(made).toMatchObject({ name: 'Op Film', root: join(home, 'projects', 'op-film') });
+    expect(userProjects(op, base).roots).toContain(join(home, 'projects', 'op-film'));
+    expect(JSON.parse(readFileSync(join(home, 'projects.json'), 'utf8')).projects[0]).toMatchObject({ name: 'Op Film', path: join(home, 'projects', 'op-film') });
+  });
+  it('verifyHello: not configured → the operator (as withUser); configured → the token or why not', async () => {
+    const none = await verifyHello({ type: 'hello', session: 'anything' }, identityConfig({}), '127.0.0.1:1');
+    expect(none).toEqual({ ok: true, user: { id: OPERATOR_ID, operator: true } });
+    const cfg = identityConfig(ENV);
+    expect(await verifyHello({ type: 'hello' }, cfg, '127.0.0.1:1')).toEqual({ ok: false, why: SESSION_WORDS.absent });
+    const good = await verifyHello({ type: 'hello', session: await mint({ azp: 'http://127.0.0.1:1' }) }, cfg, '127.0.0.1:1');
+    expect(good.ok && good.user.id).toBe(USER_A);
+  });
+});
+
 describe('withUser over real HTTP: the companion\'s routes behind the launch token and the session (C1)', () => {
   let box = '';
   let companion: CompanionServer | undefined;
@@ -354,6 +409,11 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     const none = await call('/api/projects');
     expect(none.status).toBe(401);
     expect(none.body).toEqual({ ok: false, needs: 'session', error: SESSION_WORDS.absent, words: SESSION_WORDS.absent });
+    // configured → NO operator fallback: the launch token alone is 401 { needs: 'session' } on every withUser route
+    const me = await call('/api/identity/me');
+    expect(me.status).toBe(401);
+    expect(me.body.needs).toBe('session');
+    expect(JSON.stringify(me.body)).not.toContain(OPERATOR_ID);
     const claimed = await call(`/api/projects?clerk_user_id=${USER_A}`);
     expect(claimed.status).toBe(401);
     const posted = await call('/api/projects', { method: 'POST', body: { clerk_user_id: USER_A, name: 'x' } });
@@ -399,5 +459,64 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     expect(theirs.body.projects[0].root).toContain(join('users', USER_B, 'projects'));
     expect(theirs.body.projects.map((p: { id: string }) => p.id)).not.toContain(list.body.projects[0].id);
     expect(statSync(join(box, 'home', 'users', USER_B)).mode & 0o777).toBe(0o700);
+  });
+});
+
+describe('no identity provider configured: the launch token\'s holder is the OPERATOR on every withUser route (the lead\'s 21:48 ruling)', () => {
+  let box = '';
+  let companion: CompanionServer | undefined;
+  let base = '';
+  let token = '';
+  let root = '';
+  const kept = process.env.TIMMY_REPO;
+  const call = async (path: string, o: { session?: string; method?: string; body?: unknown; auth?: boolean } = {}): Promise<{ status: number; body: any }> => {
+    const headers: Record<string, string> = {};
+    if (o.auth !== false) headers.Authorization = `Bearer ${token}`;
+    if (o.session) headers['X-Timmy-Session'] = o.session;
+    if (o.body !== undefined) headers['Content-Type'] = 'application/json';
+    const r = await fetch(`${base}${path}`, { method: o.method ?? 'GET', headers, ...(o.body !== undefined ? { body: JSON.stringify(o.body) } : {}) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  beforeAll(async () => {
+    box = realpathSync(mkdtempSync(join(tmpdir(), 'h173-operator-http-')));
+    root = join(box, 'project'); mkdirSync(root);
+    const env = { TIMMY_HOME: join(box, 'home'), TIMMY_SETTINGS_DIR: join(box, 'settings'), TIMMY_REPO: root }; // no CLERK_* at all
+    process.env.TIMMY_REPO = root;
+    companion = await startCompanionServer(0, { chatEnv: env, workspace: { env }, clientDir: join(box, 'no-client'), identity: { clerkDir: join(box, 'no-clerk') } });
+    if (kept === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = kept;
+    base = `http://127.0.0.1:${companion.port}`;
+    token = /#t=([0-9a-f]{64})$/.exec(companion.url)![1];
+  });
+  afterAll(async () => { await companion?.shutdown(); rmSync(box, { recursive: true, force: true }); });
+
+  it('GET /api/identity says not configured with the env names; /api/identity/me is the operator, in words; the launch token still rules', async () => {
+    const id = await call('/api/identity');
+    expect(id.status).toBe(200);
+    expect(id.body).toMatchObject({ ok: true, configured: false, needs: [IDENTITY_ENV.publishable, IDENTITY_ENV.jwtKey] });
+    const me = await call('/api/identity/me');
+    expect(me.status).toBe(200);
+    expect(me.body).toEqual({ ok: true, user: { id: OPERATOR_ID, operator: true }, words: OPERATOR_WORDS });
+    expect(OPERATOR_WORDS).toBe('This computer\'s operator · no identity provider configured (CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY)');
+    // a session header sent anyway changes nothing (nothing could verify it); a query or body id never does
+    expect((await call('/api/identity/me', { session: await mint({ azp: base }) })).body.user).toEqual({ id: OPERATOR_ID, operator: true });
+    expect((await call(`/api/identity/me?clerk_user_id=${USER_A}`)).body.user.id).toBe(OPERATOR_ID);
+    // never 401 needs:'session' here — but the launch token is still the companion's boundary
+    const noToken = await call('/api/identity/me', { auth: false });
+    expect(noToken.status).toBe(401);
+    expect(noToken.body.needs).toBeUndefined();
+    expect(noToken.body.error).toContain('token');
+  });
+  it('GET /api/projects: the companion\'s own (the fixed project first, as the follower has it), marked operator; POST makes one under <TIMMY_HOME>/projects; no users/ folder ever', async () => {
+    const list = await call('/api/projects');
+    expect(list.status).toBe(200);
+    expect(list.body).toMatchObject({ ok: true, operator: true, words: OPERATOR_WORDS, default: projectId(root) });
+    expect(list.body.projects[0]).toEqual({ id: projectId(root), name: 'project', root });
+    const made = await call('/api/projects', { method: 'POST', body: { name: 'Op Short' } });
+    expect(made.status).toBe(201);
+    expect(made.body.root).toBe(join(box, 'home', 'projects', 'op-short'));
+    const again = await call('/api/projects');
+    expect(again.body.projects.map((p: { name: string }) => p.name).sort()).toEqual(['Op Short', 'project']);
+    expect(again.body.default).toBe(projectId(root));
+    expect(existsSync(join(box, 'home', 'users'))).toBe(false);
   });
 });

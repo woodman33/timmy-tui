@@ -19,12 +19,21 @@
  *
  * The user id must be Clerk's user_… shape (session.ts USER_ID): anything else is refused here too (a throw: it is a
  * programming error to reach this with an id the session did not verify), and never becomes a folder name.
+ *
+ * THE OPERATOR PRINCIPAL (session.ts operatorUser; the lead's ruling of 21:48): on a companion with no identity provider
+ * configured, withUser gives every request the operator, and here the operator is the companion itself as it always was:
+ * userEnv(operator, base) IS base (the operator's own Timmy home and keys; no folder made); the operator's projects are the
+ * follower's (src/companion/project.ts): the fixed project (TIMMY_REPO), else the active one (<TIMMY_HOME>/state/
+ * active-project.json), else the folder the companion runs in — plus every folder under <TIMMY_HOME>/projects/ and the
+ * entries of <TIMMY_HOME>/projects.json that lead there; no default project is made for the operator. isOwnedRoot(operator,
+ * root) is that rule. A companion that has shown further projects (pinned ones) passes its own projectFor to mountIdentity
+ * (routes.ts IdentityDeps.operator), which the routes prefer for the operator.
  */
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { timmyHome, type Env } from '../../setup/home.js';
 import { projectId } from '../../project/index.js';
-import { USER_ID, type SessionUser } from './session.js';
+import { isOperator, USER_ID, type SessionUser } from './session.js';
 
 export type { Env };
 export type UserRef = Pick<SessionUser, 'id'>;
@@ -54,8 +63,9 @@ function checkId(user: UserRef): string {
 /** The companion's own Timmy home (the base): TIMMY_HOME, else ~/timmy (src/setup/home.ts). */
 export const baseHome = (base: Env = process.env): string => resolve(timmyHome(base));
 
-/** The user's home: <base home>/users/<user.id>. The id is checked; nothing is made. */
+/** The user's home: <base home>/users/<user.id>; the operator's is the base home itself. The id is checked; nothing is made. */
 export function userHome(user: UserRef, base: Env = process.env): string {
+  if (isOperator(user)) return baseHome(base);
   return join(baseHome(base), USERS_DIR, checkId(user));
 }
 
@@ -71,6 +81,7 @@ function ensure0700(dir: string): void {
  * own providers.json (saveKey(userEnv)); the environment's are the operator's.
  */
 export function userEnv(user: UserRef, base: Env = process.env): Env {
+  if (isOperator(user)) return base; // the operator principal: the companion's own env, as it always was; nothing made
   const home = userHome(user, base);
   const env: Env = { ...base };
   env.TIMMY_HOME = home;
@@ -91,6 +102,7 @@ export const userProjectsDir = (user: UserRef, base: Env = process.env): string 
 
 /** The user's home as a USER's env names it (userEnv's TIMMY_HOME), checked to be one: never nested under itself again. */
 function homeOfUserEnv(user: UserRef, env: Env): string {
+  if (isOperator(user)) return baseHome(env); // the operator's env is the base: its home is the Timmy home
   const id = checkId(user);
   const home = resolve(timmyHome(env));
   if (basename(home) !== id || basename(dirname(home)) !== USERS_DIR) throw new Error('Refused: this takes the user\'s own env (userEnv), whose TIMMY_HOME is the user\'s home.');
@@ -123,6 +135,7 @@ function writeRegistry(file: string, projects: RegistryEntry[]): void {
  * the user has none, so a signed-in user always has a project to open ({ make: false } reads only: roots then may be empty).
  */
 export function userProjects(user: UserRef, env: Env, o: { make?: boolean } = {}): UserProjects {
+  if (isOperator(user)) return operatorProjects(env);
   const home = homeOfUserEnv(user, env);
   const projectsDir = join(home, 'projects');
   ensure0700(projectsDir);
@@ -164,6 +177,34 @@ export function userProjects(user: UserRef, env: Env, o: { make?: boolean } = {}
   return { registry, roots: sorted, default: active ?? sorted[0] };
 }
 
+/**
+ * The operator's projects: the follower's rule (src/companion/project.ts ProjectFollower, src/project/index.ts): the fixed
+ * project (TIMMY_REPO) when set, else the active project (<home>/state/active-project.json), else the folder the companion
+ * runs in; plus every folder under <home>/projects/ and the registry's entries that lead there. Nothing is made.
+ */
+function operatorProjects(env: Env): UserProjects {
+  const home = baseHome(env);
+  const projectsDir = join(home, 'projects');
+  const realProjects = realOrNull(projectsDir) ?? projectsDir;
+  const registry = join(home, 'projects.json');
+  const roots = new Set<string>();
+  const realDir = (p: unknown): string | null => { if (typeof p !== 'string' || !isAbsolute(p)) return null; const r = realOrNull(p); return r && isDir(r) ? r : null; };
+  const fixed = realDir(env.TIMMY_REPO);
+  let active: string | null = null;
+  try { active = realDir((JSON.parse(readFileSync(join(home, 'state', 'active-project.json'), 'utf8')) as { root?: unknown }).root); } catch { /* nothing chosen */ }
+  const followed = fixed ?? active ?? realDir(process.cwd());
+  if (followed) roots.add(followed);
+  try {
+    for (const d of readdirSync(projectsDir, { withFileTypes: true })) if (d.isDirectory() && !d.name.startsWith('.')) roots.add(join(realProjects, d.name));
+  } catch { /* none */ }
+  for (const e of readRegistry(registry)) {
+    const real = realDir(e.path);
+    if (real && real !== realProjects && under(real, realProjects)) roots.add(real);
+  }
+  const sorted = [...roots].sort();
+  return { registry, roots: sorted, default: followed ?? sorted[0] ?? '' };
+}
+
 function nameOf(root: string, entries: RegistryEntry[]): string {
   const e = entries.find((x) => typeof x.path === 'string' && realOrNull(x.path) === root);
   return typeof e?.name === 'string' && e.name ? e.name : basename(root);
@@ -188,7 +229,7 @@ export function userProjectFor(user: UserRef, env: Env, asked?: unknown): UserPr
   try { own = userProjects(user, env); } catch { return null; }
   const entries = readRegistry(own.registry);
   const view = (root: string): UserProject => ({ id: projectId(root), name: nameOf(root, entries), root, chosen: true });
-  if (asked === undefined || asked === null || asked === '') return view(own.default);
+  if (asked === undefined || asked === null || asked === '') return own.default ? view(own.default) : null;
   if (typeof asked !== 'string') return null;
   const byId = own.roots.find((r) => projectId(r) === asked);
   if (byId) return view(byId);
@@ -226,7 +267,7 @@ export function createUserProject(user: UserRef, env: Env, name: unknown): UserP
  * that points out are all false. Nothing is made.
  */
 export function isOwnedRoot(user: UserRef, root: unknown, env: Env): boolean {
-  try { checkId(user); } catch { return false; }
+  if (!isOperator(user)) { try { checkId(user); } catch { return false; } }
   if (typeof root !== 'string' || !root.trim() || root.includes('\0') || !isAbsolute(root)) return false;
   let own: UserProjects;
   try { own = userProjects(user, env, { make: false }); } catch { return false; }
