@@ -198,6 +198,33 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       ]);
       const tops = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBe(1);
+      // R11 round 6 (the operator's order of 06:32): the native AgentConsole IN the chat — a band above the route line, open at
+      // this size, the state word idle beside the face (HTML, aria-live), the face at a readable size in the artboard's own
+      // proportions (640 × 380); the band folds to the word by its button (the face hidden, the word still read) and opens again;
+      // the welcome's primary starter is the native ActionButton with the card as its twin (one control at a time); the route
+      // line's button stays the stop before the textarea
+      const band = await page.$eval('#cx-console', (b) => ({ hidden: (b as HTMLElement).hidden, folded: b.classList.contains('is-folded'), expanded: b.querySelector('#cx-console-toggle')?.getAttribute('aria-expanded'), artboard: b.querySelector('[data-rive-component]')?.getAttribute('data-artboard'), word: b.querySelector('[data-rive-status]')?.textContent?.trim(), live: b.querySelector('[data-rive-status]')?.getAttribute('aria-live'), bottom: Math.round(b.getBoundingClientRect().bottom) }));
+      expect(band).toMatchObject({ hidden: false, folded: false, expanded: 'true', artboard: 'AgentConsole', word: 'idle', live: 'polite' });
+      expect(band.bottom).toBeLessThanOrEqual(Math.round(await page.$eval('#cx-route', (e) => e.getBoundingClientRect().top)) + 1);
+      const face = await page.$eval('#cx-console .tr-face', (e) => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), visible: r.width > 0 && r.height > 0 }; });
+      expect(face.visible).toBe(true);
+      expect(face.h).toBeGreaterThanOrEqual(120);
+      expect(Math.abs(face.w / face.h - 640 / 380)).toBeLessThan(0.06);
+      await page.click('#cx-console-toggle');
+      expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('false');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
+      expect(await page.isVisible('#cx-console [data-rive-status]')).toBe(true);
+      expect(await text(page, '#cx-console [data-rive-status]')).toBe('idle');
+      await page.click('#cx-console-toggle');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(true);
+      await page.waitForFunction(() => ['drawn', 'words'].includes(document.querySelector('#cx-empty .cx-way-twin')?.getAttribute('data-rive') ?? ''), null, { timeout: 15_000 });
+      const starter = await page.$eval('#cx-empty .cx-way-twin', (t) => ({ rive: t.getAttribute('data-rive'), start: t.getAttribute('data-cx-start'), cardHidden: (t.querySelector('.cx-way') as HTMLElement | null)?.hidden ?? null, face: t.querySelector('.cx-rive-host button.tr-face')?.getAttribute('aria-label') ?? null, words: t.querySelector('.cx-rive-host .cx-twin-words')?.textContent ?? null }));
+      expect(starter.start).toBe('plan');
+      if (starter.rive === 'drawn') expect(starter).toMatchObject({ cardHidden: true, face: 'Plan a project', words: 'Turn an idea into the next step.' });
+      else expect(starter).toMatchObject({ cardHidden: false, face: null });
+      await page.focus('#cx-input');
+      await page.keyboard.press('Shift+Tab');
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-change');
       // the line above the composer: the route is ready, so the next turn's model
       expect(await text(page, '#cx-route')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer Change model');
       // the composer: "Message Timmy…", + Attach, ⌘ Tools, Send ↑ (off until typed), the two notes
@@ -343,6 +370,16 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       const tops = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBe(3);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      // R11 round 6: on a phone the console band starts FOLDED to its word (the face hidden); a tap opens it, inside the viewport
+      expect(await page.$eval('#cx-console', (b) => ({ hidden: (b as HTMLElement).hidden, folded: b.classList.contains('is-folded'), expanded: b.querySelector('#cx-console-toggle')?.getAttribute('aria-expanded'), word: b.querySelector('[data-rive-status]')?.textContent?.trim() }))).toEqual({ hidden: false, folded: true, expanded: 'false', word: 'idle' });
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
+      await page.click('#cx-console-toggle');
+      expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('true');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(true);
+      expect(await page.$eval('#cx-console .tr-face', (e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth + 1; })).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      await page.click('#cx-console-toggle');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
       await page.click('#cx-menu');
       await page.waitForSelector('#shell-rail:visible', { timeout: 5_000 });
       expect(await texts(page, '#rail-menu .rail-item .rail-label')).toContain('Models & accounts');
