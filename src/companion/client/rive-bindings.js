@@ -356,19 +356,27 @@
       }
       // the page's own turn in flight (#cx-own: li.cx-turn.is-timmy with its state class) comes first; the saved conversation's
       // turns (#cx-turns) carry no state class and say nothing of what runs now
-      const own = document.querySelectorAll('#cx-own li.cx-turn.is-timmy');
+      const own = [...document.querySelectorAll('#cx-own li.cx-turn.is-timmy')];
       const saved = document.querySelectorAll('#cx-turns li.cx-turn.is-timmy');
-      const last = own[own.length - 1] || saved[saved.length - 1];
+      const indexOf = (li) => (li && li.dataset.own !== undefined ? Number(li.dataset.own) : -1);
+      // an own turn that ended answered folds into the saved conversation (its receipt read back) and leaves #cx-own, while a
+      // stopped or failed one stays there: the newest own index ever drawn tells when a newer turn than the last own li has ended
+      if (own.length) seen.maxOwn = Math.max(seen.maxOwn === undefined ? -1 : seen.maxOwn, ...own.map(indexOf));
+      let last = own[own.length - 1] || saved[saved.length - 1];
       let word = null;
       let why = '';
-      if (last) {
+      let key = '';
+      if (seen.maxOwn !== undefined && seen.maxOwn > indexOf(own[own.length - 1]) && !(own[own.length - 1] && own[own.length - 1].classList.contains('is-streaming'))) {
+        word = 'idle'; why = `the page's newest turn (data-own ${seen.maxOwn}) folded into the saved conversation (answered, sealed)`; key = `idle:folded:${seen.maxOwn}`;
+      } else if (last) {
         if (last.classList.contains('is-streaming')) { word = last.querySelector('.cx-needs') ? 'awaiting' : 'working'; why = word === 'awaiting' ? 'li.cx-turn.is-streaming with .cx-needs (needs-you)' : 'li.cx-turn.is-streaming'; }
         else if (last.classList.contains('is-stopped')) { word = 'stopped'; why = 'li.cx-turn.is-stopped'; }
         else if (last.classList.contains('is-failed')) { word = 'failed'; why = 'li.cx-turn.is-failed'; }
         else if (last.classList.contains('is-answered')) { word = 'idle'; why = 'li.cx-turn.is-answered (done)'; }
+        key = `${word}:${last.dataset.own || ''}`;
       }
-      if (word && seen.activity !== `${word}:${last.dataset.own || ''}`) {
-        seen.activity = `${word}:${last.dataset.own || ''}`;
+      if (word && seen.activity !== key) {
+        seen.activity = key;
         const source = `derived from the page's drawing of the turn: ${why}`;
         lastSeen.activity = { word, source };
         for (const x of bound('activity')) set(x, 'activity', word, source);
