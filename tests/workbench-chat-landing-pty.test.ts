@@ -187,7 +187,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(cols(rows[35], 20, 121)).toBe('[Attach]  [Tools]  [Budget]  [Logs]');
     expect(cols(rows[36], 20, 121)).toMatch(/^Logs stay on this computer .* 122 x 37$/);
     // never the tabbed Home
-    expect(screen).not.toMatch(/\[1 Home\]|\/ Home · recent work|Workflow actions/);
+    expect(screen).not.toMatch(/▸1 Models|\/ Models & accounts|Workflow actions|Activity & log/);
     // Models: the four providers and their states, no list, no cursor, nothing SELECTED or "the next turn's" (R30; the local
     // list with each model as its /api/show answer establishes it is shown once Ollama / this computer is chosen: the keys test)
     const rail = rows.map((r) => cols(r, 92, 121));
@@ -274,7 +274,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(center.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
     expect(center[30]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(center[31]).toMatch(/^[●○] FAKE fake-qwen3:8b · this computer · (ready \d\d:\d\d|not checked|checking…)$/);
-    expect(screen).not.toMatch(/WELCOME TO TIMMY|How would you like to run chat|\[1 Home\]|\/ Home · recent work/);
+    expect(screen).not.toMatch(/WELCOME TO TIMMY|How would you like to run chat|▸1 Models|\/ Models & accounts/);
     // (R11 H167, step 2a: the welcome in the conversation's place: the three lines, START WITH and the four starter actions,
     // none selected; the composer below them)
     expect(center.slice(7, 9)).toEqual(['TIMMY runs tools and workflows on your machine and keeps a receipt', 'for every step.']);

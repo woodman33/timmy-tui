@@ -550,7 +550,7 @@ body.slate-absent p { max-width: 72ch; }
 .ws-create-page { overflow-y: auto; overflow-x: hidden; }
 .create-host { flex: 0 0 calc(100% - 40px); min-height: 380px; display: flex; flex-direction: column; }
 /* with the frame's Unfinished box above it (src/companion/client/companion.js drawUnfinished prepends it), room for the box */
-.ws-create-page:has(> .unfinished) > .create-host { flex-basis: calc(100% - 112px); }
+.ws-create-page:has(> .unfinished) > .create-host, #ws-create:has(> .unfinished) .page-work > .create-host { flex-basis: calc(100% - 112px); } /* (R11 round 7: the host sits in the scaffold's work region; the Unfinished box above the head) */
 .create-more { flex: 0 0 auto; min-height: 300px; margin-top: 6px; }
 .create-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 24fr) minmax(0, 46fr) minmax(0, 30fr); }
 .create-cols > * { min-height: 0; min-width: 0; }
@@ -1016,7 +1016,7 @@ body.slate-absent p { max-width: 72ch; }
 
 .ws-tools-page { overflow-y: auto; overflow-x: hidden; }
 /* the host and the panel lay out nothing of their own: their parts are the tab's own rows */
-.ws-tools-page > .tools-host, .tools-host > .tools-panel { display: contents; }
+.ws-tools-page > .tools-host, #ws-tools .page-work > .tools-host, .tools-host > .tools-panel { display: contents; } /* (R11 round 7: the host sits in the scaffold's work region) */
 .tools-steps { flex: 0 0 auto; list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .tools-step { display: flex; flex-direction: column; gap: 0; min-width: 0; flex: 1 1 0; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 3px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
 .tools-step-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); white-space: nowrap; }
@@ -1495,8 +1495,9 @@ body.slate-absent p { max-width: 72ch; }
 /* the tab's layout on a wide screen: the board list takes the wide right column, whole height; the Studio state, the canvas's
    revision and jobs, and the tab's actions stack on the left (each box scrolls inside). A narrow screen keeps the page's order. */
 @media (min-width: 861px) {
-  #ws-studio > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
-  #ws-studio > .cols-two > .col-stack { display: contents; }
+  /* (R11 round 7, H176's finding: the grid sits in the scaffold's work region, .page-body > .page-work, not under the section) */
+  #ws-studio > .cols-two, #ws-studio .page-work > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
+  #ws-studio > .cols-two > .col-stack, #ws-studio .page-work > .cols-two > .col-stack { display: contents; }
   #ws-studio section[aria-labelledby="studio-state-title"] { grid-column: 1; grid-row: 1; max-height: none; }
   #ws-studio #tab-canvas { grid-column: 1; grid-row: 2; }
   #ws-studio section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 3; }
@@ -1749,6 +1750,13 @@ body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidd
 #ws-main .page { display: flex; flex-direction: column; gap: 18px; min-height: 100%; padding: 26px 32px 22px; }
 #ws-main .page[data-page="chat"] { height: 100%; min-height: 0; }
 #ws-main .page.sh-screen { height: auto; min-height: 100%; overflow: visible; background: transparent; }
+/* the frame's Unfinished box (companion.js prepends it to the section) sits between the head and the band, never above the kicker */
+#ws-main .page > .page-head { order: 0; }
+#ws-main .page > .unfinished { order: 1; margin: 0; }
+#ws-main .page > .page-band { order: 2; }
+#ws-main .page > .page-body { order: 3; }
+#ws-main .page > .page-dock { order: 4; }
+#ws-main .page > .page-records { order: 5; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-shrink: 0; }
 .page-head-words { min-width: 0; }
 .page-kicker { display: flex; align-items: baseline; gap: 6px; font-size: 13px; letter-spacing: var(--timmy-ui-tracking-kicker); text-transform: uppercase; color: var(--timmy-ui-text-muted); }
@@ -1854,10 +1862,10 @@ body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidd
 #ws-main .page-work > .cx { height: auto; flex: 1; min-height: 0; }
 /* H171: the old drawer's rail (body.rail-open) has nothing to open: the shell's sheet is the phone's menu */
 body.shell.rail-open .nav-rail { display: flex; }
-/* H170 / H173: a mounted screen's own header and footer sit inside the work region: no viewport height of their own */
-#ws-main .page .page-mount { display: flex; flex-direction: column; min-height: 0; }
-#ws-main .page .page-mount .sh-main { padding-left: 0; padding-right: 0; max-width: none; }
-#ws-main .page .page-mount .sh-head, #ws-main .page .page-mount .sh-foot { padding-left: 0; padding-right: 0; }
+/* H173: a round-4 screen's own header, main and footer (the account's draw replaces the section's children; the shell wraps them
+   again into the work region): no viewport height or page gutter of their own */
+#ws-main .page .page-work > .sh-main { padding-left: 0; padding-right: 0; max-width: none; }
+#ws-main .page .page-work > .sh-head, #ws-main .page .page-work > .sh-foot { padding-left: 0; padding-right: 0; }
 /* the legacy pages' boxes on the new ground: the same structure, the B11 border and corner; the title inside the box (it sat on
    the border over a black ground: on the canvas the two grounds differ) */
 #ws-main .page .box { border-color: var(--timmy-ui-border-quiet); border-radius: var(--timmy-ui-radius-control); background: var(--timmy-ui-surface); padding-top: 10px; }

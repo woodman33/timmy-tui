@@ -550,10 +550,19 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // Fourth order, step 5: the CANVAS tab reads Timmy Canvas's revision, source revision and jobs,
   // read-only, never the drawing (with --lan, this server can be reached from a phone on the network).
   // R6 lead: the board of the project the page shows (?project=<id>, else the one followed): each project has its own (H139)
-  app.get('/api/canvas', withToken, (req, res) => {
-    const project = projectFor(req);
-    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
-    res.set('Cache-Control', 'no-store').json({ ...canvasSummary(process.env, project.root), project: project.name });
+  // R11 round 7 (H173; GATE 04 R-f): the project of EITHER principal — a signed-in user's own (by ?project=<id>, else their
+  // default) with its board under the USER's Timmy home, the operator's by this companion's rule — through the same scope the
+  // frame, the panels and the Files route take (scopedProject / shownFor, wired once the identity is mounted below; deferred
+  // here because this route is mounted first). A user's unknown project answers IDENTITY_NO_PROJECT's words, the operator's
+  // PROJECT_UNKNOWN's; no session on a configured companion is withUser's 401 { needs: 'session' }.
+  app.get('/api/canvas', withToken, (req, res, next) => scopedProject(req, res, next), (req, res) => {
+    const project = shownFor(req);
+    if (!project) {
+      const u = (req as express.Request & { user?: { operator?: boolean } }).user;
+      res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: u && !u.operator ? IDENTITY_NO_PROJECT : PROJECT_UNKNOWN });
+      return;
+    }
+    res.set('Cache-Control', 'no-store').json({ ...canvasSummary(project.env ?? process.env, project.root), project: project.name });
   });
   app.get('/api/clerk-config', withToken, (_req, res) => {
     res.json({

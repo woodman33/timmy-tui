@@ -22,7 +22,8 @@ import { tildePath } from '../utils/home-scrub.js';
 import { connectionsPath } from '../ops/workspace-frame.js';
 import { createItems } from './create-tab.js';
 import { boxOf, type Glyphs } from './frame.js';
-import { chatTurnNow, connectionMark, frameTabs, unfinishedMark } from './hub.js';
+import { chatTurnNow, connectionMark, workspaceOfPage } from './hub.js';
+import { destinationsRow, type DestHit } from './destinations.js';
 export { plainWords } from './hub.js';
 import type { Data, Item, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
@@ -179,16 +180,16 @@ export function runsAndWaits(data: Data, g: Glyphs): { running: number; waiting:
 
 // ── the header ─────────────────────────────────────────────────────────────────
 
-export interface HeaderHit { x0: number; x1: number; y0: number; y1: number; page: TabId }
+export type HeaderHit = DestHit;
 
 /**
  * The header as two rows of exactly `width` cells: TIMMY, the project, the route of the next turn, and what runs and waits (the
- * status row); then the ten tabs on one row, the active one amber in brackets, ⚠ and a count where something waits, ◌ on an
- * unfinished tab. Labels are the frame's: whole where they fit, else their first words, else their keys. Every tab keeps its
- * place whichever is active (the brackets are drawn as spaces on the others).
+ * status row); then the grouped destinations (src/workbench/destinations.ts destinationsRow: Chat · WORK · CREATE · CONNECT, as
+ * the Chat screen's rail groups them), the shown one "> " amber, ⚠ where something waits on you (its count on the status row), ◌
+ * on an unfinished page. R11 round 7 (H177): before, the ten tabs in the frame's order; the keys are unchanged and each cell
+ * says its own where the width has room for them. Every cell keeps its place whichever is shown.
  */
-export function headerRows(data: Data, page: TabId, width: number, g: Glyphs): { lines: Line[]; hits: HeaderHit[] } {
-  const tabs = frameTabs(data.frame);
+export function headerRows(data: Data, page: TabId, width: number, g: Glyphs, workspace: WorkspaceId = workspaceOfPage(page)): { lines: Line[]; hits: HeaderHit[] } {
   const sep = S(` ${g.sep} `, 'secondary');
   // the status row: what is kept whole first is what runs and waits; the route is cut at a word where the row is short
   const rw = runsAndWaits(data, g);
@@ -204,55 +205,8 @@ export function headerRows(data: Data, page: TabId, width: number, g: Glyphs): {
   const status: Line = [...brand, S('   '), ...route, S(' '), ...right];
   const pad = Math.max(0, width - lineCells(status));
   const statusRow = fit([...brand, S('   '), ...route, S(' '.repeat(pad + 1)), ...right], width, g.ellipsis);
-  // the tabs: full labels, else short ones, else keys (the active tab's name then in a slot of its own at the row's end); each
-  // cell is [label] on the active tab and  label  on the others, so no tab moves when another is active; "◌ unfinished" says
-  // the mark in words, kept before a fuller form of the labels
-  const forms: Array<{ label: (t: (typeof tabs)[number]) => string; slot: boolean }> = [
-    { label: (t) => `${t.key} ${t.label}`, slot: false },
-    { label: (t) => `${t.key} ${t.label.split(/\s+/)[0]}`, slot: false },
-    { label: (t) => t.key, slot: true },
-  ];
-  // every cell keeps one cell for its mark (⚠ something waits there, ◌ unfinished), so nothing moves when something starts to
-  // wait (the QA round's defect 4); the count is the status row's
-  const mark = (t: (typeof tabs)[number]): string => (t.waiting > 0 ? g.warn : t.unfinished ? unfinishedMark(g) : ' ');
-  const cellOf = (t: (typeof tabs)[number], f: (t: (typeof tabs)[number]) => string): number => lineCells([S(`[${f(t)}]`)]) + 1;
-  const legend = tabs.some((t) => t.unfinished) ? `${unfinishedMark(g)} unfinished` : '';
-  const slotW = Math.max(...tabs.map((t) => lineCells([S(t.label)])));
-  let form = forms[forms.length - 1];
-  let gap = 1;
-  let withLegend = false;
-  // the legend first (R7 H150, the operator's order of 2026-10-16: a mark and a word), then the fullest labels that fit beside
-  // it; without it only where not even the keys leave it room
-  choose: for (const want of legend ? [true, false] : [false]) {
-    for (const f of forms) {
-      const used = tabs.reduce((n, t) => n + cellOf(t, f.label), 0) + (f.slot ? Math.min(slotW, 16) + 2 : 0) + (want ? lineCells([S(legend)]) + 2 : 0);
-      // (a gap of 0 too: every cell ends in its mark's cell, a space where nothing is marked, as the boxed row's labels did)
-      for (const gp of [2, 1, 0]) if (used + gp * (tabs.length - 1) <= width) { form = f; gap = gp; withLegend = want; break choose; }
-    }
-  }
-  const row: Line = [];
-  const hits: HeaderHit[] = [];
-  let x = 0;
-  tabs.forEach((t, i) => {
-    const on = t.id === page;
-    const label = form.label(t);
-    const m = mark(t);
-    const segs: Seg[] = on
-      ? [S('[', 'focus', { bold: true }), S(label, 'focus', { bold: true }), S(']', 'focus', { bold: true })]
-      : [S(' '), S(label, 'text'), S(' ')];
-    segs.push(S(m, t.waiting > 0 ? 'attention' : 'secondary'));
-    const w = lineCells(segs);
-    hits.push({ x0: x, x1: x + w - 1, y0: 1, y1: 1, page: t.id });
-    row.push(...segs);
-    x += w;
-    if (i < tabs.length - 1) { row.push(S(' '.repeat(gap))); x += gap; }
-  });
-  const tail: Line = [
-    ...(withLegend ? [S(legend, 'secondary')] : []),
-    ...(form.slot ? [S(withLegend ? '  ' : ''), S(cut(tabs.find((t) => t.id === page)?.label ?? '', Math.min(slotW, 16), g.ellipsis), 'focus', { bold: true })] : []),
-  ];
-  const tabsRow = tail.length && x + 2 + lineCells(tail) <= width ? fit([...row, S(' '.repeat(width - x - lineCells(tail))), ...tail], width, g.ellipsis) : fit(row, width, g.ellipsis);
-  return { lines: [statusRow, tabsRow], hits };
+  const dest = destinationsRow({ tabs: data.frame?.tabs, page, workspace, width, g });
+  return { lines: [statusRow, dest.line], hits: dest.hits.map((h) => ({ ...h, y0: 1, y1: 1 })) };
 }
 
 // ── recent work ────────────────────────────────────────────────────────────────

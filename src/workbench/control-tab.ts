@@ -89,7 +89,9 @@ const WEIGHTS = [25, 40, 35] as const;
 export const PREVIEWS_WORDS = 'No Timmy surface draws live previews (carbonyl) yet; the companion (c) shows this tab\'s runs and chat turns in a browser page, in words.';
 /** What the references' Add harness, Remove harness, Add pane, Remove pane and Broadcast are, in Timmy now (words only: nothing
  *  here is drawn as a button). */
-export const HARNESS_WORDS = 'Add a harness: install its program (/lanes says how); timmy watch --lanes starts the lanes. Remove a harness, add or remove a pane (the panes follow what runs), broadcast to every pane: not in Timmy yet.';
+// (R11 round 7, H177; the order: the commands behind Details: the lanes' command and the installs are the Inspector's and the
+// REPL's /lanes, not this face's)
+export const HARNESS_WORDS = 'Add a harness: install its program (the REPL\'s /lanes says how, and how the lanes start). Remove a harness, add or remove a pane (the panes follow what runs), broadcast to every pane: not in Timmy yet.';
 /** Today's words about a turn being answered (the Control Room's, since R4 H117). */
 export const TURN_STOP_WORDS = 'A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.';
 

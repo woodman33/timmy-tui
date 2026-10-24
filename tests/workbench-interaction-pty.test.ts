@@ -335,12 +335,12 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       t.capture('wb-mouse-160x45-row-selected');
       // the wheel over All tools' list scrolls it by rows (its range note moves), and opens nothing (9 Tools & MCP opens it)
       await t.click(t.cellOf('9 Tools'));
-      const tools = await t.waitFor(/All tools · capabilities[^\n]*1–\d+ of \d+/, 30_000);
+      const tools = await t.waitFor(/\/ Tools & integrations[^\n]*1–\d+ of \d+/, 30_000);
       const total = /1–(\d+) of (\d+)/.exec(tools)!;
       const over = t.cellOf('[r] checks again');
       for (let i = 0; i < 3; i++) await t.wheel(over, true);
       await t.waitFor(new RegExp(`4–${Number(total[1]) + 3} of ${total[2]}`), 5000);
-      expect(t.screen()).toContain('trayA / All tools');
+      expect(t.screen()).toContain('trayA / Tools & integrations');
       // m: the mouse back to the terminal (it reports none to the Workbench; the terminal selects text again), then taken
       await t.keys('m');
       await t.waitFor(/Mouse: the terminal's again/, 5000);
@@ -729,7 +729,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
         await t.waitFor(new RegExp(`Stop current: ${wait.id}`), 10_000);
         // (kept once whole at this size and the same in two reads: the redraw for the new size, not a set time after it)
         const shot = t.capture(`wb-resize-run-${w}x${h}`);
-        expect(count(shot, 'Workflow actions'), shot).toBe(1);
+        expect(count(shot, 'Activity & log'), shot).toBe(1);
         expect(widest(shot)).toBeLessThanOrEqual(w);
         // one frame from the first row to the last: the header first (R10 H167: TIMMY and the project on its first row, the
         // tabs on its second), Activity & log's bottom border last
@@ -757,7 +757,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
         const shot = t.capture(`wb-resize-needs-you-${w}x${h}`);
         expect(count(shot, '⚠ NEEDS YOU'), shot).toBe(1);
         expect(count(shot, '[y] allow once'), shot).toBe(1);
-        expect(count(shot, 'Workflow actions'), shot).toBe(1);
+        expect(count(shot, 'Activity & log'), shot).toBe(1);
         expect(widest(shot)).toBeLessThanOrEqual(w);
       }
       // nothing of the run has started while the box waits, and nothing is sealed
@@ -786,7 +786,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       t.start(160, 45);
       await t.waitFor(/trayA \/ [\s\S]*Activity/);
       await t.find('All tools');
-      const tools = await t.waitFor(/trayA \/ All tools[\s\S]*\[r\] checks again/, 30_000);
+      const tools = await t.waitFor(/trayA \/ Tools & integrations[\s\S]*\[r\] checks again/, 30_000);
       // the center has the keyboard: / searches the tools there; the list says how to reach the finder
       expect(panelText(tools, 'TIMMY')).toBe('');
       expect(tools).not.toContain('[/] Find a workspace');
@@ -812,7 +812,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.waitFor(/trayA \/ Templates/, 10_000);
       await t.find('All tools');
       // (its list is where it was left: the matched row selected, so its first rows are scrolled away)
-      await t.waitFor(/trayA \/ All tools · capabilities/, 30_000);
+      await t.waitFor(/trayA \/ Tools & integrations/, 30_000);
       await t.keys('/');
       const narrow = await t.waitFor(/Search: /, 5000);
       expect(narrow).toContain('find a workspace: Esc, then g, then /');
