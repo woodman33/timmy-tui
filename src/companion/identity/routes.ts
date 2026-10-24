@@ -18,6 +18,8 @@
  *                                                                       default: <id> } (scope.ts userProjects; the default made);
  *                                                                       the operator's: the companion's own (the follower's)
  *   POST /api/projects { name }                the token + the user     makes one under the user's home: { id, name, root }
+ *   GET /api/files, /api/files/file            the token + the user     the project's files, read-only (src/companion/workspace.ts
+ *                                                                       mountFiles; R11 round 7): the Files page and Chat's attachments
  *
  * "The user" is the verified session's — or, on a companion with NO identity provider configured, the OPERATOR principal
  * (middleware.ts: the launch token's holder; session.ts operatorUser), for whom every route answers as the companion always
@@ -35,6 +37,7 @@ import { identityConfig, pageIdentity, type Env, type IdentityConfig } from './c
 import { userOf, withUser, type WithUserOptions } from './middleware.js';
 import { createUserProject, userEnv, userProjectFor, userProjects, type UserProject } from './scope.js';
 import { isOperator, OPERATOR_WORDS } from './session.js';
+import { mountFiles } from '../workspace.js';
 
 /**
  * The build the page loads, as @clerk/clerk-js 6.40.1 ships it (checked against the installed dist/, 2026-10-23):
@@ -182,6 +185,11 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
       res.status(201).json({ ok: true, id: made.id, name: made.name, root: made.root });
     } catch { failRequest(res, 500, 'The project could not be made; nothing was written.'); }
   });
+
+  // R11 round 7 (H173): the project's files, read-only, for the Files page and Chat's attachments (src/companion/workspace.ts
+  // mountFiles): behind the launch token and the user, on identity.projectFor's project — mounted here so the one project
+  // rule serves both principals (the user's own project; the operator's by the companion's own rule)
+  mountFiles(app, { withToken: deps.withToken, withUser: guard, projectFor, envOf });
 
   return { cfg, withUser: guard, envOf, projectFor, clerkDir };
 }

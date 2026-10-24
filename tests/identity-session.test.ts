@@ -22,6 +22,8 @@ import { forgetKeys, OPERATOR_ID, OPERATOR_WORDS, operatorUser, originsOf, SESSI
 import { verifyHello } from '../src/companion/identity/middleware.js';
 import { projectId } from '../src/project/index.js';
 import { CLERK_SCRIPT, findClerkDist } from '../src/companion/identity/routes.js';
+import { FILES_LIMIT, FILES_WORDS, listProjectFolder, readProjectFile, resolveProjectPath, viewOf } from '../src/companion/workspace.js';
+import { tildePath } from '../src/utils/home-scrub.js';
 import { createUserProject, DEFAULT_PROJECT, isOwnedRoot, userEnv, userHome, userProjectFor, userProjects } from '../src/companion/identity/scope.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 
@@ -99,7 +101,13 @@ describe('identityConfig: configured only when the publishable key and one verif
   });
   it('the page is told the public part only: never the PEM, never whether a secret is set', () => {
     const page = pageIdentity(identityConfig(ENV));
-    expect(page).toEqual({ configured: true, publishableKey: PK, frontendApi: FRONTEND, needs: [], words: expect.any(String) });
+    expect(page).toEqual({ configured: true, publishableKey: PK, frontendApi: FRONTEND, needs: [], words: expect.any(String), social: [], setup: expect.any(Array) });
+    // R7: the blocker page's steps name every environment name once, what it is and where it comes from — never a value
+    expect(page.setup.map((s) => [s.name, s.missing, Boolean(s.optional)])).toEqual([[IDENTITY_ENV.publishable, false, false], [IDENTITY_ENV.jwtKey, false, false], [IDENTITY_ENV.social, false, true]]);
+    expect(pageIdentity(identityConfig({})).setup.filter((s) => s.missing).map((s) => s.name)).toEqual([IDENTITY_ENV.publishable, IDENTITY_ENV.jwtKey]);
+    // CLERK_SOCIAL: only google and github, lower-cased, once each, in order; anything else dropped
+    expect(identityConfig({ ...ENV, [IDENTITY_ENV.social]: ' GitHub, google ,github,facebook' }).social).toEqual(['github', 'google']);
+    expect(pageIdentity(identityConfig({ ...ENV, [IDENTITY_ENV.social]: 'google' })).social).toEqual(['google']);
     expect(JSON.stringify(page)).not.toContain('PUBLIC KEY');
     expect(pemOf(PEM.replace(/\n/g, '\\n'))).toBe(PEM.trim());
     expect(pemOf(PEM.replace(/-----(BEGIN|END) PUBLIC KEY-----/g, ''))).toContain('BEGIN PUBLIC KEY');
@@ -460,6 +468,83 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     expect(theirs.body.projects.map((p: { id: string }) => p.id)).not.toContain(list.body.projects[0].id);
     expect(statSync(join(box, 'home', 'users', USER_B)).mode & 0o777).toBe(0o700);
   });
+  it('R7 Files: GET /api/files lists the user\'s project read-only (folders first, views told, heavy folders marked, links out as other); /api/files/file reads text and images; "..", absolute, outside, binary, a folder as a file → words; user B sees none of A\'s', async () => {
+    const origin = `http://127.0.0.1:${companion!.port}`;
+    const a = await mint({ azp: origin });
+    const projects = (await call('/api/projects', { session: a })).body as { default: string; projects: Array<{ id: string; name: string; root: string }> };
+    const def = projects.default;
+    const { name: defName, root } = projects.projects.find((p) => p.id === def)!; // the default: the first by name (Short Film, made above)
+    // the project's files: a text, a markdown, a png (its magic bytes), a binary, a heavy folder, a nested folder, a link out
+    mkdirSync(join(root, 'notes'), { recursive: true }); mkdirSync(join(root, 'node_modules', 'x'), { recursive: true });
+    writeFileSync(join(root, 'README.md'), '# Untitled\n\nA FAKE project of the test\'s.\n');
+    writeFileSync(join(root, 'notes', 'todo.txt'), 'one\ntwo\n');
+    writeFileSync(join(root, 'mark.png'), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 7)]));
+    writeFileSync(join(root, 'blob.bin'), Buffer.from([0, 1, 2, 3, 0xff, 0xfe, 0, 0]));
+    writeFileSync(join(root, 'noext'), 'plain words with no extension\n');
+    writeFileSync(join(box, 'outside.txt'), 'not the project\'s\n');
+    symlinkSync(join(box, 'outside.txt'), join(root, 'link-out'));
+    const list = await call(`/api/files?project=${def}`, { session: a });
+    expect(list.status).toBe(200);
+    expect(list.body).toMatchObject({ ok: true, project: { id: def, name: defName }, path: '', parent: null, truncated: false });
+    expect(list.body.where).toEqual({ root: tildePath(root), home: tildePath(join(box, 'home', 'users', USER_A)) }); // from ~ where a home folder is one
+    expect(list.body.entries.map((e: { name: string; kind: string }) => `${e.kind}:${e.name}`)).toEqual(['dir:node_modules', 'dir:notes', 'file:blob.bin', 'file:mark.png', 'file:noext', 'file:README.md', 'other:link-out']);
+    const byName = Object.fromEntries(list.body.entries.map((e: { name: string }) => [e.name, e]));
+    expect(byName['node_modules'].heavy).toBe(true);
+    expect(byName['README.md'].view).toBe('text');
+    expect(byName['noext'].view).toBe('text');
+    expect(byName['mark.png'].view).toBe('image');
+    expect(byName['blob.bin'].view).toBe('binary');
+    expect(byName['README.md'].size).toBe(42);
+    expect(list.body.words).toBe('7 items.');
+    // a subfolder, and its parent
+    const notes = await call(`/api/files?project=${def}&path=notes/`, { session: a });
+    expect(notes.body).toMatchObject({ path: 'notes', parent: '', count: 1 });
+    expect(notes.body.entries[0]).toMatchObject({ name: 'todo.txt', path: 'notes/todo.txt', kind: 'file', view: 'text', size: 8 });
+    // the files
+    const md = await call(`/api/files/file?project=${def}&path=README.md`, { session: a });
+    expect(md.status).toBe(200);
+    expect(md.body).toMatchObject({ ok: true, kind: 'text', name: 'README.md', path: 'README.md', size: 42, truncated: false, text: '# Untitled\n\nA FAKE project of the test\'s.\n' });
+    const png = await fetch(`${base}/api/files/file?project=${def}&path=mark.png`, { headers: { Authorization: `Bearer ${token}`, 'X-Timmy-Session': a } });
+    expect(png.status).toBe(200);
+    expect(png.headers.get('content-type')).toBe('image/png');
+    expect(png.headers.get('x-content-type-options')).toBe('nosniff');
+    expect((await png.arrayBuffer()).byteLength).toBe(40);
+    // the refusals, each in words
+    const refused = async (q: string): Promise<{ status: number; error: string }> => { const r = await call(`/api/files/file?project=${def}&path=${q}`, { session: a }); return { status: r.status, error: r.body?.error }; };
+    expect(await refused('blob.bin')).toEqual({ status: 415, error: FILES_WORDS.binary });
+    expect(await refused('link-out')).toEqual({ status: 404, error: FILES_WORDS.outside });
+    expect(await refused('notes')).toEqual({ status: 400, error: FILES_WORDS.notFile });
+    expect(await refused('../outside.txt')).toEqual({ status: 400, error: FILES_WORDS.badPath });
+    expect(await refused(encodeURIComponent('/etc/passwd'))).toEqual({ status: 400, error: FILES_WORDS.badPath });
+    expect(await refused('missing.txt')).toEqual({ status: 404, error: FILES_WORDS.outside });
+    expect((await call(`/api/files?project=${def}&path=README.md`, { session: a })).body.error).toBe(FILES_WORDS.notFolder);
+    expect((await call(`/api/files?project=${def}&path=..`, { session: a })).status).toBe(400);
+    // another user: A's project id names none of B's; without a session: 401 needs session; without the launch token: 401
+    const b = await mint({ sub: USER_B, azp: origin });
+    expect((await call(`/api/files?project=${def}`, { session: b })).status).toBe(404);
+    expect((await call(`/api/files?project=${def}`, { session: b })).body.error).toBe(FILES_WORDS.noProject);
+    expect((await call(`/api/files?project=${def}`)).body.needs).toBe('session');
+    expect((await call(`/api/files?project=${def}`, { auth: false, session: a })).status).toBe(401);
+    // B's own default: empty, with the verb-led words
+    const bList = await call('/api/files', { session: b });
+    expect(bList.status).toBe(200);
+    expect(bList.body.entries).toEqual([]);
+    expect(bList.body.words).toBe(FILES_WORDS.empty);
+    // the helpers directly: the resolver and the view
+    expect(resolveProjectPath(root, 'notes/../README.md')).toMatchObject({ error: FILES_WORDS.badPath });
+    expect(resolveProjectPath(root, '')).toMatchObject({ rel: '' });
+    expect(resolveProjectPath(root, './notes/')).toMatchObject({ rel: 'notes' });
+    expect(viewOf(join(root, 'README.md'), 'README.md', 42)).toBe('text');
+    expect(listProjectFolder(root, 'nowhere')).toMatchObject({ status: 404 });
+    expect(readProjectFile(root, 'mark.png')).toMatchObject({ kind: 'image', type: 'image/png', size: 40 });
+    // more than FILES_LIMIT entries: the first are listed and it is said
+    mkdirSync(join(root, 'many'));
+    for (let i = 0; i < FILES_LIMIT + 5; i++) writeFileSync(join(root, 'many', `f${String(i).padStart(4, '0')}.txt`), 'x');
+    const many = await call(`/api/files?project=${def}&path=many`, { session: a });
+    expect(many.body.count).toBe(FILES_LIMIT);
+    expect(many.body.truncated).toBe(true);
+    expect(many.body.words).toContain(`of more than ${FILES_LIMIT}`);
+  });
 });
 
 describe('no identity provider configured: the launch token\'s holder is the OPERATOR on every withUser route (the lead\'s 21:48 ruling)', () => {
@@ -518,5 +603,15 @@ describe('no identity provider configured: the launch token\'s holder is the OPE
     expect(again.body.projects.map((p: { name: string }) => p.name).sort()).toEqual(['Op Short', 'project']);
     expect(again.body.default).toBe(projectId(root));
     expect(existsSync(join(box, 'home', 'users'))).toBe(false);
+  });
+  it('R7 Files as the operator: GET /api/files is the fixed project\'s folder (the companion\'s own rule), from ~; a project id of nobody\'s → 404 in words', async () => {
+    writeFileSync(join(root, 'hello.txt'), 'the operator\'s file\n');
+    const list = await call('/api/files');
+    expect(list.status).toBe(200);
+    expect(list.body).toMatchObject({ ok: true, project: { id: projectId(root), name: 'project' }, path: '', count: 1 });
+    expect(list.body.entries[0]).toMatchObject({ name: 'hello.txt', kind: 'file', view: 'text', size: 20 });
+    expect(list.body.where).toEqual({ root: tildePath(root), home: tildePath(join(box, 'home')) });
+    expect((await call('/api/files/file?path=hello.txt')).body.text).toBe('the operator\'s file\n');
+    expect((await call('/api/files?project=0123456789abcdef')).status).toBe(404);
   });
 });
