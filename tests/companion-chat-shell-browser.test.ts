@@ -18,7 +18,7 @@
  * token on the page's face.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -116,7 +116,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // (R11 round 6: the NEEDS-YOU case after the first — the FAKE model asks for write_project_file, which asks the person; answered
       // once, the tool runs and the model says Written.)
       chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 }), () => ({ hang: true }),
-        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-r6.md', content: 'from the FAKE model, allowed once on the page\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Written', '.', ' The', ' note', ' is', ' there.']), delayMs: 400 })],
+        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-r6.md', content: 'from the FAKE model, allowed once on the page\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Written', '.', ' The', ' note', ' is', ' there.']), delayMs: 400 }),
+        // (the 390 ask case: the same gate, denied on the page)
+        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-390.md', content: 'not written: denied\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Not written.']) })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
     writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: MODELS }));
@@ -431,6 +433,14 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#activity-test-host [data-rive-status="activity-test"]')).toBe('stopped');
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
+      // (H172's GATE 38 observation, R11 round 6: on a project WITH a saved conversation, New conversation on this page puts the
+      // page's turns away; the saved conversation stays and the next turn continues it — said plainly on the page, with why no
+      // conversation of its own starts here (this companion has no POST /api/chat/new); the welcome is not drawn: the
+      // conversation is not empty)
+      await page.waitForFunction(() => (document.getElementById('cx-note')?.textContent ?? '').startsWith('New conversation on this page:'), null, { timeout: 10_000 });
+      expect(await text(page, '#cx-note')).toMatch(/^New conversation on this page: its own turns are put away and the composer is clear; the project’s saved conversation \(\d+ messages\) stays and the next turn continues it — a conversation of its own is the REPL’s \/new today \(this companion has no POST \/api\/chat\/new yet\)\.$/);
+      expect(await page.$$eval('#cx-turns > .cx-turn', (els) => els.length)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => document.body.dataset.chatState)).not.toBe('empty');
       // R11 step 1 (the operator's first-use failure): a local model chosen on the page. Enter on its row: Ollama is asked
       // for that exact name (/api/show, no model run), the setup's answer is written, the draft is kept, the composer has
       // the keyboard, the route line, the chip and the status row say the next turn's model
@@ -675,6 +685,62 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
     } finally { await context.close(); }
   }, 180_000);
 
+  it('R11 round 6 (H168\'s R65): at 390 × 844 with the band OPENED, an ask that opens folds the band by itself and is scrolled into view whole — its words and all three options on screen; answered, the band comes back as it was', async () => {
+    const { context, page, errors } = await openPage(browser, { origin }, { width: 390, height: 844 });
+    page.setDefaultTimeout(30_000);
+    try {
+      await page.goto(`${origin}/#t=${token}`);
+      await landWorkspace(page);
+      await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
+      expect(ollama.chats().length, 'the FAKE\'s queue: this case\'s tool-call script is the fifth').toBe(4);
+      // the band starts folded on a phone; the viewer opens it (the choice kept)
+      expect(await page.$eval('#cx-console', (b) => b.classList.contains('is-folded'))).toBe(true);
+      await page.click('#cx-console-toggle');
+      expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('true');
+      await page.focus('#cx-input');
+      await page.keyboard.type('write notes on the phone');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#cx-own .cx-needs .cx-needs-opts', { timeout: 30_000 });
+      await page.waitForFunction(() => [...document.querySelectorAll('#cx-own .cx-needs .cx-twin')].every((t) => ['drawn', 'words', 'none'].includes(t.getAttribute('data-rive') ?? '')), null, { timeout: 15_000 });
+      await page.waitForTimeout(400); // (the scroll into view: the frame after the draw)
+      const view = await page.evaluate(() => {
+        const sb = document.getElementById('cx-scroll')!.getBoundingClientRect();
+        const band = document.getElementById('cx-console')!;
+        const box = document.querySelector('#cx-own .cx-needs')!;
+        const r = (e: Element) => { const b = e.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), inside: b.top >= sb.top - 1 && b.bottom <= sb.bottom + 1 && b.top >= 0 && b.bottom <= window.innerHeight }; };
+        return { folded: band.classList.contains('is-folded'), auto: band.dataset.autoFolded ?? null, expanded: document.getElementById('cx-console-toggle')!.getAttribute('aria-expanded'), scroll: { top: Math.round(sb.top), bottom: Math.round(sb.bottom) }, box: r(box), words: r(box.querySelector('p:not(.cx-needs-k)')!), options: [...box.querySelectorAll('.cx-twin')].map((t) => ({ label: t.querySelector('[data-cx-answer]')?.textContent?.trim(), ...r(t) })), overflow: document.documentElement.scrollWidth <= window.innerWidth + 1 };
+      });
+      expect(view.folded, `the band folded itself for the ask: ${JSON.stringify(view)}`).toBe(true);
+      expect(view.auto).toBe('1');
+      expect(view.expanded).toBe('false');
+      expect(view.box.inside, `the ask's box whole in the conversation's view: ${JSON.stringify(view)}`).toBe(true);
+      expect(view.words.inside).toBe(true);
+      expect(view.options.map((o) => o.label)).toEqual(['once', 'session', 'deny']);
+      expect(view.options.every((o) => o.inside), `every option on screen: ${JSON.stringify(view.options)}`).toBe(true);
+      expect(view.overflow).toBe(true);
+      // deny: the control that shows (the native face when drawn, the twin otherwise); the tool is refused where the turn runs
+      const denied = page.waitForResponse((r) => /\/api\/chat\/answer$/.test(new URL(r.url()).pathname), { timeout: 15_000 });
+      const drawn = await page.$eval('#cx-own .cx-needs .cx-twin:nth-child(3)', (t) => t.getAttribute('data-rive') === 'drawn');
+      if (drawn) await page.click('#cx-own .cx-needs .cx-twin:nth-child(3) .cx-rive-host button.tr-face');
+      else await page.click('#cx-own .cx-needs [data-cx-answer="deny"]');
+      expect((await denied).status()).toBe(200);
+      await page.waitForFunction(() => [...document.querySelectorAll('#cx-turns li.cx-turn.is-timmy .cx-text, #cx-own li.cx-turn.is-timmy .cx-text')].some((e) => /Not written\./.test(e.textContent ?? '')), null, { timeout: 30_000 });
+      await page.waitForFunction(() => !document.getElementById('cx-console')!.dataset.autoFolded, null, { timeout: 10_000 });
+      // the ask is over: the band is back as the viewer left it (opened)
+      expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('true');
+      expect(await page.isVisible('#cx-console .tr-face')).toBe(true);
+      expect(existsSync(join(box, 'tray', 'notes-390.md'))).toBe(false);
+      expect(errors).toEqual([]);
+    } finally {
+      // (an ask left open by a failed assertion would hold the project's turn for the cases after: denied on the way out)
+      // @ts-expect-error -- answerNeedsYou is a function of the page's classic script chat-shell.js
+      await page.evaluate(() => { const id = document.querySelector('#cx-own .cx-needs .cx-needs-opts')?.closest('.cx-needs')?.getAttribute('data-needs'); if (id) answerNeedsYou(id, 'deny'); }).catch(() => undefined);
+      await page.waitForTimeout(500).catch(() => undefined);
+      await context.close();
+    }
+  }, 180_000);
+
   it('at 1280 × 720 the composer, its chip and Send read as at 1440 (the rail beside them); the conversation takes the height first: the composer one row until typed in, the chip whole with Send on its row, the first answer above the fold (R51, R52)', async () => {
     const { context, page, errors } = await openPage(browser, { origin }, { width: 1280, height: 720 });
     try {
@@ -746,9 +812,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           expect(starters).toEqual([['plan', 'Plan a project'], ['image', 'Inspect an image'], ['workflow', 'Build a workflow']]);
           await page.evaluate(() => document.fonts.ready);
           const geo = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: r.bottom, inside: r.left >= 0 && r.right <= window.innerWidth, cut: e.scrollHeight > e.clientHeight + 1 }; }));
-          const fold = await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().top);
-          const parts = await page.$$eval('#cx-empty > *, #cx-scroll, #cx-descriptor, #cx-composer, .cx-hint, #cx-controls, #cx-route', (els) => els.map((e) => `${e.id || e.className}:${Math.round(e.getBoundingClientRect().top)}-${Math.round(e.getBoundingClientRect().bottom)}`));
-          expect(JSON.stringify({ ok: geo.every((g) => g.inside && !g.cut && g.bottom <= fold), size, fold, geo, parts })).toMatch(/"ok":true/);
+          // (H168's R65: the band sits between the conversation and the composer, so the starters must end above the conversation's
+          // own scroll box's bottom edge, not only above the composer)
+          const fold = await page.$eval('#cx-scroll', (f) => f.getBoundingClientRect().bottom);
+          const parts = await page.$$eval('#cx-empty > *, #cx-scroll, #cx-descriptor, #cx-composer, .cx-hint, #cx-controls, #cx-route, #cx-console', (els) => els.map((e) => `${e.id || e.className}:${Math.round(e.getBoundingClientRect().top)}-${Math.round(e.getBoundingClientRect().bottom)}`));
+          expect(JSON.stringify({ ok: geo.every((g) => g.inside && !g.cut && g.bottom <= fold + 1), size, fold, geo, parts })).toMatch(/"ok":true/);
           expect(new Set(geo.map((g) => g.top)).size).toBe(size.width === 1440 ? 1 : 3);
           // Plan a project: the sample draft in the composer, which has the keyboard; the page's own draft is kept as it is
           await page.click('[data-cx-start="plan"]');

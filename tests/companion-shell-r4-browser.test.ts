@@ -221,6 +221,16 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.click('#cx-console-toggle');
       expect(await page.isVisible('#cx-console .tr-face')).toBe(true);
       await page.waitForFunction(() => ['drawn', 'words'].includes(document.querySelector('#cx-empty .cx-way-twin')?.getAttribute('data-rive') ?? ''), null, { timeout: 15_000 });
+      // H168's R65: with the band OPEN the welcome is drawn compact and WHOLE — the mark, the question, the line and the three
+      // starters inside the conversation's own scroll box (not cut at its bottom edge) and inside the viewport, no scrolling
+      await page.evaluate(() => document.fonts.ready);
+      const whole = await page.evaluate(() => {
+        const sb = document.getElementById('cx-scroll')!.getBoundingClientRect();
+        const parts = ['#cx-empty .cx-welcome-mark', '#cx-empty .cx-welcome-title', '#cx-empty .cx-welcome-line', ...['plan', 'image', 'workflow'].map((id) => `#cx-empty [data-cx-start="${id}"]`)];
+        return { open: document.body.classList.contains('console-open'), scroll: { top: Math.round(sb.top), bottom: Math.round(sb.bottom) }, parts: parts.map((sel) => { const e = document.querySelector(sel)!; const r = e.getBoundingClientRect(); return { sel, top: Math.round(r.top), bottom: Math.round(r.bottom), inside: r.top >= sb.top - 1 && r.bottom <= sb.bottom + 1 && r.bottom <= window.innerHeight, cut: e.scrollHeight > e.clientHeight + 1 }; }) };
+      });
+      expect(whole.open).toBe(true);
+      expect(whole.parts.every((p) => p.inside && !p.cut), `the welcome whole above the open band: ${JSON.stringify(whole)}`).toBe(true);
       const starter = await page.$eval('#cx-empty .cx-way-twin', (t) => ({ rive: t.getAttribute('data-rive'), start: t.getAttribute('data-cx-start'), cardHidden: (t.querySelector('.cx-way') as HTMLElement | null)?.hidden ?? null, face: t.querySelector('.cx-rive-host button.tr-face')?.getAttribute('aria-label') ?? null, words: t.querySelector('.cx-rive-host .cx-twin-words')?.textContent ?? null }));
       expect(starter.start).toBe('plan');
       if (starter.rive === 'drawn') expect(starter).toMatchObject({ cardHidden: true, face: 'Plan a project', words: 'Turn an idea into the next step.' });
@@ -228,6 +238,15 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.focus('#cx-input');
       await page.keyboard.press('Shift+Tab');
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-change');
+      // (H172's GATE 38 observation) + New conversation on an EMPTY project: the welcome stays, its three starters as they were, the
+      // primary one the same native button (mounted once: the action handles are as many as before)
+      const actionsBefore = await page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Array<{ component: string }> } }).TimmyRive.inspect().filter((x) => x.component === 'action').length);
+      await page.click('#rail-new-conv');
+      await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 10_000 });
+      expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent]))).toEqual([['plan', 'Plan a project'], ['image', 'Inspect an image'], ['workflow', 'Build a workflow']]);
+      expect(await page.$eval('#cx-empty .cx-way-twin', (t) => t.getAttribute('data-rive'))).toBe(starter.rive);
+      expect(await page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Array<{ component: string }> } }).TimmyRive.inspect().filter((x) => x.component === 'action').length)).toBe(actionsBefore);
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
       // the line above the composer: the route is ready, so the next turn's model
       expect(await text(page, '#cx-route')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer Change model');
       // the composer: "Message Timmy…", + Attach, ⌘ Tools, Send ↑ (off until typed), the two notes
@@ -356,6 +375,10 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // New conversation puts this page's turns away and clears the draft
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
+      // (H172's GATE 38 observation: the turn folded into the project's saved conversation, so the conversation is not empty and
+      // no welcome comes; the page says what its New conversation is, and why no conversation of its own starts here)
+      await page.waitForFunction(() => (document.getElementById('cx-note')?.textContent ?? '').startsWith('New conversation on this page:'), null, { timeout: 10_000 });
+      expect(await text(page, '#cx-note')).toContain('the project’s saved conversation (2 messages) stays and the next turn continues it');
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, LONG);

@@ -562,3 +562,33 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
 .cx-needs > p + p, .cx-needs .cx-needs-opts { margin-top: 6px; }
 .cx-needs-k { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-attention, var(--timmy-accent)); }
 .cx-needs .cx-act-sub { margin: 6px 0 0; }
+/* R11 round 6 (H168's R65): the band's height is taken from the conversation, so what the conversation shows must fit beside it.
+   The band open (body.console-open, chat-shell.js syncConsoleClass): the face at 18 % of the window's height (162 px at 900: the
+   native text still reads), the welcome compact — the mark, the question, the line and the three starters whole above the band
+   at 1440 × 900; the primary starter's native face beside its label, its words under them, so its card is as tall as the others */
+#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { height: clamp(120px, 18vh, 190px); }
+.cx-console-head { min-height: 26px; }
+.cx-console-body { padding: 0 8px 6px; }
+@media (min-width: 761px) {
+  body.console-open .cx-empty.is-welcome { margin-top: 4px; }
+  body.console-open .cx-scroll { padding-top: 10px; }
+  body.console-open .cx-welcome-mark.sh-mark.is-big { width: 48px; height: 48px; font-size: 26px; border-radius: 6px; margin-top: 4px; }
+  body.console-open .cx-welcome-title { margin-top: 10px; font-size: 26px; }
+  body.console-open .cx-welcome-line { margin-top: 6px; font-size: 14px; line-height: 1.4; }
+  body.console-open .cx-ways.cx-starters { margin-top: 10px; }
+}
+.cx-way-twin .cx-rive-host:not(.is-loading) { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.cx-way-twin .cx-rive-host .tr-component, .cx-way-twin .cx-rive-host .tr-component[data-artboard] { display: flex; align-items: center; gap: 10px; }
+.cx-way-twin .cx-twin-words { flex: 1 1 100%; }
+#cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 160px; }
+/* a phone: the ask's native buttons two to a row (150 × 45), the box whole in the conversation's view with the band folded; the
+   welcome's starters a title each (the words are the desk's), the primary's native face 120 px beside its label */
+@media (max-width: 760px) {
+  #cx-own .cx-needs .cx-rive-host .tr-face { width: 150px; }
+  .cx-needs { padding: 8px 10px; }
+  .cx-needs-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .cx-needs-opts .cx-twin { min-width: 0; }
+  .cx-starters .cx-way-words, .cx-way-twin .cx-twin-words { display: none; }
+  .cx-way-twin .cx-rive-host:not(.is-loading) { padding: 6px 12px; }
+  #cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 120px; }
+}
