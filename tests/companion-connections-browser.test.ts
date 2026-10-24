@@ -165,12 +165,12 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     page.on('request', (r) => requests.push(r.url()));
     await page.goto(`${base}/`);
     await page.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
-    expect(await page.locator('.cx-kicker').textContent()).toBe('CONNECT YOUR MODELS & TOOLS');
-    expect(await page.locator('.cx-lead').textContent()).toBe('Pick one, connect all three, or explore first. You can change this later.');
-    expect(await page.locator('.cx-card .cx-card-title').allTextContents()).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
-    expect(await page.locator('.cx-card .cx-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
-    expect(await page.locator('.cx-foot-words .cx-strong').textContent()).toBe('Local logs are already part of the design.');
-    expect(await page.locator('.cx-note').textContent()).toContain('Downloads require your explicit confirmation.');
+    expect(await page.locator('.cn-kicker').textContent()).toBe('CONNECT YOUR MODELS & TOOLS');
+    expect(await page.locator('.cn-lead').textContent()).toBe('Pick one, connect all three, or explore first. You can change this later.');
+    expect(await page.locator('.cn-card .cn-card-title').allTextContents()).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
+    expect(await page.locator('.cn-card .cn-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
+    expect(await page.locator('.cn-foot-words .cn-strong').textContent()).toBe('Local logs are already part of the design.');
+    expect(await page.locator('.cn-note').textContent()).toContain('Downloads require your explicit confirmation.');
     for (const name of ['Connect with OpenRouter ↗', 'Install Ollama', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', 'Back', 'Explore without a model', 'Continue to the workspace →']) {
       await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
     }
@@ -182,16 +182,16 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const keyField = page.getByLabel('Ollama API key', { exact: true });
     await keyField.fill(FAKE_KEY);
     await page.getByRole('button', { name: 'Save the key', exact: true }).click();
-    await page.locator('.cx-card-ollama-cloud .cx-state-word').filter({ hasText: 'saved, not checked' }).waitFor();
-    expect(await page.locator('.cx-card-ollama-cloud .cx-say').textContent()).toMatch(/^Saved, not checked: the Ollama Cloud key \(key [0-9a-f]{12}\) is in providers\.json in the Timmy home \(0600\)\./);
+    await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: 'saved, not checked' }).waitFor();
+    expect(await page.locator('.cn-card-ollama-cloud .cn-say').textContent()).toMatch(/^Saved, not checked: the Ollama Cloud key \(key [0-9a-f]{12}\) is in providers\.json in the Timmy home \(0600\)\./);
     expect(await keyField.inputValue()).toBe('');
     expect(await page.content()).not.toContain(FAKE_KEY);
     expect(requests.some((u) => u.includes(FAKE_KEY))).toBe(false);
     expect(requests.every((u) => u.startsWith(base))).toBe(true);
     // its check: the FAKE ollama.com takes the key; the state is checked (green), the toast is the observed fact
     await page.getByRole('button', { name: 'Check the key', exact: true }).click();
-    await page.locator('.cx-card-ollama-cloud .cx-state-word').filter({ hasText: /^checked$/ }).waitFor();
-    expect(await page.locator('.cx-card-ollama-cloud .cx-state').getAttribute('class')).toContain('is-live');
+    await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+    expect(await page.locator('.cn-card-ollama-cloud .cn-state').getAttribute('class')).toContain('is-live');
     const toasts = await page.evaluate(() => (window as unknown as { __toasts: Array<{ words: string; live: boolean }> }).__toasts);
     expect(toasts.at(-1)).toMatchObject({ live: true });
     expect(toasts.at(-1)!.words).toMatch(/^Checked just now: Ollama Cloud took the key/);
@@ -210,33 +210,33 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(`${base}/`);
     await page.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
-    const card = page.locator('.cx-card-ollama-local');
+    const card = page.locator('.cn-card-ollama-local');
     await card.getByRole('button', { name: 'Check', exact: true }).click();
-    await card.locator('.cx-state-word').filter({ hasText: /^checked$/ }).waitFor();
-    expect(await card.locator('.cx-words').textContent()).toMatch(/^Checked just now: Ollama answered at 127\.0\.0\.1:\d+ with local models \(no account, no charge\)\.$/);
-    expect((await card.locator('.cx-lines').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
+    await card.locator('.cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+    expect(await card.locator('.cn-words').textContent()).toMatch(/^Checked just now: Ollama answered at 127\.0\.0\.1:\d+ with local models \(no account, no charge\)\.$/);
+    expect((await card.locator('.cn-lines').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
     // the download box: a name typed, the size asked (unknown: not a starter, not held), then the confirmation, then progress
     await card.getByRole('button', { name: 'Download a local model', exact: true }).click();
     await card.getByLabel('Another model name', { exact: true }).fill('fake-new:3b');
     await card.getByRole('button', { name: 'Show the size', exact: true }).click();
     const confirmBtn = card.getByRole('button', { name: 'Confirm the download', exact: true });
     await confirmBtn.waitFor();
-    expect(await card.locator('.cx-pull-status').textContent()).toContain('fake-new:3b: size unknown');
+    expect(await card.locator('.cn-pull-status').textContent()).toContain('fake-new:3b: size unknown');
     expect(ollama.seen).not.toContain('POST /api/pull');
     await confirmBtn.click();
-    await card.locator('.cx-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
-    expect(await card.locator('.cx-pull-status').textContent()).toMatch(/\d+ MB of 4 MB · pulling FAKE-layer \(\d+%\)/);
-    await card.locator('.cx-pull-status').filter({ hasText: 'Downloaded: Ollama lists fake-new:3b as installed now.' }).waitFor({ timeout: 10_000 });
+    await card.locator('.cn-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
+    expect(await card.locator('.cn-pull-status').textContent()).toMatch(/\d+ MB of 4 MB · pulling FAKE-layer \(\d+%\)/);
+    await card.locator('.cn-pull-status').filter({ hasText: 'Downloaded: Ollama lists fake-new:3b as installed now.' }).waitFor({ timeout: 10_000 });
     expect(ollama.installed.has('fake-new:3b')).toBe(true);
     // the second download, stalled by the FAKE, cancelled from the page: "Cancelled" in the words, nothing installed
     ollama.setStall(true);
     await card.getByLabel('Another model name', { exact: true }).fill('fake-second:1b');
     await card.getByRole('button', { name: 'Show the size', exact: true }).click();
     await card.getByRole('button', { name: 'Confirm the download', exact: true }).click();
-    await card.locator('.cx-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
+    await card.locator('.cn-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
     await card.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await card.locator('.cx-pull-status').filter({ hasText: /^Cancelled/ }).waitFor();
-    expect(await card.locator('.cx-pull-status').textContent()).toContain('Ollama keeps what it downloaded of fake-second:1b');
+    await card.locator('.cn-pull-status').filter({ hasText: /^Cancelled/ }).waitFor();
+    expect(await card.locator('.cn-pull-status').textContent()).toContain('Ollama keeps what it downloaded of fake-second:1b');
     expect(ollama.installed.has('fake-second:1b')).toBe(false);
     expect(mounted.pendingPulls()).toBe(0);
     await page.close();
@@ -247,7 +247,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(`${base}/`);
     await page.getByRole('heading', { level: 1, name: 'Choose how you want to run.' }).waitFor();
-    const boxes = await page.locator('.cx-card').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), w: Math.round(r.width) }; }));
+    const boxes = await page.locator('.cn-card').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), w: Math.round(r.width) }; }));
     expect(boxes.length).toBe(4);
     expect(new Set(boxes.map((b) => b.x)).size).toBe(1);
     expect(boxes.every((b) => b.w > 300 && b.w <= 390)).toBe(true);

@@ -5,54 +5,58 @@
    in two columns at 1440x900, one column at 390x844.
    R11 round 4 (H171, the merge's reconciliation): every rule scoped under #screen-connections — the page holds the Chat
    screen's stylesheet too (chat-shell.css), whose .cx-title, .cx-kicker, .cx-note, .cx-actions, .cx-link, .cx-foot and
-   .cx-state are other elements; unscoped, these rules restyled the Chat (its head's title at 34 px, its route note as a card). */
-#screen-connections .cx-main { max-width: 1044px; }
-#screen-connections .cx-kicker { margin: 0 0 10px; }
-#screen-connections .cx-title { margin: 0 0 12px; font-size: 34px; line-height: 1.15; font-weight: var(--timmy-weight-heading); letter-spacing: -0.01em; color: var(--timmy-text); }
-#screen-connections .cx-title:focus-visible { outline: none; }
-#screen-connections .cx-lead { margin: 0 0 28px; font-size: 16px; color: var(--timmy-text-secondary); }
-#screen-connections .cx-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-#screen-connections .cx-card { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 18px; border-radius: 12px; }
-#screen-connections .cx-card[data-state="checked"] { border-color: var(--timmy-live); }
-#screen-connections .cx-card[data-state="pending"] { border-color: var(--timmy-accent); }
-#screen-connections .cx-card:focus-within { border-color: var(--timmy-accent); }
-#screen-connections .cx-card-head { display: flex; align-items: center; gap: 14px; }
-#screen-connections .cx-card-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; font-size: 18px; color: var(--timmy-text); }
-#screen-connections .cx-card-title { margin: 0; font-size: 18px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-#screen-connections .cx-card-sub { margin: 2px 0 0; font-size: 13px; }
-#screen-connections .cx-card-body { margin: 0; font-size: 15px; line-height: 1.45; color: var(--timmy-text); }
-#screen-connections .cx-actions { margin-top: 0; padding-top: 12px; border-top: 1px solid var(--timmy-line); }
-#screen-connections .cx-actions .cx-form { flex-basis: 100%; }
-#screen-connections .cx-link { margin-left: auto; }
-#screen-connections .cx-card-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--timmy-line); font-size: 13px; }
-#screen-connections .cx-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
-#screen-connections .cx-words, #screen-connections .cx-next, #screen-connections .cx-say, #screen-connections .cx-lines { margin: 0; }
-#screen-connections .cx-next-label { color: var(--timmy-accent); font-weight: var(--timmy-weight-strong); }
-#screen-connections .cx-say[data-kind="failed"] { color: var(--timmy-accent); }
-#screen-connections .cx-say[data-kind="step"] { color: var(--timmy-text); }
-#screen-connections .cx-lines { padding-left: 18px; }
-#screen-connections .cx-lines li { margin: 2px 0; }
-#screen-connections .cx-form { display: flex; flex-direction: column; gap: 8px; }
-#screen-connections .cx-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-#screen-connections .cx-form-row .sh-input, #screen-connections .cx-form-row .sh-select { flex: 1 1 220px; width: auto; min-height: 36px; padding: 6px 10px; font-size: 13px; }
-#screen-connections .cx-label, #screen-connections .cx-check { display: block; }
-#screen-connections .cx-check input { margin-right: 6px; accent-color: var(--timmy-accent); }
-#screen-connections .cx-pull { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
-#screen-connections .cx-pull-status { margin: 0; }
-#screen-connections .cx-progress { width: 100%; height: 6px; accent-color: var(--timmy-accent); }
-#screen-connections .cx-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 36px; }
-#screen-connections .cx-foot-words p { margin: 0; }
-#screen-connections .cx-foot-words .cx-strong { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); font-size: 13px; }
-#screen-connections .cx-foot-actions { margin-top: 0; gap: 14px; }
-#screen-connections .cx-note { display: flex; gap: 10px; margin: 24px 0 0; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; }
-#screen-connections .cx-note-mark { color: var(--timmy-accent); }
-#screen-connections .cx-failed { margin: 48px auto; max-width: 560px; }
-#screen-connections .cx-foot-shell { font-size: 12px; }
+   .cx-state are other elements; unscoped, these rules restyled the Chat (its head's title at 34 px, its route note as a card).
+   R11 round 4 (H170, after H172's journey run): this screen's own names carry the prefix cn- (they were cx-, the Chat's
+   prefix): the Chat's script hides the first .cx-head on the page while the conversation is away, and its stylesheet hides
+   .cx-head when the conversation is empty — both found this screen's heading on the shared page, so the kicker, the title
+   and the lead were absent at 1440 and 390. A duplicate id="cx-title" collided with the Chat's h2 as well. */
+#screen-connections .cn-main { max-width: 1044px; }
+#screen-connections .cn-kicker { margin: 0 0 10px; }
+#screen-connections .cn-title { margin: 0 0 12px; font-size: 34px; line-height: 1.15; font-weight: var(--timmy-weight-heading); letter-spacing: -0.01em; color: var(--timmy-text); }
+#screen-connections .cn-title:focus-visible { outline: none; }
+#screen-connections .cn-lead { margin: 0 0 28px; font-size: 16px; color: var(--timmy-text-secondary); }
+#screen-connections .cn-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+#screen-connections .cn-card { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 18px; border-radius: 12px; }
+#screen-connections .cn-card[data-state="checked"] { border-color: var(--timmy-live); }
+#screen-connections .cn-card[data-state="pending"] { border-color: var(--timmy-accent); }
+#screen-connections .cn-card:focus-within { border-color: var(--timmy-accent); }
+#screen-connections .cn-card-head { display: flex; align-items: center; gap: 14px; }
+#screen-connections .cn-card-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; font-size: 18px; color: var(--timmy-text); }
+#screen-connections .cn-card-title { margin: 0; font-size: 18px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+#screen-connections .cn-card-sub { margin: 2px 0 0; font-size: 13px; }
+#screen-connections .cn-card-body { margin: 0; font-size: 15px; line-height: 1.45; color: var(--timmy-text); }
+#screen-connections .cn-actions { margin-top: 0; padding-top: 12px; border-top: 1px solid var(--timmy-line); }
+#screen-connections .cn-actions .cn-form { flex-basis: 100%; }
+#screen-connections .cn-link { margin-left: auto; }
+#screen-connections .cn-card-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--timmy-line); font-size: 13px; }
+#screen-connections .cn-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
+#screen-connections .cn-words, #screen-connections .cn-next, #screen-connections .cn-say, #screen-connections .cn-lines { margin: 0; }
+#screen-connections .cn-next-label { color: var(--timmy-accent); font-weight: var(--timmy-weight-strong); }
+#screen-connections .cn-say[data-kind="failed"] { color: var(--timmy-accent); }
+#screen-connections .cn-say[data-kind="step"] { color: var(--timmy-text); }
+#screen-connections .cn-lines { padding-left: 18px; }
+#screen-connections .cn-lines li { margin: 2px 0; }
+#screen-connections .cn-form { display: flex; flex-direction: column; gap: 8px; }
+#screen-connections .cn-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#screen-connections .cn-form-row .sh-input, #screen-connections .cn-form-row .sh-select { flex: 1 1 220px; width: auto; min-height: 36px; padding: 6px 10px; font-size: 13px; }
+#screen-connections .cn-label, #screen-connections .cn-check { display: block; }
+#screen-connections .cn-check input { margin-right: 6px; accent-color: var(--timmy-accent); }
+#screen-connections .cn-pull { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
+#screen-connections .cn-pull-status { margin: 0; }
+#screen-connections .cn-progress { width: 100%; height: 6px; accent-color: var(--timmy-accent); }
+#screen-connections .cn-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 36px; }
+#screen-connections .cn-foot-words p { margin: 0; }
+#screen-connections .cn-foot-words .cn-strong { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); font-size: 13px; }
+#screen-connections .cn-foot-actions { margin-top: 0; gap: 14px; }
+#screen-connections .cn-note { display: flex; gap: 10px; margin: 24px 0 0; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; }
+#screen-connections .cn-note-mark { color: var(--timmy-accent); }
+#screen-connections .cn-failed { margin: 48px auto; max-width: 560px; }
+#screen-connections .cn-foot-shell { font-size: 12px; }
 @media (max-width: 720px) {
-  #screen-connections .cx-title { font-size: 28px; }
-  #screen-connections .cx-cards { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  #screen-connections .cx-link { margin-left: 0; }
-  #screen-connections .cx-foot { flex-direction: column; align-items: stretch; }
-  #screen-connections .cx-foot-actions { justify-content: space-between; }
-  #screen-connections .cx-foot-actions .sh-btn-primary { flex: 1 1 auto; }
+  #screen-connections .cn-title { font-size: 28px; }
+  #screen-connections .cn-cards { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  #screen-connections .cn-link { margin-left: 0; }
+  #screen-connections .cn-foot { flex-direction: column; align-items: stretch; }
+  #screen-connections .cn-foot-actions { justify-content: space-between; }
+  #screen-connections .cn-foot-actions .sh-btn-primary { flex: 1 1 auto; }
 }
