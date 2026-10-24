@@ -52,7 +52,9 @@ need_node() {
 # runs "$@" in the review's environment: its own HOME, Timmy home, settings, tmux and temporary folders, its ports, no
 # model key from your shell (a key reaches Timmy only if you give it to `./review.sh timmy init` yourself). From your shell,
 # only these pass when you set them: TIMMY_CHAT_FREE_ONLY, TIMMY_PALETTE, TIMMY_CLEF (decision-model routing, for this
-# process) and TIMMY_RERUN (the rerun program Timmy reads recordings with), and TZ
+# process) and TIMMY_RERUN (the rerun program Timmy reads recordings with), TZ, and (R11 round 4) the companion's identity
+# provider: CLERK_PUBLISHABLE_KEY and CLERK_JWT_KEY (or CLERK_SECRET_KEY) — without them the companion runs as this computer's
+# operator and its account screen names them; no model key passes this way
 run() {
   mkdir -p "$H" "$WORK" "$BOX/tmp" "$BOX/tmux" "$BOX/mcp-home/.mcporter"
   [ -f "$BOX/mcp-home/.mcporter/mcporter.json" ] || printf '{"mcpServers": {}}\n' > "$BOX/mcp-home/.mcporter/mcporter.json"
@@ -66,6 +68,8 @@ run() {
     ${TIMMY_PALETTE:+TIMMY_PALETTE="$TIMMY_PALETTE"} \
     ${TIMMY_CLEF:+TIMMY_CLEF="$TIMMY_CLEF"} ${TIMMY_RERUN:+TIMMY_RERUN="$TIMMY_RERUN"} \
     ${TZ:+TZ="$TZ"} \
+    ${CLERK_PUBLISHABLE_KEY:+CLERK_PUBLISHABLE_KEY="$CLERK_PUBLISHABLE_KEY"} ${CLERK_JWT_KEY:+CLERK_JWT_KEY="$CLERK_JWT_KEY"} \
+    ${CLERK_SECRET_KEY:+CLERK_SECRET_KEY="$CLERK_SECRET_KEY"} \
     "$@"
 }
 
