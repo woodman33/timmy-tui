@@ -94,7 +94,7 @@ describe('the journey\'s routes on the companion (R10 H164)', () => {
     // R11 (H169, Phase 0 item 2): no model chosen anywhere (a key is): the page's Send is off, saying so, naming no model; the
     // Workbench's route (this process's settings) names none either, and is not ready
     const none = await json('/api/journey/route');
-    expect(none).toMatchObject({ ok: true, surface: 'companion', route: { provider: 'openrouter', model: null, ready: false, tools: 'none', surface: 'companion', conversation: 'this page', receipt: false, words: 'No model chosen: choose one in Models · Send is off' } });
+    expect(none).toMatchObject({ ok: true, surface: 'companion', route: { provider: 'openrouter', model: null, ready: false, tools: 'gated', surface: 'companion', conversation: 'project', receipt: true, words: 'No model chosen: choose one in Models · Send is off' } });
     expect(none.route.why).toBe('No model chosen. /model <id> chooses one (/model free lists free ones)');
     expect(await json('/api/chat/route')).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen', label: 'No model chosen: choose one in Models · Send is off' });
     expect((await json('/api/journey/route?surface=workbench')).route).toMatchObject({ provider: 'openrouter', model: null, ready: false, tools: 'gated', surface: 'workbench' });
@@ -102,14 +102,14 @@ describe('the journey\'s routes on the companion (R10 H164)', () => {
     // a model chosen in the settings the companion reads (as Models (M) keeps it): the page's Send asks it
     writeFileSync(join(box, 'settings', 'config.json'), JSON.stringify({ model: PAGE_MODEL, modelChosen: PAGE_MODEL }));
     const page = await json('/api/journey/route');
-    expect(page).toMatchObject({ ok: true, surface: 'companion', route: { provider: 'openrouter', model: PAGE_MODEL, where: 'cloud', tools: 'none', ready: true, surface: 'companion', conversation: 'this page', receipt: false } });
+    expect(page).toMatchObject({ ok: true, surface: 'companion', route: { provider: 'openrouter', model: PAGE_MODEL, where: 'cloud', tools: 'gated', ready: true, surface: 'companion', conversation: 'project', receipt: true } });
     // the page's own Send: the same model and the same words the page's chat route gives (GET /api/chat/route), and the plain
-    // sentence that it is the page's own chat, not the project's conversation
+    // sentence that it is the project's conversation (the real turn: tools gated, a receipt) — R11 round 4
     const chat = await json('/api/chat/route');
     expect(chat.model).toBe(page.route.model);
     expect(page.route.words).toBe(chat.label);
-    expect(chat.scope).toEqual({ conversation: 'this page', tools: 'none', receipt: false, words: 'This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.' });
-    expect(chat.words).toMatch(/^This page's own chat, not the project's conversation \(the Workbench's and the REPL's\): no tools, no receipt\. Send asks /);
+    expect(chat.scope).toEqual({ conversation: 'project', tools: 'gated', receipt: true, words: 'The project\'s conversation, the one the Workbench and the REPL continue: the agent\'s tools, gated at NEEDS YOU; every turn sealed with a receipt.' });
+    expect(chat.words).toMatch(/^The project's conversation, the one the Workbench and the REPL continue: the agent's tools, gated at NEEDS YOU; every turn sealed with a receipt\. Send asks /);
     // OPENROUTER_MODEL in the environment, a choice for one process: the page's Send and the session's route both name it
     const kept = process.env.OPENROUTER_MODEL;
     try {

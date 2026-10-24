@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="/companion.css">
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition (src/companion/client/chat-shell.css) -->
   <link rel="stylesheet" href="/chat-shell.css">
+  <!-- R11 round 4 (H170): the Connections screen's own styles (src/companion/client/screen-connections.css) -->
+  <link rel="stylesheet" href="/screen-connections.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body class="shell" data-dest="chat">
@@ -569,6 +571,8 @@
   <!-- R11 round 4 (H171, step 3): the Rive runtime (@rive-app/canvas, served by the companion from node_modules at /vendor/rive/;
        no CDN) is loaded by chat-shell.js only when the companion serves the mark (GET /assets/timmy-mark.riv), since WebAssembly
        needs a policy keyword the page carries only then (page.ts); where the mark is absent the text mark stays and nothing loads -->
+  <!-- R11 round 4 (H170): the Connections screen; it mounts into the shell (TimmyShell) once the page has loaded -->
+  <script src="/screen-connections.js"></script>
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>
