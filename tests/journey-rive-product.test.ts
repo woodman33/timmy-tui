@@ -295,6 +295,17 @@ async function eventOf(page: Page, key: string, input: string, word: unknown): P
   return e ? { native: e.native ? `${e.native.input} ${JSON.stringify(e.native.value)}` : '(HTML only)', source: e.source, did: e.did } : null;
 }
 const label = (page: Page, key: string): Promise<string> => page.locator(`[data-rive-status="${key}"]`).first().innerText().then((t) => t.trim());
+/**
+ * The caption a drawn face carries, read back from the RUNTIME (H174's dafb636d: the text run named by its baked words; a live face
+ * says LIVE, the Inspect view's preview says PREVIEW — the operator's rule). "(not readable)" when the runtime has no such read.
+ */
+const captionOf = (page: Page, key: string): Promise<string> => page.evaluate((k) => {
+  const R = (window as unknown as { TimmyRive?: { handles?: () => Array<{ component?: string; rive: { getTextRunValue?: (name: string) => string | undefined } | null }> } }).TimmyRive;
+  const h = R?.handles?.().find((x) => x.component === k);
+  try { const v = h?.rive?.getTextRunValue?.('PREVIEW  /  NOT A LIVE JOB'); return typeof v === 'string' ? v : '(not readable)'; } catch { return '(not readable)'; }
+}, key);
+const LIVE_TURN = 'LIVE  /  THE TURN’S EVENTS';
+const LIVE_CONNECTIONS = 'LIVE  /  GET /api/connections';
 /** The handles per component key, as "key×n" sorted — ONE runtime instance per mounted component is the invariant. */
 async function handleCensus(page: Page): Promise<string[]> {
   const hs = await handles(page);
@@ -394,7 +405,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
         expect(await label(o.page, key)).toBe('idle');
         expect(await inputValue(o.page, key, 'State'), 'State 0 Idle before any turn').toBe(0);
-        await caps.cap(o.page, size, 'chat-console-idle', ['The AgentConsole in the chat, drawn, idle (State 0); the model chosen for the next turn.'], { to: root, what: 'the console' });
+        const consoleCaption = await captionOf(o.page, key);
+        if (consoleCaption !== '(not readable)') expect(consoleCaption, 'a live face says LIVE (the runtime\'s own text run), never PREVIEW').toBe(LIVE_TURN);
+        await caps.cap(o.page, size, 'chat-console-idle', ['The AgentConsole in the chat, drawn, idle (State 0); the model chosen for the next turn.', `The face\'s caption, read back from the runtime\'s text run: "${consoleCaption}".`], { to: root, what: 'the console' });
         // ── the focus order: Tab from the textarea reaches Send; no canvas takes the focus ──
         const order = await tabOrder(o.page);
         expect(order.some((d) => /^button[^"]*"Send/i.test(d)), `Tab from the textarea reaches Send: ${order.join(' → ')}`).toBe(true);
@@ -563,7 +576,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
           expect((await comp.getAttribute('data-artboard')) || h.artboard, `${id} on ProviderCard`).toBe('ProviderCard');
           expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
         }
-        await caps.cap(o.page, size, 'connections-cards', ['The connections screen: a ProviderCard drawn in each of the four cards (disconnected, State 0); the cards\' buttons stay HTML buttons.']);
+        const cardCaptions: string[] = [];
+        for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; const c = await captionOf(o.page, k); cardCaptions.push(`${id}: "${c}"`); if (c !== '(not readable)') expect(c, `${id}'s live face says LIVE, never PREVIEW`).toBe(LIVE_CONNECTIONS); }
+        await caps.cap(o.page, size, 'connections-cards', ['The connections screen: a ProviderCard drawn in each of the four cards (disconnected, State 0); the cards\' buttons stay HTML buttons.', `The faces\' captions, read back from the runtime\'s text runs: ${cardCaptions.join(' · ')}.`]);
         const local = o.page.locator(SEL.cardComponent('ollama-local')).first();
         const key = (await local.getAttribute('data-rive-component'))!;
         await o.page.getByRole('button', { name: /^Check$/ }).first().click();
