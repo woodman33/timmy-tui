@@ -8,7 +8,7 @@
  * FAKE; nothing is compiled) exercises the with-.riv branch in a temp folder.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -124,13 +124,27 @@ describe('the Rive components\' assets (R11 round 5, H174)', () => {
     const b = JSON.parse(r.body);
     expect(b.components.map((c: { component: string }) => c.component)).toEqual(['activity', 'connection', 'timmy-ui', 'welcome']);
     const native = b.components.find((c: { component: string }) => c.component === 'timmy-ui');
-    expect(native.riv).toEqual({ name: 'timmy-ui.riv', bytes: 405278, sha256: '9fd9ae7c0981' });
-    expect(native.sources).toEqual(['OFL.txt', 'README.md', 'create-controls.py', 'rive.yaml', 'scene.rml']); // Montserrat.ttf is kept, not served
-    expect(native.meta).toMatchObject({ artboard: 'AgentConsole', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] });
+    // the served .riv is the one CONTRACT.json names (v1's round-5 build until the v2 build lands: its sha256 and bytes there)
+    const contract = JSON.parse(readFileSync(join(riveAssetsDir(), 'timmy-ui', 'CONTRACT.json'), 'utf8'));
+    expect(contract.version).toBe(2);
+    expect(native.riv).toEqual({ name: 'timmy-ui.riv', bytes: contract.asset.bytes, sha256: String(contract.asset.sha256).slice(0, 12) });
+    expect(native.sources).toEqual(['CONTRACT.json', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'rive.yaml', 'scene.rml']); // Outfit.ttf is kept, not served
+    // RIVE CONTRACT v2's rive.yaml: the four production artboards, the three preview artboards, the font, the runs per artboard
+    expect(native.meta).toMatchObject({ artboard: 'AgentConsole', contract: '2', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton', 'ActionButtonGlacier'], previewArtboards: ['AgentConsolePreview', 'ProviderCardPreview', 'ActionButtonPreview'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'], font: 'Outfit.ttf' });
+    expect(native.meta.runs).toEqual({ AgentConsole: ['Title', 'Tag', 'Caption'], ProviderCard: ['Title', 'Tag', 'Caption', 'ProviderName', 'ProviderState', 'ProviderDetail'], ActionButton: ['Caption'], ActionButtonGlacier: ['Caption'] });
+    // what the SERVED file is (CONTRACT.json): a page asks it for its own artboards — v1's three until the v2 build lands
+    const servedContract = Number(contract.asset.contractOfTheServedFile);
+    expect(native.meta.served).toEqual(servedContract >= 2
+      ? { contract: servedContract, artboards: native.meta.artboards, previewArtboards: native.meta.previewArtboards, sha256: contract.asset.sha256 }
+      : { contract: 1, artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], previewArtboards: [], sha256: contract.asset.sha256 });
     expect(native.words).toBe(RIVE_WITH_RIV);
-    const ttf = await raw(repo.port, '/assets/rive/timmy-ui/Montserrat.ttf');
+    const ttf = await raw(repo.port, '/assets/rive/timmy-ui/Outfit.ttf');
     expect(ttf.status).toBe(404);
     expect(ttf.body).toBe('nothing here');
+    const contractServed = await raw(repo.port, '/assets/rive/timmy-ui/CONTRACT.json');
+    expect(contractServed.status).toBe(200);
+    expect(contractServed.type).toMatch(/application\/json/);
+    expect(JSON.parse(contractServed.body).version).toBe(2);
     const nativeRiv = await raw(repo.port, '/assets/rive/timmy-ui/timmy-ui.riv');
     expect(nativeRiv.status).toBe(200);
     expect(nativeRiv.type).toContain('application/octet-stream');

@@ -1,9 +1,16 @@
 name: timmy-ui
 file: timmy-ui.riv
+contract: 2
 artboard: AgentConsole
-artboards: AgentConsole, ProviderCard, ActionButton
+artboards: AgentConsole, ProviderCard, ActionButton, ActionButtonGlacier
+previewArtboards: AgentConsolePreview, ProviderCardPreview, ActionButtonPreview
 stateMachine: TimmyUI
 inputs: State, Hover, Pressed, ReducedMotion
+font: Outfit.ttf
+runs.AgentConsole: Title, Tag, Caption
+runs.ProviderCard: Title, Tag, Caption, ProviderName, ProviderState, ProviderDetail
+runs.ActionButton: Caption
+runs.ActionButtonGlacier: Caption
 logs:
   file: build/rive.log
   problems: build/problems.log

@@ -1,0 +1,56 @@
+{
+  "name": "timmy-ui",
+  "version": 2,
+  "status": "source authored (R11 round 7, H174); the compiled timmy-ui.riv beside this file is the version named in `asset` — v1 until the v2 build lands",
+  "asset": {
+    "file": "timmy-ui.riv",
+    "built": "the Rive CLI on the operator's machine (`rive . --verify`, `rive . --once`), from scene.rml as create-controls.py writes it; VERIFY.txt and BUILD.txt beside it record the run",
+    "contractOfTheServedFile": 1,
+    "sha256": "9fd9ae7c098187df4646f0ed581e6c7019173903078ac419ad7765ac7a1beac6",
+    "bytes": 405278
+  },
+  "source": {
+    "generator": "create-controls.py (Python 3.12+; writes scene.rml and rive.yaml)",
+    "markup": "scene.rml",
+    "font": { "file": "Outfit.ttf", "family": "Outfit", "axis": "wght 100–900 (variable)", "licence": "Outfit-OFL.txt (SIL OFL 1.1; no Reserved Font Name declared)", "made_by": "make-font.py from @fontsource-variable/outfit's latin woff2 — the font this product serves at /web/fonts/" }
+  },
+  "served": {
+    "asset": "/assets/rive/timmy-ui/timmy-ui.riv",
+    "listing": "GET /api/rive/assets (runtime, components, mark; the companion and the Studio)",
+    "runtime": "/vendor/rive/rive.js + rive.wasm (@rive-app/canvas, served by this product)"
+  },
+  "stateMachine": {
+    "name": "TimmyUI",
+    "inputs": {
+      "State": { "type": "Number", "values": { "0": "Idle", "1": "Working / Checking", "2": "Approval / NEEDS-YOU", "3": "Stopped", "4": "Failed" }, "note": "no success value: a connected provider is State 0 and the words say connected" },
+      "Hover": { "type": "Bool", "note": "the page's selection (tldraw) or the pointer over an ActionButton; never a state" },
+      "Pressed": { "type": "Bool", "note": "a press, down then up on the next frame; never a state" },
+      "ReducedMotion": { "type": "Bool", "note": "zero-duration transitions AND the Working pose without its spinning ring (the WorkingStill state): nothing keeps moving; the words carry the state" }
+    }
+  },
+  "artboards": {
+    "AgentConsole": { "size": [640, 380], "role": "the turn's activity", "runs": { "Title": "TIMMY  /  AGENT CONSOLE", "Tag": "NATIVE RIVE UI → the page sets the turn's identity words", "Caption": "'' → the page sets LIVE  /  THE TURN’S EVENTS", "HeadlineIdle…HeadlineFailed": "the authored headline per state (baked in its state group)", "LineIdle…LineFailed": "the authored line per state" }, "listeners": [] },
+    "ProviderCard": { "size": [400, 260], "role": "one provider's connection", "runs": { "Title": "TIMMY  /  PROVIDERS", "Tag": "NATIVE RIVE UI → the page's words", "Caption": "'' → the page sets LIVE  /  GET /api/connections", "ProviderName": "Provider → OpenRouter · Ollama · local · Ollama · cloud · Cloudflare (ONE run, outside the state groups: v1's five same-named subtitle runs are gone)", "ProviderState": "'' → the state word", "ProviderDetail": "'' → the page's one line", "HeadlineIdle…HeadlineFailed": "the authored headline per state" }, "listeners": [] },
+    "ActionButton": { "size": [240, 72], "role": "a real action (Amber primary-action material)", "runs": { "Caption": "Action → the button's own label" }, "listeners": ["Button enter / exit → Hover", "Button down / up → Pressed"], "note": "the per-state baked labels of v1 are gone; the state poses change the right-hand mark only" },
+    "ActionButtonGlacier": { "size": [240, 72], "role": "the same button in the Glacier material (a mount picks by the page's data-theme)", "runs": { "Caption": "Action" }, "listeners": ["Button enter / exit → Hover", "Button down / up → Pressed"] },
+    "AgentConsolePreview": { "size": [640, 380], "role": "PREVIEW (the Inspect view only; never mounted in the product)", "bakes": ["Caption = PREVIEW  /  NOT A LIVE JOB", "the Inspect interaction pill", "the Inspect click listener: State → 1"] },
+    "ProviderCardPreview": { "size": [400, 260], "role": "PREVIEW (the Inspect view only)", "bakes": ["Caption = PREVIEW  /  NOT A LIVE JOB", "the Inspect interaction pill", "the Inspect click listener: State → 1"] },
+    "ActionButtonPreview": { "size": [240, 72], "role": "PREVIEW (the Inspect view only)", "bakes": ["Caption = Preview action", "the Inspect click listener: State → 1"] }
+  },
+  "materials": {
+    "registry": "DESIGN.md B11 / the study's token registry v0.1",
+    "canvas": "#080B0F", "surface": "#111A23", "raised": "#1C2936", "border": "#44586B",
+    "text": "#ECF1F5", "secondary": "#BDCADA", "muted": "#9AAFC3",
+    "focus": "#FFB000 (the Working ring, Approval, Failed: focus / intent / attention)", "stopped": "#9AAFC3",
+    "neverOnAFace": "#28FE14 — no observed-live claim is drawn; the HTML words say connected / passed / sealed",
+    "primaryAction": { "amber": { "start": "#F0E5D4", "soft": "#EAD0A3", "accent": "#D6AA64", "ink": "#5B421D" }, "glacier": { "start": "#E1EEF7", "soft": "#BED9ED", "accent": "#8ABBE3", "ink": "#244761" } }
+  },
+  "consumers": {
+    "mountApi": "window.TimmyRive.mountConsole(host, { size, label, heading, name, place, identity: { project, session }, caption }) · mountProviderCard(host, providerId, { size, label, name, place, providerName, detail }) · mountActionButton(host, { label, action, disabled, name, place, theme })",
+    "handle": "root, unmount(), setLabel(words) (writes Caption), setDisabled(bool), setProvider({ name, detail }) on a card, place",
+    "feeds": "fromSse(event, data, source) · fromProviderState(id, word, source) · stopping(source) · reconcile(word, { turn, source })",
+    "identity": "a 'turn' event names the feed's current turn (data.id); 'needs-you' / 'done' of another turn are ignored as stale (recorded, never applied); 'done'.receipt is attached to the handle; stopping = STOP REQUESTED until 'done' cancelled",
+    "shape": "timmy-rive props { w, h, component, state, label, provider } unchanged; AS SAVED / NOT A LIVE JOB until a feed event reaches it on its page",
+    "versions": "the bindings tell v1 from v2 by the runs present (v2: Caption on every production artboard); v1's runtime workarounds (the caption overwrite, the scaled pill) apply to a v1 file only"
+  }
+}

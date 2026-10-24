@@ -19,14 +19,22 @@
  * FAKE here: the injected events (named FAKE in their source strings). REAL: the companion, its token, the page's code, the
  * runtime file served, the connections read.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser, Page } from 'playwright';
 import { chromium } from 'playwright';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import { mountRiveAssets } from '../src/companion/rive-assets.js';
+import { mountRiveAssets, riveAssetsDir } from '../src/companion/rive-assets.js';
+
+/**
+ * RIVE CONTRACT v2 (R11 round 7): the source is v2; the SERVED .riv is the one CONTRACT.json names — the round-5 v1 build until
+ * the lead's Mac build of v2 lands (the Rive CLI is not in this container). The v2-only reads (the named runs, the preview
+ * variants, reduced motion settling) run on a v2 file and are SKIPPED, said so, on v1 — never faked.
+ */
+const CONTRACT = JSON.parse(readFileSync(join(riveAssetsDir(), 'timmy-ui', 'CONTRACT.json'), 'utf8')) as { version: number; asset: { contractOfTheServedFile: number } };
+const SERVED_V2 = CONTRACT.asset.contractOfTheServedFile >= 2;
 import { browserPath, openPage } from './helpers/companion-page-kit.js';
 import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 
@@ -146,7 +154,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       const conn = await text(o.page, '[data-inspect-component="connection-ollama-local"] .tr-facts');
       expect(conn).toContain('artboard ProviderCard');
       expect(conn).toContain('connected has NO success pose');
-      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['OFL.txt', 'README.md', 'create-controls.py', 'rive.yaml', 'scene.rml']);
+      expect(await o.page.$$eval('[data-inspect-component="activity"] .tr-sources a', (as) => as.map((a) => a.textContent))).toEqual(['CONTRACT.json', 'Outfit-OFL.txt', 'README.md', 'create-controls.py', 'make-font.py', 'rive.yaml', 'scene.rml']);
       const rml = await o.page.evaluate(async () => { const r = await fetch('/assets/rive/timmy-ui/scene.rml'); return { status: r.status, body: await r.text() }; });
       expect(rml.status).toBe(200);
       expect(rml.body).toContain('name="AgentConsole"');
@@ -276,7 +284,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
   it('the mounts the screens call (R11 round 6): mountConsole follows the activity feed, mountProviderCard its provider, mountActionButton is a real button whose REAL action runs on a trusted click / Enter only, never when disabled; each drawn by the runtime, unmount cleans up', async () => {
     const o = await open({ width: 1440, height: 900 });
     try {
-      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string }>; runs: Record<string, { reads?: string; note?: string; hidden?: boolean }> | null; restored: number; fedState: number | undefined }>; handles: () => unknown[] };
+      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string; did?: string; stale?: boolean }>; runs: Record<string, { reads?: string; note?: string; hidden?: boolean }> | null; restored: number; fedState: number | undefined; identity: { turn?: string; project?: string; session?: string } | null; receipt: string | null; stale: number }>; handles: () => unknown[] };
       // the test's own host on the page (the screens' calls are H171's and H170's; the API is what is tested here)
       await o.page.evaluate(() => {
         const W = window as unknown as { TimmyRive: R; __acted: string[] };
@@ -364,6 +372,41 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(behindTheBack.restored).toBeGreaterThanOrEqual(1); // put back by the guard on the next frame
       expect(behindTheBack.word).toBe('awaiting approval');
       expect(behindTheBack.label).toBe('awaiting approval');
+      // R11 round 7 — the feed's identity: a 'turn' event names the console's turn; another turn's needs-you/done is ignored
+      // and said; 'done' attaches its receipt; reconcile() applies a re-read state for the named turn only
+      const identity = await o.page.evaluate(() => {
+        const R = (window as unknown as { TimmyRive: R & { reconcile: (w: string, o: { turn?: string; source?: string }) => unknown[]; feed: () => { turn: string | null; receipt: string | null; stale: number } } }).TimmyRive;
+        const me = () => R.inspect().find((x) => x.component === 'test:console')!;
+        const out: Record<string, unknown> = {};
+        R.fromSse('turn', { id: 'turn-FAKE-1', surface: 'companion' }, 'FAKE (the test): SSE turn');
+        out.afterTurn = { word: me().word, turn: me().identity?.turn, feed: R.feed() };
+        R.fromSse('needs-you', { id: 'ask-x', turn: 'turn-FAKE-0' }, 'FAKE (the test): a stale needs-you of the previous turn');
+        out.afterStale = { word: me().word, stale: me().stale, last: me().events[me().events.length - 1] };
+        R.fromSse('done', { status: 'answered', turn: 'turn-FAKE-1', receipt: 'rcpt-FAKE-9c1' }, 'FAKE (the test): SSE done with a receipt');
+        out.afterDone = { word: me().word, receipt: me().receipt, feed: R.feed() };
+        const other = R.reconcile('working', { turn: 'turn-FAKE-7', source: 'FAKE (the test): a re-read of another turn' });
+        out.afterOtherReconcile = { applied: other.length, word: me().word };
+        const mine = R.reconcile('working', { turn: 'turn-FAKE-1', source: 'FAKE (the test): GET /api/chat/turn/turn-FAKE-1 after a reconnect' });
+        out.afterReconcile = { applied: mine.length, word: me().word, state: me().runtime!.inputs.find((i) => i.name === 'State')!.value };
+        R.fromSse('done', { status: 'answered', turn: 'turn-FAKE-1' }, 'FAKE (the test): SSE done');
+        return out;
+      });
+      expect(identity.afterTurn).toMatchObject({ word: 'working', turn: 'turn-FAKE-1', feed: { turn: 'turn-FAKE-1', receipt: null } });
+      expect(identity.afterStale).toMatchObject({ word: 'working', stale: 1 });
+      expect((identity.afterStale as { last: { did: string; stale: boolean } }).last).toMatchObject({ stale: true, did: 'ignored: names turn turn-FAKE-0, this console follows turn turn-FAKE-1' });
+      expect(identity.afterDone).toMatchObject({ word: 'idle', receipt: 'rcpt-FAKE-9c1', feed: { turn: 'turn-FAKE-1', receipt: 'rcpt-FAKE-9c1', stale: 1 } });
+      expect(identity.afterOtherReconcile).toEqual({ applied: 0, word: 'idle' });
+      expect(identity.afterReconcile).toMatchObject({ word: 'working', state: 1 });
+      expect((identity.afterReconcile as { applied: number }).applied).toBeGreaterThanOrEqual(1);
+      expect(await text(o.page, '[data-inspect-identity="activity"]').catch(() => '')).toMatch(/turn turn-FAKE-1|^$/);
+      if (SERVED_V2) {
+        // the v2 file: the named runs carry the page's words (read back from the runtime) and the preview variants stay in the view
+        const v2 = await o.page.evaluate(() => { const g = (n: string) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === n)!; return (k: string) => hd.rive!.getTextRunValue(k); }; const c = g('test:console'); const p = g('test:provider:ollama-local'); const a = g('test:action'); return { console: { caption: c('Caption'), tag: c('Tag') }, card: { caption: p('Caption'), name: p('ProviderName'), state: p('ProviderState') }, action: { caption: a('Caption') }, artboards: (window as unknown as { TimmyRive: R }).TimmyRive.inspect().filter((x) => /^(test:|activity$|connection-)/.test(x.component)).map((x) => [x.component, (x as unknown as { artboard: string }).artboard]) }; });
+        expect(v2.console).toEqual({ caption: 'LIVE  /  THE TURN’S EVENTS', tag: 'turn turn-FAKE-1' });
+        expect(v2.card).toEqual({ caption: 'LIVE  /  GET /api/connections', name: 'Ollama · local', state: 'checking' });
+        expect(v2.action).toEqual({ caption: 'Answer: once' });
+        expect(Object.fromEntries(v2.artboards as Array<[string, string]>)).toMatchObject({ 'test:console': 'AgentConsole', 'test:action': 'ActionButton', activity: 'AgentConsolePreview', 'connection-openrouter': 'ProviderCardPreview' });
+      }
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('done', { status: 'answered' }, 'FAKE (the test): SSE done'));
       expect(await text(o.page, '#m-console [data-rive-status]')).toBe('idle');
       // the provider card follows its provider only
@@ -558,6 +601,34 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(o.errors).toEqual([]);
       expect(o.consoleErrors.filter((e) => /rive|inspect|abort/i.test(e))).toEqual([]);
     } finally { await o.context.close(); }
+  }, LONG);
+
+  it.skipIf(!SERVED_V2)(`RIVE CONTRACT v2 — reduced motion SETTLES: with prefers-reduced-motion the Working console stops moving within a frame (the WorkingStill pose: pixels identical across half a second); without it the ring moves${SERVED_V2 ? '' : ' [SKIPPED: the served .riv is the v1 build; runs when the v2 build lands]'}`, async () => {
+    const sample = async (reduced: boolean): Promise<{ frames: string[]; loaded: boolean; nativeReduced: boolean; state: unknown }> => {
+      const o = await open({ width: 1440, height: 900 }, reduced);
+      try {
+        await o.page.evaluate(() => { const R = (window as unknown as { TimmyRive: R }).TimmyRive; const host = document.createElement('div'); host.id = 'rm-host'; document.body.append(host); R.mountConsole(host, { size: 'card', name: 'rm:console' }); });
+        await o.page.waitForFunction(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().some((x) => x.component === 'rm:console' && x.state === 'drawn'), null, { timeout: 30_000 });
+        return o.page.evaluate(async () => {
+          const R = (window as unknown as { TimmyRive: R }).TimmyRive;
+          R.fromSse('turn', { id: 'turn-FAKE-rm' }, 'FAKE (the test): SSE turn');
+          await new Promise((r) => setTimeout(r, 400)); // the 0 ms / 180 ms transition is over either way
+          const canvas = document.querySelector('#rm-host canvas') as HTMLCanvasElement;
+          const frames: string[] = [];
+          for (let i = 0; i < 4; i++) { frames.push(canvas.toDataURL()); await new Promise((r) => setTimeout(r, 150)); }
+          const h = R.inspect().find((x) => x.component === 'rm:console')!;
+          return { frames, loaded: h.state === 'drawn', nativeReduced: (h as unknown as { nativeReduced: boolean }).nativeReduced, state: h.runtime!.inputs.find((i) => i.name === 'State')!.value };
+        });
+      } finally { await o.context.close(); }
+    };
+    const still = await sample(true);
+    expect(still.loaded).toBe(true);
+    expect(still.nativeReduced).toBe(true);
+    expect(still.state).toBe(1);
+    expect(new Set(still.frames).size, 'the Working pose under reduced motion: no pixel moves across 600 ms').toBe(1);
+    const moving = await sample(false);
+    expect(moving.state).toBe(1);
+    expect(new Set(moving.frames).size, 'the Working ring moves without reduced motion').toBeGreaterThan(1);
   }, LONG);
 
   it('PREVIEW: labelled, moves the word only, records a PREVIEW event; no receipt and no progress number in the view; reduced motion is read; 390x844 fits', async () => {

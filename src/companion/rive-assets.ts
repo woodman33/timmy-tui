@@ -35,11 +35,13 @@ const RIVE_FILE_TYPES: Readonly<Record<string, string>> = {
   '.yaml': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
   // R11 round 5 (the operator's package): the generator script and the font's license beside the asset; the font file itself
-  // (Montserrat.ttf, OFL) stays in the folder and is not served (the .riv embeds what it needs)
+  // (Outfit.ttf since round 7; Montserrat.ttf before) stays in the folder and is not served (the .riv embeds what it needs)
   '.py': 'text/plain; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
+  // R11 round 7: the contract (CONTRACT.json) and the build records (VERIFY/BUILD.txt) beside the asset
+  '.json': 'application/json; charset=utf-8',
 };
-const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt']);
+const SOURCE_EXT = new Set(['.rml', '.rev', '.yaml', '.md', '.py', '.txt', '.json']);
 /** A component's folder name and a file's name: plain names only (no path, no dot segment). */
 const COMPONENT_NAME = /^[a-z][a-z0-9-]{0,40}$/;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
@@ -54,7 +56,17 @@ export interface RiveComponentListing {
   riv: { name: string; bytes: number; sha256: string } | null;
   sources: string[];
   /** From the folder's rive.yaml (plain `key: value` lines): the artboard, the state machine and the inputs the source declares. */
-  meta: { artboard?: string; artboards?: string[]; stateMachine?: string; inputs?: string[]; [k: string]: string | string[] | undefined };
+  meta: {
+    artboard?: string; artboards?: string[]; stateMachine?: string; inputs?: string[];
+    /** RIVE CONTRACT v2 (round 7): the SOURCE's contract version, the preview artboards, the font, the named runs per production artboard. */
+    contract?: string; previewArtboards?: string[]; font?: string; runs?: Record<string, string[]>;
+    /**
+     * What the SERVED .riv is (CONTRACT.json `asset.contractOfTheServedFile`): the source may be a contract ahead of the compiled
+     * file beside it (the build is the operator's machine's). The bindings pick artboards from THIS, never from the source's list.
+     */
+    served?: { contract: number; artboards: string[]; previewArtboards: string[]; sha256?: string };
+    [k: string]: string | string[] | Record<string, string[]> | { contract: number; artboards: string[]; previewArtboards: string[]; sha256?: string } | undefined;
+  };
   words: string;
 }
 
@@ -64,15 +76,33 @@ export function readRiveMeta(path: string): RiveComponentListing['meta'] {
   if (!existsSync(path)) return meta;
   let text = '';
   try { text = readFileSync(path, 'utf8'); } catch { return meta; }
+  const list = (value: string): string[] => value.split(',').map((v) => v.trim()).filter(Boolean);
   for (const raw of text.split('\n')) {
-    const m = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$/.exec(raw);
+    const m = /^([A-Za-z][A-Za-z0-9_.-]*):\s*(.+?)\s*$/.exec(raw);
     if (!m) continue;
     const [, key, value] = m;
-    if (key === 'inputs') meta.inputs = value.split(',').map((v) => v.trim()).filter(Boolean);
-    else if (key === 'artboards') meta.artboards = value.split(',').map((v) => v.trim()).filter(Boolean);
-    else if (key === 'artboard' || key === 'stateMachine' || key === 'name' || key === 'file') meta[key] = value;
+    if (key === 'inputs' || key === 'artboards' || key === 'previewArtboards') meta[key] = list(value);
+    else if (key === 'artboard' || key === 'stateMachine' || key === 'name' || key === 'file' || key === 'contract' || key === 'font') meta[key] = value;
+    else if (key.startsWith('runs.')) { const runs = (meta.runs ??= {}); runs[key.slice('runs.'.length)] = list(value); }
   }
   return meta;
+}
+
+/** The v1 build's artboards (the round-5 asset): what a page may ask a v1 file for. */
+const V1_ARTBOARDS = ['AgentConsole', 'ProviderCard', 'ActionButton'];
+/**
+ * The served file's facts from CONTRACT.json beside it: its contract (`asset.contractOfTheServedFile`), hence which artboards and
+ * preview artboards a page may ask it for. Null without a CONTRACT.json (a drafted folder).
+ */
+export function readServed(path: string, meta: RiveComponentListing['meta']): RiveComponentListing['meta']['served'] | null {
+  if (!existsSync(path)) return null;
+  try {
+    const c = JSON.parse(readFileSync(path, 'utf8')) as { asset?: { contractOfTheServedFile?: unknown; sha256?: unknown } };
+    const contract = Number(c?.asset?.contractOfTheServedFile) || 1;
+    const sha256 = typeof c?.asset?.sha256 === 'string' ? c.asset.sha256 : undefined;
+    if (contract >= 2) return { contract, artboards: meta.artboards ?? V1_ARTBOARDS, previewArtboards: meta.previewArtboards ?? [], ...(sha256 ? { sha256 } : {}) };
+    return { contract, artboards: V1_ARTBOARDS, previewArtboards: [], ...(sha256 ? { sha256 } : {}) };
+  } catch { return null; }
 }
 
 /** Where the components' folders are (a test may give its own). */
@@ -96,7 +126,10 @@ export function listRiveComponents(dir: string): RiveComponentListing[] {
     if (rivName) {
       try { const bytes = readFileSync(join(folder, rivName)); riv = { name: rivName, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex').slice(0, 12) }; } catch { riv = null; }
     }
-    out.push({ component: name, riv, sources: files.filter((f) => SOURCE_EXT.has(extOf(f))), meta: readRiveMeta(join(folder, 'rive.yaml')), words: riv ? RIVE_WITH_RIV : RIVE_NO_RIV });
+    const meta = readRiveMeta(join(folder, 'rive.yaml'));
+    const served = readServed(join(folder, 'CONTRACT.json'), meta);
+    if (served) meta.served = served;
+    out.push({ component: name, riv, sources: files.filter((f) => SOURCE_EXT.has(extOf(f))), meta, words: riv ? RIVE_WITH_RIV : RIVE_NO_RIV });
   }
   return out;
 }
