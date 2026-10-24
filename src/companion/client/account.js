@@ -2,11 +2,15 @@
 // the shell's #screen-account host (shell.js TimmyShell.mount('account', draw)). Real Clerk, verified by this server:
 //
 //   - GET /api/identity says whether the identity provider is configured (CLERK_PUBLISHABLE_KEY + CLERK_JWT_KEY or
-//     CLERK_SECRET_KEY) and where Clerk's JS is served from (/vendor/clerk/clerk.headless.browser.js, by this companion:
-//     the page loads nothing from any other site; the script talks only to the instance's frontend API, which the page's
-//     Content-Security-Policy names in connect-src when configured). Not configured, or the script not installed: the
-//     screen is drawn and reviewable, the dependency named with its exact environment names, and NOTHING signs in.
-//   - The flows, with Clerk's headless client (window.Clerk): sign-up (username, email, password → signUp.create →
+//     CLERK_SECRET_KEY) and where Clerk's JS is served from (clerkScript: /vendor/clerk/clerk.no-rhc.mjs, by this
+//     companion from node_modules/@clerk/clerk-js/dist/). That file is Clerk's "no remote hosted code" ES module: it loads
+//     no chunk and injects no script of another site's (the captcha loader of clerk.browser.js is not in it), so the page
+//     loads nothing from anywhere but this companion; this classic script imports it (import(), same origin, within the
+//     page's script-src 'self') and the module talks only to the instance's frontend API, which the page's
+//     Content-Security-Policy names in connect-src when configured. Not configured, or the module not installed, or Clerk
+//     not starting within LOAD_MS: the screen is drawn and reviewable, the dependency or the failure named in words
+//     beside the disabled buttons, and NOTHING signs in.
+//   - The flows, with Clerk's client (the Clerk instance; also window.Clerk, for the console): sign-up (username, email, password → signUp.create →
 //     prepareEmailAddressVerification → the code → attemptEmailAddressVerification → setActive); sign-in (email + password,
 //     or a code by email); Continue with Google / GitHub (authenticateWithRedirect; the OAuth callback lands on this page's
 //     own /account/callback); recovery (a code by email, then a new password); session restoration (clerk.load() on reopen:
@@ -24,10 +28,12 @@
   'use strict';
   const S = () => window.TimmyShell;
   const REFRESH_MS = 30000;
+  const LOAD_MS = 20000;        // Clerk.load() must have reached the instance (its environment and client) within this
   const WORDS = {
     social: 'Social sign-in requires an auth service to be connected.',
     socialOff: 'Turn the provider on in the Clerk dashboard (User & authentication → Social connections: Google, GitHub) and add this page\'s address to the instance\'s allowed origins.',
     noScript: 'Clerk\'s script is not installed in this build, so the account screen cannot load the identity provider\'s code.',
+    captcha: 'The instance asks for a captcha, which this page does not load (no script from another site): turn off bot sign-up protection in the Clerk dashboard (Configure → Attack protection), or sign in another way.',
     verifying: 'Verifying with this companion…',
     verified: (u) => `Verified by this companion: ${u.username ? u.username + ' · ' : ''}${u.id}`,
     foot: { needs: 'Nothing signs in until the identity provider is configured.', ok: 'Every request is verified by this companion.', right: 'Local first. Cloud optional.' },
@@ -35,7 +41,8 @@
 
   // ── state ────────────────────────────────────────────────────────────────────────────────────────────────────────────
   let view = 'signup';          // signup | signin | verify | code | recover | reset | signedin
-  let clerk = null;             // window.Clerk once loaded and clerk.load() resolved
+  let clerk = null;             // the Clerk instance once clerk.load() resolved (reached the instance)
+  let clerkModule = null;       // Clerk's module as imported from /vendor/clerk/ (its Clerk class), before load()
   let loadWords = '';           // why Clerk's script is not usable (absent, failed to load, failed to reach the instance)
   let loading = null;           // the load in progress
   let busy = false;             // a flow's request in flight
@@ -50,33 +57,46 @@
   const configured = () => Boolean(identity() && identity().configured);
   const hostOf = () => { try { return new URL(identity().frontendApi).host; } catch (e) { return ''; } };
 
-  // ── Clerk's script, from this companion ──────────────────────────────────────────────────────────────────────────────
+  // ── Clerk's module, from this companion ──────────────────────────────────────────────────────────────────────────────
+  const words = (e) => (e && e.message ? e.message : String(e));
+  const within = (ms, what) => new Promise((_, reject) => { setTimeout(() => reject(new Error(`${what} did not finish within ${Math.round(ms / 1000)} s.`)), ms); });
+  /** Whether a loaded Clerk reached the instance: it issued a client, or its environment names the application. */
+  const reached = (c) => {
+    const dc = c && c.environment && c.environment.displayConfig;
+    return Boolean((c && c.client && typeof c.client.id === 'string' && c.client.id) || (dc && (dc.applicationName || dc.id)));
+  };
+
+  /** The module imported (once), a Clerk made for the instance and loaded. Resolves the loaded Clerk; rejects with the words in loadWords. */
   function loadClerk() {
     if (clerk) return Promise.resolve(clerk);
     if (loading) return loading;
     const id = identity();
     if (!id || !id.configured) { loadWords = id ? id.words : 'GET /api/identity has not answered.'; return Promise.reject(new Error(loadWords)); }
     if (!id.clerkScript) { loadWords = id.clerkWords || WORDS.noScript; return Promise.reject(new Error(loadWords)); }
-    loading = new Promise((resolve, reject) => {
-      const done = async () => {
-        try {
-          if (!window.Clerk) throw new Error('Clerk\'s script loaded but did not define window.Clerk.');
-          await window.Clerk.load();
-          clerk = window.Clerk;
-          clerk.addListener((state) => { onClerkState(state); });
-          resolve(clerk);
-        } catch (e) { loadWords = `Clerk could not start from ${hostOf() || 'the instance'}: ${e && e.message ? e.message : e}`; reject(e); }
-      };
-      const existing = document.querySelector('script[data-clerk-publishable-key]');
-      if (existing) { if (window.Clerk) done(); else existing.addEventListener('load', done, { once: true }); return; }
-      const s = document.createElement('script');
-      s.src = id.clerkScript;
-      s.async = true;
-      s.setAttribute('data-clerk-publishable-key', id.publishableKey || '');
-      s.addEventListener('load', done, { once: true });
-      s.addEventListener('error', () => { loadWords = `Clerk's script could not be loaded from ${id.clerkScript} (this companion serves it from node_modules/@clerk/clerk-js).`; reject(new Error(loadWords)); }, { once: true });
-      document.head.append(s);
-    }).finally(() => { loading = null; });
+    loading = (async () => {
+      if (!clerkModule) {
+        let mod;
+        try { mod = await import(id.clerkScript); } // same origin: /vendor/clerk/clerk.no-rhc.mjs, within script-src 'self'
+        catch (e) { loadWords = `Clerk's module could not be loaded from ${id.clerkScript} (this companion serves it from node_modules/@clerk/clerk-js/dist): ${words(e)}`; throw new Error(loadWords); }
+        if (!mod || typeof mod.Clerk !== 'function') { loadWords = `${id.clerkScript} loaded but exports no Clerk class.`; throw new Error(loadWords); }
+        clerkModule = mod;
+      }
+      let c;
+      try {
+        c = new clerkModule.Clerk(id.publishableKey || '');
+        // telemetry off: the module would otherwise report to clerk-telemetry.com (the page's connect-src names only the instance)
+        await Promise.race([c.load({ telemetry: { disabled: true } }), within(LOAD_MS, `Clerk's start against ${hostOf() || 'the instance'}`)]);
+        // load() resolves even when the instance could not be fetched (observed with 6.40.1, the host unresolvable: status
+        // "ready", loaded true, a default environment and a client with no id). The instance was REACHED when it issued a
+        // client (client.id) or its environment named the application; otherwise this page says so and signs nothing in.
+        if (!c.loaded) throw new Error(`its status is "${c.status || 'unknown'}".`);
+        if (!reached(c)) throw new Error(`its environment and client did not load (no network to it, or the key names an instance that does not exist); Clerk reports status "${c.status || 'unknown'}".`);
+      } catch (e) { loadWords = `Clerk could not start from ${hostOf() || 'the instance'}: ${words(e)}`; throw new Error(loadWords); }
+      clerk = c;
+      if (!window.Clerk) window.Clerk = c; // the same global Clerk's own script tag defines, for the console; nothing reads it here
+      c.addListener((state) => { onClerkState(state); });
+      return c;
+    })().finally(() => { loading = null; });
     return loading;
   }
 
@@ -157,8 +177,14 @@
   // ── the flows ────────────────────────────────────────────────────────────────────────────────────────────────────────
   const clerkWords = (e) => {
     const first = e && e.errors && e.errors[0];
-    if (first) return (first.longMessage || first.message || first.code || 'The identity provider refused.') + (/(not enabled|not supported|strategy|oauth)/i.test(first.code || '') ? ' ' + WORDS.socialOff : '');
-    return e && e.message ? e.message : String(e);
+    if (first) {
+      const code = first.code || '';
+      const base = first.longMessage || first.message || code || 'The identity provider refused.';
+      if (/captcha/i.test(code)) return `${base} ${WORDS.captcha}`;
+      return base + (/(not enabled|not supported|strategy|oauth)/i.test(code) ? ' ' + WORDS.socialOff : '');
+    }
+    if (e && /captcha/i.test(String(e.code || e.captchaError || ''))) return WORDS.captcha;
+    return words(e);
   };
 
   async function run(fn) {
@@ -440,7 +466,8 @@
     const shell = S();
     if (!shell) return;
     shell.mount('account', draw);
-    shell.on('identity', () => { loadWords = ''; redraw(); });
+    // a new GET /api/identity answer: the words start over and, when this screen is shown, Clerk is loaded if it was not
+    shell.on('identity', () => { loadWords = ''; if (hostEl && hostEl.isConnected && S().current() === 'account') draw(hostEl); else redraw(); });
     shell.on('session', ({ user }) => { if (!user && view === 'signedin') { view = 'signin'; verified = null; } redraw(); });
   };
   if (window.TimmyShell) mount(); else document.addEventListener('DOMContentLoaded', mount, { once: true });
@@ -449,6 +476,7 @@
   window.timmyAccount = {
     useSession: (token) => adopt(token, null).then((u) => { view = 'signedin'; keepFresh(); redraw(); return S().land().then(() => u); }),
     signOut: () => forget(),
-    state: () => ({ view, configured: configured(), clerk: Boolean(clerk), words: loadWords, verified }),
+    // module: Clerk's module imported from /vendor/clerk/ (its code ran here); clerk: load() reached the instance
+    state: () => ({ view, configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified }),
   };
 })();

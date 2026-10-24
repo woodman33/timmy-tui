@@ -145,6 +145,7 @@
   },
   "homepage": "https://timmytui.com",
   "dependencies": {
+    "@clerk/clerk-js": "6.40.1",
     "@cloudflare/flagship": "^0.3.1",
     "@fontsource/monaspace-argon": "5.3.0",
     "@mcpc-tech/cmcp": "^0.0.15",

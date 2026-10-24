@@ -5,9 +5,10 @@
  *   GET /api/identity                          the launch token         identityConfig's public part (pageIdentity): configured,
  *                                                                       the publishable key, the frontend API, the exact env
  *                                                                       names needed, the words; never a PEM, never a secret
- *   GET /vendor/clerk/<file>.js                nothing more             Clerk's JS from node_modules/@clerk/clerk-js/dist/, served
- *                                                                       by the companion so the page's script-src stays 'self'
- *                                                                       (no CDN); absent: 404 with words
+ *   GET /vendor/clerk/<file>.js|.mjs           nothing more             Clerk's JS from node_modules/@clerk/clerk-js/dist/ (the
+ *                                                                       whole folder, by plain file name), served by the companion
+ *                                                                       so the page's script-src stays 'self' (no CDN); the page
+ *                                                                       loads CLERK_SCRIPT; absent: 404 with words
  *   GET /account, /account/callback            nothing more             the page (as GET /): the account screen, and where Clerk's
  *                                                                       OAuth (Google, GitHub) lands back; no token in the address
  *   GET /api/identity/me                       the token + the user     who the session is, as verified here: { user: { id,
@@ -20,15 +21,27 @@
  * the page then sends (withUser).
  */
 import type { Application, RequestHandler, Response } from 'express';
-import { existsSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { failRequest } from '../../utils/server-failure.js';
 import { identityConfig, pageIdentity, type Env, type IdentityConfig } from './config.js';
 import { userOf, withUser, type WithUserOptions } from './middleware.js';
 import { createUserProject, userEnv, userProjectFor, userProjects } from './scope.js';
 
-export const CLERK_SCRIPT = 'clerk.headless.browser.js';
+/**
+ * The build the page loads, as @clerk/clerk-js 6.40.1 ships it (checked against the installed dist/, 2026-10-23):
+ *   clerk.no-rhc.mjs  — ES module, "no remote hosted code": self-contained (no lazily loaded chunk, and no loader for the
+ *                       captcha script at challenges.cloudflare.com that clerk.browser.js injects when the instance's bot
+ *                       protection is on), so the page's script-src 'self' holds by construction. Exports the Clerk class;
+ *                       account.js imports it (import() from a classic script, same origin) and runs `new Clerk(key).load()`.
+ *   clerk.no-rhc.js   — the same as CommonJS (ends in `exports`): NOT loadable by a <script src>, so not this.
+ *   clerk.browser.js  — UMD for a <script data-clerk-publishable-key>; its chunks (vendors_…, cookieSuffix_…) resolve from the
+ *                       script's own folder (document.currentScript), so they would come from here too, but it carries the
+ *                       captcha loader. Served too (the whole dist/ is), not loaded by the page.
+ * The version here is not Clerk's "headless" build of v4/v5 (clerk.headless.browser.js), which v6 does not ship.
+ */
+export const CLERK_SCRIPT = 'clerk.no-rhc.mjs';
 export const CLERK_VENDOR_PATH = '/vendor/clerk/';
 export const CLERK_ABSENT = 'Clerk\'s script is not installed in this build (node_modules/@clerk/clerk-js is missing), so the account screen cannot load the identity provider\'s code. Install the package in a checkout, or reinstall Timmy.';
 export const IDENTITY_NO_PROJECT = 'That project is not one of this account\'s (its id names none of your projects, or the path is outside them), so nothing was read.';
@@ -72,7 +85,8 @@ export function findClerkDist(from: string = dirname(fileURLToPath(import.meta.u
   return null;
 }
 
-const VENDOR_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.js$/;
+/** A plain file name of Clerk's dist/: no path, no link, no other folder; .js (the chunks, the UMD) or .mjs (the module). */
+export const VENDOR_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.m?js$/;
 
 export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMount {
   const env = deps.env ?? process.env;
@@ -84,14 +98,21 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
     res.set('Cache-Control', 'no-store').json({ ok: true, ...pageIdentity(cfg), clerkScript: clerkDir ? `${CLERK_VENDOR_PATH}${CLERK_SCRIPT}` : null, ...(clerkDir ? {} : { clerkWords: CLERK_ABSENT }) });
   });
 
-  // Clerk's JS (and the chunks its build loads beside itself), by plain file name only: no path, no link, no other folder
+  // Clerk's dist/ (the module the page imports, and every .js/.mjs beside it), by plain file name only: no path, no link,
+  // no other folder, nothing but JavaScript (types/, maps and package files are not served)
   app.get(`${CLERK_VENDOR_PATH}:file`, (req, res) => {
     const file = String(req.params.file ?? '');
     if (!clerkDir) { failRequest(res, 404, CLERK_ABSENT, 'text'); return; }
     if (!VENDOR_FILE.test(file)) { failRequest(res, 404, 'No such file of Clerk\'s here.', 'text'); return; }
     const p = join(clerkDir, file);
-    try { if (!statSync(p).isFile()) throw new Error('not a file'); } catch { failRequest(res, 404, 'No such file of Clerk\'s here.', 'text'); return; }
-    res.set('Cache-Control', 'public, max-age=3600').type('application/javascript; charset=utf-8').sendFile(p, (err?: Error) => {
+    // a regular file that really is in dist/ (a link leading out of the folder is not Clerk's file)
+    try {
+      if (!statSync(p).isFile()) throw new Error('not a file');
+      const real = realpathSync(p); const dir = realpathSync(clerkDir);
+      if (!real.startsWith(dir + sep)) throw new Error('out of the folder');
+    } catch { failRequest(res, 404, 'No such file of Clerk\'s here.', 'text'); return; }
+    // text/javascript: the one MIME type a module script (import()) is accepted with, and fine for a classic script
+    res.set('Cache-Control', 'public, max-age=3600').set('X-Content-Type-Options', 'nosniff').type('text/javascript; charset=utf-8').sendFile(p, (err?: Error) => {
       if (err && !res.headersSent) failRequest(res, 500, 'Clerk\'s script could not be read.', 'text');
     });
   });

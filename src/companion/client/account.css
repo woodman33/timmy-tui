@@ -10,7 +10,8 @@
 .ac-lede { margin-top: 26px; font-size: 18px; line-height: 1.45; color: var(--timmy-text-secondary); }
 .ac-start { display: flex; align-items: center; gap: 22px; margin-top: 48px; padding-top: 30px; border-top: 1px solid var(--timmy-line); }
 .ac-start-k { font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-.ac-card { width: 100%; }
+.ac-card { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.ac-form .sh-input, .ac-card .sh-input { width: 100%; max-width: 100%; box-sizing: border-box; }
 .ac-card .sh-sub { margin-bottom: 22px; }
 .ac-social-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .ac-social { gap: 10px; }
@@ -28,6 +29,8 @@
 }
 @media (max-width: 720px) {
   .ac-main { padding: 20px 16px; }
+  .ac-card { padding: 20px 16px; }
+  .ac-social-row { grid-template-columns: 1fr; }
   .ac-hero { display: none; }
   .ac-social-row .sh-btn { white-space: normal; line-height: 1.25; }
   .ac-title { font-size: 40px; }
