@@ -336,7 +336,7 @@ const activeOf = (page: Page): Promise<string> => page.evaluate(() => { const a 
 
 // ── the scaffold (D4) ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface Scaffold { page: string; kicker: string; title: string; description: string; primary: string; summary: string; regions: Record<string, boolean>; states: string[] }
+interface Scaffold { page: string; kicker: string; title: string; description: string; primary: string; summary: string; regions: Record<string, boolean>; states: string[]; railN: string | null }
 /** The scaffold's selectors alone (strings: what page.evaluate can carry). */
 const SCAFFOLD_SEL = { shown: SHELL.shown, head: SHELL.head, kicker: SHELL.kicker, title: SHELL.title, description: SHELL.description, primary: SHELL.primary, summary: SHELL.summary, work: SHELL.work, context: SHELL.context, dock: SHELL.dock, records: SHELL.records };
 /** What the shown page carries of the scaffold, read in the page (every piece named so a missing one is said by name). */
@@ -348,7 +348,13 @@ const scaffoldOf = (page: Page): Promise<Scaffold> => page.evaluate((S) => {
   for (const [k, sel] of Object.entries({ head: S.head, summary: S.summary, work: S.work, context: S.context, dock: S.dock, records: S.records })) regions[k] = Boolean(q(sel));
   // the page's states, as the shell marks them (data-state on the page: empty | content | running | approval | error) — read, not assumed
   const states = shown ? [shown.getAttribute('data-state') || '', ...[...shown.querySelectorAll<HTMLElement>('[data-state]')].map((e) => e.getAttribute('data-state') || '')].filter(Boolean) : [];
-  return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states };
+  // the kicker's NUMBER is the rail's order (SHELL CONTRACT v1.1: TimmyShell.PAGES[].n, '' for a page outside the rail) — read from
+  // the shell when it is there, so the number asserted is the shell's own, never one copied into this test
+  const pageId = shown?.getAttribute('data-page') || '';
+  const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ id: string; n?: string | number; rail?: boolean }> } }).TimmyShell?.PAGES;
+  const entry = Array.isArray(pages) ? pages.find((p) => p.id === pageId) : undefined;
+  const railN = entry ? (entry.n === '' || entry.n === undefined || entry.n === null ? '' : String(entry.n).padStart(2, '0')) : null;
+  return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states, railN };
 }, SCAFFOLD_SEL);
 
 /** The scaffold asserted on the shown page, each missing piece named as H175's contract piece. */
@@ -359,6 +365,10 @@ async function expectScaffold(page: Page, name: string): Promise<Scaffold> {
   // the kicker: "NN / VERB PHRASE" (the number is the rail's order, §2.3); a page outside the rail carries its name instead of a number
   // (H173's Settings: "SETTINGS / SET HOW TIMMY RUNS")
   expect(s.kicker, piece('the kicker "NN / VERB PHRASE" (a page outside the rail: "NAME / VERB PHRASE")')).toMatch(/^(\d{2}|[A-Z][A-Z &]*)\s*\/\s*\S+/);
+  // the number is the shell's own (TimmyShell.PAGES[].n: the rail's order, v1.1 — Models & accounts 08, VoxVision 06, Control Room 10);
+  // a page the shell lists outside the rail (n '') carries no number; a shell without PAGES (null) is not asserted on
+  if (s.railN) expect(s.kicker, piece(`the kicker's number is the rail's order from TimmyShell.PAGES (${s.railN})`)).toMatch(new RegExp(`^${s.railN}\\s*\\/`));
+  else if (s.railN === '') expect(s.kicker, piece('a page outside the rail carries its name, not a number (TimmyShell.PAGES n = "")')).not.toMatch(/^\d{2}\s*\//);
   expect(s.title.length, piece('the title')).toBeGreaterThan(0);
   expect(s.description.length, piece('the one-line description')).toBeGreaterThan(0);
   expect(s.primary.length, piece('the PRIMARY NEXT ACTION at the right')).toBeGreaterThan(0);

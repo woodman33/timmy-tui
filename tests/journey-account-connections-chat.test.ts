@@ -342,14 +342,32 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const cancelled = await until(o.page, 'the download cancelled, said', (s) => /Cancelled/.test(s), 10_000);
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
         // the screen's own heading (SCREEN_WORDS: the kicker, the title, the lead) is on the page — round 7 (H170, 14:37): the order's
-        // words "One model is enough to begin." under the kicker "06 / CONNECT A PROVIDER"; round 6: "Choose how you want to run."
+        // words "One model is enough to begin." under the kicker "NN / CONNECT A PROVIDER"; round 6: "Choose how you want to run."
         expect(cancelled, 'the connections screen\'s title (H170\'s SCREEN_WORDS.title)').toMatch(/One model is enough to begin\.|Choose how you want to run\./i);
-        expect(cancelled).toMatch(/06 \/ CONNECT A PROVIDER|CONNECT YOUR MODELS & TOOLS/i);
+        // the kicker's NUMBER is the rail's order (SHELL CONTRACT v1.1: TimmyShell.PAGES[].n — 08 on the shell as merged; H170 wrote 06
+        // in his registration, which the shell replaces): read from the shell when it is there, never copied into this test
+        expect(cancelled).toMatch(/\d\d \/ CONNECT A PROVIDER|CONNECT YOUR MODELS & TOOLS/i);
+        const railN = await o.page.evaluate(() => {
+          const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ id: string; n?: string | number }> } }).TimmyShell?.PAGES;
+          const p = Array.isArray(pages) ? pages.find((x) => x.id === 'connections') : undefined;
+          return p && p.n !== undefined && p.n !== null && p.n !== '' ? String(p.n).padStart(2, '0') : null;
+        }).catch(() => null);
+        if (railN) expect(cancelled, `the kicker's number is the rail's order from TimmyShell.PAGES (${railN})`).toMatch(new RegExp(`${railN} \\/ CONNECT A PROVIDER`, 'i'));
+        else console.warn(`${at}: TimmyShell.PAGES has no numbered entry for connections (an older shell, or the page outside the rail): the kicker's number not asserted`);
         // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
-        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.']);
+        // the route mirror in the Chat's records (#mirror-route; the lead's 2e6266ff after H171's 16:48 finding): the companion's 401 for
+        // a read before the session was set ("…none was sent") is never kept as the route's state — once the FAKE session is here the
+        // mirror says the route the project's next turn takes (none chosen yet: "has no route now"), or that the page had no session yet
+        const mirror = o.page.locator('#mirror-route');
+        await mirror.waitFor({ state: 'attached', timeout: 15_000 });
+        const settled = await o.page.waitForFunction(() => !/^Asking the companion/.test(document.getElementById('mirror-route')?.textContent ?? ''), null, { timeout: 15_000 }).then(() => true, () => false);
+        const route = ((await mirror.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+        if (!settled) console.warn(`${at}: #mirror-route still asking after 15 s ("${route.slice(0, 120)}"); the stale-refusal read below still holds`);
+        expect(route, 'the route mirror after the FAKE sign-in (#mirror-route) keeps no pre-session refusal').not.toMatch(/none was sent/i);
+        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.', `The route mirror in the Chat's records (#mirror-route): "${route.slice(0, 160)}" (never the pre-session "none was sent").`]);
         if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
