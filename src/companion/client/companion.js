@@ -259,7 +259,9 @@ function takeProject(project) {
 /** The hello this page sends: with the project this tab pinned, when it pinned one. */
 function helloMessage() {
   const pin = storedPin();
-  return pin ? { type: 'hello', pin } : { type: 'hello' };
+  // R11 round 4 (H171): the session, when the account screen has one (TimmyShell.socketHello: { session }), never a key
+  const session = typeof TimmyShell !== 'undefined' && TimmyShell ? TimmyShell.socketHello() : {};
+  return Object.assign(pin ? { type: 'hello', pin } : { type: 'hello' }, session);
 }
 
 /**

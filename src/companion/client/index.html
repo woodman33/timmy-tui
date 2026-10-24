@@ -30,6 +30,14 @@
        until the frame arrives. -->
   <a class="skip-link" href="#ws-main">Skip to the workspace</a>
 
+  <!-- R11 round 4 (H171): the journey's three screens (src/companion/client/shell.js, window.TimmyShell): the account screen
+       (H173's account.js draws it), the connections screen (H170's screen-connections.js draws it) and the chat screen, which is
+       the shell below (the rail and the page). The shell lands on one by its rule (account when no identity provider is
+       configured or no session; connections when signed in with no route; chat otherwise); the others are hidden. -->
+  <section class="sh-screen" id="screen-account" data-screen="account" aria-label="Account" hidden></section>
+  <section class="sh-screen" id="screen-connections" data-screen="connections" aria-label="Connections" hidden></section>
+  <div class="sh-screen sh-screen-chat" id="screen-chat" data-screen="chat" hidden>
+
   <!-- R10 CHAT CHECKPOINT (H171; the operator's order of 2026-10-22, 16:01 PT: "LEFT: permanent navigation, project
        selector/New project, Chat first"): the shell's left menu, beside every destination. Each item opens one of this page's
        destinations (the workspace's tabs, as their keys do); an item this page does not have says where it opens. The words
@@ -529,6 +537,7 @@
     <ol id="ws-activity-list" class="activity-list"><li class="empty">Reading the workspace…</li></ol>
   </section>
   </div>
+  </div><!-- /screen-chat -->
 
   <!-- R6 lead: the tab panels' registry, then each panel's own file, then the page's code, which draws them -->
   <script src="/panels.js"></script>
@@ -541,6 +550,8 @@
   <!-- R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts) -->
   <script src="/panel-run.js"></script>
   <script src="/companion.js"></script>
+  <!-- R11 round 4 (H171): the shell's screens and what they share (window.TimmyShell), before the screens' own scripts -->
+  <script src="/shell.js"></script>
   <!-- R10 CHAT (H171): the shell's left menu and the Chat composition -->
   <script src="/chat-shell.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>

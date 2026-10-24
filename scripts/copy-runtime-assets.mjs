@@ -47,6 +47,8 @@ export const RUNTIME_ASSETS = Object.freeze([
   // R10 CHAT (H171): the shell's left menu and the Chat composition
   'src/companion/client/chat-shell.js',
   'src/companion/client/chat-shell.css',
+  // R11 round 4 (H171): the journey's shell (the three screens, window.TimmyShell)
+  'src/companion/client/shell.js',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).
