@@ -10,7 +10,7 @@
 // a glyph, with a recovery path (./save-state.js); and the guided blank templates open as text and empty frames.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, DefaultStylePanel, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
+import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, DefaultStylePanel, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, react, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
 import { band, createProjectPanel } from './project.js';
@@ -33,6 +33,8 @@ import { createReferences } from './references.js';
 import { createNodes } from './nodes.js';
 // R11 round 5 (H174): the timmy-rive shape (a Rive component on the board, driven by window.TimmyRive)
 import { createRiveShape } from './rive-shape.js';
+// R11 round 6 (H174's module, the lead's one call): tldraw's ACTUAL license state, read the SDK's own way and said in its words
+import { createLicenseReadout } from './license-state.js';
 // R7 (H151): where Timmy places on the board, clear of every shape. R8 (H158): what a draft lands on, and where it moves clear
 import { freeSpot, landsOn, nearestSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
 
@@ -65,15 +67,10 @@ const say = (text, kind) => {
   status.dataset.kind = kind;
 };
 
-// tldraw's own verdict on the license, never inferred from a key being present.
-const LICENSE = {
-  pending: 'checking the license',
-  licensed: 'licensed',
-  'licensed-with-watermark': 'licensed (watermark)',
-  unlicensed: 'unlicensed, fine locally',
-  'unlicensed-production': 'no valid license for this address',
-  expired: 'license expired',
-};
+// tldraw's own verdict on the license, never inferred from a key being present. R11 round 6: the words are the SDK's own
+// meaning for each state (./license-state.js), and `license.watch` follows the SDK's state atom instead of polling it.
+const license = createLicenseReadout({ react });
+let stopLicenseWatch = () => {};
 
 /**
  * The canvas document as Timmy holds it. `revision` counts document changes (shapes, bindings,
@@ -246,7 +243,7 @@ function showStatus(editor) {
   // R10 (H167; the round's rule: diagnostics in a details control): tldraw's version and its license's verdict are the canvas's
   // Details (#side-about, under the save line), beside the folder Timmy saves the board in; the line says the canvas's state
   const about = document.getElementById('side-about-canvas');
-  if (about) about.textContent = `tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`}`;
+  if (about) about.textContent = `tldraw ${BUILT_WITH} · ${license.words[state] ?? `license state: ${state}`}`;
   const text = [
     `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · `,
     bridgeState.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
@@ -254,7 +251,7 @@ function showStatus(editor) {
   ];
   // R5 (H133): a newer canvas on disk is said in full by the save line and its box below; this line keeps its end short
   say(text, canvas.conflict || canvas.stale ? 'error' : bridgeState.linked ? 'ready' : 'waiting');
-  if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
+  // R11 round 6: no poll while pending — license.watch (onMount) redraws this line when the SDK's state atom changes
 }
 
 /**
@@ -1560,6 +1557,9 @@ function mount(snapshot, b = canvas) {
           attachEditor(editor, b);
           followEditor(editor);
           showStatus(editor);
+          // R11 round 6: the SDK's license verdict as it settles (pending → its state), said by the Details line; one watch per editor
+          stopLicenseWatch();
+          stopLicenseWatch = license.watch(editor, () => { if (current === editor) showStatus(editor); });
           // R5 (H137): the panel ends just above what tldraw draws under it
           watchFoot();
           resolve(editor);
