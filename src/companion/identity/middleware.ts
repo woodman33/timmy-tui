@@ -3,7 +3,8 @@
  *
  * `withUser(cfg)` runs AFTER the launch token's `withToken` (the companion's own token first, as every content route): it
  * reads X-Timmy-Session, verifies it (session.ts verifySession: RS256 against the instance's key, exp/nbf/sub/sid/azp) and
- * sets `req.user` (SessionUser, typed below on express's Request) — or answers 401 with words ({ ok: false, error }) and
+ * sets `req.user` (SessionUser, typed below on express's Request) — or answers 401 with words ({ ok: false, needs: 'session',
+ * error, words }: refuseSession) and
  * nothing else happens: no body is read, nothing is written. It NEVER reads a user id from a body, a query string, a cookie
  * or a default: `clerk_user_id` and the like are not looked at, so a request that names one changes nothing.
  *
@@ -14,7 +15,6 @@
  * did not run (a mount order error, never a request's doing).
  */
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { refuseRequest } from '../../utils/local-request.js';
 import type { IdentityConfig } from './config.js';
 import { originsOf, sessionTokenOf, SESSION_WORDS, verifySession, type SessionResult, type SessionUser, type VerifyOptions } from './session.js';
 
@@ -55,12 +55,27 @@ export function withUser(cfg: IdentityConfig | (() => IdentityConfig), options: 
       ...(options.now ? { now: options.now() } : {}),
     };
     verifySession(token, c, verify).then((r) => {
-      if (!r.ok) { refuseRequest(res, 401, r.why); return; }
+      if (!r.ok) { refuseSession(res, r.why); return; }
       req.user = r.user;
       next();
-    }, () => { refuseRequest(res, 401, SESSION_WORDS.signature); });
+    }, () => { refuseSession(res, SESSION_WORDS.signature); });
   };
   return withUser;
+}
+
+/**
+ * The 401 a missing or refused session answers: { ok: false, needs: 'session', error, words } with no store and
+ * WWW-Authenticate, as the launch token's refusal (src/utils/local-request.ts refuseRequest) but marked `needs: 'session'`,
+ * so the page's shell tells it from the launch token's 401 (which still refuses the page): it clears its session and shows
+ * the account screen (H171's shell contract).
+ */
+export function refuseSession(res: Response, why: string): void {
+  if (res.headersSent) { res.destroy(); return; }
+  res.status(401);
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('WWW-Authenticate', 'Bearer');
+  res.end(JSON.stringify({ ok: false, needs: 'session', error: why, words: why }));
 }
 
 /** The verified user of a request behind withUser; throws when withUser did not run before this route (a mount order error). */

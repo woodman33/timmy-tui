@@ -4,7 +4,7 @@
  * (pageIdentity), and the account screen stays reviewable in the "needs" state, naming the exact environment names, when
  * it is not; nothing signs in then.
  *
- *   configured      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (or CLERK_PUBLISHABLE_KEY) is set and well formed, AND one verifier is
+ *   configured      CLERK_PUBLISHABLE_KEY (or NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, also read) is set and well formed, AND one verifier is
  *                   set: CLERK_JWT_KEY (the instance's public key, PEM: verification needs no network) or CLERK_SECRET_KEY
  *                   (then the instance's JWKS, <frontendApi>/.well-known/jwks.json, is fetched once and kept).
  *   frontendApi     derived from the publishable key's own shape: pk_test_ or pk_live_ followed by base64 of the instance's
@@ -21,8 +21,9 @@ export type { Env };
 
 /** The environment names, in the order a person sets them. */
 export const IDENTITY_ENV = Object.freeze({
-  publishable: 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
-  publishableAlt: 'CLERK_PUBLISHABLE_KEY',
+  publishable: 'CLERK_PUBLISHABLE_KEY',
+  /** Also read (what /api/clerk-config and the Worker already read), never named first in the words. */
+  publishableAlt: 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
   jwtKey: 'CLERK_JWT_KEY',
   secretKey: 'CLERK_SECRET_KEY',
 });
@@ -135,7 +136,7 @@ export function identityConfig(env: Env = process.env): IdentityConfig {
   const configured = needs.length === 0 && verifier !== 'none' && Boolean(publishableKey);
   const words = configured
     ? `Timmy's identity provider is configured: Clerk at ${frontendApi}${isTestInstance(publishableKey!) ? ' (a development instance)' : ''}; sessions are verified ${verifier === 'pem' ? 'against the instance\'s public key (no network)' : 'against the instance\'s JWKS, fetched once'}.`
-    : `Timmy's identity provider is not configured, so nothing signs in. Set ${needs.length ? needs.join(' and ') : 'the environment'}: ${IDENTITY_ENV.publishable} is the Clerk instance's publishable key (pk_test_… or pk_live_…), and ${IDENTITY_ENV.jwtKey} its public key (PEM, from the dashboard's API keys; then verification needs no network) or ${IDENTITY_ENV.secretKey} (then the instance's JWKS is fetched once).${notes.length ? ` ${notes.join('. ')}.` : ''}`;
+    : `Timmy's identity provider is not configured, so nothing signs in. Missing: ${needs.join(', ')}. It needs ${IDENTITY_ENV.publishable} and ${IDENTITY_ENV.jwtKey} (or ${IDENTITY_ENV.secretKey}): the publishable key is the Clerk instance's (pk_test_… or pk_live_…, from the dashboard's API keys; ${IDENTITY_ENV.publishableAlt} is also read); ${IDENTITY_ENV.jwtKey} is the instance's public key (PEM, the dashboard's JWKS public key; verification then needs no network); with ${IDENTITY_ENV.secretKey} instead, the instance's JWKS is fetched once.${notes.length ? ` ${notes.join('. ')}.` : ''}`;
   return {
     configured,
     ...(publishableKey ? { publishableKey } : {}),

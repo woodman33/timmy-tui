@@ -10,6 +10,8 @@
  *                                                                       (no CDN); absent: 404 with words
  *   GET /account, /account/callback            nothing more             the page (as GET /): the account screen, and where Clerk's
  *                                                                       OAuth (Google, GitHub) lands back; no token in the address
+ *   GET /api/identity/me                       the token + the user     who the session is, as verified here: { user: { id,
+ *                                                                       sessionId, username?, email? } }
  *   GET /api/projects                          the token + the user     the user's projects: { projects: [{ id, name, root }],
  *                                                                       default: <id> } (scope.ts userProjects; the default made)
  *   POST /api/projects { name }                the token + the user     makes one under the user's home: { id, name, root }
@@ -92,6 +94,12 @@ export function mountIdentity(app: Application, deps: IdentityDeps): IdentityMou
     res.set('Cache-Control', 'public, max-age=3600').type('application/javascript; charset=utf-8').sendFile(p, (err?: Error) => {
       if (err && !res.headersSent) failRequest(res, 500, 'Clerk\'s script could not be read.', 'text');
     });
+  });
+
+  // who this session is, as THIS SERVER verified it (the page shows the account from this, never from what it decoded itself)
+  app.get('/api/identity/me', deps.withToken, guard, (req, res) => {
+    const user = userOf(req);
+    res.set('Cache-Control', 'no-store').json({ ok: true, user: { id: user.id, sessionId: user.sessionId, ...(user.username ? { username: user.username } : {}), ...(user.email ? { email: user.email } : {}) } });
   });
 
   // the account screen by its own address, and where Clerk's OAuth lands back (the page reads the callback; no token in the address)

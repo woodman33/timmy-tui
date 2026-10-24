@@ -58,6 +58,8 @@ describe('identityConfig: configured only when the publishable key and one verif
     expect(none.words).toContain(IDENTITY_ENV.publishable);
     expect(none.words).toContain(IDENTITY_ENV.jwtKey);
     expect(none.words).toContain(IDENTITY_ENV.secretKey);
+    expect(none.words).toContain('CLERK_PUBLISHABLE_KEY and CLERK_JWT_KEY (or CLERK_SECRET_KEY)');
+    expect(none.words).toContain('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is also read');
     const half = identityConfig({ [IDENTITY_ENV.publishable]: PK });
     expect(half.configured).toBe(false);
     expect(half.needs).toEqual([IDENTITY_ENV.jwtKey]);
@@ -314,7 +316,7 @@ describe('withUser over real HTTP: the companion\'s routes behind the launch tok
     const origin = `http://127.0.0.1:${companion!.port}`;
     const none = await call('/api/projects');
     expect(none.status).toBe(401);
-    expect(none.body).toEqual({ ok: false, error: SESSION_WORDS.absent });
+    expect(none.body).toEqual({ ok: false, needs: 'session', error: SESSION_WORDS.absent, words: SESSION_WORDS.absent });
     const claimed = await call(`/api/projects?clerk_user_id=${USER_A}`);
     expect(claimed.status).toBe(401);
     const posted = await call('/api/projects', { method: 'POST', body: { clerk_user_id: USER_A, name: 'x' } });
