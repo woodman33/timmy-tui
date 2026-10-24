@@ -1,4 +1,5 @@
-// R5 (H133): tldraw's own canvas colors on Timmy's palette (DESIGN.md §10 B10, the operator's decision of 2026-10-15): the
+// R5 (H133): tldraw's own canvas colors on Timmy's palette (DESIGN.md §10 B10, the operator's decision of 2026-10-15; R11 round 7:
+// B11's registry for the browser surfaces, H176): the
 // canvas behind the drawing, the selection, the selection brush, snap lines, the laser, handles and the cursor. tldraw 5.5.2
 // draws these from its theme's UI colors (its Themes guide: TLThemeUiColorKeys); its menus, toolbar and panels take theirs
 // from CSS variables, which index.html sets from the same tokens.
@@ -12,12 +13,18 @@
 // It imports nothing: canvas.js hands in tldraw's DEFAULT_THEME and a reader of the page's CSS variables, so the rules below
 // run in Node's tests too.
 
-/** The tokens this module reads: name → [CSS variable, fallback]. */
+/**
+ * The tokens this module reads: name → [CSS variables, tried in order; fallback]. R11 round 7 (H176; DESIGN.md §10 B11, SHELL
+ * CONTRACT v1): the B11 registry's names (--timmy-ui-*: the dark canvas, the text, exact amber for the selection, the secondary
+ * text for snap lines), else the registry's value as the page's own sheet falls back to it (index.html's var(--timmy-ui-*, #hex)),
+ * so the canvas and tldraw's chrome agree on a theme sheet without the B11 block too. The B10 names are not read: the page is on
+ * the contract.
+ */
 export const TOKENS = Object.freeze({
-  ground: ['--timmy-ground', '#000000'],
-  text: ['--timmy-text', '#F2EFE9'],
-  accent: ['--timmy-accent', '#FFB000'],
-  silver: ['--timmy-silver', '#E8E4D9'],
+  ground: [['--timmy-ui-canvas'], '#080B0F'],
+  text: [['--timmy-ui-text'], '#ECF1F5'],
+  accent: [['--timmy-ui-focus'], '#FFB000'],
+  silver: [['--timmy-ui-text-secondary'], '#BDCADA'],
 });
 
 /** The UI colors of tldraw's theme that are chrome (TLThemeUiColorKeys minus `solid` and `noteBorder`, which draw shapes). */
@@ -44,9 +51,13 @@ export function withAlpha(color, alpha) {
  */
 export function chromeColors(read) {
   const t = (name) => {
-    const [variable, fallback] = TOKENS[name];
-    const v = typeof read === 'function' ? read(variable, fallback) : '';
-    return typeof v === 'string' && v.trim() ? v.trim() : fallback;
+    const [variables, fallback] = TOKENS[name];
+    for (const variable of variables) {
+      // (read answers its fallback for a variable the sheet does not set: a hex that is not this token's is the next variable's turn)
+      const v = typeof read === 'function' ? read(variable, '') : '';
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return fallback;
   };
   return {
     // the canvas (exports and the minimap use it; the page's canvas is --tl-color-background, set from the same token)

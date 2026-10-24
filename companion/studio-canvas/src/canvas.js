@@ -37,6 +37,12 @@ import { createRiveShape } from './rive-shape.js';
 import { createLicenseReadout } from './license-state.js';
 // R7 (H151): where Timmy places on the board, clear of every shape. R8 (H158): what a draft lands on, and where it moves clear
 import { freeSpot, landsOn, nearestSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
+// R11 round 7 (H176): the guided blank public starters (src/studio/templates/H*.json) as tldraw records, and their slots: where a
+// drawn card added from Nodes lands on one (TEMPLATE SCHEMA v1)
+import { emptySlot, slotFit, slotOf, slotPosition, slottedWords, starterRecords } from './starters.js';
+// R11 round 7 (H176): the bounded desk (the Card Lab's canvas behaviour, adapted): the desk around the page's content, and the
+// bar (Arrange · Pan · zoom · Fit the board) in tldraw's NavigationPanel slot
+import { createDesk, ZOOM_STEPS } from './desk.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -137,10 +143,17 @@ const cards = createCards({
   say: (text) => band(text),
   // R4 (H109): a card's Run detail
   runDetail: (op, projectId) => showRunDetail(op, projectId),
+  // R11 round 7 (H176): a starter's empty slot that takes a drawn card of this type (the card is made inside it), and the slots
+  // grown to show their cards whole
+  slotFor: (editor, cardType) => slotFor(editor, cardType),
+  fitSlots: (editor) => fitSlots(editor),
 });
 
 // R11 round 5 (H174): the Rive component shape, registered beside the cards (its runtime and assets from this page's origin)
 const riveShape = createRiveShape({ React, BaseBoxShapeUtil, HTMLContainer, T, useValue, resizeBox, createShapeId, editor: () => current });
+
+// R11 round 7 (H176): the desk behind the shapes and its bar (./desk.js); Fit the board is fitBeside (the whole desk beside the panel)
+const desk = createDesk({ React, useEditor, useValue, fit: (editor) => fitBeside(editor), project: () => (canvas.project ? canvas.project.name : null) });
 
 /**
  * R6 (H145): React roots for parts of the side panel drawn by the cards' own React parts (Studio's VoxVision preview), one per
@@ -1150,7 +1163,9 @@ function openBoard(editor, template) {
   for (let n = 2; names.has(name); n += 1) name = `${template ? template.title : 'Blank board'} ${n}`;
   const page = editor.createPage({ name }).getPages().find((p) => p.name === name);
   editor.setCurrentPage(page.id);
-  if (template && Array.isArray(template.frames)) {
+  if (template && template.kind === 'starter') {
+    openStarter(editor, template);
+  } else if (template && Array.isArray(template.frames)) {
     openGuided(editor, template);
   } else if (template) {
     const frame = createShapeId();
@@ -1231,16 +1246,66 @@ function openGuided(editor, t) {
   editor.selectNone();
   fitBeside(editor);
 }
+/**
+ * R11 round 7 (H176): a guided blank public starter (src/studio/templates/H*.json, TEMPLATE SCHEMA v1) on the page just opened:
+ * its title and what it is for, three step frames (01 Define the geometry · 02 Set the parameters · 03 Cook in Houdini, each a
+ * slot where the matching drawn card lands when it is added from Nodes), then the recovered structure, every card blank, every
+ * arrow bound at both ends (./starters.js starterRecords: fresh ids per opening, the recovered meta on every shape). One step of
+ * tldraw's undo; saved by the normal revision-checked save, to this project's board only. A starter whose bindings do not check
+ * draws nothing, and the band says why.
+ */
+function openStarter(editor, t) {
+  let built;
+  try { built = starterRecords(t, { shapeId: () => createShapeId() }); } catch (e) { band(e instanceof Error ? e.message : String(e), true); return; }
+  editor.markHistoryStoppingPoint(`timmy starter ${t.id}`);
+  editor.run(() => {
+    editor.createShapes(built.shapes);
+    editor.createBindings(built.bindings);
+  });
+  editor.selectNone();
+  fitBeside(editor);
+  band(`Opened the ${t.title} starter on a page of ${canvas.project ? `${canvas.project.name}'s` : 'this'} board: ${t.steps.length} steps, every card blank. A node added from Nodes lands in its step; nothing on the starter runs by itself.`);
+}
+/**
+ * R11 round 7 (H176): the empty slot on the page shown that takes a drawn card of `cardType` (./starters.js emptySlot: a starter's
+ * step frame named for it, holding no drawn card yet), with where the card sits inside it; null when there is none (the card
+ * then goes where the free-spot rule puts it). Never on a board Studio has left or holds read only.
+ */
+function slotFor(editor, cardType) {
+  if (!editor || current !== editor || identity.blocked()) return null;
+  const frame = emptySlot(editor.getCurrentPageShapes(), cardType);
+  if (!frame) return null;
+  return { frame: frame.id, name: String(frame.props.name || ''), at: slotPosition(), words: slottedWords(frame) };
+}
+/**
+ * R11 round 7 (H176): every slot frame on the page shown grown to show the cards inside it whole (a drawn card follows its
+ * content: its height changes as its record does). Never shrunk; outside tldraw's history, as Timmy's other follow-up writes
+ * are; nothing on a board Studio has left or holds read only.
+ */
+function fitSlots(editor) {
+  if (!editor || current !== editor || identity.blocked()) return;
+  const shapes = editor.getCurrentPageShapes();
+  const grow = [];
+  for (const f of shapes) {
+    if (!slotOf(f)) continue;
+    const fit = slotFit(f, shapes);
+    if (fit) grow.push({ id: f.id, type: 'frame', props: { w: fit.w, h: fit.h } });
+  }
+  if (grow.length) editor.run(() => editor.updateShapes(grow), { history: 'ignore' });
+}
 async function offerBoards() {
   const pick = document.getElementById('board-pick');
   let templates = [];
   let guided = [];
+  let starters = [];
   try {
     const response = await fetch('/api/canvas/templates', { cache: 'no-store' });
     if (response.ok) {
       const listed = await response.json();
       templates = listed.templates ?? [];
-      guided = listed.guided ?? [];
+      // R11 round 7 (H176): the starters ride in the same list, marked
+      guided = (listed.guided ?? []).filter((t) => t && t.kind !== 'starter');
+      starters = (listed.guided ?? []).filter((t) => t && t.kind === 'starter');
     }
   } catch {
     // Without the list, New board still opens a blank board.
@@ -1251,12 +1316,18 @@ async function offerBoards() {
     group.append(...guided.map((t) => el('option', t.title, { value: t.id })));
     pick.append(group);
   }
+  // R11 round 7 (H176): the Houdini starters (the recovered structures, blank, with their guidance steps)
+  if (starters.length) {
+    const group = el('optgroup', undefined, { label: 'Houdini starters, blank' });
+    group.append(...starters.map((t) => el('option', t.title, { value: t.id })));
+    pick.append(group);
+  }
   if (templates.length) {
     const group = el('optgroup', undefined, { label: 'Seeds, blank' });
     group.append(...templates.map((t) => el('option', `${t.title} (${t.domain})`, { value: t.id })));
     pick.append(group);
   }
-  const all = [...guided, ...templates];
+  const all = [...guided, ...starters, ...templates];
   document.getElementById('board-open').addEventListener('click', () => current && openBoard(current, all.find((t) => t.id === pick.value)));
 }
 /**
@@ -1504,6 +1575,8 @@ function followEditor(editor) {
       try { projectPanel?.boardChanged(); } catch { /* the next reading follows */ }
       // R6 (H145, step 4c): the nodes' connections follow the board (an arrow drawn between two cards, the selection)
       try { nodes.boardChanged(editor); } catch { /* the next change draws them */ }
+      // R11 round 7 (H176): a starter's slot frames follow the cards inside them (a drawn card's height follows its record)
+      try { fitSlots(editor); } catch { /* the next change fits them */ }
     });
   });
   draftsShown = '';
@@ -1531,6 +1604,8 @@ function mount(snapshot, b = canvas) {
         onMount: (editor) => {
           current = editor;
           editor.user.updateUserPreferences({ colorScheme: 'dark' });
+          // R11 round 7 (H176): the desk's zoom is bounded (10 % … 200 %, the Card Lab's maximum), stepped by tldraw's own menu and keys
+          try { editor.setCameraOptions({ ...editor.getCameraOptions(), zoomSteps: [...ZOOM_STEPS] }); } catch { /* tldraw keeps its own */ }
           if (identity.state === 'switching' || identity.state === 'paused') setEditable(false, editor);
           // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle. R4 (H55): with the project's cards.
           window.timmyCanvas = {
@@ -1645,7 +1720,8 @@ function startFrame() {
  * (its navigation panel and minimap on a wide window; its toolbar and the row of actions over it on a narrow one), else 8 px above
  * the window's foot. Measured once tldraw has laid them out, and again as they or the window change size.
  */
-const FOOT_PARTS = '.tlui-navigation-panel, .tlui-minimap, .tlui-main-toolbar__inner, .tlui-help-menu';
+// R11 round 7 (H176): and the desk's bar, drawn where tldraw's navigation panel was
+const FOOT_PARTS = '.tlui-navigation-panel, .tlui-minimap, .timmy-desk-dock, .tlui-main-toolbar__inner, .tlui-help-menu';
 let footWatch = null;
 function measureFoot() {
   const side = document.getElementById('side');
@@ -1751,7 +1827,8 @@ async function start() {
     overrides: { actions: (_editor, actions) => { const { 'toggle-dark-mode': _dark, ...kept } = actions; return kept; } },
     // R5 (H133): a pending draft's outline and label, in front of the canvas; the main menu without the color scheme
     // R7 (H151): and tldraw's style panel, folded while the board is idle on a small window (TimmyStylePanel)
-    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu, StylePanel: TimmyStylePanel },
+    // R11 round 7 (H176): the desk behind the shapes (OnTheCanvas) and its bar where tldraw's zoom menu and minimap were (NavigationPanel)
+    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu, StylePanel: TimmyStylePanel, OnTheCanvas: desk.Desk, NavigationPanel: desk.DeskBar },
   };
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.

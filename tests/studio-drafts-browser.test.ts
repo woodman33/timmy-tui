@@ -88,7 +88,7 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       const look = await page.$eval(`.timmy-draft-mark[data-draft="${id}"]`, (el) => { const s = getComputedStyle(el); const l = el.querySelector('.timmy-draft-label')!; return { style: s.borderTopStyle, color: s.borderTopColor, label: l.textContent, labelColor: getComputedStyle(l).color, events: s.pointerEvents }; });
       // R7 (H151; one amber next step: the strip's primary and the draft's Accept): the outline is silver, as what a model made is
       // (B10, B4), and its label says so in words
-      expect(look).toEqual({ style: 'dashed', color: 'rgb(232, 228, 217)', label: 'DRAFT · proposed by Timmy', labelColor: 'rgb(232, 228, 217)', events: 'none' });
+      expect(look).toEqual({ style: 'dashed', color: 'rgb(189, 202, 218)', label: 'DRAFT · proposed by Timmy', labelColor: 'rgb(189, 202, 218)', events: 'none' });
       await page.waitForSelector('#drafts:not([hidden])');
       expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-line`)).toMatch(/^DRAFT · proposed by Timmy · 2 shapes · from revision \d+$/);
       // R10 (H167): the job that proposed it, by its id, under the draft's Details

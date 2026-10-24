@@ -1,0 +1,39 @@
+{
+  "id": "H1",
+  "kind": "starter",
+  "from": { "template": "P67", "key": "kimi-houdini-handoff", "generated": "2026-07-22" },
+  "title": "Houdini handoff",
+  "domain": "houdini",
+  "intro": "A manifest from the planner to the one bridge owner who talks to Houdini: five lanes in the order the asset goes through them, then the manifest itself. Every card starts blank; the board never calls Houdini.",
+  "workbench": "timmy-starter-v1",
+  "page": "houdini",
+  "lanes": ["steps", "import", "normalize", "pack", "material", "variants", "manifest"],
+  "steps": [
+    { "n": "01", "verb": "Define the geometry", "slot": "result", "guide": "The asset this handoff is about. A result node of this project (a mesh Timmy measured, a VoxVision record) lands here from Nodes; else name its file in the manifest below." },
+    { "n": "02", "verb": "Set the parameters", "slot": "params", "guide": "The values the import needs. This project's parameter node lands here from Nodes; its Save and Rebuild go through the live board. Nothing on this board runs by itself." },
+    { "n": "03", "verb": "Cook in Houdini", "slot": "workflow", "guide": "No native Houdini operation is configured in Studio. A workflow node whose block runs the cook lands here from Nodes, and its Run goes through the live board; until then the manifest is what the bridge owner takes." }
+  ],
+  "shapes": [
+    { "key": "lane-import", "type": "geo", "x": 0, "y": 330, "w": 220, "h": 160, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "role": "gltf-hierarchy", "lane": "import",
+      "text": ["IMPORT", "How the source enters Houdini: the node that takes it, in the project's units."], "data": { "step": 1 } },
+    { "key": "lane-normalize", "type": "geo", "x": 260, "y": 330, "w": 220, "h": 160, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "role": "normalize", "lane": "normalize",
+      "text": ["NORMALIZE", "The scale and pivot the asset must have before anything else reads it."], "data": { "step": 2 } },
+    { "key": "lane-pack", "type": "geo", "x": 520, "y": 330, "w": 220, "h": 160, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "role": "pack", "lane": "pack",
+      "text": ["PACK", "How the geometry is packed before a material binds to it."], "data": { "step": 3 } },
+    { "key": "lane-material", "type": "geo", "x": 780, "y": 330, "w": 220, "h": 160, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "role": "material", "lane": "material",
+      "text": ["MATERIAL", "Where materials live and when they are assigned."], "data": { "step": 4 } },
+    { "key": "lane-variants", "type": "geo", "x": 1040, "y": 330, "w": 220, "h": 160, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "role": "variants", "lane": "variants",
+      "text": ["VARIANTS", "How many variations each hero asset gets, and how they differ."], "data": { "step": 5 } },
+    { "key": "manifest", "type": "geo", "x": 0, "y": 540, "w": 1260, "h": 250, "color": "grey", "fill": "none", "font": "mono", "size": "s", "align": "start", "role": "handoff-template", "lane": "manifest",
+      "text": ["HANDOFF MANIFEST · one per asset, filled by the planner", "asset id —", "source —", "scale —", "family —", "expected node —", "import method —", "pack order —", "qa status —", "bridge owner —"],
+      "data": { "fields": "asset id, source, scale, family, expected node, import method, pack order, qa status, bridge owner" } },
+    { "key": "rule", "type": "geo", "x": 0, "y": 830, "w": 1260, "h": 90, "color": "grey", "fill": "none", "dash": "dashed", "font": "mono", "size": "s", "role": "bridge-stop", "lane": "manifest",
+      "text": ["ONE BRIDGE OWNER", "This board writes the manifest. It never calls Houdini, loads or saves a scene: the bridge owner imports from the manifest."], "data": {} }
+  ],
+  "bindings": [
+    { "key": "f-import", "from": "lane-import", "to": "lane-normalize" },
+    { "key": "f-normalize", "from": "lane-normalize", "to": "lane-pack" },
+    { "key": "f-pack", "from": "lane-pack", "to": "lane-material" },
+    { "key": "f-material", "from": "lane-material", "to": "lane-variants" }
+  ]
+}

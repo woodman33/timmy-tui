@@ -327,7 +327,8 @@ export function createNodes(deps) {
     const card = (now.cards || []).find((c) => c && c.id === id);
     if (!card || deps.drawnType(card.kind) !== kind) throw new Error(`Not added: no ${k.one} ${cut(id, 80)} in ${now.project.name} now.`);
     const r = await deps.placeCard(String(id), now);
-    return { kind, id: String(id), project: now.project.id, shape: r.shape, words: `Added a ${k.one} to ${now.project.name}'s board: ${cut(card.title, 120)}.` };
+    // R11 round 7 (H176): a starter's slot that took the card is named (./cards.js place: the slot's words)
+    return { kind, id: String(id), project: now.project.id, shape: r.shape, slot: r.slot ? r.slot.frame : null, words: `Added a ${k.one} to ${now.project.name}'s board: ${cut(card.title, 120)}.${r.slot && r.slot.words ? ` ${r.slot.words}` : ''}` };
   }
 
   // ── step 4c: connections ──

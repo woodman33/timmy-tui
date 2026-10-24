@@ -58,7 +58,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
     return { page, context, errors };
   }
 
-  it('draws the canvas black, tldraw\'s panels and Timmy\'s in #070707 wells, the active tool amber with black ink, tooltips dark with off-white words', async () => {
+  it('draws the canvas on the B11 registry (#080B0F), tldraw\'s panels and Timmy\'s on its surface (#111A23), the active tool amber with ink, tooltips raised with the text colour', async () => {
     const { page, context, errors } = await open();
     try {
       const seen = await page.evaluate(() => {
@@ -71,25 +71,26 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
         };
       });
       expect(seen).toEqual({
-        canvas: 'rgb(0, 0, 0)', menu: 'rgb(7, 7, 7)', style: 'rgb(7, 7, 7)', toolbar: 'rgb(7, 7, 7)', side: 'rgb(7, 7, 7)',
-        toolOn: 'true', toolFill: 'rgb(255, 176, 0)', toolInk: 'rgb(0, 0, 0)', text: 'rgb(242, 239, 233)',
+        // R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): canvas #080B0F, surface #111A23, ink #1C3043 on the amber tool, text #ECF1F5
+        canvas: 'rgb(8, 11, 15)', menu: 'rgb(17, 26, 35)', style: 'rgb(17, 26, 35)', toolbar: 'rgb(17, 26, 35)', side: 'rgb(17, 26, 35)',
+        toolOn: 'true', toolFill: 'rgb(255, 176, 0)', toolInk: 'rgb(28, 48, 67)', text: 'rgb(236, 241, 245)',
       });
       await page.hover('[data-testid="tools.draw"]');
       await page.waitForSelector('.tlui-tooltip', { timeout: 5000 });
-      expect(await page.$eval('.tlui-tooltip', (t) => ({ bg: getComputedStyle(t).backgroundColor, ink: getComputedStyle(t).color }))).toEqual({ bg: 'rgb(51, 51, 51)', ink: 'rgb(242, 239, 233)' });
+      expect(await page.$eval('.tlui-tooltip', (t) => ({ bg: getComputedStyle(t).backgroundColor, ink: getComputedStyle(t).color }))).toEqual({ bg: 'rgb(28, 41, 54)', ink: 'rgb(236, 241, 245)' });
       expect(errors).toEqual([]);
     } finally {
       await context.close();
     }
   }, 90_000);
 
-  it("keeps tldraw's palette for what is drawn, and sets only the canvas's own colors: the selection and its brush amber, snap lines silver, the canvas black", async () => {
+  it("keeps tldraw's palette for what is drawn, and sets only the canvas's own colors: the selection and its brush amber, snap lines in the secondary text, the canvas #080B0F", async () => {
     const { page, context } = await open();
     try {
       const theme = await page.evaluate(() => { const e = (window as never as Win).timmyCanvas.editor; return { mode: e.getColorMode(), dark: e.getCurrentTheme().colors.dark }; });
       expect(theme.mode).toBe('dark');
       expect(theme.dark).toMatchObject({
-        background: '#000000', negativeSpace: '#000000', selectionStroke: '#FFB000', selectionFill: '#FFB00029', brushStroke: '#FFB0008C', brushFill: '#FFB00014', snap: '#E8E4D9', laser: '#FFB000', text: '#F2EFE9', cursor: '#F2EFE9', selectedContrast: '#F2EFE9',
+        background: '#080B0F', negativeSpace: '#080B0F', selectionStroke: '#FFB000', selectionFill: '#FFB00029', brushStroke: '#FFB0008C', brushFill: '#FFB00014', snap: '#BDCADA', laser: '#FFB000', text: '#ECF1F5', cursor: '#ECF1F5', selectedContrast: '#ECF1F5',
         // tldraw 5.5.2's own values for what is drawn, unchanged
         solid: '#010403', noteBorder: 'rgb(20, 20, 20)',
         black: expect.objectContaining({ solid: '#f2f2f2', noteFill: '#2c2c2c', frameFill: '#0c0c0c' }),
@@ -104,7 +105,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
   // R7 (H151; H147's R6 finding 4: "tldraw's style panel shows blue, purple and red swatches"; the operator, 2026-10-16: "Preserve
   // editable content colours where appropriate"): the swatches are the board's content colours, the ones a person chooses for their
   // shapes (B10: "Content keeps its colors ... tldraw artwork ... never recolored"), so each shows tldraw's own palette colour; the
-  // panel around them is Timmy's chrome: its well #070707, its words off-white, the selected control and focus amber.
+  // panel around them is Timmy's chrome: its well the B11 surface (#111A23), its words the text colour, the selected control and focus amber.
   it('R7 (H151): the style panel\'s swatches are tldraw\'s own content palette (blue, violet and red among them, as a person chooses them for shapes), and the panel around them is Timmy\'s chrome', async () => {
     const { page, context, errors } = await open();
     try {
@@ -125,15 +126,23 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
       expect(seen.swatches.length).toBeGreaterThanOrEqual(12);
       for (const s of seen.swatches) expect(s.shown, s.name).toBe(s.palette);
       expect(seen.swatches.map((s) => s.name)).toEqual(expect.arrayContaining(['blue', 'violet', 'red', 'light-blue', 'light-violet']));
-      expect(seen.well).toBe('rgb(7, 7, 7)');
-      expect(seen.words).toBe('rgb(242, 239, 233)');
+      expect(seen.well).toBe('rgb(17, 26, 35)');
+      expect(seen.words).toBe('rgb(236, 241, 245)');
       expect(errors).toEqual([]);
     } finally {
       await context.close();
     }
   }, 90_000);
 
-  it('has no white, cyan, blue or violet chrome: every background, border and word outside the drawing and the palette\'s swatches', async () => {
+  // R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): the browser surfaces take the Card Lab's materials, which are blue-tinted
+  // darks (#080B0F canvas, #111A23 surface, #1C2936 raised, #44586B border): B10's "no other hue in the chrome" is the terminal's rule
+  // now. What holds for the chrome here: every background, border and word outside the drawing is a colour of the B11 registry (the
+  // page's own sheet names no colour but a --timmy-ui-* token), no white backgrounds (the one light focal object is a task's, not
+  // a page's: none on Studio's chrome), and no saturated hue that is not the registry's: no cyan, no violet, no blue of tldraw's own.
+  const REGISTRY_RGB = new Set(['8, 11, 15', '17, 26, 35', '28, 41, 54', '232, 239, 245', '68, 88, 107', '30, 42, 54', '236, 241, 245', '189, 202, 218', '154, 175, 195', '28, 48, 67', '59, 81, 104', '255, 176, 0', '40, 254, 20', '0, 215, 0', '255, 95, 86',
+    // the amber family (the default), and the elevation gradients' own stops (tokens.ts UI_ELEVATION; a gradient reads as its stops)
+    '214, 170, 100', '234, 208, 163', '64, 46, 20', '240, 229, 212', '20, 30, 41', '14, 22, 31', '34, 48, 62', '22, 33, 44', '14, 21, 29']);
+  it('has no white and no hue of its own in the chrome: every background, border and word outside the drawing is the B11 registry\'s (or a mix of it with the canvas)', async () => {
     const { page, context } = await open();
     try {
       // tldraw's main menu open too, with its Preferences
@@ -141,7 +150,8 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
       await page.hover('[data-testid="main-menu-sub.preferences-button"]');
       await page.waitForSelector('[data-testid="main-menu-sub.preferences-content"]');
       const offenders = await page.evaluate(() => {
-        const parse = (c: string) => { const m = c.match(/[\d.]+/g); return m ? m.map(Number) : null; };
+        // rgb(r, g, b[, a]) in 0..255; Chromium gives a colour-mixed value as color(srgb r g b[ / a]) in 0..1: scaled to the same scale
+        const parse = (c: string) => { const m = c.match(/[\d.]+/g); if (!m) return null; const n = m.map(Number); return c.startsWith('color(srgb') ? n.map((x, i) => (i < 3 ? Math.round(x * 255) : x)) : n; };
         const hueOf = ([r, g, b]: number[]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b); if (mx === mn) return { h: 0, s: 0 }; const d = mx - mn; const s = d / mx; let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; if (h < 0) h += 360; return { h, s }; };
         const out: string[] = [];
         for (const el of document.querySelectorAll('body *')) {
@@ -158,12 +168,19 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
             const { h, s: sat } = hueOf([r, g, b]);
             const name = `${(el.getAttribute('data-testid') || el.id || el.className || el.tagName).toString().slice(0, 50)} ${prop} ${value}`;
             if (prop === 'background' && r > 200 && g > 200 && b > 200) out.push(`white: ${name}`);
-            if (sat > 0.3 && h >= 170 && h <= 300) out.push(`cyan/blue/violet: ${name}`);
+            out.push(`rgb: ${[r, g, b].join(', ')} · ${name}`);
+            void h; void sat;
           }
         }
         return [...new Set(out)];
       });
-      expect(offenders).toEqual([]);
+      expect(offenders.filter((o) => o.startsWith('white: '))).toEqual([]);
+      // every opaque chrome colour is the registry's, or a mix of two registry colours (tldraw mixes its muted and hint tones from
+      // the text and the canvas; a disabled word is the secondary text mixed with the canvas): a colour of the page's own is neither
+      const reg = [...REGISTRY_RGB].map((r) => r.split(', ').map(Number));
+      const mixOf = (rgb: number[]): boolean => reg.some((a) => reg.some((b) => [0, 1, 2].every((i) => rgb[i] >= Math.min(a[i], b[i]) - 2 && rgb[i] <= Math.max(a[i], b[i]) + 2)));
+      const strange = offenders.filter((o) => o.startsWith('rgb: ')).map((o) => o.slice(5)).filter((o) => { const rgb = o.split(' · ')[0]; return !REGISTRY_RGB.has(rgb) && !mixOf(rgb.split(', ').map(Number)); });
+      expect(strange).toEqual([]);
     } finally {
       await context.close();
     }
@@ -186,7 +203,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
       await page.keyboard.press('Control+/');
       await page.waitForTimeout(300);
       expect(await page.evaluate(() => (window as never as Win).timmyCanvas.editor.getColorMode())).toBe('dark');
-      expect(await page.$eval('.tl-background', (e) => getComputedStyle(e).backgroundColor)).toBe('rgb(0, 0, 0)');
+      expect(await page.$eval('.tl-background', (e) => getComputedStyle(e).backgroundColor)).toBe('rgb(8, 11, 15)');
     } finally {
       await context.close();
     }
