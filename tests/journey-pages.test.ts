@@ -356,7 +356,9 @@ async function expectScaffold(page: Page, name: string): Promise<Scaffold> {
   const s = await scaffoldOf(page);
   const piece = (what: string): string => `${name}: ${what} (H175's SHELL CONTRACT v1 — the page scaffold; adjust SHELL in this test to the posted line if the names differ); the page read: ${JSON.stringify({ page: s.page, kicker: s.kicker, title: s.title, primary: s.primary, regions: s.regions }).slice(0, 600)}`;
   expect(s.page, piece('a shown page (section.page)')).not.toBe('');
-  expect(s.kicker, piece('the kicker "NN / VERB PHRASE"')).toMatch(/^\d{2}\s*\/\s*\S+/);
+  // the kicker: "NN / VERB PHRASE" (the number is the rail's order, §2.3); a page outside the rail carries its name instead of a number
+  // (H173's Settings: "SETTINGS / SET HOW TIMMY RUNS")
+  expect(s.kicker, piece('the kicker "NN / VERB PHRASE" (a page outside the rail: "NAME / VERB PHRASE")')).toMatch(/^(\d{2}|[A-Z][A-Z &]*)\s*\/\s*\S+/);
   expect(s.title.length, piece('the title')).toBeGreaterThan(0);
   expect(s.description.length, piece('the one-line description')).toBeGreaterThan(0);
   expect(s.primary.length, piece('the PRIMARY NEXT ACTION at the right')).toBeGreaterThan(0);
