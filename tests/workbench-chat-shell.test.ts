@@ -112,6 +112,11 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     const f = frame(data(), ui());
     const c = center(text(f));
     expect(c[4]).toBe('CHAT / tray');
+    // (R11 round 7, H177: the page's one-line description under its title, grey, the hierarchy's "current task" row)
+    // (62 cells: whole in the Chat screen's center at 80x24 too)
+    expect(c[5]).toBe('Talk to Timmy about this project; the route and its cost show.');
+    expect(f.screen[5].find((s) => s.text.startsWith('Talk to Timmy'))?.role).toBe('secondary');
+    expect(c[6]).toBe('');
     expect(c[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(c[8]).toBe('Summarise the newest run in one line.');
     expect(c[10]).toMatch(/^TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d$/);
@@ -881,6 +886,8 @@ describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, 
     const n = text(frame(data(), ui(find), 80, 24));
     expect(cols(n[4], 16, 79)).toMatch(/^CHAT \/ tray +1–4 of 15 workspaces$/);
     expect(cols(n[11], 16, 79)).toBe('> Chat  · Conversation');
+    // (R11 round 7, H177: the description whole in the center's 62 cells at 80x24, under CHAT / project, on the conversation)
+    expect(cols(text(frame(data(), ui(), 80, 24))[5], 16, 79)).toBe('Talk to Timmy about this project; the route and its cost show.');
   });
 });
 

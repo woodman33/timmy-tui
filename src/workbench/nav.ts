@@ -4,7 +4,8 @@
  * Canvas); CREATE (Vision, Motion & 3D); CONNECT (Models & accounts, Tools & integrations, Control Room), each page's other
  * workspaces after it (Motion after 3D Create; God's Eye View, REA, Templates and Fleet & Clef under CONNECT). Each workspace
  * has a title (its page head's), one line saying what this terminal view shows (the page head's description, kept to 76
- * cells so an 80-column terminal shows it whole), and the family of tools it gathers. The words are Timmy's own: nothing here
+ * cells so an 80-column terminal shows it whole; Chat's to 62, the Chat screen's center at 80 columns), and the family of
+ * tools it gathers. The words are Timmy's own: nothing here
  * is the browser prototype's sample text. Before round 7 the groups were the terminal reference's CREATE, OPERATE, LIBRARY and
  * Connections at the foot.
  */
@@ -35,7 +36,7 @@ export interface NavItem {
 }
 
 export const NAV: readonly NavItem[] = [
-  { id: 'chat', group: 'chat', label: 'Chat', title: 'Chat · conversation', task: 'Conversation', purpose: 'Talk to Timmy about this project; the route says where it goes and its cost.' },
+  { id: 'chat', group: 'chat', label: 'Chat', title: 'Chat · conversation', task: 'Conversation', purpose: 'Talk to Timmy about this project; the route and its cost show.' },
   { id: 'files', group: 'work', label: 'Files', title: 'Files · the project tree', task: 'Files', purpose: 'Every project file by kind: source, references, workflows, results, records.' },
   { id: 'workflows', group: 'work', label: 'Workflows', title: 'Workflows · plan and run', task: 'Workflow', purpose: 'Each workflow document\'s blocks, which need you, and how each last ended.' },
   { id: 'logs', group: 'work', label: 'Logs & Receipts', title: 'Runs & receipts · events, operations and the chain', task: 'Logs and receipts', purpose: 'The event log newest first, each operation to its receipt, and the chain.', rail: 'Runs & receipts', also: ['Runs & receipts', 'Logs & records'] },

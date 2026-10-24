@@ -610,7 +610,8 @@ export function previewView(c: ViewCtx): View {
   else {
     const kinds = data.files.groups.map((gr) => [gr.kind, own(gr)] as const).filter(([, n]) => n).map(([k, n]) => count(n, k === 'other' ? 'other file' : KIND_WORD[k]));
     lines.push(...wrapSegs([S(kinds.join(` ${g.sep} `), 'text')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
-    lines.push(...wrapSegs([S(`in ${data.project.shown} ${g.sep} 0 Logs & Receipts lists them`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
+    // (R11 round 7, H177: the folder is the Inspector's ([i] About); Files (0, then 0 again) lists them)
+    lines.push(...wrapSegs([S(`Files lists them (0, then 0 again) ${g.sep} the folder: [i]`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
   }
   if (logs) lines.push(...wrapSegs([S(`not counted: ${count(logs, 'log')} Timmy writes itself (logs/*.log)`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
   lines.push(blank);
