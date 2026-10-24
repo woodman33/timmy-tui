@@ -329,7 +329,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect((await root.getAttribute('data-artboard')) || h.artboard, 'the console takes the AgentConsole artboard').toBe('AgentConsole');
         const boxOf = await o.page.locator(`canvas[data-timmy-rive="${key}"]`).first().boundingBox();
         expect(boxOf, 'the console\'s canvas has a box').toBeTruthy();
-        if (!phone) expect(boxOf!.width, 'readable: at least 320 px wide at 1440').toBeGreaterThanOrEqual(320);
+        if (!phone) expect(boxOf!.width, 'readable: the asset\'s card size (H174: 320 px; the borders inside)').toBeGreaterThanOrEqual(300);
         else expect(boxOf!.width, 'within the phone\'s width').toBeLessThanOrEqual(size.width);
         expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
         expect(await label(o.page, key)).toBe('idle');
