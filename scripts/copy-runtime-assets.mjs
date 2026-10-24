@@ -44,6 +44,17 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/client/panel-create.js',
   // R8 (H155): tab 7's panes, read-only
   'src/companion/client/panel-control.js',
+  // R11 round 7 (the lead, UI-OWNERSHIP.md): the page owners' new sheets and scripts, named once here and in server.ts
+  'src/companion/client/panel-run.css',
+  'src/companion/client/panel-control.css',
+  'src/companion/client/panel-vox.css',
+  'src/companion/client/panel-tools.css',
+  'src/companion/client/panel-studio.css',
+  'src/companion/client/panel-create.css',
+  'src/companion/client/panel-files.js',
+  'src/companion/client/panel-files.css',
+  'src/companion/client/panel-settings.js',
+  'src/companion/client/panel-settings.css',
   // R10 CHAT (H171): the shell's left menu and the Chat composition
   'src/companion/client/chat-shell.js',
   'src/companion/client/chat-shell.css',
