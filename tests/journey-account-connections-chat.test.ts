@@ -104,13 +104,14 @@ afterAll(async () => {
 
 // ── the page ──────────────────────────────────────────────────────────────────
 
-interface Opened { page: Page; errors: string[]; left: string[]; refused: string[]; frames: string[]; seam: string; close: () => Promise<void> }
+interface Opened { page: Page; errors: string[]; missing: string[]; left: string[]; refused: string[]; frames: string[]; seam: string; close: () => Promise<void> }
 
 /** The page at a size, with the launch token in its address; what leaves 127.0.0.1 and every page error recorded. */
 async function open(server: CompanionServer, size: { width: number; height: number }, o: { session?: string; tab?: string } = {}): Promise<Opened> {
   const context = await browser.newContext({ viewport: size });
   const page = await context.newPage();
   const errors: string[] = [];
+  const missing: string[] = [];
   const left: string[] = [];
   const refused: string[] = [];
   // every frame the companion's socket sent the page, as `<type>` or `session:<ok>:<needs>` (never a token's value); '--seam--' marks the adoption
@@ -118,10 +119,15 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
-    // the browser's own line for a request the server refused: a 401 before a session is the page's first read, by design
-    // (the shell then shows the account screen); a 404 (a resource the page asks for and the companion has not) stays an error
-    if (/Failed to load resource: .* 401 /.test(m.text())) return;
-    errors.push(/Failed to load resource/.test(m.text()) ? `${m.text()} — ${m.location().url}` : m.text());
+    const t = m.text();
+    if (!/Failed to load resource/.test(t)) { errors.push(t); return; }
+    // the browser's own line for a request the server answered 4xx/5xx or could not reach:
+    // - a 401 before a session is the page's first read, by design (the shell then shows the account screen);
+    // - the FAKE identity provider's instance is unreachable on purpose (no name but 127.0.0.1 resolves): Clerk's own fetches to it;
+    // - anything else (a 404: a resource the page asks for and the companion has not) is kept apart as `missing`, asserted by the steps
+    if (/ 401 /.test(t)) return;
+    if (/ERR_NAME_NOT_RESOLVED/.test(t) && /clerk\.accounts\.invalid/.test(m.location().url)) return;
+    missing.push(`${t} — ${m.location().url}`);
   });
   page.on('request', (r) => { try { if (new URL(r.url()).hostname !== '127.0.0.1') left.push(r.url()); } catch { /* data: */ } });
   // every 401/403 the page met: which request, whether it carried a session (for a failure's words; the tokens' values never kept)
@@ -143,7 +149,7 @@ async function open(server: CompanionServer, size: { width: number; height: numb
   await page.goto(server.url);
   const seam = o.session ? await useSession(page, o.session, o.tab as 'chat' | undefined, () => frames.push('--seam--'), () => `refused so far: ${refused.join(' | ') || 'none'}; frames: ${frames.join(',')}`) : '';
   if (!frames.includes('--seam--')) frames.push('--seam--');
-  return { page, errors, left, refused, frames, seam, close: () => context.close() };
+  return { page, errors, missing, left, refused, frames, seam, close: () => context.close() };
 }
 
 /**
@@ -260,6 +266,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(after).not.toMatch(/Signed in|Sign out/i);
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
+        expect(o.missing, 'resources the page asked for and the companion has not').toEqual([]);
       } finally { await o.close(); }
     });
 
@@ -320,6 +327,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
         if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
+        expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
       } finally { await o.close(); }
     });
 
@@ -360,7 +368,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // the model's detail opens; "Use for the next turn" is the choice (POST /api/chat/choose: Ollama asked for the exact name first)
         const use = o.page.getByRole('button', { name: /Use for the next turn/ }).first();
         await use.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
-        await use.click({ timeout: 10_000 }).catch(async (e: unknown) => {
+        // (H171, 23:20: the detail sits under the clicked row inside #cm-list — li.is-selected > #cm-detail, the button [data-cm-use];
+        // Enter on the row chooses directly, which is the way on a phone's overlay when the detail is not in view)
+        await use.click({ timeout: 10_000 }).catch(async () => { const li = o.page.locator('#cm-list li', { hasText: MODEL }).first(); await li.focus(); await li.press('Enter'); }).catch(async (e: unknown) => {
           const panel = await o.page.evaluate(() => { const p = document.querySelector('.cx-models'); return p ? `${(p as HTMLElement).innerText.slice(0, 1200)} [visible: ${(p as HTMLElement).offsetParent !== null}, ${(p as HTMLElement).getBoundingClientRect().width}x${(p as HTMLElement).getBoundingClientRect().height}]` : 'no .cx-models'; }).catch(() => 'unreadable');
           throw new Error(`"Use for the next turn" after the model's row was clicked (${at}): ${e instanceof Error ? e.message.split('\n')[0] : String(e)}; the Models panel: ${panel}`);
         });
@@ -418,6 +428,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(draft).toBe(DRAFT);
         expect(await html(o.page)).not.toContain(FAKE_CLOUD_KEY);
         expect(o.errors, 'page errors').toEqual([]);
+        expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
       } finally { await o.close(); }
     });
   }
@@ -435,6 +446,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const overflow = await o.page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth);
       expect(overflow, 'horizontal overflow in CSS pixels').toBeLessThanOrEqual(0);
       expect(o.errors, 'page errors').toEqual([]);
+      expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
     } finally { await o.close(); }
   });
 });
