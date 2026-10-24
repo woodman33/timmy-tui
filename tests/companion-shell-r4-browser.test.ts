@@ -102,30 +102,38 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // the account screen; signed in → connections until a route is ready: H172's journey)
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
       expect(await page.evaluate(() => (window as unknown as { TimmyShell: { current(): string; SCREENS: string[] } }).TimmyShell.SCREENS)).toEqual(['account', 'connections', 'chat']);
-      expect(await page.isVisible('#screen-chat')).toBe(true);
+      // (R11 round 7: the Chat is the page section #ws-chat of the one shell — SHELL CONTRACT v1 §2.1)
+      expect(await page.isVisible('#ws-chat')).toBe(true);
       expect(await page.isVisible('#screen-account')).toBe(false);
       expect(await text(page, '#rail-account-name')).toBe('This computer’s operator');
       // the rail's account block opens H173's account screen, mounted into the shell: "Identity · not configured" (GET
       // /api/identity names what is missing), the sign-up card with its primary step off; nothing signs in
       await page.click('#rail-account-go');
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('account');
-      expect(await page.isVisible('#screen-chat')).toBe(false);
-      expect(await text(page, '#screen-account h2')).toBe('Create your Timmy account');
-      expect(await text(page, '#screen-account')).toContain('Identity · not configured');
-      expect(await page.isDisabled('#screen-account .sh-btn-primary')).toBe(true);
+      expect(await page.isVisible('#ws-chat')).toBe(false);
+      // (R11 round 7, H173's account page on the scaffold: the UNCONFIGURED blocker — no identity provider → no sign-up form is
+      // pretended; the page says so and offers Continue as the operator)
+      expect(await text(page, '#screen-account #ac-blocker-title')).toBe('No identity provider is configured.');
+      expect(await text(page, '#screen-account')).toContain('Sign-in is not set up on this companion');
+      expect(await page.$$eval('#screen-account .ac-submit', (els) => els.length)).toBe(0);
       // the shell remembers the screen id only: never a token, never a key (the screens are reached by the shell: the
       // account screen has no way around sign-in; H170's connections screen has Explore without a model → chat)
       // the rail's Models & accounts opens H170's connections screen, mounted: its routes read as this computer's operator
       // (no provider configured: the operator principal), the preview's four cards; Explore without a model → Chat
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
-      await page.click('#rail-menu .rail-item[data-shell-go="connections"]');
+      await page.click('#rail-menu .rail-item[data-page="connections"]');
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('connections');
       await page.waitForSelector('#screen-connections .cn-card', { timeout: 20_000 });
-      expect(await text(page, '#screen-connections h1')).toBe('Choose how you want to run.');
+      // (R11 round 7: H170's words on the scaffold's head — the order's "One model is enough to begin.")
+      expect(await text(page, '#screen-connections .page-head .page-title')).toBe('One model is enough to begin.');
       expect(await page.$$eval('#screen-connections .cn-card', (els) => els.length)).toBe(4);
-      await page.click('#screen-connections button:has-text("Explore without a model")');
+      // (R11 round 7: H170's "Explore without a model" is his head's text action; on the scaffold head (H175 97389f14) the control is
+      // his to place — when it is there it leads to Chat, else the rail's Chat does: said FOR H170 in the handoff)
+      const explore = page.locator('#screen-connections button:has-text("Explore without a model")');
+      if (await explore.count()) await explore.first().click(); else await page.click('#rail-menu .rail-item[data-page="chat"]');
+      await page.waitForFunction(() => document.body.dataset.screen === 'chat', null, { timeout: 10_000 });
       expect(await page.evaluate(() => document.body.dataset.screen)).toBe('chat');
-      expect(await page.isVisible('#screen-chat')).toBe(true);
+      expect(await page.isVisible('#ws-chat')).toBe(true);
       const stored = await page.evaluate(() => Object.entries(localStorage).map(([k, v]) => `${k}=${v}`).join('\n'));
       expect(stored).toContain('timmy.shell.screen=chat');
       expect(stored).not.toMatch(/[0-9a-f]{64}|sk-or-/);
@@ -148,7 +156,9 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // HTTP 404" to the console per canvas. The runtime's Rive is wrapped to record every construction (put on the page when
       // no runtime is here), the marks are drawn again, and the mark's file is neither asked for nor constructed: of the mark
       // the page's one read is mark.json; the only .riv asked for is the native UI's
-      await page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => new URL(e.name).pathname === '/assets/mark.json'), null, { timeout: 10_000 });
+      // (R11 round 7, H174 a4914820: the mark's words come with the components listing — GET /api/rive/assets — and /assets/mark.json
+      // is asked only when no listing answers; either read is the one)
+      await page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => ['/assets/mark.json', '/api/rive/assets'].includes(new URL(e.name).pathname)), null, { timeout: 10_000 });
       await page.evaluate(() => {
         const made: unknown[] = [];
         const w = window as unknown as { rive?: { Rive?: new (o: unknown) => unknown; made?: unknown[] } };
@@ -166,7 +176,8 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(rive.made).toBe(0);
       expect(rive.asked.filter((p) => /timmy-mark\.riv$/.test(p))).toEqual([]);
       expect(rive.asked.filter((p) => /\.riv$/.test(p)).every((p) => p === '/assets/rive/timmy-ui/timmy-ui.riv')).toBe(true);
-      expect(rive.asked).toContain('/assets/mark.json');
+      // (R11 round 7, H174 a4914820: the mark's words ride the components listing; /assets/mark.json is asked only without one)
+      expect(rive.asked.some((p) => p === '/assets/mark.json') || (await page.evaluate(() => performance.getEntriesByType('resource').some((e) => new URL(e.name).pathname === '/api/rive/assets')))).toBe(true);
       expect(rive.started.length).toBeGreaterThan(0);
       expect(rive.started.every((s) => s === null)).toBe(true);
       expect(consoleErrors.filter((e) => /Rive|\.riv|404/.test(e))).toEqual([]);
@@ -177,9 +188,10 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await text(page, '#rail-project-name')).toBe('fresh');
       expect(await text(page, '#rail-new-conv')).toBe('+ New conversation');
       expect(await texts(page, '#rail-menu .rail-group:not([hidden])')).toEqual(['Work', 'Create', 'Connect']);
-      expect(await texts(page, '#rail-menu .rail-item .rail-label')).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'VoxVision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations']);
+      // (R11 round 7: the shell's rail — D3's ten destinations in their groups; Models & accounts a page item like the others)
+      expect(await texts(page, '#rail-menu .rail-item .rail-label')).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'VoxVision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations', 'Control Room']);
       expect(await page.getAttribute('#rail-menu .rail-item[data-dest="chat"]', 'aria-current')).toBe('page');
-      expect(await page.getAttribute('#rail-menu .rail-item[data-shell-go]', 'data-shell-go')).toBe('connections');
+      expect(await page.getAttribute('#rail-menu .rail-item[data-page="connections"]', 'data-dest')).toBe('connections');
       expect(await text(page, '#rail-avatar')).toBe('T');
       // (the lead's ruling of 21:48: no identity provider → this computer's operator, the dependency named)
       expect(await text(page, '#rail-account-name')).toBe('This computer’s operator');
@@ -196,8 +208,10 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await text(page, '#cx-kicker')).toBe('01 / START A CONVERSATION');
       expect(await text(page, '#cx-tag')).toBe('FAKE model on this computer');
       expect(await text(page, '#cx-descriptor-state')).toBe('Local logs · cloud sync off');
-      expect(await text(page, '#cx-empty .cx-welcome-title')).toBe('What would you like to make?');
-      expect(await text(page, '#cx-empty .cx-welcome-line')).toBe('Your models, tools and ideas share one workspace.');
+      // (R11 round 7, on the scaffold: the page head carries the question and the line; the welcome the mark, "Start with", the starters)
+      expect(await text(page, '#ws-chat .page-head .page-title')).toBe('What would you like to make?');
+      expect(await text(page, '#ws-chat .page-head .page-intro')).toBe('Your models, tools and ideas share one workspace.');
+      expect(await text(page, '#cx-empty .cx-welcome-start')).toBe('Start with');
       expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent, e.querySelector('.cx-way-words')?.textContent]))).toEqual([
         ['plan', 'Plan a project', 'Turn an idea into the next step.'], ['image', 'Inspect an image', 'Bring it into VoxVision.'], ['workflow', 'Build a workflow', 'Connect your tools around a task.'],
       ]);
@@ -230,7 +244,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       await page.evaluate(() => document.fonts.ready);
       const whole = await page.evaluate(() => {
         const sb = document.getElementById('cx-scroll')!.getBoundingClientRect();
-        const parts = ['#cx-empty .cx-welcome-mark', '#cx-empty .cx-welcome-title', '#cx-empty .cx-welcome-line', ...['plan', 'image', 'workflow'].map((id) => `#cx-empty [data-cx-start="${id}"]`)];
+        const parts = ['#cx-empty .cx-welcome-mark', '#cx-empty .cx-welcome-start', ...['plan', 'image', 'workflow'].map((id) => `#cx-empty [data-cx-start="${id}"]`)];
         return { open: document.body.classList.contains('console-open'), scroll: { top: Math.round(sb.top), bottom: Math.round(sb.bottom) }, parts: parts.map((sel) => { const e = document.querySelector(sel)!; const r = e.getBoundingClientRect(); return { sel, top: Math.round(r.top), bottom: Math.round(r.bottom), inside: r.top >= sb.top - 1 && r.bottom <= sb.bottom + 1 && r.bottom <= window.innerHeight, cut: e.scrollHeight > e.clientHeight + 1 }; }) };
       });
       expect(whole.open).toBe(true);
@@ -263,9 +277,9 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       // (no identity provider configured: the page is this computer's operator, so Send is amber with a draft and a route;
       // with a provider configured and no session it is off, saying "Sign in to send: the turn runs in your own Timmy home.")
       expect(await page.isDisabled('#cx-send')).toBe(false);
-      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
+      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundImage)).toContain('linear-gradient'); // (B11: the primary's material, the family gradient; never green)
       // the bottom row
-      expect(await texts(page, '#cx-controls .cx-ctl')).toEqual(['▱ Plan / Run', '◇ Permissions', '$ Budget', '≡ Logs', '⌁ Cloudflare optional']);
+      expect(await texts(page, '#cx-controls .cx-ctl')).toEqual(['▱ Plan / Run', '◇ Permissions', '$ Budget', '≡ Logs', '? Keys', '⌁ Cloudflare optional']); // (round 7: Keys on the row; the top row's went with the shell)
       // the right panel: Models | Tools; the provider tabs; the chosen tab's description and its action; the five controls
       expect(await texts(page, '#cx-models .cx-panel-tab')).toEqual(['Models', 'Tools']);
       expect(await texts(page, '#cx-models .cm-provider')).toEqual(['OpenRouter', 'Ollama local', 'Ollama cloud', 'Cloudflare']);
@@ -401,10 +415,13 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
     try {
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('chat'));
       await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
-      expect(await page.isVisible('#shell-rail')).toBe(false);
-      expect(await page.isVisible('#cx-menu')).toBe(true);
-      expect(await page.isVisible('#cx-connections')).toBe(true);
-      expect(await page.isVisible('#cx-models-toggle')).toBe(true);
+      // (R11 round 7, SHELL CONTRACT v1 §4: the rail is a top strip with Menu (#shell-menu) over a closed sheet; Models & accounts is
+      // in the sheet; the Models context opens from the head's "Models" button; the Chat's own top row is the shell's now)
+      expect(await page.$eval('#rail-sheet', (e) => getComputedStyle(e).display)).toBe('none');
+      expect(await page.isVisible('#shell-menu')).toBe(true);
+      expect(await page.isVisible('#cx-menu')).toBe(false);
+      expect(await page.isVisible('#cx-models-toggle')).toBe(false);
+      expect(await text(page, '#ws-chat .page-head .page-context-btn')).toContain('Models');
       const tops = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBe(3);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
@@ -418,25 +435,31 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       await page.click('#cx-console-toggle');
       expect(await page.isVisible('#cx-console .tr-face')).toBe(false);
-      await page.click('#cx-menu');
-      await page.waitForSelector('#shell-rail:visible', { timeout: 5_000 });
+      await page.click('#shell-menu');
+      await page.waitForSelector('#rail-sheet:visible', { timeout: 5_000 });
       expect(await texts(page, '#rail-menu .rail-item .rail-label')).toContain('Models & accounts');
       await page.keyboard.press('Escape');
-      await page.click('#cx-models-toggle');
-      await page.waitForSelector('#cx-models:visible', { timeout: 5_000 });
+      await page.waitForFunction(() => getComputedStyle(document.getElementById('rail-sheet')!).display === 'none', null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('shell-menu');
+      // the Models context: a sheet from the bottom, opened by the head's button; its providers; Escape closes it, the focus back
+      await page.click('#ws-chat .page-head .page-context-btn');
+      await page.waitForSelector('#ws-chat .page-context.is-open', { timeout: 5_000 });
       expect(await texts(page, '#cx-models .cm-provider')).toEqual(['OpenRouter', 'Ollama local', 'Ollama cloud', 'Cloudflare']);
+      // (the sheet slides up over --timmy-ui-motion-panel: its rect is read once it has settled inside the viewport)
+      await page.waitForFunction(() => { const e = document.querySelector('#ws-chat .page-context'); if (!e) return false; const r = e.getBoundingClientRect(); return r.bottom <= window.innerHeight + 1 && r.top >= 0 && r.left >= 0 && r.right <= window.innerWidth + 1; }, null, { timeout: 5_000 });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('#ws-chat .page-context.is-open'), null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.className.includes('page-context-btn'))).toBe(true);
       // R11 round 5 (H172's capture 04 at 390: the connections screen's heading and the head's identity badge were cut at the
       // right edge): the screen's h1 wraps (the page's `h1 { white-space: nowrap }` is the old header's brand rule, lifted for
       // the shell's screens in companion.css), and the badge's words end in an ellipsis inside their border (given long words:
       // the badge here says "No account signed in"; a signed-in page's names the account's id)
       await page.evaluate(() => (window as unknown as { TimmyShell: { go(id: string): void } }).TimmyShell.go('connections'));
-      await page.waitForSelector('#screen-connections h1', { timeout: 20_000 });
-      const h1 = await page.$eval('#screen-connections h1', (e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, right: Math.round(r.right), lines: Math.round(r.height / parseFloat(getComputedStyle(e).lineHeight)), whole: r.right <= window.innerWidth && e.scrollWidth <= e.clientWidth + 1 }; });
-      // (R11 round 7, H170's 14:37 line: his screen's title becomes "One model is enough to begin." — the order's words — and the
-      // onboarding header with its badge goes; this base still has the round-6 words, so the pin names both revisions until the
-      // head carries 5a87e3ab, then the old one goes)
-      expect(h1).toMatchObject({ text: expect.stringMatching(/^(Choose how you want to run\.|One model is enough to begin\.)$/), whole: true });
-      expect(h1.lines).toBeGreaterThanOrEqual(2);
+      await page.waitForSelector('#screen-connections .page-head .page-title', { timeout: 20_000 });
+      const h1 = await page.$eval('#screen-connections .page-head .page-title', (e) => { const r = e.getBoundingClientRect(); return { text: (e.textContent || '').trim(), right: Math.round(r.right), lines: Math.round(r.height / parseFloat(getComputedStyle(e).lineHeight)), whole: r.right <= window.innerWidth && e.scrollWidth <= e.clientWidth + 1 }; });
+      // (R11 round 7: H170's title on the scaffold's head — the order's words; the head's h1 wraps whole on a phone)
+      expect(h1).toMatchObject({ text: 'One model is enough to begin.', whole: true });
+      expect(h1.lines).toBeGreaterThanOrEqual(1); // (the round-6 title wrapped to two lines; the order's shorter one fits as it fits)
       const badge = await page.$('#screen-connections .sh-head-words');
       if (badge) expect(await badge.evaluate((e) => { e.textContent = `Signed in · user_${'x'.repeat(48)}`; const r = e.getBoundingClientRect(); return { inside: r.right <= window.innerWidth, ellipsis: getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth }; })).toEqual({ inside: true, ellipsis: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
@@ -467,7 +490,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       for (const g of sessions) {
         const path = g.url.replace(/\?.*$/, '');
         if (/^\/api\/(?:journey|panel)\//.test(path)) continue;
-        expect(['/api/workspace', '/api/chat/view', '/api/chat/models', '/api/chat/route', '/api/connections']).toContain(path);
+        expect(['/api/workspace', '/api/chat/view', '/api/chat/models', '/api/chat/route', '/api/connections', '/api/rive/assets']).toContain(path);
       }
       expect(sessions.length).toBeLessThan(12);
       expect(errors).toEqual([]);

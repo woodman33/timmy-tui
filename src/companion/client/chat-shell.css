@@ -10,73 +10,8 @@
  * (Send); green only through .is-live (an observed answer); structure #333/#444; text #F2EFE9 / #8E8E93. No text under 13 px.
  */
 
-/* ---------- the shell: the left menu beside every destination ---------- */
+/* ---------- the shell and its rail are the shell's own (companion.css, SHELL CONTRACT v1 §3; R11 round 7): nothing of them here ---------- */
 
-/* R11 round 4 (H171): the body holds the journey's screens (src/companion/client/shell.js); the chat screen's wrapper
-   (#screen-chat) is the grid the rail and the page sit in, which the body was */
-body.shell { display: block; padding: 0; gap: 0; }
-.sh-screen-chat { display: grid; grid-template-columns: 244px minmax(0, 1fr); height: 100vh; }
-/* the other destinations keep R10's layout at its full width (their tab row, strip and columns, as their own checks measure
-   them): the menu is one click away there (Menu in their header opens it over the page; Esc or a choice closes it) */
-body.shell:not([data-dest="chat"]) .sh-screen-chat { grid-template-columns: minmax(0, 1fr); }
-body.shell:not([data-dest="chat"]) .rail { display: none; }
-body.shell:not([data-dest="chat"]).rail-open .rail { display: flex; position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; width: min(260px, 86vw); border-right: 1px solid var(--timmy-line-strong); }
-.ws-menu { display: none; flex-shrink: 0; }
-body.shell:not([data-dest="chat"]) .ws-menu { display: inline-flex; }
-.shell-main { display: flex; flex-direction: column; height: 100vh; min-width: 0; padding: 10px 14px 12px; gap: 8px; position: relative; }
-
-.rail { display: flex; flex-direction: column; height: 100vh; min-height: 0; border-right: 1px solid var(--timmy-line); background: var(--timmy-ground); overflow: hidden; }
-.rail-brand { display: flex; align-items: center; gap: 12px; padding: 16px 18px 14px; border-bottom: 1px solid var(--timmy-line); }
-.rail-name { display: block; font-size: 20px; font-weight: var(--timmy-weight-heading); letter-spacing: 0.04em; color: var(--timmy-text); }
-.rail-sub { display: block; margin-top: 4px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
-.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 10px 10px; display: flex; flex-direction: column; gap: 4px; }
-.rail-sec { margin: 10px 8px 6px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
-.rail-sec:first-child { margin-top: 0; }
-.rail-project { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); color: var(--timmy-text); font-size: 13px; text-align: left; cursor: pointer; }
-.rail-project:hover { border-color: var(--timmy-text-secondary); }
-.rail-project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--timmy-weight-strong); }
-.rail-project-menu { margin: 4px 0 2px; padding: 8px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); font-size: 13px; color: var(--timmy-text-secondary); display: flex; flex-direction: column; gap: 8px; }
-.rail-project-menu p { line-height: 1.45; }
-.rail-project-menu .rail-mode { color: var(--timmy-text); }
-.rail-small-btn { align-self: flex-start; min-height: 30px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-ground); color: var(--timmy-text); font-size: 13px; cursor: pointer; }
-.rail-small-btn:hover { border-color: var(--timmy-text-secondary); }
-.rail-new { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px; border: 0; background: transparent; color: var(--timmy-text-secondary); font-size: 13px; text-align: left; cursor: pointer; }
-.rail-new:hover { color: var(--timmy-text); }
-.rail-note { margin: 2px 8px 4px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
-.rail-menu { display: flex; flex-direction: column; gap: 2px; }
-.rail-item { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 8px 6px 10px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 14px; text-align: left; cursor: pointer; }
-.rail-item:hover { border-color: var(--timmy-line); }
-.rail-item .rail-glyph { width: 16px; flex-shrink: 0; text-align: center; color: var(--timmy-text-secondary); }
-.rail-item .rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail-item .rail-where { flex-shrink: 0; font-size: 13px; color: var(--timmy-text-secondary); }
-.rail-item[aria-current="page"] { border-color: var(--timmy-line-strong); background: var(--timmy-surface); color: var(--timmy-accent); }
-.rail-item[aria-current="page"]::before { content: ''; position: absolute; left: -10px; top: 0; bottom: 0; width: 3px; background: var(--timmy-accent); }
-.rail-item[aria-current="page"] .rail-glyph { color: var(--timmy-accent); }
-.rail-item.is-away { color: var(--timmy-text-secondary); }
-.rail-rule { height: 1px; margin: 10px 8px; background: var(--timmy-line); border: 0; }
-.rail-away-note { margin: 4px 8px; padding: 8px 10px; border: 1px solid var(--timmy-line); border-radius: 3px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); }
-/* R11 step 3: the rail's footer "? Help  / find" (the terminal's), and its finder */
-/* R11 round 4: the rail's foot holds the keys row and the account (the user's name; sign-out) */
-.rail-foot-keys { display: flex; gap: 14px; padding: 6px 14px 4px; }
-.rail-account { display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px; border-top: 1px solid var(--timmy-line); }
-.rail-avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--timmy-line-strong); border-radius: 50%; font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-.rail-account-words { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; flex: 1; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
-.rail-account-words:hover { background: var(--timmy-surface); }
-.rail-account-words > * { max-width: 100%; }
-.rail-account-name { font-size: 13px; color: var(--timmy-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rail-account-sub { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rail-new-conv { margin: 6px 14px 4px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
-.rail-foot { display: flex; flex-direction: column; gap: 0; padding: 0; border-top: 1px solid var(--timmy-line); font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
-.rail-foot-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
-.rail-foot-btn:hover { color: var(--timmy-text); }
-.rail-foot-btn kbd { padding: 0 5px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font: inherit; font-size: 13px; color: var(--timmy-text); }
-.rail-group { margin-top: 14px; }
-.rail-find-box { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 8px 8px; }
-.rail-find-label { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
-.rail-find { flex: 1; min-width: 0; min-height: 30px; padding: 3px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 13px; }
-.rail-find:focus { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
-.rail-find-hint { flex: 1 1 100%; font-size: 13px; color: var(--timmy-text-secondary); }
-.rail-none { margin: 6px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
 .cx-start-k { margin-top: 14px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
 .cx-ways.cx-starters { margin-top: 26px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .cx-welcome-mark { display: inline-grid; margin: 10px auto 0; }
@@ -85,17 +20,8 @@ body.shell:not([data-dest="chat"]) .ws-menu { display: inline-flex; }
 .cx-way-glyph { font-size: 16px; color: var(--timmy-text); }
 .cx-starters .cx-way { text-align: left; }
 
-/* ---------- Chat: the composition fills the shell's main column ---------- */
+/* ---------- Chat: the composition fills the page's work region (the shell lays the page out; SHELL CONTRACT v1 §2.2) ---------- */
 
-body[data-dest="chat"] .shell-main { padding: 0; gap: 0; }
-body[data-dest="chat"] .ws-header,
-body[data-dest="chat"] .project-folder,
-body[data-dest="chat"] .ws-nav,
-body[data-dest="chat"] .ws-strip,
-body[data-dest="chat"] .ws-activity { display: none; }
-body[data-dest="chat"] #ws-main { flex: 1; min-height: 0; padding: 0; margin: 0; border: 0; overflow: hidden; display: flex; }
-body[data-dest="chat"] #ws-chat { flex: 1; min-height: 0; min-width: 0; display: block; overflow-y: auto; }
-body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 
 .cx { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; grid-template-columns: minmax(0, 1fr); } /* (one column sized to the screen, never to the top line's longest row: on a phone the crumb shortens instead of pushing the page past the edge) */
 .cx-top { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 0 22px; border-bottom: 1px solid var(--timmy-line); }
@@ -453,11 +379,6 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
   .cx-saved { display: none; }
 }
 @media (max-width: 760px) {
-  /* (R11 round 4: the grid is the chat screen's wrapper; the rail folds behind Menu; Connections and Models are the top buttons) */
-  .sh-screen-chat { grid-template-columns: minmax(0, 1fr); }
-  body.shell .rail { display: none; }
-  body.shell.rail-open .rail { display: flex; position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; width: min(260px, 86vw); }
-  .cx-menu { display: inline-flex; }
   .cx-top { padding: 0 12px; gap: 10px; min-height: 52px; }
   .cx-socket, .cx-state-words { display: none; }
   .cx-descriptor { flex-wrap: wrap; gap: 4px 12px; }
@@ -638,10 +559,15 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
    controls sit in the task dock; the status row is a line of the records. An older shell sets none of this. */
 body.cx-on-scaffold .cx-top, body.cx-on-scaffold #cx-head, body.cx-on-scaffold #cx-primary, body.cx-on-scaffold #cx-sub { display: none; }
 body.cx-on-scaffold .cx-body { grid-template-columns: minmax(0, 1fr); }
+/* the work keeps room for the welcome whole with the band open (the ruling on CI 40110859990) and for a readable conversation:
+   below 680 px the page grows and #ws-main scrolls to the dock and the records (the probe of 16:03 measured a 238 px work
+   area at 1440 × 900 under the shell's head, band, dock and records) */
+body.cx-on-scaffold #ws-chat .page-body { min-height: 680px; }
 body.cx-on-scaffold .page-context .cx-models { display: flex; position: static; width: auto; max-height: calc(100vh - 220px); border-left: 0; border: 1px solid var(--timmy-ui-border-quiet, var(--timmy-line)); border-radius: var(--timmy-ui-radius-panel, 3px); background: var(--timmy-ui-elev-surface, var(--timmy-surface)); }
 body.cx-on-scaffold .page-dock .cx-controls { min-height: 0; padding: 0; border: 0; overflow: visible; flex-wrap: wrap; }
 body.cx-on-scaffold .page-dock .cx-controls-label { display: none; }
 body.cx-on-scaffold .page-records .cx-status { border-top: 0; padding: 6px 0 0; }
+body.cx-on-scaffold .page-records .cx-older { margin-top: 10px; padding: 0; border-top: 0; max-height: 46vh; overflow: auto; } /* (opened, it scrolls on its own: the conversation above keeps its room) */
 @media (max-width: 720px) {
   body.cx-on-scaffold .page-context .cx-models { max-height: none; border: 0; border-radius: 0; background: transparent; }
 }
@@ -652,3 +578,20 @@ body.cx-on-scaffold .page-records .cx-status { border-top: 0; padding: 6px 0 0; 
 .cx-attach-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 18px; max-height: 150px; overflow-y: auto; }
 .cx-attach-list .cx-link { font-family: var(--timmy-font-mono); color: var(--timmy-text); }
 .cx-attach-list .cx-link .cx-act-sub { display: inline; margin: 0; font-family: var(--timmy-font-mono); }
+/* a phone on the scaffold (contract §4; GATE 04 R-c): the composer stays in view above the sticky task dock while the
+   conversation scrolls as a document — the dock's height is measured by chat-shell.js into --timmy-ui-dock-height (the
+   contract's name for it; the shell may set it instead) */
+/* the Chat's dock is ONE row — the frame's four actions (Send a message · Choose the model · Stop the turn · Show it in the
+   companion) are this page's own composer, Models, Stop and itself (the Chat hid that strip since round 4: "drawn behind the
+   composition"); drawn in the dock they made it 167 px tall at 1440 and 301 px on a phone (the probe of 16:03), where nothing
+   of the conversation stayed in view. The strip stays in the DOM (companion.js draws it; the workspace suite reads it) */
+body.cx-on-scaffold #ws-chat .page-dock #ws-strip { display: none; }
+@media (max-width: 720px) {
+  body.cx-on-scaffold #ws-chat .cx-composer { position: sticky; bottom: var(--timmy-ui-dock-height, 0px); z-index: 21; background: var(--timmy-ui-canvas, var(--timmy-ground)); }
+  body.cx-on-scaffold #ws-chat .cx-hint { display: none; } /* (the phone's room goes to the conversation; the composer's placeholder and Send say the rest) */
+}
+/* B11 (D1): on the scaffold the composer's Send is the page's ONE primary action in the family's material — the primary
+   gradient and its ink, as the head's button — amber #FFB000 stays the focus ring (the shell's :focus-visible); off and Stop
+   keep their quiet forms */
+body.cx-on-scaffold .cx-send:not(:disabled):not(.is-stop):not(.is-muted) { border-color: transparent; background: var(--timmy-ui-elev-primary, var(--timmy-accent)); color: var(--timmy-ui-accent-ink, var(--timmy-accent-ink)); box-shadow: var(--timmy-ui-shadow-primary, none); border-radius: var(--timmy-ui-radius-control, 3px); }
+body.cx-on-scaffold .cx-send:disabled { border-radius: var(--timmy-ui-radius-control, 3px); }
