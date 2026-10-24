@@ -326,7 +326,12 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await text(page, '#screen-account h2')).toBe('Create your Timmy account');
       // a user-data route asked before the shell was here (the frame's first read) answered 401 needs:session — once, not a loop
       const sessions = got.filter((g) => g.status === 401);
-      for (const g of sessions) expect(['/api/workspace', '/api/chat/view', '/api/chat/models', '/api/chat/route', '/api/connections']).toContain(g.url.replace(/\?.*$/, ''));
+      // (R11 round 5, the lead's dae84ba5: the journey's and the panels' reads are user-data reads too, under the same principal)
+      for (const g of sessions) {
+        const path = g.url.replace(/\?.*$/, '');
+        if (/^\/api\/(?:journey|panel)\//.test(path)) continue;
+        expect(['/api/workspace', '/api/chat/view', '/api/chat/models', '/api/chat/route', '/api/connections']).toContain(path);
+      }
       expect(sessions.length).toBeLessThan(12);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
