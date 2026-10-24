@@ -24,12 +24,13 @@ button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-ac
 .tr-main { display: grid; gap: 16px; padding: 0 16px 32px; }
 .tr-title { margin: 0; }
 .tr-cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-.tr-card { display: grid; gap: 10px; }
+.tr-card { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .tr-card h3 { margin: 0; font-size: 15px; }
 .tr-art { min-height: 76px; }
-.tr-facts { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 13px; }
+.tr-facts { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 12px; font-size: 13px; }
 .tr-facts dt { color: var(--timmy-text-secondary); }
-.tr-facts dd { margin: 0; overflow-wrap: anywhere; }
+.tr-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tr-facts dt { overflow-wrap: anywhere; }
 .tr-inputs { margin: 0; padding-left: 1em; }
 .tr-events ol { margin: 0; padding-left: 1.2em; font-size: 12px; }
 .tr-events h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--timmy-text-secondary); }
