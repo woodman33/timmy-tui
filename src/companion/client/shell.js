@@ -159,9 +159,11 @@
         let body = null;
         try { body = await r.clone().json(); } catch (e) { body = null; }
         if (body && body.needs === 'session') {
+          // (a session that ended, or a user-only route asked without one: the account screen, where an account can be
+          // made or restored; with no identity provider configured there is none to make, so the screen that asked keeps
+          // its own words — "Sign in to Timmy first" — and the page stays where the person is)
           shell.session.clear();
-          shell.toast(body.words || body.error || 'Sign in to continue.');
-          shell.go('account', 'session');
+          if (identityAnswer && identityAnswer.configured) { shell.toast(body.words || body.error || 'Sign in to continue.'); shell.go('account', 'session'); }
         } else if (typeof companion !== 'undefined' && companion && typeof companion.refuse === 'function') companion.refuse();
         return r;
       });
@@ -190,7 +192,11 @@
           else identityAnswer = { configured: false, needs: [], words: `GET /api/identity answered HTTP ${r.status}.` };
         } catch (e) { identityAnswer = { configured: false, needs: [], words: 'GET /api/identity could not be read.' }; }
         emit('identity', identityAnswer);
-        let id = 'account';
+        // R11 round 4 (the wiring): with no identity provider configured there is nothing to sign into, so the page is this
+        // companion's own workspace (Chat; the rail's account block says "Not signed in" and opens the account screen, which
+        // says what is missing); configured and not signed in → the account screen; signed in → connections until a route
+        // is ready, then the remembered screen or Chat
+        let id = configured ? 'account' : 'chat';
         if (configured && sessionToken) {
           let ready = false;
           // (GET /api/chat/route answers the PageRoute itself: { kind, ready, … })

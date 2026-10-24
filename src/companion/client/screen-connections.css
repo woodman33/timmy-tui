@@ -2,54 +2,57 @@
    (companion.css: sh-main, sh-card, sh-btn, sh-btn-primary, sh-btn-text, sh-input, sh-select, sh-label, sh-state, sh-note,
    sh-actions) and Timmy's variables only: black ground and structure, amber for focus and the ONE primary step, green for
    an observed fact only ("checked"), the words beside every glyph. The layout follows the operator's preview: four cards
-   in two columns at 1440x900, one column at 390x844. */
-.cx-main { max-width: 1044px; }
-.cx-kicker { margin: 0 0 10px; }
-.cx-title { margin: 0 0 12px; font-size: 34px; line-height: 1.15; font-weight: var(--timmy-weight-heading); letter-spacing: -0.01em; color: var(--timmy-text); }
-.cx-title:focus-visible { outline: none; }
-.cx-lead { margin: 0 0 28px; font-size: 16px; color: var(--timmy-text-secondary); }
-.cx-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.cx-card { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 18px; border-radius: 12px; }
-.cx-card[data-state="checked"] { border-color: var(--timmy-live); }
-.cx-card[data-state="pending"] { border-color: var(--timmy-accent); }
-.cx-card:focus-within { border-color: var(--timmy-accent); }
-.cx-card-head { display: flex; align-items: center; gap: 14px; }
-.cx-card-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; font-size: 18px; color: var(--timmy-text); }
-.cx-card-title { margin: 0; font-size: 18px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-.cx-card-sub { margin: 2px 0 0; font-size: 13px; }
-.cx-card-body { margin: 0; font-size: 15px; line-height: 1.45; color: var(--timmy-text); }
-.cx-actions { margin-top: 0; padding-top: 12px; border-top: 1px solid var(--timmy-line); }
-.cx-actions .cx-form { flex-basis: 100%; }
-.cx-link { margin-left: auto; }
-.cx-card-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--timmy-line); font-size: 13px; }
-.cx-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
-.cx-words, .cx-next, .cx-say, .cx-lines { margin: 0; }
-.cx-next-label { color: var(--timmy-accent); font-weight: var(--timmy-weight-strong); }
-.cx-say[data-kind="failed"] { color: var(--timmy-accent); }
-.cx-say[data-kind="step"] { color: var(--timmy-text); }
-.cx-lines { padding-left: 18px; }
-.cx-lines li { margin: 2px 0; }
-.cx-form { display: flex; flex-direction: column; gap: 8px; }
-.cx-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.cx-form-row .sh-input, .cx-form-row .sh-select { flex: 1 1 220px; width: auto; min-height: 36px; padding: 6px 10px; font-size: 13px; }
-.cx-label, .cx-check { display: block; }
-.cx-check input { margin-right: 6px; accent-color: var(--timmy-accent); }
-.cx-pull { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
-.cx-pull-status { margin: 0; }
-.cx-progress { width: 100%; height: 6px; accent-color: var(--timmy-accent); }
-.cx-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 36px; }
-.cx-foot-words p { margin: 0; }
-.cx-foot-words .cx-strong { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); font-size: 13px; }
-.cx-foot-actions { margin-top: 0; gap: 14px; }
-.cx-note { display: flex; gap: 10px; margin: 24px 0 0; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; }
-.cx-note-mark { color: var(--timmy-accent); }
-.cx-failed { margin: 48px auto; max-width: 560px; }
-.cx-foot-shell { font-size: 12px; }
+   in two columns at 1440x900, one column at 390x844.
+   R11 round 4 (H171, the merge's reconciliation): every rule scoped under #screen-connections — the page holds the Chat
+   screen's stylesheet too (chat-shell.css), whose .cx-title, .cx-kicker, .cx-note, .cx-actions, .cx-link, .cx-foot and
+   .cx-state are other elements; unscoped, these rules restyled the Chat (its head's title at 34 px, its route note as a card). */
+#screen-connections .cx-main { max-width: 1044px; }
+#screen-connections .cx-kicker { margin: 0 0 10px; }
+#screen-connections .cx-title { margin: 0 0 12px; font-size: 34px; line-height: 1.15; font-weight: var(--timmy-weight-heading); letter-spacing: -0.01em; color: var(--timmy-text); }
+#screen-connections .cx-title:focus-visible { outline: none; }
+#screen-connections .cx-lead { margin: 0 0 28px; font-size: 16px; color: var(--timmy-text-secondary); }
+#screen-connections .cx-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+#screen-connections .cx-card { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 18px; border-radius: 12px; }
+#screen-connections .cx-card[data-state="checked"] { border-color: var(--timmy-live); }
+#screen-connections .cx-card[data-state="pending"] { border-color: var(--timmy-accent); }
+#screen-connections .cx-card:focus-within { border-color: var(--timmy-accent); }
+#screen-connections .cx-card-head { display: flex; align-items: center; gap: 14px; }
+#screen-connections .cx-card-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; font-size: 18px; color: var(--timmy-text); }
+#screen-connections .cx-card-title { margin: 0; font-size: 18px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+#screen-connections .cx-card-sub { margin: 2px 0 0; font-size: 13px; }
+#screen-connections .cx-card-body { margin: 0; font-size: 15px; line-height: 1.45; color: var(--timmy-text); }
+#screen-connections .cx-actions { margin-top: 0; padding-top: 12px; border-top: 1px solid var(--timmy-line); }
+#screen-connections .cx-actions .cx-form { flex-basis: 100%; }
+#screen-connections .cx-link { margin-left: auto; }
+#screen-connections .cx-card-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--timmy-line); font-size: 13px; }
+#screen-connections .cx-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
+#screen-connections .cx-words, #screen-connections .cx-next, #screen-connections .cx-say, #screen-connections .cx-lines { margin: 0; }
+#screen-connections .cx-next-label { color: var(--timmy-accent); font-weight: var(--timmy-weight-strong); }
+#screen-connections .cx-say[data-kind="failed"] { color: var(--timmy-accent); }
+#screen-connections .cx-say[data-kind="step"] { color: var(--timmy-text); }
+#screen-connections .cx-lines { padding-left: 18px; }
+#screen-connections .cx-lines li { margin: 2px 0; }
+#screen-connections .cx-form { display: flex; flex-direction: column; gap: 8px; }
+#screen-connections .cx-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#screen-connections .cx-form-row .sh-input, #screen-connections .cx-form-row .sh-select { flex: 1 1 220px; width: auto; min-height: 36px; padding: 6px 10px; font-size: 13px; }
+#screen-connections .cx-label, #screen-connections .cx-check { display: block; }
+#screen-connections .cx-check input { margin-right: 6px; accent-color: var(--timmy-accent); }
+#screen-connections .cx-pull { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
+#screen-connections .cx-pull-status { margin: 0; }
+#screen-connections .cx-progress { width: 100%; height: 6px; accent-color: var(--timmy-accent); }
+#screen-connections .cx-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 36px; }
+#screen-connections .cx-foot-words p { margin: 0; }
+#screen-connections .cx-foot-words .cx-strong { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); font-size: 13px; }
+#screen-connections .cx-foot-actions { margin-top: 0; gap: 14px; }
+#screen-connections .cx-note { display: flex; gap: 10px; margin: 24px 0 0; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; }
+#screen-connections .cx-note-mark { color: var(--timmy-accent); }
+#screen-connections .cx-failed { margin: 48px auto; max-width: 560px; }
+#screen-connections .cx-foot-shell { font-size: 12px; }
 @media (max-width: 720px) {
-  .cx-title { font-size: 28px; }
-  .cx-cards { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .cx-link { margin-left: 0; }
-  .cx-foot { flex-direction: column; align-items: stretch; }
-  .cx-foot-actions { justify-content: space-between; }
-  .cx-foot-actions .sh-btn-primary { flex: 1 1 auto; }
+  #screen-connections .cx-title { font-size: 28px; }
+  #screen-connections .cx-cards { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  #screen-connections .cx-link { margin-left: 0; }
+  #screen-connections .cx-foot { flex-direction: column; align-items: stretch; }
+  #screen-connections .cx-foot-actions { justify-content: space-between; }
+  #screen-connections .cx-foot-actions .sh-btn-primary { flex: 1 1 auto; }
 }

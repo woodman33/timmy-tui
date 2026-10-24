@@ -59,6 +59,9 @@ const companion = (() => {
     },
     // Every request to the companion: the token in a header, never in the address; a 401 stops the page.
     fetch(path, init) {
+      // R11 round 4: through the shell when it is here (the session header rides; a session 401 goes to the account screen,
+      // a token 401 refuses the page as before)
+      if (typeof TimmyShell !== 'undefined' && TimmyShell && typeof TimmyShell.fetch === 'function') return TimmyShell.fetch(path, init);
       const o = Object.assign({}, init || {});
       o.headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + token });
       o.credentials = 'omit';
@@ -135,6 +138,9 @@ function proofShown() {
 }
 
 let wsConnection = null;
+// R11 round 4 (H170's socket event): what the Chat does when a connection of the account changed (chat-shell.js sets it)
+// eslint-disable-next-line prefer-const
+let onConnectionsChanged = null;
 let activeChatHistory = [];
 let isViewingSaved = false;
 let loadedChatId = null;
@@ -381,7 +387,7 @@ function mirrorEmptyHtml() {
           <li>In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn's prompt and answer are sealed as hashes only). ${replWhereHtml()}</li>
           <li>In the Workbench (<span class="mirror-code">timmy workbench</span>), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor's turn is labelled Monitor. Every surface's turns are this project's one conversation, kept in its .sessions.</li>
         </ul>
-        <div>STREAMDOWN CHAT is this page's own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.</div>
+        <div>The older STREAMDOWN CHAT view sends nothing now: the chat is the agent turn in Chat (POST /api/chat/turn); its ✨ sample is labelled SAMPLE there and is never shown here.</div>
       </div>
     `;
 }
@@ -670,6 +676,19 @@ function connect() {
         appendToLocalLogs('INFO', `Project: ${String(msg.project.name)} (${String(msg.project.folder)}), ${String(msg.project.mode)}${msg.reason ? ` (${String(msg.reason)})` : ''}`);
         if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
         if (moved) updateMirrorStatus(mirrorHasSession() ? 'LIVE' : 'WAITING');
+      } else if (msg.type === 'session' && msg.ok === false) {
+        // R11 round 4 (H171): the hello's session did not verify (or names no project of the account's): the shell forgets
+        // it and lands on the account screen, in the companion's words; this page shows no project meanwhile
+        appendToLocalLogs('WARN', `Session refused by the companion: ${String(msg.words || '')}`);
+        if (typeof TimmyShell !== 'undefined' && TimmyShell) { TimmyShell.toast(String(msg.words || 'Sign in to continue.')); if (msg.needs === 'session') { TimmyShell.session.clear(); TimmyShell.land(); } }
+      } else if (msg.type === 'connections' && typeof msg.provider === 'string') {
+        // R11 round 4 (H170): a connection of this account changed (saved, checked, downloaded): the connections screen reads
+        // again, and the Chat's models and route follow
+        appendToLocalLogs('INFO', `Connections: ${String(msg.provider)} ${String(msg.state || '')}`);
+        const host = document.getElementById('screen-connections');
+        const scr = host && host._cxScreen;
+        if (scr && typeof scr.update === 'function') { try { scr.update(msg); } catch (e) { /* its own */ } }
+        if (typeof onConnectionsChanged === 'function') { try { onConnectionsChanged(msg); } catch (e) { /* its own */ } }
       } else if (msg.type === 'bus.tail' && Array.isArray(msg.events)) {
         // R4 (H84): the event bus, as it reached this page: the tail on connecting, then each event
         appendToLocalLogs('INFO', `Event bus: ${msg.events.length} recent event${msg.events.length === 1 ? '' : 's'}${msg.events.length ? `, latest ${String(msg.events[msg.events.length - 1].kind)}` : ''}`);
@@ -2203,8 +2222,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── R10 (H167): the project's conversation, where it continues and the route its next turn takes ──
-// This page's own Send is its own chat (H164's scope: no tools, no receipt); the project's conversation continues in the
-// Workbench (2 Chat) or the REPL, and the mirror says the route its next turn takes there, as their top lines say it
+// R11 round 4: this page's Send is the project's conversation too (POST /api/chat/turn, H169); the conversation continues in
+// the Workbench (2 Chat) or the REPL as well, and the mirror says the route its next turn takes there, as their top lines say it
 // (H164's routeNow for the Workbench), FAKE where its model's name says so. Asked when the Chat tab is shown, at most every
 // HOME_WORK_EVERY_MS.
 const projectRoute = { at: 0, asking: false, route: null, why: '' };

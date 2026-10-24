@@ -214,7 +214,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // (H168's pass 3b R20) the chat models of what Ollama lists, and why the other is not a row
       expect(await text(page, '.cm-list-head span:last-child')).toBe('2 chat models · 3 listed');
       expect(await text(page, '#cm-list .cm-left')).toBe('Not shown as local chat models: 1 did not pass Ollama\'s /api/show check as local weights.');
-      expect(await text(page, '.cm-state')).toMatch(/· Ollama answered its list of models at 127\.0\.0\.1:\d+: it lists 3, 2 of them local chat models \(no model ran, no charge\)\.$/);
+      // (R11 round 4: the provider's state word beside its name in the panel's description, its words on their own line)
+      expect(await text(page, '#cm-desc-state')).toMatch(/^● answered \d\d:\d\d$/);
+      expect(await text(page, '#cm-desc .cm-state')).toMatch(/^Ollama answered its list of models at 127\.0\.0\.1:\d+: it lists 3, 2 of them local chat models \(no model ran, no charge\)\.$/);
       // R11 step 1: the composer nobody can miss, and its model chip: green only because Ollama answered /api/show for the model
       expect(await page.getAttribute('#cx-input', 'placeholder')).toBe('Message Timmy…');
       expect(await text(page, '#cx-hint-keys')).toBe('Enter to send · Shift + Enter for a new line');
@@ -226,6 +228,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cx-send-why')).toBe('');
       expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 176, 0)');
       await page.fill('#cx-input', 'a');
+      // (no identity provider here: the page is this computer's operator, and Send is amber with a draft and a route)
       expect(await page.isDisabled('#cx-send')).toBe(false);
       expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
       await page.focus('#cx-input');
@@ -240,14 +243,14 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         return detail.top - row.bottom;
       });
       expect(Math.abs(gap)).toBeLessThan(2);
-      // OpenRouter: its public rows, Recently added first; Cost keeps through a Sort; Clear filters shows all
+      // OpenRouter: its public rows, newest first (the catalog's added date; the control says "Newest first", R11 round 4); Cost keeps through a Sort; Clear filters shows all
       await page.click('[data-cm-provider="openrouter"]');
       await page.waitForFunction((n) => document.querySelectorAll('#cm-list .cm-row').length === n, TEXT.length, { timeout: 20_000 });
       expect(await text(page, '#cm-list .cm-row .cm-name')).toBe(NEWEST.name);
       // (H168's pass 3b R18) no OpenRouter row is the next turn's model: none is opened, and the rail says what the next turn uses
       expect(await page.$('#cm-list .cm-detail')).toBeNull();
       expect(await text(page, '#cm-none')).toBe('Model / none · the next turn uses fake-qwen3:8b (Ollama on this computer), not a row here; a row shows its facts when you open it.');
-      expect(await page.$eval('#cm-sort', (s) => (s as HTMLSelectElement).selectedOptions[0].textContent)).toBe('Recently added');
+      expect(await page.$eval('#cm-sort', (s) => (s as HTMLSelectElement).selectedOptions[0].textContent)).toBe('Newest first');
       await page.selectOption('#cm-cost', 'free');
       await page.waitForFunction((n) => document.querySelectorAll('#cm-list .cm-row').length < n, TEXT.length, { timeout: 20_000 });
       const freeRows = await page.$$eval('#cm-list .cm-row', (els) => els.map((e) => e.getAttribute('data-model')));
@@ -287,24 +290,22 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await landWorkspace(page);
       await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
       await page.waitForFunction(() => (document.getElementById('cx-input') as HTMLTextAreaElement | null)?.value === 'A draft kept across opening the page again', null, { timeout: 15_000 });
-      // R11 round 4: sent with Enter, the turn is POST /api/chat/turn (H169's SSE). On a tree without that route the page
-      // says so and streams nothing; with it, the FAKE's answer streams as this page's turn with its indicator and evidence
+      // R11 round 4: Send is POST /api/chat/turn (H169's SSE, the real agent turn). No identity provider is configured here,
+      // so the page is this computer's operator (the lead's ruling of 21:48; H173's operator principal): the turn runs in the
+      // companion's own project and env, the FAKE Ollama answers, and the answer streams as this page's turn with its
+      // indicator and evidence line (with a provider configured, Send needs a session: tests/companion-shell-r4-browser)
       await page.fill('#cx-input', 'Sketch the first screen.');
       await page.focus('#cx-input');
+      expect(await page.isDisabled('#cx-send')).toBe(false);
       await page.keyboard.press('Enter');
-      await page.waitForSelector('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', { timeout: 30_000 });
+      await page.waitForSelector('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', { timeout: 60_000 });
       expect(await page.inputValue('#cx-input')).toBe('');
-      const failedWords = await page.$eval('#cx-own .cx-turn', (e) => e.querySelector('.cx-end')?.textContent ?? '');
-      if (/no POST \/api\/chat\/turn yet/.test(failedWords)) {
-        console.warn('companion-chat-shell-browser: this tree has no POST /api/chat/turn (H169\'s agent turn): the page said so; the streamed turn is not checked here');
-        expect(await text(page, '#cx-own .cx-turn.is-failed .cx-end')).toContain('this companion has no POST /api/chat/turn yet');
-        expect(ollama.chats().length).toBe(0);
-      } else {
-        expect(await page.$('#cx-own .cx-spin')).toBeNull();
-        expect(await text(page, '#cx-own .cx-turn.is-answered .cx-text')).toBe('FAKE streamed answer from the test\'s stand-in.');
-        expect(await text(page, '#cx-own .cx-turn.is-answered .cx-evidence')).toMatch(/^▸ fake-qwen3:8b · Ollama on this computer · \d+(\.\d)? s · (receipt [0-9a-f]{8}|no receipt)/);
-        expect(ollama.chats().at(-1)?.messages?.at(-1)).toMatchObject({ role: 'user', content: 'Sketch the first screen.' });
-      }
+      const ownEnd = await page.$eval('#cx-own .cx-turn.is-answered, #cx-own .cx-turn.is-failed', (e) => `${e.className} · ${e.querySelector('.cx-end')?.textContent ?? ''}`);
+      expect(ownEnd).toMatch(/is-answered/);
+      await page.waitForFunction(() => document.querySelector('#cx-own .cx-spin') === null, null, { timeout: 20_000 });
+      expect(await text(page, '#cx-own .cx-turn.is-answered .cx-text')).toBe('FAKE streamed answer from the test\'s stand-in.');
+      expect(await text(page, '#cx-own .cx-turn.is-answered .cx-evidence')).toMatch(/^▸ fake-qwen3:8b · Ollama on this computer · \d+(\.\d)? s · (receipt [0-9a-f]{8}|no receipt)/);
+      expect(ollama.chats().at(-1)?.messages?.at(-1)).toMatchObject({ role: 'user', content: 'Sketch the first screen.' });
       await page.click('#rail-new-conv');
       expect(await page.$$eval('#cx-own .cx-turn', (els) => els.length)).toBe(0);
       // R11 step 1 (the operator's first-use failure): a local model chosen on the page. Enter on its row: Ollama is asked
@@ -354,7 +355,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const controls = await page.$$eval('#cx-controls .cx-ctl', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
       // (R11 round 4: the preview's bottom row [Plan / Run] [Permissions] [Budget] [Logs] … [Cloudflare optional]; Attach and Tools
       // in the composer; Stop in the composer)
-      expect(controls.map((c) => c.replace(/^[^A-Za-z$]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Plan / Run', 'Permissions', 'Budget', 'Logs', 'Cloudflare optional']);
+      expect(controls.map((c) => c.replace(/^[^A-Za-z]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Plan / Run', 'Permissions', 'Budget', 'Logs', 'Cloudflare optional']);
       expect(await page.$('#cx-controls [data-cx="stop"], #cx-controls [data-cx="stop-other"]')).toBeNull();
       await page.click('#cx-controls [data-cx-ctl="approvals"]');
       expect(await page.isVisible('#cx-drawer')).toBe(true);
@@ -386,6 +387,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(face).not.toContain(token);
       // the menu opens another destination with its own page (R10's, at its full width: its header and tab row), where Menu
       // opens the menu over it and Esc closes it again, focus back on Menu; key 2 brings Chat back
+      // (R11 round 4: the preview's rail does not list Home; the finder ("/ find") finds it, as it finds Control Room)
+      await page.click('#rail-find-btn');
+      await page.fill('#rail-find', 'home');
       await page.click('#rail-menu .rail-item[data-dest="home"]');
       await page.waitForFunction(() => document.body.dataset.dest === 'home' && !(document.getElementById('ws-home') as HTMLElement).hidden, null, { timeout: 10_000 });
       expect(await page.isVisible('.ws-header')).toBe(true);
@@ -411,7 +415,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.keyboard.press('2');
       await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
       expect(await page.isVisible('#rail-find-box')).toBe(false);
-      expect(await page.$$eval('#rail-menu .rail-item', (els) => els.length)).toBe(11);
+      expect(await page.$$eval('#rail-menu .rail-item', (els) => els.length)).toBe(9); // (the preview's nine; Control Room, Fleet and Home by the finder)
       await page.click('#rail-help');
       expect(await text(page, '#cx-drawer-title')).toBe('Help');
       expect(await page.$$eval('#cx-drawer h4', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Chat', 'Models', 'Moving around', 'Runs']);
@@ -433,9 +437,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.isVisible('#cx-models')).toBe(true);
       expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · ready \d\d:\d\d$/);
       expect(await page.$eval('#cx-chip-words', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
-      // R52: the chip's words are whole (wrapped inside the chip if the row is tight, never cut with …), and Send is on the chip's row
+      // R52 (as R11 round 4 places it): the chip's words are whole (wrapped in the panel's NEXT TURN if tight, never cut with …);
+      // the chip sits in that block, and Send is on the composer's foot row beside Attach and Tools
       expect(await page.$eval('#cx-chip-words', (e) => getComputedStyle(e).whiteSpace !== 'nowrap' && e.scrollHeight <= e.clientHeight + 1)).toBe(true);
-      expect(await page.evaluate(() => { const c = document.getElementById('cx-chip')!.getBoundingClientRect(); const s = document.getElementById('cx-send')!.getBoundingClientRect(); return s.top < c.bottom && s.bottom > c.top; })).toBe(true);
+      expect(await page.evaluate(() => { const b = document.getElementById('cx-next-turn')!.getBoundingClientRect(); const c = document.getElementById('cx-chip')!.getBoundingClientRect(); return { inside: c.top >= b.top - 1 && c.bottom <= b.bottom + 1, box: [b.top, b.bottom], chip: [c.top, c.bottom], chipIn: document.getElementById('cx-chip')!.parentElement?.id }; })).toMatchObject({ inside: true });
+      expect(await page.evaluate(() => { const a = document.querySelector('#cx-composer [data-cx-ctl="attachments"]')!.getBoundingClientRect(); const s = document.getElementById('cx-send')!.getBoundingClientRect(); return s.top < a.bottom && s.bottom > a.top; })).toBe(true);
       // R51: the composer is one row until typed in; it grows with the draft and shrinks back
       expect(await page.$eval('#cx-input', (e) => (e as HTMLTextAreaElement).rows)).toBe(1);
       expect(await page.isDisabled('#cx-send')).toBe(true);
@@ -493,7 +499,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           await page.evaluate(() => document.fonts.ready);
           const geo = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: r.bottom, inside: r.left >= 0 && r.right <= window.innerWidth, cut: e.scrollHeight > e.clientHeight + 1 }; }));
           const fold = await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().top);
-          for (const g of geo) { expect(g.inside).toBe(true); expect(g.cut).toBe(false); expect(g.bottom).toBeLessThanOrEqual(fold); }
+          const parts = await page.$$eval('#cx-empty > *, #cx-scroll, #cx-descriptor, #cx-composer, .cx-hint, #cx-controls, #cx-route', (els) => els.map((e) => `${e.id || e.className}:${Math.round(e.getBoundingClientRect().top)}-${Math.round(e.getBoundingClientRect().bottom)}`));
+          expect(JSON.stringify({ ok: geo.every((g) => g.inside && !g.cut && g.bottom <= fold), size, fold, geo, parts })).toMatch(/"ok":true/);
           expect(new Set(geo.map((g) => g.top)).size).toBe(size.width === 1440 ? 1 : 3);
           // Plan a project: the sample draft in the composer, which has the keyboard; the page's own draft is kept as it is
           await page.click('[data-cx-start="plan"]');
@@ -538,7 +545,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.isVisible('#shell-rail')).toBe(false);
       expect(await page.isVisible('#cx-models')).toBe(false);
       // the row of controls fits the phone's width: the minor ones are in More
-      expect(await page.$eval('#cx-controls', (b) => b.scrollWidth <= b.clientWidth + 1)).toBe(true);
+      expect(await page.$eval('#cx-controls', (b) => JSON.stringify({ fits: b.scrollWidth <= b.clientWidth + 1, sw: b.scrollWidth, cw: b.clientWidth, items: [...b.children].map((e) => `${(e as HTMLElement).innerText.replace(/\s+/g, ' ').trim()}:${Math.round(e.getBoundingClientRect().width)}`), styles: [...b.children].map((e) => getComputedStyle(e).display) }))).toMatch(/"fits":true/);
       const said = (sel: string): Promise<string[]> => page.$$eval(sel, (els) => els.filter((e) => e.getClientRects().length).map((e) => (e as HTMLElement).innerText.replace(/[^A-Za-z /]/g, '').trim()));
       // (R11 round 4, capture 09: Plan / Run · Permissions · Budget · Logs · More; Attach, Tools and Cloudflare optional in More)
       expect(await said('#cx-controls .cx-ctl, #cx-controls .cx-more')).toEqual(['Plan / Run', 'Permissions', 'Budget', 'Logs', 'More']);
@@ -555,8 +562,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 20_000 });
       expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · ready \d\d:\d\d$/);
       await page.fill('#cx-input', 'phone draft');
-      await page.click('#cx-chip');
+      // (the chip lives in the Models drawer's NEXT TURN on a phone: the top line's Models button opens it)
+      await page.click('#cx-models-toggle');
       expect(await page.isVisible('#cx-models')).toBe(true);
+      expect(await page.isVisible('#cx-chip')).toBe(true);
       await page.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
       await page.waitForSelector('#cm-list .cm-row[data-model="fake-llama:1b"]', { timeout: 20_000 });
       await page.focus('#cm-list .cm-row[data-model="fake-llama:1b"]');

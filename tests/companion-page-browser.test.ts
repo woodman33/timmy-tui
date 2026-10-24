@@ -713,7 +713,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       // R4 (H104, second part): where a REPL turn must happen to be seen: the project this page shows (here the folder
       // TIMMY_REPO fixed, as the test's own companion was started)
       expect(words).toContain(`A REPL turn is seen here when the REPL works in ${basename(root)} (${tildePath(root)}), the folder TIMMY_REPO fixed for this companion: Timmy keeps an event bus in each project's folder, and this page reads that one's.`);
-      expect(words).toContain('STREAMDOWN CHAT is this page\'s own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.');
+      expect(words).toContain('The older STREAMDOWN CHAT view sends nothing now: the chat is the agent turn in Chat (POST /api/chat/turn); its ✨ sample is labelled SAMPLE there and is never shown here.');
       expect(words).not.toMatch(/Waiting for session chat streams/);
       expect(await page.textContent('#mirror-status')).toBe('Local chat mirror: WAITING');
       // the hour-old turn is not this session's; and nothing of the sample is in the mirror
