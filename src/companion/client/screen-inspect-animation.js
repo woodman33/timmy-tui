@@ -47,6 +47,12 @@
   function handleFor(key, c, host) {
     if (made[key]) { if (made[key].root && made[key].root.parentNode !== host) host.append(made[key].root); return made[key]; }
     const R = window.TimmyRive;
+    // re-entrancy: a handle of this key already under way (made by a call this call re-entered — a binding event emitted while
+    // it loaded reached a redraw) is the one, never a second instance (H172's 06:5x finding: 632 handles for one card at
+    // f5730666); the bindings' own component() guards the same per host
+    // (this view's keys — mark, activity, connection-<id>, welcome — are its own; the mounts' names differ)
+    const pending = R.handles().find((x) => x.component === key && x.state !== 'unmounted' && (x.place === undefined || x.place === 'inspect'));
+    if (pending) { made[key] = pending; if (pending.root && pending.root.parentNode !== host) host.append(pending.root); return pending; }
     const known = KNOWN[c.kind] || KNOWN.mark;
     const binds = c.kind === 'connection' ? [`connection:${c.provider}`] : c.kind === 'activity' ? ['activity'] : [];
     const handle = R.component({
@@ -55,6 +61,7 @@
       text: known.text, binds, sources: c.sources || [], triggerInput: known.input === 'welcome' ? 'welcome' : null,
       word: c.kind === 'connection' ? 'disconnected' : c.kind === 'activity' ? 'idle' : 'drawn by its file, or the text mark',
     });
+    handle.place = 'inspect';
     made[key] = handle;
     return handle;
   }
@@ -62,10 +69,10 @@
   /** One input's current value, in words. */
   const valueWords = (i) => (i.type === 'Trigger' ? '(a trigger: fires)' : i.value === null || i.value === undefined ? '—' : String(i.value));
 
-  /** The facts of one component, as the runtime and the bindings report them now. */
-  function facts(handle, c) {
+  /** The facts of one component, as the runtime and the bindings report them now (infos: one TimmyRive.inspect() per redraw). */
+  function facts(handle, c, infos) {
     const R = window.TimmyRive;
-    const info = R.inspect().find((x) => x.id === handle.id);
+    const info = (infos || R.inspect()).find((x) => x.id === handle.id);
     const rt = info && info.runtime;
     const riv = c.riv;
     const base = c.base || `/assets/rive/${c.folder}/`;
@@ -77,6 +84,7 @@
     rows.push(['Animations (runtime)', rt ? (rt.animationNames.length ? rt.animationNames.join(', ') : '(none)') : '—']);
     rows.push(['Inputs (runtime: type · current value)', rt && rt.inputs.length ? h('ul', { class: 'tr-inputs' }, ...rt.inputs.map((i) => h('li', { 'data-inspect-input': i.name }, h('code', null, i.name), ` · ${i.type} · `, h('b', null, valueWords(i))))) : h('span', { class: 'sh-note' }, rt ? '(the state machine has no inputs)' : `not reported; the source declares: ${(c.inputs && c.inputs.length ? c.inputs : ['—']).join(', ')}`)]);
     rows.push(['Binding state (this page)', h('span', { 'data-inspect-values': handle.component }, Object.keys(handle.values).length ? Object.entries(handle.values).map(([k, v]) => { const n = R.nativeOf(handle, k, v); return `${k} = ${JSON.stringify(v)}${n ? ` → ${n.name} ${JSON.stringify(n.value)}${n.note ? ` (${n.note})` : ''}` : ' (HTML only)'}`; }).join(' · ') : 'nothing set yet')]);
+    if (info && info.runs) rows.push(['Face words (text runs)', h('span', { 'data-inspect-runs': handle.component }, Object.entries(info.runs).map(([k, r]) => `${k}: "${r.reads === undefined ? '(no such run)' : r.reads}"${r.note ? ` — ${r.note}` : ''}`).join(' · '), ` · State guard: the baked click listener's State put back ${info.restored} time${info.restored === 1 ? '' : 's'} (the face takes no pointer; the feed's value stands)`)]);
     if (info && info.contract) rows.push(['Native contract', h('span', { 'data-inspect-contract': handle.component }, `TimmyUI on ${c.artboard}: State 0 Idle · 1 Working/Checking · 2 Approval · 3 Stopped · 4 Failed; Hover, Pressed, ReducedMotion (Bool). This page's words map onto it (${c.kind === 'connection' ? 'connected has NO success pose: State 0, the label says it' : c.kind === 'activity' ? 'stopping → State 1 until the backend says cancelled → 3' : 'the press → Pressed down, then up'}); the drafted source ${c.draft ? `in ${c.draft.folder}/ stays as a draft` : 'is beside the asset'}.`)]);
     rows.push(['Where', info && info.place && info.place !== 'inspect' ? `mounted in the ${info.place} screen (TimmyRive.mount…), the same handle this view inspects` : 'this view']);
     rows.push(['Reduced motion', handle.still ? (info && info.nativeReduced ? 'on: the asset’s own ReducedMotion input is true (zero-duration transitions; the runtime settles each pose and stops moving)' : 'on: the runtime is paused on its first frame (the words carry the state)') : 'off: the runtime plays']);
@@ -96,25 +104,36 @@
   function previews(handle, c) {
     const R = window.TimmyRive;
     const known = KNOWN[c.kind] || KNOWN.mark;
-    if (!known.input) return h('p', { class: 'sh-note' }, 'No preview control: the mark has one Idle animation and no operational input.');
+    if (!known.input) return h('p', { class: 'sh-note', 'data-inspect-previews': handle.component }, 'No preview control: the mark has one Idle animation and no operational input.');
     const vocab = R.VOCAB[known.input] || [];
     const buttons = known.input === 'welcome'
       ? [h('p', { class: 'sh-note' }, 'The welcome is a user trigger: press the component itself (click, Enter or Space). No preview fires it for you.')]
       : vocab.map((w) => h('button', { type: 'button', class: 'sh-btn is-small tr-preview', 'data-preview': `${handle.component}:${w}`, 'aria-describedby': `tr-preview-label-${handle.component}` }, `Preview: ${w}`));
-    return h('div', { class: 'tr-previews', role: 'group', 'aria-label': PREVIEW_LABEL },
+    return h('div', { class: 'tr-previews', role: 'group', 'aria-label': PREVIEW_LABEL, 'data-inspect-previews': handle.component },
       h('p', { class: 'sh-label tr-preview-label', id: `tr-preview-label-${handle.component}` }, 'PREVIEW'),
       h('p', { class: 'sh-note', 'data-preview-words': handle.component }, PREVIEW_LABEL),
       h('div', { class: 'sh-actions' }, ...buttons),
       ...(known.input === 'selected' || known.input === 'welcome' ? [] : [h('div', { class: 'sh-actions' }, h('button', { type: 'button', class: 'sh-btn is-small tr-preview', 'data-preview': `${handle.component}:selected` }, 'Preview: selected ⇄'), h('button', { type: 'button', class: 'sh-btn is-small tr-preview', 'data-preview': `${handle.component}:expanded` }, 'Preview: expanded ⇄'))]));
   }
 
-  /** One component's card. */
-  function card(key, c, host) {
+  /**
+   * One component's card. With `existing` (this key's card from the last redraw) the words are replaced in place and the face
+   * stays where it is: a redraw per event never moves a canvas in the DOM.
+   */
+  function card(key, c, host, infos, existing) {
+    if (existing) {
+      const art = existing.querySelector('.tr-art');
+      const handle = handleFor(key, c, art);
+      const parts = [facts(handle, c, infos), events(handle), previews(handle, c)];
+      const old = ['.tr-facts', '.tr-events', '[data-inspect-previews]'].map((sel) => existing.querySelector(sel));
+      old.forEach((el, i) => { if (el) el.replaceWith(parts[i]); else existing.append(parts[i]); });
+      return handle;
+    }
     const art = h('div', { class: 'tr-art' });
     const handle = handleFor(key, c, art);
     const box = h('article', { class: 'sh-card tr-card', 'data-inspect-component': key, 'aria-labelledby': `tr-h-${key}` },
       h('h3', { id: `tr-h-${key}` }, (KNOWN[c.kind] || KNOWN.mark).heading + (c.provider ? ` · ${c.provider}` : '')),
-      art, facts(handle, c), events(handle), previews(handle, c));
+      art, facts(handle, c, infos), events(handle), previews(handle, c));
     host.append(box);
     return handle;
   }
@@ -164,7 +183,7 @@
       const note = host.querySelector('[data-inspect-listing]');
       if (note) note.textContent = l.status === 200 ? `${l.words || ''} Runtime served by this companion: ${l.runtime ? 'yes (/vendor/rive/)' : 'no (@rive-app/canvas not installed)'}. ${m && m.words ? `T mark: ${m.words}` : ''}` : l.words;
       redraw();
-      if (!timer) timer = setInterval(() => { if (hostEl && !hostEl.hidden) redraw(); }, 1500);
+      if (!timer) timer = setInterval(() => { if (hostEl && !hostEl.hidden) redrawSoon(); }, 1500); // the periodic refresh coalesces like any other ask
     });
   }
 
@@ -172,15 +191,28 @@
    * Redraws the cards from the handles as they are. A redraw never makes a handle twice (handleFor reuses made[key]) and never
    * loads a file again: a handle that settled on its words (a file that failed) stays on its words through every redraw, so a
    * binding event — or a runtime's load error — cannot feed a redraw that asks for the file again (H172's note). Redraws asked
-   * for in one frame are one redraw.
+   * for in one frame are one redraw. One redraw reads TimmyRive.inspect() once; when the cards are the same components in the
+   * same order it replaces their words in place (the faces stay), else it rebuilds the list.
    */
+  let draws = 0;
+  let drawing = false;
   function redraw() {
     const host = hostEl;
     if (!host) return;
     const cards = host.querySelector('[data-inspect-cards]');
     if (!cards) return;
-    cards.replaceChildren();
-    for (const c of components()) card(c.key, c, cards);
+    // never re-entered: a redraw asked for while one draws is the next frame's (redrawSoon)
+    if (drawing) { redrawSoon(); return; }
+    drawing = true;
+    try {
+      draws += 1;
+      const list = components();
+      const infos = window.TimmyRive.inspect();
+      const was = [...cards.children];
+      const same = was.length === list.length && was.every((el, i) => el.getAttribute('data-inspect-component') === list[i].key);
+      if (!same) cards.replaceChildren();
+      list.forEach((c, i) => card(c.key, c, cards, infos, same ? was[i] : null));
+    } finally { drawing = false; }
   }
   /** The redraw a binding event asks for: one per frame, however many events arrive in it. */
   let redrawAsked = false;
@@ -237,5 +269,5 @@
     onHash();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountIt); else mountIt();
-  window.timmyInspectAnimation = { draw, redraw, close, components, PREVIEW_LABEL, handles: () => ({ ...made }) };
+  window.timmyInspectAnimation = { draw, redraw, redrawSoon, close, components, PREVIEW_LABEL, handles: () => ({ ...made }), draws: () => draws };
 })();

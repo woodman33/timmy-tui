@@ -28,6 +28,8 @@ export const RIVE_COMPONENTS = Object.freeze({
 });
 export const RIVE_WIDTH = 240;
 export const RIVE_HEIGHT = 200;
+/** A new shape's width per component: the welcome's ActionButton face (240:72) needs ≥ 200 px to read as a button at 100 %. */
+export const RIVE_WIDTH_OF = Object.freeze({ welcome: 280, connection: RIVE_WIDTH, activity: RIVE_WIDTH });
 /** Expanded when the person made the shape at least this much wider than its default. */
 export const EXPAND_AT = 1.5;
 /** What the shape says of a state word that no backend event set on this page (a saved word is a record, not an observation). */
@@ -42,7 +44,7 @@ export const isRiveShape = (r) => !!r && r.typeName === 'shape' && r.type === RI
 /** The props a new shape of `component` starts with. */
 export function riveProps(component, o = {}) {
   const c = RIVE_COMPONENTS[component] ? component : 'welcome';
-  return { w: o.w ?? RIVE_WIDTH, h: o.h ?? RIVE_HEIGHT, component: c, state: o.state ?? (c === 'connection' ? 'disconnected' : c === 'activity' ? 'idle' : 'ready'), label: o.label ?? (c === 'connection' ? 'Provider connection' : c === 'activity' ? 'Agent / tool activity' : 'Welcome / guide'), provider: o.provider ?? '' };
+  return { w: o.w ?? (RIVE_WIDTH_OF[c] || RIVE_WIDTH), h: o.h ?? RIVE_HEIGHT, component: c, state: o.state ?? (c === 'connection' ? 'disconnected' : c === 'activity' ? 'idle' : 'ready'), label: o.label ?? (c === 'connection' ? 'Provider connection' : c === 'activity' ? 'Agent / tool activity' : 'Welcome / guide'), provider: o.provider ?? '' };
 }
 
 /**
@@ -74,6 +76,8 @@ export function createRiveShape(deps) {
       const handle = rive.component({
         host, component: `${p.component}${p.provider ? `:${p.provider}` : ''}`, asset: assetOf(p.component), artboard: def.artboard, stateMachine: def.stateMachine,
         role: def.role, label: p.label, text: def.text, binds, triggerInput: def.input === 'welcome' ? 'welcome' : null, word: p.state,
+        // the face's caption until a backend event sets its state on this page (then LIVE / its feed); a welcome's face label is its own
+        caption: 'AS SAVED  /  NOT A LIVE JOB', faceLabel: def.input === 'welcome' ? p.label : undefined,
       });
       handleRef.current = handle;
       const off = rive.on((hd, ev) => {

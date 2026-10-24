@@ -7,7 +7,9 @@
 .tr-face { position: relative; display: inline-grid; place-items: center; width: 72px; height: 72px; padding: 0; border: 1px solid var(--timmy-line-strong); border-radius: 10px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-size: 32px; font-weight: var(--timmy-weight-heading, 600); cursor: default; }
 button.tr-face { cursor: pointer; }
 button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
-.tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* the canvas takes no pointer: the asset bakes a click listener that would push State to 1 Working/Checking without a backend
+   event (a fabricated state on a live face); the face element (the host's button or img) keeps the click, the keyboard and the focus */
+.tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* the operator's native artboards at their own proportions (AgentConsole 640×380, ProviderCard 400×260, ActionButton 240×72), so the
    native text reads; a phone width halves them */
 .tr-component[data-artboard="AgentConsole"] .tr-face { width: 320px; height: 190px; border-radius: 8px; }
