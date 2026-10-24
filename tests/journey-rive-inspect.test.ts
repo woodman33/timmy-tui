@@ -318,18 +318,29 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
       const use = o.page.getByRole('button', { name: /Use for the next turn/ }).first();
       await use.click({ timeout: 10_000 }).catch(async () => { const li = o.page.locator('#cm-list li', { hasText: MODEL }).first(); await li.focus(); await li.press('Enter'); });
       await until(o.page, 'the model chosen', (s) => /Next turn: fake-qwen3:8b|fake-qwen3:8b[^\n]*(ready|this computer)/.test(s), 20_000);
-      // a quick turn first: working while the FAKE answers, idle once it has
+      // a quick turn first: the FAKE answers within ~150–300 ms, so "working" is read from the RECORDED binding events (the label
+      // holds it only that long: a timer-held minimum would be a fabricated state, refused — H174's 01:36 evidence), and "idle" from
+      // the label once the answer stands
       const composer = o.page.getByRole('textbox', { name: /Message Timmy/i }).or(o.page.getByPlaceholder(/Message Timmy/i));
+      const recorded = (): Promise<string[]> => o.page.evaluate(() => {
+        const R = (window as unknown as { TimmyRive?: { inspect?: () => Array<{ component?: string; id: string; events?: Array<{ input: string; value: unknown; source: string }> }> } }).TimmyRive;
+        const h = R?.inspect?.().find((x) => x.component === 'activity');
+        return (h?.events ?? []).map((e) => `${e.input} = ${JSON.stringify(e.value)} · ${e.source}`);
+      });
+      const eventsBefore = (await recorded()).length;
       await composer.first().fill('FAKE: what time is it?');
       await o.page.getByRole('button', { name: /^Send/ }).first().click();
-      expect(await labelIs(o.page, 'activity', /^working$/, 20_000)).toBe('working');
       await until(o.page, 'the FAKE answer', (s) => s.includes(FAKE_ANSWER), 60_000);
       expect(await labelIs(o.page, 'activity', /^idle$/, 20_000)).toBe('idle');
+      const quick = (await recorded()).slice(eventsBefore);
+      expect(quick.some((e) => /^activity = "working" · derived from the page.s drawing of the turn/.test(e)), `the quick turn's "working", recorded as derived from the page's drawing: ${quick.join(' | ')}`).toBe(true);
+      expect(quick.some((e) => /^activity = "idle" · derived from the page.s drawing of the turn/.test(e)), `the quick turn's "idle", recorded: ${quick.join(' | ')}`).toBe(true);
       // then a slow turn: working while it streams; Stop → stopping → stopped. (After a Stop the stopped own turn stays the newest
       // in #cx-own while a later answered turn folds into #cx-turns, so a turn answered AFTER a Stop leaves the label on "stopped" —
       // observed in gate 22, said here, not asserted: the derivation's newest-li rule across the two lists is H174's/H171's call.)
       await composer.first().fill('FAKE: answer slowly please');
       await o.page.getByRole('button', { name: /^Send/ }).first().click();
+      // (the slow turn streams a word every 700 ms: "working" is seen on the live label here)
       expect(await labelIs(o.page, 'activity', /^working$/, 20_000)).toBe('working');
       await o.page.getByRole('button', { name: /^Stop/ }).first().click();
       expect(await labelIs(o.page, 'activity', /^stopped$/, 30_000)).toBe('stopped');
