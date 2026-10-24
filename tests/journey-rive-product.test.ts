@@ -115,7 +115,7 @@ const PROVIDERS = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];
  * the three PRODUCTION artboards, the state machine and its four inputs are what every build keeps.
  */
 const NATIVE = { name: 'timmy-ui.riv', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
-const KNOWN_BUILDS: Record<string, string> = { '9fd9ae7c0981': 'v1 (the round-6 asset, 405,278 bytes)' };
+const KNOWN_BUILDS: Record<string, string> = { '9fd9ae7c0981': 'v1 (the round-6 asset, 405,278 bytes)', 'e97d28dc5efd': 'v2 (the Mac build of H174\'s 4e8d4905, 93,211 bytes, 7 artboards)' };
 const SIZES = [{ width: 1440, height: 900 }, { width: 390, height: 844 }];
 
 const caps = capturer('tests/journey-rive-product.test.ts', [
@@ -377,7 +377,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
     const ui = listing.components.find((c) => c.component === 'timmy-ui')!;
     expect(ui.riv, 'the listing names the file').toBeTruthy();
     expect(ui.riv!.name).toBe(NATIVE.name);
-    expect(ui.riv!.bytes).toBeGreaterThan(100_000);
+    expect(ui.riv!.bytes, 'a compiled file (v1 405,278 bytes; v2 93,211)').toBeGreaterThan(10_000);
     const fromCompanion = await fetch(new URL('/assets/rive/timmy-ui/timmy-ui.riv', companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } });
     expect(fromCompanion.status).toBe(200);
     const bytes = Buffer.from(await fromCompanion.arrayBuffer());

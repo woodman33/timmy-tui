@@ -69,7 +69,7 @@ const DRAWN = ['activity', 'connection-cloudflare', 'connection-ollama-cloud', '
  * every build keeps (asserted as contained, so a build with more artboards passes and is said).
  */
 const NATIVE = { name: 'timmy-ui.riv', artboards: ['AgentConsole', 'ProviderCard', 'ActionButton'], stateMachine: 'TimmyUI', inputs: ['State', 'Hover', 'Pressed', 'ReducedMotion'] };
-const KNOWN_BUILDS: Record<string, string> = { '9fd9ae7c0981': 'v1 (the round-6 asset, 405,278 bytes)' };
+const KNOWN_BUILDS: Record<string, string> = { '9fd9ae7c0981': 'v1 (the round-6 asset, 405,278 bytes)', 'e97d28dc5efd': 'v2 (the Mac build of H174\'s 4e8d4905, 93,211 bytes, 7 artboards)' };
 /** Which path this checkout takes: decided by the first case from GET /api/rive/assets (the file beside its source, and the runtime served). */
 let native: boolean | null = null;
 const pathWords = (): string => native ? `DRAWN: ${NATIVE.name} is beside its source in this checkout and @rive-app/canvas is served from this origin` : 'WORDS ONLY: no .riv beside the sources in this checkout (every state is the word beside its component)';
@@ -278,7 +278,7 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
     const riv = await fetch(new URL('/assets/rive/timmy-ui/timmy-ui.riv', companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } });
     if (ui.riv) {
       expect(ui.riv.name).toBe(NATIVE.name);
-      expect(ui.riv.bytes).toBeGreaterThan(100_000);
+      expect(ui.riv.bytes, 'a compiled file (v1 405,278 bytes; v2 93,211)').toBeGreaterThan(10_000);
       expect(ui.riv.sha256).toMatch(/^[0-9a-f]{12}$/);
       expect(ui.words).toMatch(/\.riv and its editable source are both here/);
       expect(riv.status, 'the .riv served by exact name').toBe(200);

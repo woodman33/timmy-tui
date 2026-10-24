@@ -492,9 +492,11 @@ describe('every major page on the shell, from the running companion and Studio: 
         const top = o.page.locator(SHELL.topbar).first();
         expect(await top.count(), 'the topbar header#shell-top (§3.2)').toBeGreaterThan(0);
         const crumb = await top.locator('.crumb').first().innerText().catch(() => '');
-        expect(crumb, 'the crumb reads "Workspace / <page name>"').toMatch(/Workspace/i);
         const status = await top.locator('#shell-status').first().innerText().catch(() => '');
-        expect(status.length, 'the status word in the topbar (#shell-status)').toBeGreaterThan(0);
+        if (!phone) {
+          expect(crumb, 'the crumb reads "Workspace / <page name>"').toMatch(/Workspace/i);
+          expect(status.length, 'the status word in the topbar (#shell-status)').toBeGreaterThan(0);
+        } // (§4: the phone's top strip is the mark, the project's name and the menu button; the crumb and the status may fold — read, said)
         const sheet = phone ? await openRailSheet(o) : null;
         const rail = o.page.locator(SHELL.rail).first();
         expect(await rail.count(), 'the rail aside#shell-rail (§3.1)').toBeGreaterThan(0);
@@ -782,11 +784,21 @@ const PROBES: Record<string, Probe> = {
     const composer = o.page.getByRole('textbox', { name: COMPOSER }).or(o.page.getByPlaceholder(COMPOSER)).first();
     expect(await composer.count(), 'the composer').toBeGreaterThan(0);
     expect(await composer.isVisible(), 'the composer is visible (the task dock reachable)').toBe(true);
-    // the first use (empty): the welcome with its verb-led starters — captured when this is the project's first visit
-    const landing = await text(o.page);
-    const firstUse = /What would you like to make|Plan a project/i.test(landing);
-    if (firstUse) await caps.cap(o.page, size, 'chat-first-use', { line: line('Chat', 'first use (empty): the welcome and its starters'), facts: ['The empty state: the welcome with its verb-led starters; no turn in this project yet; no model chosen yet.'], full: true });
-    else facts.push('Not first use at this capture: the conversation as it stands (turns of this run\'s earlier cases, this being the USER\'s one project).');
+    // the first use (empty): the welcome with its verb-led starters — the project's first visit; later (the USER's one project carries the
+    // earlier cases' turns) the product's own way to an empty conversation: "+ New conversation" in the rail (POST /api/chat/new, H169)
+    const welcome = (s: string): boolean => /What would you like to make|Plan a project/i.test(s);
+    let firstUse = welcome(await text(o.page));
+    if (!firstUse) {
+      const fresh = o.page.locator('#rail-new-conv').first();
+      if (!(await fresh.isVisible().catch(() => false)) && phone) await openRailSheet(o);
+      if (await fresh.isVisible().catch(() => false)) {
+        await fresh.click();
+        firstUse = await until(o.page, 'the welcome after New conversation', welcome, 15_000).then(() => true, () => false);
+        if (phone && await o.page.locator(SHELL.railSheet).first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape');
+      }
+    }
+    if (firstUse) await caps.cap(o.page, size, 'chat-first-use', { line: line('Chat', 'first use (empty): the welcome and its starters'), facts: ['The empty state: the welcome with its verb-led starters (the project\'s first visit, or New conversation on a project with a saved one); no turn in this conversation yet.'], full: true });
+    else facts.push('Not first use at this capture: the conversation as it stands (turns of this run\'s earlier cases; New conversation did not draw the welcome within 15 s — said).');
     // the context at the right (a sheet on a phone): the models, with the catalog's words (H169's CATALOG METADATA; H171's panel)
     if (phone) await o.page.locator(SHELL.contextButton).first().click().catch(() => undefined);
     const models = await until(o.page, 'the Models context', (s) => /All makers|All capabilities|Newest first|Choose your model/.test(s), 10_000).catch(() => '');
@@ -840,8 +852,9 @@ const PROBES: Record<string, Probe> = {
     const keyField = o.page.getByRole('textbox', { name: /Ollama API key/i }).or(o.page.locator('#cn-ollama-cloud-key')).first();
     if (await keyField.count()) {
       await keyField.fill(FAKE_CLOUD_KEY);
-      await o.page.getByRole('button', { name: /Save the key/ }).first().click();
-      const savedWords = await until(o.page, 'the key saved, said', (s) => /saved|not checked|Check the key/i.test(s), 15_000);
+      await o.page.getByRole('button', { name: /Save (the|an Ollama) key/ }).first().click();
+      // (the card offers "Check the key" / "Forget the key" only once a key is held: the saved state, not a word that may already be on the page)
+      const savedWords = await until(o.page, 'the key saved, said (Check the key / Forget the key offered)', (s) => /Check the key|Forget the key/.test(s), 15_000);
       expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
       expect(await o.page.evaluate(() => document.documentElement.outerHTML), 'the key\'s value reaches no DOM').not.toContain(FAKE_CLOUD_KEY);
       const cloudState = await o.page.locator('[data-provider="ollama-cloud"]').first().getAttribute('data-state');

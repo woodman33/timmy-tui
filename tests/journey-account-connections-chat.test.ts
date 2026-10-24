@@ -176,7 +176,7 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
   // as a person would: the page's own landing settles first (body[data-screen] chosen, its first requests answered) and the
   // session is adopted after it — the shell's fetch clears the session it holds when a 401 { needs: 'session' } comes back, so a
   // token set while the page's session-less first requests are still in flight is wiped by their refusals (gate run, 22:10)
-  await guard('the landing chose a screen (body[data-screen])', page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen')), null, { timeout: 15_000 }));
+  await guard('the landing chose a screen (body[data-screen], or body[data-page] on the round-7 shell)', page.waitForFunction(() => Boolean(document.body.getAttribute('data-screen') || document.body.getAttribute('data-page')), null, { timeout: 15_000 }));
   // (and the landing read GET /api/identity with the page's launch token: TimmyShell.identity() is its answer; a page that took
   // the no-token path has none, and a seam then would be refused for the launch token, not the session)
   await guard('the landing read GET /api/identity with the launch token (TimmyShell.identity())', page.waitForFunction(() => Boolean((window as unknown as { TimmyShell?: { identity?: () => unknown } }).TimmyShell?.identity?.()), null, { timeout: 15_000 }));
@@ -203,8 +203,8 @@ async function useSession(page: Page, token: string, go?: 'account' | 'connectio
     return `session ${w.TimmyShell?.session?.get?.() ? 'held' : 'EMPTY'}; user ${JSON.stringify(w.TimmyShell?.session?.user?.() ?? null)}; screen ${w.TimmyShell?.current?.() ?? '?'}; identity ${id ? JSON.stringify(id).slice(0, 120) : 'not read'}; account ${st.slice(0, 300)}`;
   }).catch(() => 'state unreadable').then((st) => `${st}; Clerk's load ${clerkLoaded ? 'ended' : 'still running when the session was adopted'}`);
 }
-/** Which screen the shell shows (body[data-screen], H171's contract). */
-const screenOf = (page: Page): Promise<string> => page.evaluate(() => document.body.getAttribute('data-screen') ?? '');
+/** Which screen the shell shows (body[data-screen], H171's round-4 contract; round 7: body[data-page] when the screen attribute is not set — H175's §2.4). */
+const screenOf = (page: Page): Promise<string> => page.evaluate(() => document.body.getAttribute('data-screen') || document.body.getAttribute('data-page') || '');
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
 const html = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.outerHTML);
@@ -252,8 +252,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // the rail's account block saying "This computer's operator · no identity provider configured (CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY)"
         await until(o.page, 'the operator\'s chat (unconfigured lands on chat)', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen] (unconfigured lands on chat)').toBe('chat');
-        // on a phone the rail is folded behind Menu (H171's shell: #cx-menu opens it)
-        if (size.width < 600) await o.page.getByRole('button', { name: 'Menu' }).first().click();
+        // on a phone the rail is folded behind the menu button (round 7, H175's SHELL CONTRACT v1 §4: #shell-menu opens the rail sheet;
+        // round 6: H171's #cx-menu named "Menu")
+        if (size.width < 600) await o.page.locator('#shell-menu').or(o.page.getByRole('button', { name: 'Menu' })).first().click();
         const landed = await until(o.page, 'the rail\'s account block naming the dependency (the lead\'s 21:48 words; H171)', (s) => /no identity provider configured/i.test(s), 10_000);
         expect(landed).toMatch(/CLERK_PUBLISHABLE_KEY/);
         expect(landed).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
@@ -338,9 +339,10 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(thisPull.aborted, 'the FAKE /api/pull saw the abort').toBe(true);
         const cancelled = await until(o.page, 'the download cancelled, said', (s) => /Cancelled/.test(s), 10_000);
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
-        // the screen's own heading (SCREEN_WORDS: the kicker, the title "Choose how you want to run.", the lead) is on the page
-        expect(cancelled, 'the connections screen\'s title (H170\'s SCREEN_WORDS.title, drawn in #cx-title — H171 noted the id is also the Chat\'s)').toMatch(/Choose how you want to run\./i);
-        expect(cancelled).toMatch(/CONNECT YOUR MODELS & TOOLS/i);
+        // the screen's own heading (SCREEN_WORDS: the kicker, the title, the lead) is on the page — round 7 (H170, 14:37): the order's
+        // words "One model is enough to begin." under the kicker "06 / CONNECT A PROVIDER"; round 6: "Choose how you want to run."
+        expect(cancelled, 'the connections screen\'s title (H170\'s SCREEN_WORDS.title)').toMatch(/One model is enough to begin\.|Choose how you want to run\./i);
+        expect(cancelled).toMatch(/06 \/ CONNECT A PROVIDER|CONNECT YOUR MODELS & TOOLS/i);
         // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
@@ -486,11 +488,19 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
     const o = await open(configured!, { width: 390, height: 844 }, { session: identity.token(USER), tab: 'chat' });
     try {
       await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s), 20_000, undefined, facts(o));
+      // the Models context opens from a button (round 7: .page-context-btn "Models" in the page's head; round 6: the Models button)
       expect(await o.page.getByRole('button', { name: /Models/ }).count()).toBeGreaterThan(0);
-      expect(await o.page.getByRole('button', { name: /Connections|Models & accounts/ }).count()).toBeGreaterThan(0);
-      // the rail folded: its items are not laid out at once
+      // the rail folded: its items are not laid out at once (round 7: behind #shell-menu's rail sheet; round 6: behind Menu)
       const railVisible = await o.page.getByText(/Runs & receipts/).first().isVisible().catch(() => false);
       expect(railVisible, 'the rail is folded on a phone').toBe(false);
+      // Models & accounts (Connections) is reachable: a visible button, or the rail sheet's item once the menu opens
+      const direct = await o.page.getByRole('button', { name: /Connections|Models & accounts/ }).count();
+      if (!direct) {
+        await o.page.locator('#shell-menu').or(o.page.getByRole('button', { name: 'Menu' })).first().click();
+        await o.page.waitForTimeout(300);
+        expect(await o.page.getByRole('button', { name: /Connections|Models & accounts/ }).or(o.page.getByRole('link', { name: /Connections|Models & accounts/ })).count(), 'Models & accounts in the opened rail sheet').toBeGreaterThan(0);
+        await o.page.keyboard.press('Escape');
+      }
       // nothing cut: no element wider than the viewport
       const overflow = await o.page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth);
       expect(overflow, 'horizontal overflow in CSS pixels').toBeLessThanOrEqual(0);
