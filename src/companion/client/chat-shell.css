@@ -566,16 +566,19 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
    The band open (body.console-open, chat-shell.js syncConsoleClass): the face at 18 % of the window's height (162 px at 900: the
    native text still reads), the welcome compact — the mark, the question, the line and the three starters whole above the band
    at 1440 × 900; the primary starter's native face beside its label, its words under them, so its card is as tall as the others */
-#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { height: clamp(120px, 18vh, 190px); }
+/* (the lead's ruling on CI run 40110859990: the face ≥ 300 px wide at 1440 × 900, so the artboard's 28 px headline is ≥ 13 px on
+   screen — the page's own floor; 178 px tall is 300 wide at 640 : 380; a short window and a phone fold the band instead) */
+#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { height: clamp(178px, 20vh, 190px); }
+.cx-console { margin: 4px 0 2px; }
 .cx-console-head { min-height: 26px; }
-.cx-console-body { padding: 0 8px 6px; }
+.cx-console-body { padding: 0 8px 4px; }
 @media (min-width: 761px) {
-  body.console-open .cx-empty.is-welcome { margin-top: 4px; }
-  body.console-open .cx-scroll { padding-top: 10px; }
-  body.console-open .cx-welcome-mark.sh-mark.is-big { width: 48px; height: 48px; font-size: 26px; border-radius: 6px; margin-top: 4px; }
-  body.console-open .cx-welcome-title { margin-top: 10px; font-size: 26px; }
-  body.console-open .cx-welcome-line { margin-top: 6px; font-size: 14px; line-height: 1.4; }
-  body.console-open .cx-ways.cx-starters { margin-top: 10px; }
+  body.console-open .cx-empty.is-welcome { margin-top: 2px; }
+  body.console-open .cx-scroll { padding-top: 8px; }
+  body.console-open .cx-welcome-mark.sh-mark.is-big { width: 44px; height: 44px; font-size: 24px; border-radius: 6px; margin-top: 2px; }
+  body.console-open .cx-welcome-title { margin-top: 8px; font-size: 26px; }
+  body.console-open .cx-welcome-line { margin-top: 4px; font-size: 14px; line-height: 1.4; }
+  body.console-open .cx-ways.cx-starters { margin-top: 8px; }
 }
 .cx-way-twin .cx-rive-host:not(.is-loading) { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
 .cx-way-twin .cx-rive-host .tr-component, .cx-way-twin .cx-rive-host .tr-component[data-artboard] { display: flex; align-items: center; gap: 10px; }

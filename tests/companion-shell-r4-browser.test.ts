@@ -211,7 +211,9 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(band.bottom).toBeLessThanOrEqual(Math.round(await page.$eval('#cx-route', (e) => e.getBoundingClientRect().top)) + 1);
       const face = await page.$eval('#cx-console .tr-face', (e) => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), visible: r.width > 0 && r.height > 0 }; });
       expect(face.visible).toBe(true);
-      expect(face.h).toBeGreaterThanOrEqual(120);
+      // (the lead's ruling, CI run 40110859990: ≥ 300 px wide at 1440 × 900 — the artboard's headline ≥ 13 px on screen, the page's floor)
+      expect(face.w).toBeGreaterThanOrEqual(300);
+      expect(face.h).toBeGreaterThanOrEqual(178);
       expect(Math.abs(face.w / face.h - 640 / 380)).toBeLessThan(0.06);
       await page.click('#cx-console-toggle');
       expect(await page.getAttribute('#cx-console-toggle', 'aria-expanded')).toBe('false');
