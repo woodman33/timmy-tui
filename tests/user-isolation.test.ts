@@ -388,6 +388,28 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(bList.text).not.toContain(userHome(A));
   });
 
+  // (the lead, R11 round 7 — GATE 06 on 1c9bbebb, the operator's 19:18 item 2: the shell's land() asks GET /api/chat/route to
+  // decide Continue; it answered the COMPANION's own route whoever asked, so a signed-in user whose own route was ready stayed
+  // on Models & accounts. The route is the principal's, as /api/chat/view reads it.)
+  it('the shell\'s GET /api/chat/route is the PRINCIPAL\'s: as A (a model chosen on A\'s project) it reads ready and the same kind as A\'s /api/chat/view route; as B (nothing chosen) not ready; the launch token alone 401', async () => {
+    expect(aProject, 'A\'s project (the case above)').toBeTruthy();
+    const asA = await call('GET', '/api/chat/route', { session: identity.token(A), query: { project: aProject!.id } });
+    expect(asA.status, `A's GET /api/chat/route?project=<A's id>: ${asA.text.slice(0, 300)}`).toBe(200);
+    const viewA = await call('GET', ROUTES.chatView, { session: identity.token(A), query: { project: aProject!.id } });
+    expect(viewA.status, `A's GET ${ROUTES.chatView}: ${viewA.text.slice(0, 200)}`).toBe(200);
+    expect(viewA.json?.route?.ready, `A's view route (the Chat page's own read): ${JSON.stringify(viewA.json?.route).slice(0, 300)}`).toBe(true);
+    expect(asA.json?.ready, `the shell's route as A (the view's route reads ready — the shell's must agree): ${asA.text.slice(0, 300)}`).toBe(true);
+    expect(asA.json?.kind, `the shell's route kind as A = the view's: ${asA.text.slice(0, 200)} vs ${JSON.stringify(viewA.json?.route).slice(0, 200)}`).toBe(viewA.json?.route?.kind);
+    expect(asA.text, 'no key value in the route').not.toContain(FAKE_CLOUD_KEY);
+    const asB = await call('GET', '/api/chat/route', { session: identity.token(B) });
+    expect(asB.status, `B's GET /api/chat/route: ${asB.text.slice(0, 300)}`).toBe(200);
+    expect(asB.json?.ready, `B chose nothing: B's route is not ready (the answer is per principal, never the companion's own): ${asB.text.slice(0, 300)}`).toBe(false);
+    expect(asB.text, 'nothing of A\'s in B\'s route').not.toContain(MODEL);
+    const bare = await call('GET', '/api/chat/route', {});
+    expect(bare.status, `the launch token alone: ${bare.text.slice(0, 200)}`).toBe(401);
+    expect(bare.json?.needs, bare.text.slice(0, 200)).toBe('session');
+  });
+
   it('B cannot read A\'s conversation nor run a turn on A\'s root: refused with words; A\'s logs and receipts are in none of B\'s reads', async () => {
     expect(aProject, 'A\'s project (the case above)').toBeTruthy();
     // A reads A's conversation first: a refusal that refuses everyone (a route that knows no user's project) is no isolation
