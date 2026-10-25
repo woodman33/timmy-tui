@@ -224,8 +224,12 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.isVisible('#cx-turns > .cx-turn.is-stopped details.cx-stop-record pre')).toBe(false);
       // (no standalone tool result stands between the turns any more: the tool's result folded into its answer's activity)
       expect(await page.$('#cx-turns details.cx-tool:not(.cx-stop-record)')).toBeNull();
-      // (R11 round 7: the kicker is the hierarchy's — 01 / <project> · <the current task>, the newest message of the person's)
-      expect(await text(page, '#cx-kicker')).toBe('01 / tray · One more question, then.');
+      // (R11 round 7, D9: the kicker is "NN / VERB PHRASE" only — a conversation under way CONTINUES; the person's words are the
+      // h1's: the conversation's title is its first message of the person's, drawn as written; the project is the band's)
+      expect(await text(page, '#ws-chat > .page-head .page-kicker')).toBe('01 / CONTINUE THE CONVERSATION');
+      expect(await text(page, '#ws-chat > .page-head .page-title')).toBe('Help me turn this folder into a plan.');
+      expect(await page.$eval('#ws-chat > .page-head .page-title', (e) => getComputedStyle(e).textTransform)).toBe('none');
+      await page.waitForFunction(() => document.querySelector('#ws-chat > .page-band .band-cell:first-child .band-v')?.textContent?.trim() === 'tray', null, { timeout: 10_000 });
       // the route of the next turn
       expect(await text(page, '#cx-route-words')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer');
       // the Models rail: Ollama local first (the route's), its installed model in use and selected
