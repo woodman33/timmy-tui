@@ -656,14 +656,23 @@
       return t;
     },
     on(event, fn) { (listeners[event] = listeners[event] || []).push(fn); return () => { listeners[event] = (listeners[event] || []).filter((f) => f !== fn); }; },
-    /** The landing rule. Returns the page it chose. */
-    async land() {
+    /**
+     * The landing rule. Returns the page it chose. `why` names what asked: the boot's landing (the default), or 'continue' —
+     * Models & accounts' "Continue to the workspace" (H170 runs land()); pressed there, the shown page IS connections, so the
+     * why is 'continue' unless the caller says otherwise.
+     */
+    async land(why) {
       if (landing) return landing;
+      const reason = why || (shown === 'connections' ? 'continue' : 'landing');
       landing = (async () => {
         let configured = false;
-        // the page companion.js showed as it loaded (its remembered tab, the address's ?tab=, else Chat)
+        // the page companion.js showed as it loaded (its remembered tab, the address's ?tab=, else Chat). A WORKSPACE page is
+        // never the landing's own two stops: Models & accounts and Account are where the rule sends a person who cannot work
+        // yet, so a memory of either (the landing itself remembered it; the tab the switcher took) is not a place to land —
+        // the lead's 18:29 ruling: with a usable route, Continue leaves Models & accounts for the workspace (Chat) at every size.
+        const workspaceOf = (id) => { const p = id ? pageOf(id) : null; return p && p.id !== 'account' && p.id !== 'connections' ? p.id : ''; };
         const tabPage = (typeof workspace !== 'undefined' && workspace && byLegacy.get(String(workspace.tab))) || byId.get('chat');
-        const workspacePage = () => (tabPage && tabPage.id !== 'account' ? tabPage.id : 'chat');
+        const workspacePage = () => workspaceOf(tabPage && tabPage.id) || 'chat';
         // no launch token (or not this companion's): the page's own note says how to open it from Timmy; nothing else is read
         if (!launchToken() || (typeof companion !== 'undefined' && companion && companion.refused)) { shell.go(workspacePage(), 'no-token'); return shown; }
         try {
@@ -682,10 +691,11 @@
           let ready = false;
           // (GET /api/chat/route answers the PageRoute itself: { kind, ready, … })
           try { const r = await shell.fetch('/api/chat/route'); if (r.status === 200) { const b = await r.json(); ready = Boolean(b && b.ready); } } catch (e) { ready = false; }
-          const kept = remembered();
-          id = ready ? (pageOf(kept) && kept !== 'account' ? pageOf(kept).id : workspacePage()) : 'connections';
+          // a usable route: the page remembered (a workspace page the person chose; never connections or account), else the
+          // workspace; no usable route: Models & accounts
+          id = ready ? (workspaceOf(remembered()) || workspacePage()) : 'connections';
         }
-        shell.go(id, 'landing');
+        shell.go(id, reason);
         return shown;
       })();
       try { return await landing; } finally { landing = null; }

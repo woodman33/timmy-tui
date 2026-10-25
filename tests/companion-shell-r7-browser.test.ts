@@ -205,11 +205,21 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { primary: { label: 'Continue to the workspace →', run: () => undefined } }));
       expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe('Continue to the workspace');
       expect(await page.$$eval('#ws-fleet .page-primary .ui-primary, #ws-fleet .band-action', (els) => els.map((e) => ((e.textContent ?? '').match(/[→↗]/g) ?? []).length))).toEqual([1, 1]);
-      // D11: a digit key puts the focus on the page's title (the tab button is hidden), never on the body
+      // D11: a digit key puts the focus on the page's title (the tab button is hidden), never on the body; the ring it carries is
+      // the token ring — 2 px solid #FFB000 with its 2 px halo — never a UA or dashed box (D17 / H168's R90)
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
       await page.keyboard.press('3');
       await page.waitForFunction(() => document.body.dataset.page === 'workflows', null, { timeout: 5_000 });
       expect(await page.evaluate(() => document.activeElement?.className ?? '')).toContain('page-title');
+      const ring = await page.evaluate(() => { const c = getComputedStyle(document.activeElement as Element); return { style: c.outlineStyle, color: c.outlineColor, width: c.outlineWidth, halo: c.boxShadow }; });
+      console.info('[H175 1440 title ring]', JSON.stringify(ring));
+      expect(ring).toMatchObject({ style: 'solid', color: 'rgb(255, 176, 0)', width: '2px' });
+      expect(ring.halo).toMatch(/rgb\(8, 11, 15\) 0px 0px 0px 2px/);
+      // R94: the project is named with ONE spelling — the rail's card, the crumb and the band's Workspace cell read the same words
+      await go(page, 'chat');
+      const names = await page.evaluate(() => [document.getElementById('rail-project-name')?.textContent?.trim(), document.getElementById('shell-crumb-ws')?.textContent?.trim(), document.querySelector('#ws-chat .page-band .band-cell .band-v')?.textContent?.trim()]);
+      expect(names[0]).toBe('fresh');
+      expect(names).toEqual(['fresh', 'fresh', 'fresh']);
       // the type: the UI face for the title and the rail, the mono face for a key
       expect(await page.$eval('.page:not([hidden]) .page-title', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
       expect(await page.$eval('#rail-menu .rail-item', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
@@ -273,6 +283,23 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
         expect(await page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim().toUpperCase(), name)).toBe(name.endsWith('focus') ? '#FFB000' : '#28FE14');
       }
       expect(await page.$eval('#shell-status', (e) => getComputedStyle(e).color)).toBe('rgb(40, 254, 20)');
+      // R93 / D12: Glacier takes EVERY accent — the kicker's number, the band's action, a link, a legacy primary button and the
+      // aliased B10 names (--timmy-accent is the family's; --timmy-attention stays the exact focus amber) — no amber straggler
+      const GLACIER = { accent: 'rgb(138, 187, 227)', soft: 'rgb(190, 217, 237)' };
+      await go(page, 'workflows');
+      await page.evaluate(() => { const a = document.createElement('a'); a.href = '#'; a.id = 'test-link'; a.textContent = 'a link'; document.querySelector('#ws-workflows .page-work')!.append(a); const b = document.createElement('button'); b.className = 'act is-primary'; b.id = 'test-legacy-primary'; b.textContent = 'legacy primary'; document.querySelector('#ws-workflows .page-work')!.append(b); });
+      const glacier = await page.evaluate(() => {
+        const c = (sel: string, prop: string) => { const e = document.querySelector(sel); return e ? (getComputedStyle(e) as unknown as Record<string, string>)[prop] : 'absent'; };
+        const root = getComputedStyle(document.documentElement);
+        return { kicker: c('#ws-workflows .page-kicker-n', 'color'), band: c('#ws-workflows .band-action', 'color'), link: c('#test-link', 'color'), legacy: c('#test-legacy-primary', 'backgroundColor'), legacyInk: c('#test-legacy-primary', 'color'),
+          railGlyph: c('#rail-menu .rail-item[aria-current="page"] .rail-glyph', 'color'), accentAlias: root.getPropertyValue('--timmy-accent').trim().toUpperCase(), attentionAlias: root.getPropertyValue('--timmy-attention').trim().toUpperCase(), mutedAlias: root.getPropertyValue('--timmy-text-secondary').trim().toUpperCase(), wellAlias: root.getPropertyValue('--timmy-surface').trim().toUpperCase() };
+      });
+      expect(glacier).toEqual({ kicker: GLACIER.accent, band: GLACIER.soft, link: GLACIER.soft, legacy: GLACIER.accent, legacyInk: 'rgb(29, 56, 72)', railGlyph: GLACIER.accent, accentAlias: '#8ABBE3', attentionAlias: '#FFB000', mutedAlias: '#9AAFC3', wellAlias: '#111A23' });
+      // nothing but a status is the focus amber in the shell's own chrome (the rail, the topbar, the head, the band, the dock):
+      // every element painted rgb(255, 176, 0) there carries a status class (what waits on you, a failure) — the focus ring aside
+      const stragglers = await page.evaluate(() => [...document.querySelectorAll('#shell-rail *, #shell-top *, .page:not([hidden]) > .page-head *, .page:not([hidden]) > .page-band *, .page:not([hidden]) > .page-dock *')].filter((e) => e.getClientRects().length).map((e) => { const c = getComputedStyle(e); const amber = c.color === 'rgb(255, 176, 0)' || c.backgroundColor === 'rgb(255, 176, 0)' || (c.borderTopStyle !== 'none' && c.borderTopColor === 'rgb(255, 176, 0)'); return amber ? `${e.tagName.toLowerCase()}.${e.className}` : ''; }).filter((w) => w && !/is-attn|rail-count|token-note|strip-note|tab-waiting|is-error|page-state|is-failed|waits/.test(w)));
+      expect(stragglers).toEqual([]);
+      await page.evaluate(() => { document.getElementById('test-link')?.remove(); document.getElementById('test-legacy-primary')?.remove(); });
       expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('timmy.')).sort())).toEqual(expect.arrayContaining(['timmy.theme']));
       expect(await page.evaluate(() => localStorage.getItem('timmy.theme'))).toBe('glacier');
       state = await context.storageState();
@@ -315,10 +342,29 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       expect(await page.isVisible('#rail-sheet')).toBe(false);
       const s0 = await shown(page);
       expect(s0.scrollW).toBeLessThanOrEqual(s0.innerW);
+      // R92: the theme switch says its words at this size — "Amber" and "Glacier", the active one pressed — not two dots; on the topbar's first row
+      const words = await page.$$eval('.theme-switch [data-theme]', (els) => els.map((e) => ({ words: (e.textContent ?? '').trim(), pressed: e.getAttribute('aria-pressed'), visible: e.getClientRects().length > 0, top: Math.round(e.getBoundingClientRect().top) })));
+      expect(words.map((w) => [w.words, w.pressed, w.visible])).toEqual([['Glacier', 'false', true], ['Amber', 'true', true]]);
+      expect(words[0].top).toBe(words[1].top);
+      expect(Math.abs(words[0].top - (await page.$eval('#shell-crumb-page', (e) => Math.round(e.getBoundingClientRect().top))))).toBeLessThan(12); // (the same row as the crumb)
       // the sheet
       await page.click('#shell-menu');
       await page.waitForSelector('#shell-rail.is-open', { timeout: 5_000 });
       expect(await page.isVisible('#rail-sheet')).toBe(true);
+      // R99: the list scrolls INSIDE the sheet (the one scroll area; the sheet itself does not), the foot stays put, and the last
+      // group's last item clears the foot once the list is scrolled to its end
+      const sheet = await page.evaluate(() => {
+        const list = document.querySelector('#rail-sheet .rail-scroll') as HTMLElement; const foot = document.querySelector('#rail-sheet .rail-foot') as HTMLElement; const sh = document.getElementById('rail-sheet')!;
+        list.scrollTop = list.scrollHeight;
+        const items = [...document.querySelectorAll('#rail-menu .rail-item')]; const last = items[items.length - 1].getBoundingClientRect();
+        return { listScrolls: list.scrollHeight > list.clientHeight, listOverflow: getComputedStyle(list).overflowY, sheetScrolls: sh.scrollHeight > sh.clientHeight + 1, footTop: Math.round(foot.getBoundingClientRect().top), footBottom: Math.round(foot.getBoundingClientRect().bottom), lastBottom: Math.round(last.bottom), lastLabel: (items[items.length - 1].textContent ?? '').trim(), inner: window.innerHeight };
+      });
+      console.info('[H175 390 rail sheet]', JSON.stringify(sheet));
+      expect(sheet.listOverflow).toBe('auto');
+      expect(sheet.sheetScrolls, `the sheet is not the scroll area: ${JSON.stringify(sheet)}`).toBe(false);
+      expect(sheet.lastBottom, `the last item ("${sheet.lastLabel}") clears the foot: ${JSON.stringify(sheet)}`).toBeLessThanOrEqual(sheet.footTop);
+      expect(sheet.footBottom).toBeLessThanOrEqual(sheet.inner);
+      await page.evaluate(() => { (document.querySelector('#rail-sheet .rail-scroll') as HTMLElement).scrollTop = 0; });
       expect(await page.getAttribute('#rail-sheet', 'role')).toBe('dialog');
       expect(await page.getAttribute('#rail-sheet', 'aria-modal')).toBe('true');
       expect(await page.getAttribute('#shell-menu', 'aria-expanded')).toBe('true');
@@ -371,7 +417,22 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
         s = await shown(page);
         expect(s.scrollW, `${id}: no horizontal overflow at 390`).toBeLessThanOrEqual(s.innerW);
         expect(await smallText(page), id).toEqual([]);
+        // the theme words stay on the crumb's row on every page (a long page name ellipsizes; the switch never wraps under it)
+        const rows = await page.evaluate(() => ({ crumb: Math.round(document.getElementById('shell-crumb-page')!.getBoundingClientRect().top), theme: Math.round(document.querySelector('.theme-switch')!.getBoundingClientRect().top), bar: Math.round(document.getElementById('shell-top')!.getBoundingClientRect().height) }));
+        if (id === 'connections') console.info('[H175 390 topbar on Models & accounts]', JSON.stringify(rows));
+        expect(Math.abs(rows.crumb - rows.theme), `${id}: the theme switch beside the crumb: ${JSON.stringify(rows)}`).toBeLessThan(14);
+        expect(rows.bar, `${id}: the topbar two rows at most`).toBeLessThanOrEqual(84);
       }
+      // the lead's 18:29 ruling: Models & accounts' "Continue to the workspace" (H170 runs TimmyShell.land()) leaves the page for
+      // the workspace at THIS size too — a memory of Models & accounts (the landing remembered itself; the switcher's tab is it)
+      // is never a place to land; the why is 'continue'
+      await go(page, 'connections');
+      await page.evaluate(() => { localStorage.setItem('timmy.shell.screen', 'connections'); (window as unknown as { __whys: string[] }).__whys = []; (window as unknown as { TimmyShell: { on(e: string, f: (d: { id: string; why: string }) => void): void } }).TimmyShell.on('page', (d) => (window as unknown as { __whys: string[] }).__whys.push(`${d.id}:${d.why}`)); });
+      expect(await page.evaluate(() => localStorage.getItem('timmy.shell.screen'))).toBe('connections');
+      const landedOn = await page.evaluate(() => (window as unknown as { TimmyShell: { land(): Promise<string> } }).TimmyShell.land());
+      expect(landedOn).toBe('chat');
+      expect((await shown(page)).page).toBe('chat');
+      expect(await page.evaluate(() => (window as unknown as { __whys: string[] }).__whys)).toEqual(['chat:continue']);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, LONG);
