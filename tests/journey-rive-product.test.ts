@@ -599,7 +599,9 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(viewBefore.ok, `GET /api/chat/view before the slow turn (${viewBefore.error ?? ''})`).toBe(true);
         const answersBefore = answersOf(viewBefore);
         const roots = await projectRoots();
-        const recordsBefore = readRecords(roots).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: (r.hash ?? r.id ?? '').slice(0, 8) }));
+        // (a record's hash reads "sha256_<hex>"; the view's receipt id is the hex's first 8)
+        const hash8 = (r: Rec): string => String(r.hash ?? r.id ?? '').replace(/^sha256_/, '').slice(0, 8);
+        const recordsBefore = readRecords(roots).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: hash8(r) }));
         await composer.first().fill('FAKE: answer slowly please');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         await inputIs(o.page, key, 'State', 1, 20_000);
@@ -634,7 +636,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(last.status, 'the stopped turn\'s receipt status').toBe('cancelled');
         expect(last.receipt, 'the stopped turn has its receipt').toMatch(/^[0-9a-f]{8}/);
         expect(answersAfter.slice(0, answersBefore.length), 'every earlier answer unchanged by this Stop (stopped or not, receipt, status)').toEqual(answersBefore);
-        const recordsAfter = readRecords(roots).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: (r.hash ?? r.id ?? '').slice(0, 8), stoppedBy: r.stopped_by ?? '' }));
+        const recordsAfter = readRecords(roots).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: hash8(r), stoppedBy: r.stopped_by ?? '' }));
         const newRecords = recordsAfter.filter((r) => !recordsBefore.some((b) => b.hash === r.hash));
         expect(newRecords.map((r) => [r.turn, r.status, r.stoppedBy]), `one new receipt record: turn_id ${stopId}, cancelled, stopped by this page (${recordsAfter.length} records under ${roots.join(', ') || 'no project root'})`).toEqual([[stopId, 'cancelled', 'companion']]);
         expect(newRecords[0].hash, 'the view\'s receipt id is N\'s record').toBe(last.receipt.slice(0, 8));
