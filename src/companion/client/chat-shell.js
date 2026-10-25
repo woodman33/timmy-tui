@@ -211,14 +211,24 @@ const COMPACT_VIEW = '(max-width: 760px), (max-height: 760px)';
 const compactView = () => { try { return typeof matchMedia === 'function' && matchMedia(COMPACT_VIEW).matches; } catch (e) { return false; } };
 /** This viewer's choice for the console band ('open' | 'folded'), or null when none was made (then a compact view starts folded). */
 function consoleChoice() { try { const v = localStorage.getItem(CONSOLE_FOLD_KEY); return v === 'open' || v === 'folded' ? v : null; } catch (e) { return null; } }
-function consoleFolded() { const c = consoleChoice(); return c ? c === 'folded' : compactView(); }
+/** A turn of this page running or asking, or another surface's turn of this project: the band's reason to be open. */
+const turnActive = () => Boolean(cx.running || otherTurn());
+/**
+ * D13 (H168's R77, the lead's ruling): the band is ONE ROW — the state words and the face at ≤ 48 px — unless a turn is running
+ * or needs you, when it opens (≤ 160 px, the composer still in view); a compact view stays one row. A viewer's own fold or open
+ * (the toggle) holds over both until they change it.
+ */
+function consoleFolded() { const c = consoleChoice(); return c ? c === 'folded' : (compactView() || !turnActive()); }
 function setConsoleFold(folded, remember) {
   const band = $('cx-console');
   const btn = $('cx-console-toggle');
   if (!band) return;
+  const was = band.classList.contains('is-folded');
   band.classList.toggle('is-folded', folded);
   if (btn) btn.setAttribute('aria-expanded', String(!folded));
   if (remember) { try { localStorage.setItem(CONSOLE_FOLD_KEY, folded ? 'folded' : 'open'); } catch (e) { /* not kept: the band still folds */ } }
+  // (the face is drawn at its new size: the runtime draws to the canvas's box, which the fold changes)
+  if (was !== folded) { try { if (consoleHandle && consoleHandle.rive && typeof consoleHandle.rive.resizeDrawingSurfaceToCanvas === 'function') requestAnimationFrame(() => consoleHandle.rive.resizeDrawingSurfaceToCanvas()); } catch (e) { /* drawn at its size */ } }
   syncConsoleClass();
 }
 /** body.console-open while the band is shown and open: the welcome draws compact then, so its starters stay whole (H168's R65). */
@@ -275,7 +285,7 @@ function drawConsole() {
       // (the viewport crossing the compact bounds folds or opens the band only while this viewer made no choice; a resized
       // window has the runtime draw the face at its new size)
       const mq = matchMedia(COMPACT_VIEW);
-      if (mq && typeof mq.addEventListener === 'function') mq.addEventListener('change', () => { if (!consoleChoice()) setConsoleFold(compactView(), false); });
+      if (mq && typeof mq.addEventListener === 'function') mq.addEventListener('change', () => { if (!consoleChoice()) setConsoleFold(consoleFolded(), false); });
       let sized = 0;
       window.addEventListener('resize', () => { clearTimeout(sized); sized = setTimeout(() => { try { if (consoleHandle && consoleHandle.rive && typeof consoleHandle.rive.resizeDrawingSurfaceToCanvas === 'function') consoleHandle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ } }, 150); });
     } catch (e) { /* no media queries here */ }
@@ -287,6 +297,9 @@ function drawConsole() {
     consoleIdentitySaid = idWords;
     try { consoleHandle.setIdentity({ project: cx.project && cx.project.name ? cx.project.name : undefined, session: conv && conv.session ? conv.session : undefined }); } catch (e) { /* the handle's own */ }
   }
+  // (D13: the band follows the turn — open while one runs or asks, one row otherwise — unless this viewer chose, or a phone's
+  // ask folded it for the options' room (consoleForAsk))
+  if (!consoleChoice() && !band.dataset.autoFolded) setConsoleFold(consoleFolded(), false);
   band.hidden = false;
   syncConsoleClass();
 }
@@ -661,12 +674,15 @@ function ownTurn(t, i, o) {
   if (t.state === 'streaming' && t.stopping) meta.append(h('span', { class: 'cx-end cx-running is-stopping' }, spinner(), ` Stop requested · ${Math.max(0, Math.round((Date.now() - t.stopping) / 1000))} s ago · not confirmed yet: the turn’s receipt comes as it stops (Stop again stops this page’s reading now)`));
   else if (t.state === 'streaming') meta.append(h('span', { class: 'cx-end cx-running' }, spinner(), ` Answering · ${t.model || 'the model'} · ${where} · ${Math.max(0, Math.round(elapsed / 1000))} s · ${toolsNow ? `${toolsNow} tool${toolsNow === 1 ? '' : 's'}` : 'no tool yet'}`));
   else if (t.state === 'stopped') meta.append(h('span', { class: 'cx-end' }, '✕ stopped by you: the answer so far is kept here'));
-  else if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, `✕ failed: ${t.words || 'no answer'}`));
+  // (R80, H168's pass 1: on the scaffold the LATEST failed turn's reason is the shell's error box's, with Retry — painted once; the
+  // turn keeps its mark and the other ways on. An earlier failed turn, or the older shell, says it here)
+  const inBox = scaffoldAdopted && t.state === 'failed' && t === cx.own[cx.own.length - 1];
+  if (t.state === 'failed') meta.append(h('span', { class: 'cx-end' }, inBox ? '✕ did not finish' : `✕ failed: ${t.words || 'no answer'}`));
   if (t.notice) meta.append(h('span', null, t.notice));
   // R11 round 7 (recovery): a failed turn keeps its text above and offers the way on — the same message again, another model, or a
   // conversation of its own; a stopped one offers the same message again
   const recovery = t.state === 'failed' || t.state === 'stopped' ? h('div', { class: 'cx-recover', role: 'group', 'aria-label': 'What next' },
-    h('button', { type: 'button', class: 'cx-btn is-primary', 'data-cx': 'retry', 'data-own': String(i) }, 'Retry'),
+    inBox ? null : h('button', { type: 'button', class: 'cx-btn is-primary', 'data-cx': 'retry', 'data-own': String(i) }, 'Retry'),
     h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'change-model' }, 'Change model'),
     h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'new-conversation' }, 'New conversation')) : null;
   // R11 round 4: each tool as it comes (H169's `tool` events); round 7: a collapsed card — the verb, the tool, its state on one
@@ -772,7 +788,15 @@ function primaryAction() {
   if (!cx.view) return { id: 'reading', words: 'Reading…', go: 'none', off: true };
   if (!(r && r.ready)) return { id: 'choose-model', words: 'Choose a model', go: 'models' };
   if (!signedIn()) return { id: 'sign-in', words: 'Sign in', go: 'account' };
-  return { id: 'send', words: 'Send', go: 'send' };
+  // R79 (H168's pass 1; the lead's D13 rulings): "Send" is the step only while a draft exists — a Send with nothing typed is not
+  // a step, and the composer keeps its own Send; with nothing typed the step is to send the failed message again (R80), else to
+  // write: the head's button puts the keyboard in the composer
+  const input = $('cx-input');
+  if (input && input.value.trim()) return { id: 'send', words: 'Send', go: 'send' };
+  if (own && own.state === 'failed') return { id: 'retry', words: 'Retry', go: 'retry', own: cx.own.indexOf(own) };
+  const conv = cx.view && cx.view.conversation;
+  const n = (conv ? conv.turns.filter((t) => t.kind !== 'tool').length : 0) + cx.own.length;
+  return { id: 'compose', words: n ? 'Continue the conversation' : 'Start a conversation', go: 'compose' };
 }
 
 /** The page head's words by state (D4: empty / content / running / approval / error, each with its next action). */
@@ -874,8 +898,12 @@ function drawHead() {
       try {
         S.page('chat', { kicker: w.kicker, title: w.title, intro: w.line, primary: { label: a.words, run: () => actPrimary(primaryAction()), disabled: Boolean(a.off), why: a.off ? 'Reading the project’s conversation first' : (a.pending ? 'Stop requested; not confirmed yet' : '') }, context: 'models', dock: 'CHAT TOOLS' });
         // (the error box under the head carries the reason and the next action; the approval's band cell its short words — the
-        // intro says the rest once)
-        if (typeof S.state === 'function') S.state('chat', state, state === 'error' || state === 'approval' ? { words: w.words || w.line, next: a.off ? undefined : { label: a.words, run: () => actPrimary(primaryAction()) } } : undefined);
+        // intro says the rest once. R80: a failed turn's words are painted in the box ONCE, with Retry as its action — the turn
+        // below keeps only its mark and the other ways on)
+        const own = cx.own[cx.own.length - 1];
+        const failedOwn = own && own.state === 'failed' ? cx.own.indexOf(own) : -1;
+        const next = state === 'error' && failedOwn >= 0 ? { label: 'Retry', run: () => retryTurn(failedOwn) } : a.off ? undefined : { label: a.words, run: () => actPrimary(primaryAction()) };
+        if (typeof S.state === 'function') S.state('chat', state, state === 'error' || state === 'approval' ? { words: w.words || w.line, next } : undefined);
         if (typeof S.band === 'function') S.band('chat', { model, records });
       } catch (e) { /* the shell's own; the chat's head below says the same */ }
     }
@@ -904,6 +932,8 @@ function drawHead() {
 function actPrimary(a) {
   switch (a.go) {
     case 'send': { const input = $('cx-input'); if (input && !input.value.trim()) { input.focus(); return; } sendNow(); return; }
+    case 'compose': { const input = $('cx-input'); if (input) input.focus(); return; }
+    case 'retry': retryTurn(a.own); return;
     case 'stop': { if (cx.running) stopNow(); else { const other = otherTurn(); if (other) { const b = h('button', { 'data-stop-turn': other.id }); stopOther(b); } } return; }
     case 'needs': { const box = document.querySelector('#cx-own .cx-needs'); if (box) { box.scrollIntoView({ block: 'nearest' }); const b = box.querySelector('button:not([hidden]):not([disabled])'); if (b) b.focus(); } return; }
     case 'models': toggleModels(true); return;
@@ -1069,6 +1099,7 @@ function drawStreaming() {
   const scroll = $('cx-scroll');
   const atEnd = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40 : true;
   drawOwn();
+  drawConsole();
   drawComposer();
   drawStatus();
   drawHead();
@@ -1085,6 +1116,8 @@ function drawEmpty() {
   box.hidden = !['first-run', 'setup', 'no-model', 'empty'].includes(st);
   if (box.hidden) return;
   const r = routeOf(cx.view);
+  // (the welcome's own form — its compact grid on the scaffold — is the welcome's alone)
+  box.classList.toggle('is-welcome', st === 'empty');
   if (st === 'first-run') {
     const sug = suggestedWay();
     redraw(box, [
@@ -1259,7 +1292,9 @@ function drawRoute() {
     // (the preview's words; the exact reason is the line's title and the panel's NEXT TURN)
     words.textContent = 'No model connected. Choose one when you’re ready.';
     words.title = (c && !c.chosen ? 'No model chosen: choose one in Models' : r.label || 'Send is off') + (r.words ? ` — ${r.words}` : '');
-    if (change) { change.hidden = false; change.textContent = 'Set up a model →'; change.setAttribute('data-shell-go', 'connections'); change.classList.add('is-setup'); }
+    // (R78, H168's pass 1: ONE next step with one verb — the head's "Choose a model" is the primary; this line's control is its
+    // quiet text twin, to Models (the solid "Set up a model →" chip to the connections screen is gone))
+    if (change) { change.hidden = false; change.textContent = 'Choose a model'; change.removeAttribute('data-shell-go'); change.classList.remove('is-setup'); }
   }
 }
 
@@ -1282,7 +1317,12 @@ function fitInput(input) {
   input.rows = Math.min(8, Math.max(1, lines, fits));
 }
 
+/** The composer drawn, then the head: its primary follows the draft (R79 — "Send" only while one exists; drawHead says only what changed). */
 function drawComposer() {
+  drawComposerBody();
+  drawHead();
+}
+function drawComposerBody() {
   const input = $('cx-input');
   const send = $('cx-send');
   const why = $('cx-send-why');
@@ -1912,8 +1952,11 @@ function drawModelsRail(o = {}) {
   kids.push(h('div', { class: 'cm-desc', id: 'cm-desc' },
     h('div', { class: 'cm-desc-head' }, h('h3', null, pw.name), h('span', { class: `cm-word cm-desc-state${live ? ' is-live' : ''}`, id: 'cm-desc-state' }, !st ? 'not known yet' : live ? `● answered ${st.at ? clock(st.at) : ''}`.trim() : st.state === 'not set up' ? 'Not connected' : st.state)),
     h('p', null, pw.words),
-    st ? h('p', { class: 'cm-state' }, `${st.words}${st.next ? ` ${st.next}` : ''}`) : h('p', { class: 'cm-state' }, 'Reading the providers’ states…'),
-    h('button', { type: 'button', class: 'sh-btn is-wide cm-connect', 'data-shell-go': 'connections', 'data-cm-connect': pw.state }, pw.act)));
+    // (R82, H168's pass 1: the state in one line; what to do about it — a terminal's command among it — behind Details, D4)
+    st ? h('p', { class: 'cm-state' }, st.words) : h('p', { class: 'cm-state' }, 'Reading the providers’ states…'),
+    st && st.next ? h('details', { class: 'cm-how' }, h('summary', null, 'How to set this up'), h('p', { class: 'cm-next' }, st.next)) : null,
+    // (R78: the context's way to the connections screen is a quiet link — the page's one primary is the head's)
+    h('button', { type: 'button', class: 'cx-link cm-connect', 'data-shell-go': 'connections', 'data-cm-connect': pw.state }, pw.act)));
   if (m.provider === 'cloudflare') {
     const cf = st;
     kids.push(h('div', { class: 'cm-panel' },
