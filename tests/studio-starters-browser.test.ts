@@ -245,6 +245,16 @@ describe.skipIf(!browserPath)('the guided blank public starters in Studio (real 
     const s = await open();
     const { page } = s;
     try {
+      // R11 round 7 (H176; the lead's D14 R76): the board reopens on the page it was left on — the last starter opened (its page is
+      // kept in the document's meta with the board) — and a page that holds shapes never shows "This board is blank."
+      const landed = await page.evaluate(() => { const e = (window as unknown as Win).timmyCanvas.editor; return { page: e.getCurrentPage().name, shapes: e.getCurrentPageShapes().length, guide: document.getElementById('guide')!.hidden, words: document.getElementById('guide')!.textContent }; });
+      expect(landed.page).toBe('Houdini handoff 2'); // the page the first case left the board on (its second opening of the handoff starter)
+      expect(landed.shapes).toBeGreaterThan(0);
+      expect(landed.guide).toBe(true);
+      // and on the board's first page (blank itself), the guide says where the shapes are, not that the board is blank
+      await goToPage(page, 'Page 1');
+      await page.waitForFunction(() => document.getElementById('guide')!.hidden === false, null, { timeout: 5_000 });
+      expect(await page.$eval('#guide', (g) => [(g as HTMLElement).dataset.blank, (g.querySelector('strong')!.textContent ?? '')])).toEqual(['page', expect.stringMatching(/^This page is blank\. The board holds \d+ shapes on its pages Houdini handoff \(\d+\), Houdini cookbook \(\d+\), Houdini pipeline atlas \(\d+\), Houdini handoff 2 \(\d+\): the page menu \(top left\) opens them\.$/)]);
       for (const [name, before] of Object.entries(opened)) {
         await goToPage(page, name);
         const now = await shapesOn(page);
@@ -318,6 +328,79 @@ describe.skipIf(!browserPath)('the guided blank public starters in Studio (real 
     } catch (e) {
       await s.context.close().catch(() => undefined);
       throw e;
+    }
+  }, 120_000);
+
+  it("item 6 (the operator's 19:18 order): each step of a starter carries ONE verb under its frame that does something now — 02 Edit the parameters lands the parameter node in its slot and selects it, 01 Add a mesh lands the result node (then Show the mesh), 03 Copy the hython command copies the shelf's invocation and says the honest line; the state lines are the project's own words", async () => {
+    const s = await open();
+    const { page } = s;
+    try {
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+      // the cookbook's page: its three steps empty (the handoff's took the nodes above)
+      await goToPage(page, 'Houdini cookbook');
+      await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
+      await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.zoomToFit(); });
+      const bars = () => page.$$eval('.timmy-step-verbs', (els) => els.map((e) => ({
+        n: (e as HTMLElement).dataset.step, frame: (e as HTMLElement).dataset.stepFrame, action: (e as HTMLElement).dataset.stepAction,
+        verb: e.querySelector('.timmy-step-do')?.textContent ?? '', state: e.querySelector('.timmy-step-state')?.textContent ?? '',
+        box: (() => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width)]; })(),
+      })));
+      // the verbs, once the palette is read (the project's cards): place for 01 and 02 (the project has result and parameter nodes), copy for 03
+      await page.waitForFunction(() => { const b = [...document.querySelectorAll('.timmy-step-verbs')]; return b.length === 3 && b.every((e) => !/reading the project/.test(e.querySelector('.timmy-step-state')?.textContent ?? '')); }, null, { timeout: 15_000 });
+      // (the frames in step order — the editor lists a page's shapes by z-order, which need not be the steps' order)
+      const steps = (await shapesOn(page)).filter((x) => x.meta.role === 'step').sort((a, b) => a.name.localeCompare(b.name));
+      let drawn = await bars();
+      expect(drawn.map((b) => [b.n, b.verb, b.action])).toEqual([['01', 'Add a mesh', 'place'], ['02', 'Edit the parameters', 'place'], ['03', 'Copy the hython command', 'copy']]);
+      expect(drawn.map((b) => b.frame)).toEqual(steps.map((x) => x.id));
+      expect(drawn[0].state).toMatch(/^\d+ result nodes? in the project · /);
+      expect(drawn[1].state).toMatch(/^\d+ parameter nodes? in the project · /);
+      expect(drawn[2].state).toMatch(/^\d+ workflow nodes? in the project · .* · no native Houdini operation$/);
+      // each bar sits under its frame, at its left edge, as wide as the frame on screen
+      // (the frames' edges on screen: the editor's viewport coordinates plus its container's place in the window)
+      const frames = await page.evaluate((ids) => { const e = (window as never as Win & { timmyCanvas: { editor: { getContainer: () => HTMLElement; getShapePageBounds: (id: string) => { minX: number; maxX: number; maxY: number }; pageToViewport: (p: { x: number; y: number }) => { x: number; y: number } } } }).timmyCanvas.editor; const off = e.getContainer().getBoundingClientRect(); return ids.map((id) => { const b = e.getShapePageBounds(id); const a = e.pageToViewport({ x: b.minX, y: b.maxY }); const z = e.pageToViewport({ x: b.maxX, y: b.maxY }); return [Math.round(a.x + off.left), Math.round(a.y + off.top), Math.round(z.x - a.x)]; }); }, steps.map((x) => x.id));
+      for (let i = 0; i < 3; i += 1) {
+        expect(Math.abs(drawn[i].box[0] - frames[i][0]), `${drawn[i].n} left`).toBeLessThanOrEqual(1);
+        expect(drawn[i].box[1] - frames[i][1], `${drawn[i].n} just under the frame`).toBeGreaterThanOrEqual(4);
+        expect(drawn[i].box[1] - frames[i][1], `${drawn[i].n} just under the frame`).toBeLessThanOrEqual(12);
+        expect(Math.abs(drawn[i].box[2] - frames[i][2]), `${drawn[i].n} width`).toBeLessThanOrEqual(1);
+      }
+      // 02 Edit the parameters: the project's parameter node lands in step 02's slot and is selected (its fields the live board's)
+      await page.click('.timmy-step-verbs[data-step="02"] .timmy-step-do');
+      await page.waitForFunction((frame) => (document.getElementById('project-said')?.textContent ?? '').includes(`It sits in the starter's step 02`) && [...((window as never as Win).timmyCanvas.editor.getCurrentPageShapes())].some((x) => x.parentId === frame && x.type === 'timmy-params'), steps[1].id, { timeout: 15_000 });
+      const paramsCard = (await shapesOn(page)).find((x) => x.parentId === steps[1].id && x.type === 'timmy-params')!;
+      expect(await page.evaluate(() => (window as never as { timmyCanvas: { editor: { getSelectedShapeIds: () => string[] } } }).timmyCanvas.editor.getSelectedShapeIds())).toEqual([paramsCard.id]);
+      await page.waitForFunction(() => document.querySelector('.timmy-step-verbs[data-step="02"]')?.getAttribute('data-step-action') === 'select', null, { timeout: 10_000 });
+      drawn = await bars();
+      expect(drawn[1]).toMatchObject({ verb: 'Edit the parameters', action: 'select' });
+      expect(drawn[1].state).not.toMatch(/in the project/);
+      expect(drawn[1].state.length).toBeGreaterThan(0);
+      // the card's own state word stands in the bar (the project's reading; never a run)
+      expect(await page.$eval('#project-said', (e) => e.textContent ?? '')).toMatch(/^Added a parameter node to tray's board: .*It sits in the starter's step 02 · Set the parameters\.$/);
+      // 01 Add a mesh: the result node lands in step 01; the verb then reads Show the mesh (select)
+      await page.click('.timmy-step-verbs[data-step="01"] .timmy-step-do');
+      await page.waitForFunction((frame) => [...((window as never as Win).timmyCanvas.editor.getCurrentPageShapes())].some((x) => x.parentId === frame && x.type === 'timmy-result'), steps[0].id, { timeout: 15_000 });
+      await page.waitForFunction(() => document.querySelector('.timmy-step-verbs[data-step="01"] .timmy-step-do')?.textContent === 'Show the mesh', null, { timeout: 10_000 });
+      const resultCard = (await shapesOn(page)).find((x) => x.parentId === steps[0].id && x.type === 'timmy-result')!;
+      await page.click('.timmy-step-verbs[data-step="01"] .timmy-step-do');
+      await page.waitForFunction((id) => (window as never as { timmyCanvas: { editor: { getSelectedShapeIds: () => string[] } } }).timmyCanvas.editor.getSelectedShapeIds().join() === id, resultCard.id, { timeout: 5_000 });
+      // 03 Copy the hython command: the clipboard holds the shelf's own invocation; the band says it was copied and the honest line; no run anywhere
+      await page.click('.timmy-step-verbs[data-step="03"] .timmy-step-do');
+      await page.waitForFunction(() => (document.getElementById('project-said')?.textContent ?? '').startsWith('Copied the hython command'), null, { timeout: 10_000 });
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('hython lanes/engines/houdini/templates/procedural-asset/script.py <mesh file> <out dir> <stem>');
+      const said = await page.$eval('#project-said', (e) => e.textContent ?? '');
+      expect(said).toContain('Nothing on this board calls Houdini, and Houdini is not connected to this Studio: this copies the command, nothing runs.');
+      expect(said).not.toMatch(/\b(ran|running|cooked)\b/);
+      // the clicks took no brush or draw on the canvas: the page holds its shapes plus the two cards, nothing else new
+      const now = await shapesOn(page);
+      expect(now.length).toBe(opened['Houdini cookbook'].length + 2);
+      // green nowhere on the bars (nothing observed live)
+      const greens = await page.$$eval('.timmy-step-verbs, .timmy-step-verbs *', (els) => els.map((e) => getComputedStyle(e).color).filter((c) => /^rgb\(40, 254, 20\)/.test(c)));
+      expect(greens).toEqual([]);
+      await savedState(page);
+      await capture(page, 'starter-H2-step-verbs');
+      expect(s.errors).toEqual([]);
+    } finally {
+      await s.context.close();
     }
   }, 120_000);
 });

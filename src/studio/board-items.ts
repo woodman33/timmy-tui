@@ -44,6 +44,8 @@ export interface BoardItem {
   target?: { vox?: string; run?: string; receipt?: string };
   /** a reference image: its board copy (served for this board only) and where it came from */
   ref?: { file: string; path: string; sha256: string; bytes: number; from: string };
+  /** R11 round 7 (H176): where it sits on its page (page units: x, y and, where the shape has them, w and h; rotation aside), so a page can be drawn as a map */
+  box?: { x: number; y: number; w: number; h: number };
 }
 
 export interface BoardItems {
@@ -135,7 +137,8 @@ export function boardItems(snapshot: unknown, projectId: string, max = BOARD_ITE
     const draft = d && typeof d.id === 'string' && /^draft-[0-9a-f]{8,32}$/.test(d.id) ? d.id : null;
     if (draft) drafts.add(draft);
     const at = placeOf(s);
-    const base = { shape: str(s.id), page: page?.name ?? 'a page', draft, order: `${page?.index ?? '~'}|${pad(at.y)}|${pad(at.x)}|${str(s.id)}` };
+    const size = (k: 'w' | 'h'): number => (typeof p[k] === 'number' && Number.isFinite(p[k]) && (p[k] as number) > 0 ? Math.round(p[k] as number) : 0);
+    const base = { shape: str(s.id), page: page?.name ?? 'a page', draft, order: `${page?.index ?? '~'}|${pad(at.y)}|${pad(at.x)}|${str(s.id)}`, box: { x: Math.round(at.x), y: Math.round(at.y), w: size('w'), h: size('h') } };
     const placed = obj(meta.timmyProjectCard);
     // Timmy's cards (drawn, artifacts, placed from the panel): another project's is named, and nothing of it is read
     const owner = type === ARTIFACT || DRAWN.has(type) ? { id: str(p.projectId), name: one(p.project, 80) } : placed ? { id: str(placed.projectId), name: one(placed.project, 80) } : null;

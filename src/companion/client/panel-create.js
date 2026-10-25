@@ -77,6 +77,8 @@
     rec: HINT_REC, wantMesh: '', notice: '', noticeAsked: false,
     // R11 round 7 (H176): the guided flow's sources (parameter files, workflows, the starters, the Houdini lane), and the step in focus
     sources: null, sourcesSig: '', sourcesAt: 0, askingSources: null, step: '01', pageSig: '',
+    // item 6: the words a step's verb just said (its state line holds them for a moment), and the timer that lets go of them
+    said: null, saidTimer: 0,
   };
   const HERE = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname);
   // R11 round 7 (H176): the page's own sheet (src/companion/client/panel-create.css; src/companion/server.ts serves it beside
@@ -92,11 +94,34 @@
   })('/panel-create.css');
   /** The shell, when it is on the page (SHELL CONTRACT v1); null before it lands: the panel then draws its own head. */
   const shell = () => (typeof window.TimmyShell === 'object' && window.TimmyShell && typeof window.TimmyShell.page === 'function' ? window.TimmyShell : null);
+  // the page's one-line description (the lead's 17:41 ruling: where you are and what you can do here, in plain words, true to
+  // what exists: no native Houdini operation is configured — a cook happens in Houdini once it is connected)
+  const INTRO = 'Build 3D and motion from parameters: open a Houdini starter on this project\'s board, set its parameters, and review the meshes Timmy reads here; a cook runs in Houdini once it is connected (none is configured yet).';
   const STEPS = [
-    { n: '01', verb: 'Define the geometry', guide: 'The meshes Timmy can read in this project, measured from the whole file, and the view you can turn.' },
-    { n: '02', verb: 'Set the parameters', guide: "The project's parameter files, as the live board reads them. Save and Rebuild are Studio's parameter node, or the typed command." },
-    { n: '03', verb: 'Cook in Houdini', guide: 'A cook is a workflow block a REPL runs, or Houdini itself. Nothing on this page calls Houdini.' },
+    { n: '01', verb: 'Define the geometry', box: 'meshes', guide: 'The meshes Timmy can read in this project, measured from the whole file, and the view you can turn.' },
+    { n: '02', verb: 'Set the parameters', box: 'params', guide: "The project's parameter files, as the live board reads them. Save and Rebuild are Studio's parameter node, or the typed command." },
+    { n: '03', verb: 'Cook in Houdini', box: 'workflows', guide: 'A cook is a workflow block a REPL runs, or Houdini itself. Nothing on this page calls Houdini.' },
   ];
+  // R11 round 7 (H176; the operator's 19:18 order, item 6: "make Houdini starter nodes actionable"): EACH step carries ONE verb that
+  // does something now, beside its state line (the state from the project's own sources: GET /api/panel/create/meshes and /sources):
+  //   01 Add a mesh                /add <file> copied for Timmy's terminal, with its words (the companion adds no file itself)
+  //   02 Edit the parameters       Timmy Studio opened (a grant minted by POST /api/panel/studio/open when the Studio's token file is
+  //                                in this Timmy home): the project's parameter node is the editable card there, Save through the
+  //                                live board; no parameter file yet → "Add a parameter file" copies /add <file> with its words
+  //   03 Copy the hython command   the engine shelf's own headless invocation (lanes/engines/houdini/templates/procedural-asset/
+  //                                script.py's first line), the mesh in the view filled in, and the honest line beside it: Houdini
+  //                                is not connected on this companion — this copies the command, nothing runs. Never a fabricated run.
+  const ADD_COMMAND = '/add <file>';
+  const HYTHON_SCRIPT = 'lanes/engines/houdini/templates/procedural-asset/script.py';
+  const hythonCommand = (mesh) => `hython ${HYTHON_SCRIPT} ${mesh || '<mesh file>'} <out dir> ${mesh ? mesh.replace(/^.*\//, '').replace(/\.[^.]+$/, '') || '<stem>' : '<stem>'}`;
+  /** The honest line beside the copied Houdini command, from the lane as probed (nothing on this page calls Houdini). */
+  const houdiniLine = (lane) => (lane && lane.status === 'ready'
+    ? `${lane.bin || 'houdini-mcp'} is on this computer's PATH and the lane is armed, but nothing on this page calls it: this copies the command, nothing runs.`
+    : 'Houdini is not connected on this companion: this copies the command, nothing runs.');
+  const ADD_WORDS = {
+    mesh: `Copied ${ADD_COMMAND} for Timmy's terminal: type it with the mesh's path (an .stl, .obj or .ply file); Timmy copies the file into this project (a local change), and it is listed and drawn here. Nothing ran on this page.`,
+    params: `Copied ${ADD_COMMAND} for Timmy's terminal: a parameter file is a tray recipe (recipes/tray.params.json) or an OpenSCAD model with its parameters beside it; type the command with its path, and it is listed here with its values. Nothing ran on this page.`,
+  };
 
   const q = (name) => (S.root ? S.root.querySelector(`[data-create="${name}"]`) : null);
   const put = (el, ...kids) => { if (el) el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false)); };
@@ -117,6 +142,7 @@
   function reset(project) {
     S.project = project; S.list = null; S.listSig = ''; S.listAt = 0; S.sel = ''; S.mesh = null; S.meshAsk += 1; S.view = freshView(); S.drag = null;
     S.sources = null; S.sourcesSig = ''; S.sourcesAt = 0; S.step = '01'; S.pageSig = '';
+    S.said = null; if (S.saidTimer) { clearTimeout(S.saidTimer); S.saidTimer = 0; }
   }
 
   // ── the skeleton: three columns of boxes ──
@@ -125,15 +151,17 @@
       h('h2', { class: 'box-title', 'data-create': `${name}-title` }, title),
       h('div', { class: `box-body${body ? ` ${body}` : ''}`, 'data-create': name }, h('p', { class: 'empty' }, 'Reading…')));
     const key = (k, label, words) => h('button', { type: 'button', class: 'btn-action tiny create-key', 'data-create-key': k, 'aria-keyshortcuts': k === '+' ? 'Plus' : k === '-' ? 'Minus' : k.toUpperCase(), title: words }, label);
-    const stepCard = (st) => h('button', { type: 'button', class: 'create-step', 'data-create-step': st.n, 'aria-pressed': st.n === S.step ? 'true' : 'false', title: `Go to step ${st.n}: ${st.verb}` },
-      h('span', { class: 'create-step-n' }, st.n), h('span', { class: 'create-step-verb' }, st.verb), h('span', { class: 'create-step-state', 'data-create-step-state': st.n }, 'reading…'));
+    // a step card: its number, its name, its state line (the project's own words) and its ONE verb (a button that does something now)
+    const stepCard = (st) => h('div', { class: 'create-step', 'data-create-step': st.n, 'data-current': st.n === S.step ? 'true' : 'false', role: 'group', 'aria-label': `Step ${st.n}: ${st.verb}` },
+      h('span', { class: 'create-step-n' }, st.n), h('span', { class: 'create-step-verb' }, st.verb), h('span', { class: 'create-step-state', 'data-create-step-state': st.n, role: 'status' }, 'reading…'),
+      h('button', { type: 'button', class: 'btn-action tiny create-step-do', 'data-create-do': st.n, disabled: true }, 'reading…'));
     const root = h('div', { class: 'create-page', 'data-create': 'root' },
       // the panel's own head, drawn only while the shell is not on the page (the shell draws the page's head from the registration)
       // (the page's words are the shell's: PAGES motion — a page without the shell has no rail number, so the kicker names the page)
       shell() ? null : h('header', { class: 'create-head', 'data-create': 'head' },
         h('p', { class: 'create-kicker' }, 'MOTION & 3D / CREATE IN 3D'),
         h('h2', { class: 'create-title' }, 'From a parameter to a possibility.'),
-        h('p', { class: 'create-intro' }, 'Start with a guided template, then work through the native application.')),
+        h('p', { class: 'create-intro' }, INTRO)),
       h('div', { class: 'create-flow', role: 'group', 'aria-label': 'The guided starter flow', 'data-create': 'flow' }, STEPS.map(stepCard)),
       h('div', { class: 'create-cols', 'data-create': 'cols' },
       h('div', { class: 'col-stack create-left' },
@@ -267,20 +295,62 @@
       src.notes && src.notes.length ? h('details', { class: 'ui-details create-details' }, h('summary', null, 'Details'), src.notes.map((n) => h('p', { class: 'create-note' }, n))) : null);
   }
 
-  /** The three step cards' one-line states, from what the page has read; the step in focus is pressed. */
+  /** A mesh's name for the state line (its path's last part; the list shows the paths). */
+  const meshName = (p) => String(p || '').replace(/^.*\//, '');
+  /**
+   * What each step's verb does now (item 6), from what the page has read: { label, title, act } — act one of
+   * { kind: 'copy', command, words } (copied for Timmy's terminal, the words said in the step's state line) or
+   * { kind: 'studio', words } (Timmy Studio opened, with a grant when one can be made here); null while the sources are not read.
+   */
+  function stepDo(n) {
+    const L = S.list;
+    const src = S.sources;
+    if (n === '01') return { label: 'Add a mesh', title: `Copies ${ADD_COMMAND} for Timmy's terminal (the companion adds no file itself)`, act: { kind: 'copy', command: ADD_COMMAND, words: ADD_WORDS.mesh } };
+    if (n === '02') {
+      if (!src) return null;
+      if (!src.params.length) return { label: 'Add a parameter file', title: `Copies ${ADD_COMMAND} for Timmy's terminal: no parameter file is in this project yet`, act: { kind: 'copy', command: ADD_COMMAND, words: ADD_WORDS.params } };
+      const at = studioAt();
+      if (!HERE || !at) return { label: 'Edit the parameters', title: at ? `Studio runs on the computer that runs Timmy: open ${at}/ there; its parameter node is the editable card` : 'Studio\'s address is not known yet', act: null };
+      return { label: 'Edit the parameters', title: 'Opens Timmy Studio: the project\'s parameter node is the editable card there (Nodes; it lands in a Houdini starter\'s step 02), and Save goes through the live board', act: { kind: 'studio', words: `Opened Timmy Studio for ${src.params.length === 1 ? faceName(src.params[0].title) : `${src.params.length} parameter files`}: in Studio, Nodes adds the parameter node (it lands in a Houdini starter's step 02); its values are typed there and Save goes through the live board. Nothing on this page edits a file.` } };
+    }
+    if (!src) return null;
+    const mesh = L && S.sel ? S.sel : '';
+    const command = hythonCommand(mesh);
+    return { label: 'Copy the hython command', title: houdiniLine(src.houdini), act: { kind: 'copy', command, words: `Copied the hython command for a terminal on a computer with Houdini${mesh ? ` (${meshName(mesh)} as its mesh)` : ''}: ${command}. ${houdiniLine(src.houdini)}` } };
+  }
+  const faceName = (t) => String(t || '').replace(/^(?:[\w.~-]+\/)+/, '');
+
+  /** The three step cards' one-line states (the project's own words) and verbs, from what the page has read; the step in focus is the paper card. */
   function drawFlow() {
     const L = S.list;
     const src = S.sources;
     const words = {
-      '01': !L ? 'reading…' : L.meshes.length ? `${L.meshes.length + L.more} mesh${L.meshes.length + L.more === 1 ? '' : 'es'}${S.sel ? ` · ${S.sel} in the view` : ''}` : 'no mesh yet: /add <file>',
-      '02': !src ? 'reading…' : src.params.length ? `${src.params.length} parameter file${src.params.length === 1 ? '' : 's'} · edit in Studio or by command` : 'no parameter file yet',
-      '03': !src ? 'reading…' : src.houdini.status === 'flag_off' ? `no native Houdini operation · ${src.workflows.length} workflow${src.workflows.length === 1 ? '' : 's'}` : src.houdini.status === 'not_configured' ? 'lane armed, no houdini-mcp on PATH' : 'houdini-mcp on PATH · not exercised here',
+      '01': !L ? 'reading…' : L.meshes.length ? `${L.meshes.length + L.more} mesh${L.meshes.length + L.more === 1 ? '' : 'es'}${S.sel ? ` · ${meshName(S.sel)} in the view` : ''}` : 'no mesh in this project yet',
+      '02': !src ? 'reading…' : src.params.length ? `${src.params.length} parameter file${src.params.length === 1 ? '' : 's'} · ${src.params.map((pf) => `${faceName(pf.title)}: ${pf.state}`).join(' · ')}` : 'no parameter file in this project yet',
+      '03': !src ? 'reading…' : [
+        src.workflows.length ? `${src.workflows.length} workflow${src.workflows.length === 1 ? '' : 's'} · ${src.workflows.map((w) => `${faceName(w.title)}: ${w.state}`).join(' · ')}` : 'no workflow document in this project yet',
+        src.houdini.status === 'flag_off' ? 'no native Houdini operation' : src.houdini.status === 'not_configured' ? 'lane armed, no houdini-mcp on PATH' : 'houdini-mcp on PATH · not exercised here',
+      ].join(' · '),
     };
     for (const st of STEPS) {
       const el = S.root && S.root.querySelector(`[data-create-step-state="${st.n}"]`);
-      if (el) el.textContent = words[st.n];
+      // (a copied command's words hold the line for a moment: S.said names the step and its words; the line is one line, shortened
+      // with an ellipsis where the card is narrower than it, and its title says it whole)
+      if (el && !(S.said && S.said.n === st.n)) { el.textContent = words[st.n]; el.title = words[st.n]; }
       const b = S.root && S.root.querySelector(`[data-create-step="${st.n}"]`);
-      if (b) b.setAttribute('aria-pressed', st.n === S.step ? 'true' : 'false');
+      if (b) {
+        b.setAttribute('data-current', st.n === S.step ? 'true' : 'false');
+        // the card's title says the step whole — its verb and its state — where the card is narrower than its words
+        b.title = `Step ${st.n} — ${st.verb}: ${words[st.n]}. ${st.guide}`;
+      }
+      const d = S.root && S.root.querySelector(`[data-create-do="${st.n}"]`);
+      if (d) {
+        const plan = stepDo(st.n);
+        d.textContent = plan ? plan.label : 'reading…';
+        d.title = plan ? plan.title : 'The verb is drawn once the project is read';
+        d.disabled = !plan || !plan.act;
+        d.dataset.createDoKind = plan && plan.act ? plan.act.kind : 'none';
+      }
     }
   }
 
@@ -297,8 +367,9 @@
     if (sig === S.pageSig) return;
     S.pageSig = sig;
     try {
-      // (no kicker, title or intro of the panel's own: the shell's words for Motion & 3D stand, with the rail's number)
+      // (no kicker or title of the panel's own: the shell's words for Motion & 3D stand, with the rail's number; the intro is the page's)
       sh.page('motion', {
+        intro: INTRO,
         primary: HERE && at
           ? { label: 'Open the Houdini starter', run: () => { try { window.open(`${at}/`, '_blank', 'noopener'); } catch (e) { /* the link in the work is the same */ } } }
           : { label: 'Open the Houdini starter', disabled: true, why: at ? `Studio runs on the computer that runs Timmy: open ${at}/ there` : 'Studio\'s address is not known yet' },
@@ -688,14 +759,71 @@
     }
     const key = t.closest('[data-create-key]');
     if (key) { act(key.dataset.createKey); return; }
-    // R11 round 7 (H176): a step card brings its box into view (01 the meshes and the view, 02 the parameter files, 03 the workflows and Houdini)
+    // R11 round 7 (H176; item 6): a step's verb does its one thing now (a command copied with its words, or Studio opened), and the
+    // step comes into focus with its box
+    const does = t.closest('[data-create-do]');
+    if (does) { void doStep(does.dataset.createDo, does); return; }
+    // a step card brings its box into view (01 the meshes and the view, 02 the parameter files, 03 the workflows and Houdini)
     const step = t.closest('[data-create-step]');
-    if (step) {
-      S.step = step.dataset.createStep;
-      drawFlow();
-      const box = S.root && S.root.querySelector(`[data-create-box="${S.step === '01' ? 'meshes' : S.step === '02' ? 'params' : 'workflows'}"]`);
-      if (box && typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
-    }
+    if (step) focusStep(step.dataset.createStep);
+  }
+  function focusStep(n) {
+    const st = STEPS.find((x) => x.n === n);
+    if (!st) return;
+    S.step = n;
+    drawFlow();
+    const box = S.root && S.root.querySelector(`[data-create-box="${st.box}"]`);
+    if (box && typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
+  }
+  /** The words a step's verb says, in its state line (6 s), then the state again; the shell's toast says them too when it is there. */
+  function say(n, words, failed = false) {
+    S.said = { n, words };
+    if (S.saidTimer) clearTimeout(S.saidTimer);
+    const el = S.root && S.root.querySelector(`[data-create-step-state="${n}"]`);
+    if (el) { el.textContent = words; el.classList.toggle('tone-failed', failed); }
+    S.saidTimer = setTimeout(() => { S.saidTimer = 0; S.said = null; if (el) el.classList.remove('tone-failed'); drawFlow(); }, 6000);
+    try { const sh = shell(); if (sh && typeof sh.toast === 'function') sh.toast(words); } catch (e) { /* the line says them */ }
+  }
+  /** Copies `text` for Timmy's terminal: the clipboard when the page may write it; false when it would not. */
+  async function copyText(text) {
+    try {
+      if (!window.isSecureContext || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') return false;
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) { return false; }
+  }
+  async function doStep(n, button) {
+    const plan = stepDo(n);
+    if (!plan || !plan.act) return;
+    focusStep(n);
+    button.disabled = true;
+    try {
+      if (plan.act.kind === 'copy') {
+        const ok = await copyText(plan.act.command);
+        say(n, ok ? plan.act.words : `Not copied (this browser would not): the command is ${plan.act.command}. ${n === '03' ? houdiniLine(S.sources && S.sources.houdini) : 'Nothing ran on this page.'}`, !ok);
+      } else if (plan.act.kind === 'studio') {
+        openStudio(n, plan.act.words);
+      }
+    } finally { button.disabled = false; drawFlow(); }
+  }
+  /**
+   * Opens Timmy Studio from a step (item 6, 02): the window opens in the click, then the companion is asked for the Studio's address
+   * with a one-time grant (POST /api/panel/studio/open, the Canvas page's route: made when the Studio's token file is in this Timmy
+   * home) and the window goes there; without a grant it goes to the Studio's plain address, and the step says why.
+   */
+  function openStudio(n, words) {
+    const at = studioAt();
+    let w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    const go = (url) => { try { if (w && !w.closed) w.location.href = url; else window.open(url, '_blank', 'noopener'); } catch (e) { /* the address is in the Houdini box */ } };
+    const ctx = S.ctx;
+    if (!ctx || !at) { go(`${at}/`); say(n, words); return; }
+    ctx.fetch(`/api/panel/studio/open${S.project ? `?project=${encodeURIComponent(S.project)}` : ''}`, { method: 'POST' }).then((r) => r.json().catch(() => null)).then((b) => {
+      const t = b && b.ok === true && b.target ? b.target : null;
+      if (t && t.ok === true && typeof t.url === 'string') { go(t.url); say(n, words); return; }
+      go(`${at}/`);
+      say(n, `${words} ${t && typeof t.why === 'string' ? t.why : 'The companion could not make a grant for Studio: its page says what to type in Timmy.'}`);
+    }).catch(() => { go(`${at}/`); say(n, words); });
   }
   function onKey(event) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;

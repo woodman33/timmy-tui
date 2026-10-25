@@ -99,7 +99,10 @@ describe.skipIf(!browserPath)('Studio takes no edit from the moment a switch is 
     await page.goto(`${base}/#code=${await grant(port, server.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
     await page.waitForFunction(() => (window as never as Win).timmyCanvas?.identity?.state === 'shown' && (window as never as Win).timmyCanvas.identity.project?.name === 'tray', null, { timeout: 15_000 });
-    await page.evaluate(() => (window as never as Win).timmyCanvas.editor.createShape({ type: 'geo', x: 900, y: 400, props: { w: 120, h: 80 } }));
+    // (R11 round 7, H176: the call returns nothing to the test — tldraw's createShape returns the Editor itself, and Playwright would
+    // then serialize the whole editor with its reactive graph (≈ 500 KB, nested as deep as the graph's dependency chains run):
+    // past Chromium's JSON depth limit that read "Execution context was destroyed" though nothing navigated)
+    await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.createShape({ type: 'geo', x: 900, y: 400, props: { w: 120, h: 80 } }); });
     await page.waitForFunction(() => document.getElementById('save')?.dataset.state === 'saved', null, { timeout: 15_000 });
     await page.waitForTimeout(300);
     return { page, context, errors };

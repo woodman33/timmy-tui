@@ -407,7 +407,8 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
     expect(by((i) => i.kind === 'reference' && i.title === 'second.png')).toMatchObject({ draft: draftId, ref: { sha256: sha(SECOND) } });
     expect(by((i) => i.kind === 'words')).toMatchObject({ sub: 'note', title: 'Check the lip of the tray (a note on the board)' });
     const other = by((i) => i.kind === 'other-project');
-    expect(other).toEqual({ shape: other.shape, page: other.page, kind: 'other-project', title: 'a card of blank', excerpt: "kept apart: shown on blank's own board only, so nothing of it is read here", draft: null });
+    // (R11 round 7, H176: `box` is where it sits — its place on the page for the Canvas page's map; no content of it)
+    expect(other).toEqual({ shape: other.shape, page: other.page, kind: 'other-project', title: 'a card of blank', excerpt: "kept apart: shown on blank's own board only, so nothing of it is read here", draft: null, box: { x: expect.any(Number), y: expect.any(Number), w: expect.any(Number), h: expect.any(Number) } });
     expect(JSON.stringify(t)).not.toMatch(/vfeedbeef|blank's words|blank's own record/);
     // blank's board: its own (nothing yet), nothing of tray's
     const b = await boardOf(blank);
@@ -457,6 +458,32 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       expect(row((i) => i.kind === 'other-project')).toMatchObject({ head: 'kept apart', title: 'a card of blank', vox: null, run: null, receipt: null, thumb: null, enlarge: null });
       for (const r of seen) expect(r.where).toBe(`on ${t.items.find((i) => i.shape === r.shape)!.page}`);
       expect(await page.$eval('[data-panel-host="studio"] .sb-item.kind-other-project', (e) => e.textContent ?? '')).not.toMatch(/vfeedbeef|blank's words|blank's own record/);
+      // R11 round 7 (H176; the lead's D14 R88): the page's work holds the board's MAP above the list — every item of the page as a
+      // box where it sits (the route's box), the draft dashed, kept-apart dashed; a box chooses its item (the row current, the
+      // context drawn); one Open Timmy Studio control on the page (the primary), none in the dock or the list
+      const map = await page.evaluate((items) => {
+        const svg = document.querySelector('[data-studio="map"] svg.sb-map-svg')!;
+        const boxes = [...svg.querySelectorAll('.sb-map-item')].map((g) => ({ shape: (g as HTMLElement).dataset.shape, kind: (g as HTMLElement).dataset.kind, draft: g.classList.contains('is-draft'), label: g.getAttribute('aria-label'),
+          x: Number(g.querySelector('rect')!.getAttribute('x')), y: Number(g.querySelector('rect')!.getAttribute('y')), role: g.getAttribute('role'), tab: g.getAttribute('tabindex') }));
+        const r = svg.getBoundingClientRect();
+        const onPage = items.filter((i) => i.page === svg.getAttribute('data-page'));
+        return { page: svg.getAttribute('data-page'), boxes, size: { w: Math.round(r.width), h: Math.round(r.height) }, onPage: onPage.map((i) => i.shape), opens: document.querySelectorAll('[data-studio-open], .page-dock [data-studio-dock] a').length,
+          dock: [...document.querySelectorAll('.page-dock .dock-tools button, [data-studio="dock"] button')].map((b) => b.textContent) };
+      }, t.items);
+      expect(map.page).toBe('Page 1');
+      expect(map.boxes.map((b) => b.shape).sort()).toEqual(map.onPage.sort());
+      expect(map.boxes.every((b) => b.role === 'button' && b.tab === '0' && Number.isFinite(b.x) && Number.isFinite(b.y))).toBe(true);
+      expect(map.boxes.find((b) => b.draft)?.shape).toBe(t.items.find((i) => i.draft)!.shape);
+      expect(map.boxes.find((b) => b.kind === 'other-project')?.label).toBe('kept apart: a card of blank');
+      expect(map.size.h).toBeGreaterThanOrEqual(220);
+      expect(map.size.w).toBeGreaterThan(300);
+      expect(map.opens).toBe(0);
+      expect(map.dock).toEqual(['Read the board again']);
+      const noteShape = t.items.find((i) => i.kind === 'words')!.shape;
+      await page.click(`[data-studio="map"] .sb-map-item[data-shape="${noteShape}"] rect`);
+      expect(await page.$eval(`[data-panel-host="studio"] .sb-item[data-shape="${noteShape}"]`, (e) => e.getAttribute('aria-current'))).toBe('true');
+      expect(await page.$eval(`[data-studio="map"] .sb-map-item[data-shape="${noteShape}"]`, (e) => e.classList.contains('is-selected'))).toBe(true);
+      expect(await text(page, '.page-context [data-studio-context="canvas"], [data-studio="context"] [data-studio-context="canvas"]')).toContain('Check the lip of the tray');
       // the thumbnails: decoded in the page, each from its own bytes (the record's image, the board's copies)
       await page.waitForFunction(() => [...document.querySelectorAll('[data-panel-host="studio"] .sb-thumb img')].every((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0), null, { timeout: 15_000 });
       expect((await thumbs(page)).sort((a, b) => String(a.path).localeCompare(String(b.path)))).toEqual([
@@ -481,7 +508,11 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       // the receipt's page in Studio (linked: this page is on this computer), opened apart, says it verifies
       const link = page.locator(`[data-panel-host="studio"] a[data-receipt="${rid}"]`);
       expect([await link.getAttribute('target'), await link.getAttribute('rel')]).toEqual(['_blank', 'noopener noreferrer']);
-      expect(await page.getAttribute('[data-panel-host="studio"] a[data-studio-open]', 'href')).toBe(`${base}/`);
+      // R11 round 7 (H176; the lead's D14 R88): ONE Open Timmy Studio on the page — the primary next action in the head; no link of
+      // the panel's own (the records say the address as text)
+      expect(await page.$$eval('[data-panel-host="studio"] a[data-studio-open]', (ls) => ls.length)).toBe(0);
+      expect(await page.$eval('#ws-studio .page-head .page-primary button', (b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim())).toMatch(/^Open Timmy Studio/);
+      expect(await page.$eval('#ws-studio .page-records', (e) => e.textContent ?? '')).toContain(`${base}/`);
       // the layout: the board list takes the right column, as tall as the left one (the Studio state, the canvas, the actions)
       const at = await boxes(page);
       expect(at.board.left).toBeGreaterThan(at.state.right);

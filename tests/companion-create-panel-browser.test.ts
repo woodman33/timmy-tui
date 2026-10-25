@@ -114,17 +114,29 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
   }
   const text = (page: Page, sel: string): Promise<string> => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
   const settled = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  /** The canvas's pixels: a hash of them all, how many differ from the stage's ground, and whether every one is a neutral grey. */
+  /**
+   * The canvas's pixels: a hash of them all, how many differ from the stage's ground, and whether every drawn one is a neutral grey.
+   * (R11 round 7, H176; the lead's D12: the stage's ground is the registry's surface now — read from the stage's own computed
+   * background, not pinned to B10's (7, 7, 7); the mesh stays content in neutral greys.)
+   */
   const pixels = (page: Page) => page.$eval('[data-create="canvas"]', (c) => {
     const cv = c as HTMLCanvasElement;
+    const bg = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(cv.closest('[data-create="stage"]')!).backgroundColor);
+    const ground = bg ? [Number(bg[1]), Number(bg[2]), Number(bg[3])] : [7, 7, 7];
+    // a drawn pixel is neutral within the ground's own tint: an edge pixel blends a grey with the ground (the canvas antialiases), so
+    // its channels may differ by as much as the ground's do (9 on the slate surface, 0 on a grey one); amber or green differ by far more
+    const tol = Math.max(Math.abs(ground[0] - ground[1]), Math.abs(ground[1] - ground[2]));
     const d = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height).data;
     let hash = 2166136261;
     let drawn = 0;
     let neutral = true;
     for (let i = 0; i < d.length; i += 4) {
       hash = Math.imul(hash ^ (d[i] | (d[i + 1] << 8) | (d[i + 2] << 16)), 16777619) >>> 0;
-      if (d[i] !== 7 || d[i + 1] !== 7 || d[i + 2] !== 7) drawn += 1;
-      if (d[i] !== d[i + 1] || d[i + 1] !== d[i + 2]) neutral = false;
+      const isGround = d[i] === ground[0] && d[i + 1] === ground[1] && d[i + 2] === ground[2];
+      if (!isGround) {
+        drawn += 1;
+        if (Math.abs(d[i] - d[i + 1]) > tol || Math.abs(d[i + 1] - d[i + 2]) > tol) neutral = false;
+      }
     }
     return { hash, drawn, neutral, w: cv.width, h: cv.height, triangles: Number(cv.dataset.drawn ?? 0) };
   });
@@ -306,6 +318,54 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       // amber only where the selection is (the chosen mesh, the pressed view's key)
       for (const a of look.amber) expect(a).toMatch(/create-mesh|create-key/);
       expect(bad.filter((x) => !x.startsWith('404 /api/panel/create/mesh'))).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it("item 6 (the operator's 19:18 order; R11 round 7, H176): each step card carries ONE verb that does something now — Add a mesh copies /add <file> with its words; without a parameter file 02 is Add a parameter file (copies /add); Copy the hython command copies the shelf's invocation with the mesh in the view and the honest line; the state lines are the project's own words; nothing runs", async () => {
+    const { page, errors } = await open();
+    try {
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: companion.url });
+      await page.waitForFunction(() => { const bs = [...document.querySelectorAll('[data-create-do]')]; return bs.length === 3 && bs.every((b) => !(b as HTMLButtonElement).disabled); }, null, { timeout: 15_000 });
+      const cards = () => page.$$eval('.create-step', (els) => els.map((e) => ({
+        n: e.getAttribute('data-create-step'), current: e.getAttribute('data-current'), tag: e.tagName, name: e.querySelector('.create-step-verb')?.textContent ?? '', state: e.querySelector('.create-step-state')?.textContent ?? '',
+        verb: e.querySelector('.create-step-do')?.textContent ?? '', kind: e.querySelector('.create-step-do')?.getAttribute('data-create-do-kind'), buttons: e.querySelectorAll('button').length,
+      })));
+      let c = await cards();
+      // one verb per step (one button on the card; the card itself is a group, not a button); the state the project's own words
+      expect(c.map((x) => [x.n, x.tag, x.name, x.verb, x.kind, x.buttons])).toEqual([
+        ['01', 'DIV', 'Define the geometry', 'Add a mesh', 'copy', 1], ['02', 'DIV', 'Set the parameters', 'Add a parameter file', 'copy', 1], ['03', 'DIV', 'Cook in Houdini', 'Copy the hython command', 'copy', 1]]);
+      expect(c[0].state).toBe('5 meshes · demo-tray.stl in the view');
+      expect(c[1].state).toBe('no parameter file in this project yet');
+      expect(c[2].state).toBe('no workflow document in this project yet · no native Houdini operation');
+      expect(c.map((x) => x.current)).toEqual(['true', 'false', 'false']);
+      // 01 Add a mesh: /add <file> on the clipboard; the step's line says it was copied, for whom, and that nothing ran
+      await page.click('[data-create-do="01"]');
+      await page.waitForFunction(() => (document.querySelector('[data-create-step-state="01"]')?.textContent ?? '').startsWith('Copied /add <file>'), null, { timeout: 5_000 });
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/add <file>');
+      expect(await text(page, '[data-create-step-state="01"]')).toBe("Copied /add <file> for Timmy's terminal: type it with the mesh's path (an .stl, .obj or .ply file); Timmy copies the file into this project (a local change), and it is listed and drawn here. Nothing ran on this page.");
+      // 03 Copy the hython command: the engine shelf's own invocation, the mesh in the view as its mesh, the honest line; no run claimed
+      await page.click('[data-create-do="03"]');
+      await page.waitForFunction(() => (document.querySelector('[data-create-step-state="03"]')?.textContent ?? '').startsWith('Copied the hython command'), null, { timeout: 5_000 });
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('hython lanes/engines/houdini/templates/procedural-asset/script.py refs/demo-tray.stl <out dir> demo-tray');
+      const said = await text(page, '[data-create-step-state="03"]');
+      expect(said).toBe('Copied the hython command for a terminal on a computer with Houdini (demo-tray.stl as its mesh): hython lanes/engines/houdini/templates/procedural-asset/script.py refs/demo-tray.stl <out dir> demo-tray. Houdini is not connected on this companion: this copies the command, nothing runs.');
+      expect(said).not.toMatch(/\b(ran|running|cooked)\b/);
+      c = await cards();
+      expect(c.map((x) => x.current)).toEqual(['false', 'false', 'true']);
+      // 02 without a parameter file: Add a parameter file copies /add with its own words
+      await page.click('[data-create-do="02"]');
+      await page.waitForFunction(() => (document.querySelector('[data-create-step-state="02"]')?.textContent ?? '').startsWith('Copied /add <file>'), null, { timeout: 5_000 });
+      expect(await text(page, '[data-create-step-state="02"]')).toMatch(/^Copied \/add <file> for Timmy's terminal: a parameter file is a tray recipe .* Nothing ran on this page\.$/);
+      // the lines return to the project's words after a moment
+      await page.waitForFunction(() => (document.querySelector('[data-create-step-state="01"]')?.textContent ?? '') === '5 meshes · demo-tray.stl in the view', null, { timeout: 9_000 });
+      // the three verbs whole on the cards at 1376 and at 800 x 600 (the verb stays on the card: nothing cut, nothing past the card's edge)
+      for (const size of [{ width: 1376, height: 768 }, { width: 800, height: 600 }]) {
+        await page.setViewportSize(size);
+        await settled(page);
+        const fit = await page.$$eval('.create-step', (els) => els.map((e) => { const c = e.getBoundingClientRect(); const b = e.querySelector('.create-step-do')!.getBoundingClientRect(); return { n: e.getAttribute('data-create-step'), inside: b.left >= c.left && b.right <= c.right + 0.5 && b.top >= c.top && b.bottom <= c.bottom + 0.5, wide: b.width >= 40 }; }));
+        expect(fit.filter((f) => !f.inside || !f.wide).map((f) => f.n), `${size.width}x${size.height}`).toEqual([]);
+      }
       expect(errors).toEqual([]);
     } finally { await page.close(); }
   });

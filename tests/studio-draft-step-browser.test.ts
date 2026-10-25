@@ -98,7 +98,8 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}/#code=${await grant(port(), server!.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-    await page.waitForFunction(() => document.querySelectorAll('#frame-tabs li').length === 10, null, { timeout: 30_000 });
+    // (R11 round 7, H176 / D14 R75: the strip draws no tabs; the frame is drawn once it carries a revision and its steps)
+    await page.waitForFunction(() => Boolean(document.getElementById('frame')?.dataset.revision) && document.querySelectorAll('#frame-acts li').length > 0, null, { timeout: 30_000 });
     return { page, context, errors };
   }
   /** The agent's own canvas tools, with the REPL's credentials (the project is named without a holder here). */
@@ -149,14 +150,11 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
       await page.waitForTimeout(200);
       const shown = await ambers(page);
       await shoot(page, 'draft-waiting-1440x900.png');
-      // R7 lead (B10: things waiting for you are amber, as the Workbench and the companion draw them): the two tabs that count the
-      // draft and the activity line's "1 waiting on you" are amber too
+      // R7 lead (B10: things waiting for you are amber, as the Workbench and the companion draw them): the activity line's
+      // "1 waiting on you" is amber too. R11 round 7 (H176; D14 R75): the strip draws no tabs any more, so no tab counts the draft here
       expect(shown.sort()).toEqual([
         'button.draft-accept: color+border "Accept"',
         'li.fr-act.is-primary.is-draft: border "1 Accept or discard the draft Timmy proposed Go to the draft"',
-        'li.fr-tab.is-active: border "4 Studio"',
-        'span.fr-count: color "1 waiting"',
-        'span.fr-count: color "1 waiting"',
         'span.fr-label: color "Accept or discard the draft Timmy proposed"',
         'span.fr-waiting.is-waiting: color "1 waiting on you"',
       ]);
@@ -207,7 +205,8 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
           const noStep = !document.querySelector('#frame-acts li.is-primary.is-draft');
           if (w.seen!.zero === undefined && / 0 waiting on you /.test(` ${t} `) && noTabs && noStep) w.seen!.zero = performance.now();
         };
-        new MutationObserver(look).observe(document.getElementById('frame')!, { subtree: true, childList: true, characterData: true, attributes: true });
+        // (R11 round 7, H176: the steps and the activity line are the panel's work section now)
+        new MutationObserver(look).observe(document.getElementById('frame-work')!, { subtree: true, childList: true, characterData: true, attributes: true });
         w.t0 = performance.now();
       });
       await page.keyboard.press('Enter');

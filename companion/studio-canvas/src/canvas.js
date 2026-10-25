@@ -22,7 +22,7 @@ import { timmyThemes } from './theme.js';
 import { DRAFT_ID, DRAFT_LABEL, MOVE_LABEL, MOVE_TITLE, acceptPlan, decisionWords, documentChanges, draftGround, draftLine, draftMark, draftOf, draftRefusal, discardPlan, landsWords, movedMark, movedOf, movedWords, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
 import { saveState } from './save-state.js';
 // R5 (H133): the shared workspace frame (src/contracts/workspace.ts), as a strip above the canvas
-import { createFrameStrip } from './frame.js';
+import { copyText, createFrameStrip } from './frame.js';
 // R5 (H137; the QA round, defect 6): one time format, as the terminal Workbench and the companion show it
 import { clockOf, dateTimeOf } from './when.js';
 // R6 (H139): whose board is on screen, and the switch from one project's board to another's
@@ -43,6 +43,9 @@ import { emptySlot, slotFit, slotOf, slotPosition, slottedWords, starterRecords 
 // R11 round 7 (H176): the bounded desk (the Card Lab's canvas behaviour, adapted): the desk around the page's content, and the
 // bar (Arrange · Pan · zoom · Fit the board) in tldraw's NavigationPanel slot
 import { createDesk, ZOOM_STEPS } from './desk.js';
+// R11 round 7 (H176; the operator's 19:18 order, item 6): each starter step's one verb, drawn under its frame in front of the
+// canvas (Add a mesh · Edit the parameters · Copy the hython command), its state line from the project's own reading
+import { createStepVerbs } from './steps.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -77,6 +80,16 @@ const say = (text, kind) => {
 // meaning for each state (./license-state.js), and `license.watch` follows the SDK's state atom instead of polling it.
 const license = createLicenseReadout({ react });
 let stopLicenseWatch = () => {};
+/**
+ * R11 round 7 (H176; the operator's 19:18 order, item 7, the lead's ruling): what kind of key the Studio handed the SDK — 'none'
+ * (development mode), 'set' (a key from the environment, never read here beyond this word), or 'fake' (a key that a TEST set: it
+ * begins with FAKE, as the suites' and the container captures' do; the real key lives on the operator's machine only). The Details
+ * line says "FAKE key (this capture)" beside the SDK's own verdict then, so a capture never looks like the product's verdict. The
+ * key itself is never written anywhere here.
+ */
+let licenseKeyKind = 'none';
+const FAKE_KEY = /^FAKE(?![0-9A-Za-z])/;
+const licenseKeyKindOf = (key) => (typeof key === 'string' && key ? (FAKE_KEY.test(key) ? 'fake' : 'set') : 'none');
 
 /**
  * The canvas document as Timmy holds it. `revision` counts document changes (shapes, bindings,
@@ -154,6 +167,24 @@ const riveShape = createRiveShape({ React, BaseBoxShapeUtil, HTMLContainer, T, u
 
 // R11 round 7 (H176): the desk behind the shapes and its bar (./desk.js); Fit the board is fitBeside (the whole desk beside the panel)
 const desk = createDesk({ React, useEditor, useValue, fit: (editor) => fitBeside(editor), project: () => (canvas.project ? canvas.project.name : null) });
+/**
+ * R11 round 7 (H176; item 6): the starter steps' verbs (./steps.js), in front of the canvas with the draft marks. The palette is
+ * the Nodes panel's (the Project panel's reading of the shown project); a placed node goes through the palette's own add (the slot
+ * rule, the project's own card); a copied command is said in the band with its honest words; nothing here runs anything.
+ */
+const stepVerbs = createStepVerbs({
+  React, useEditor, useValue,
+  palette: () => nodes.palette,
+  add: (kind, id) => nodes.add(String(kind), String(id)),
+  copy: (text) => copyText(text),
+  say: (text, bad = false) => band(text, bad),
+  blocked: () => identity.blocked(),
+  onPlaced: () => { if (current) { try { fitSlots(current); } catch { /* the next change of the board fits them */ } } },
+});
+/** In front of the canvas: the pending drafts' marks and the starter steps' verbs. */
+function InFront() {
+  return React.createElement(React.Fragment, null, React.createElement(DraftMarks), React.createElement(stepVerbs.StepVerbs));
+}
 
 /**
  * R6 (H145): React roots for parts of the side panel drawn by the cards' own React parts (Studio's VoxVision preview), one per
@@ -254,14 +285,17 @@ function showStatus(editor) {
   // R6 (H139): while Studio switches boards (or cannot show the project the canvas shows), the line says that, not a revision
   const blocked = identity.project === null && identity.switching === null ? null : blockedWords(identity);
   // R10 (H167; the round's rule: diagnostics in a details control): tldraw's version and its license's verdict are the canvas's
-  // Details (#side-about, under the save line), beside the folder Timmy saves the board in; the line says the canvas's state
+  // Details (#side-about, at the end of the panel's scrolling region), beside the folder Timmy saves the board in; the line says the canvas's state
   const about = document.getElementById('side-about-canvas');
   // R11 round 6: the SDK's verdict as one short line (the panel's Details sit above the one region that scrolls: five wrapped
   // lines here left the project's cards too little room at 768 px — studio-face-browser), its full meaning in the line's title
   if (about) {
     const meaning = license.words[state] ?? `license state: ${state}`;
-    about.textContent = `tldraw ${BUILT_WITH} · ${state === 'unknown' ? meaning : `${state.replace(/-/g, ' ')} (tldraw's own verdict)`}`;
-    about.title = meaning;
+    // R11 round 7 (H176; item 7): a FAKE key (a test's) is said beside the SDK's verdict, so the capture is never read as the product's
+    const fake = licenseKeyKind === 'fake' ? ' · FAKE key (this capture)' : '';
+    about.textContent = `tldraw ${BUILT_WITH} · ${state === 'unknown' ? meaning : `${state.replace(/-/g, ' ')} (tldraw's own verdict)`}${fake}`;
+    about.title = licenseKeyKind === 'fake' ? `${meaning} — on a FAKE key a test set for this capture (the real key lives on the operator's machine only): this is the SDK's verdict on that FAKE key, not the product's.` : meaning;
+    about.dataset.key = licenseKeyKind;
   }
   const text = [
     `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · `,
@@ -857,8 +891,62 @@ async function refreshJobs() {
   if (listed) b.jobs = listed;
   if (current) showJobs(current);
 }
+/**
+ * R11 round 7 (H176; the lead's D14 R76): "This board is blank." only when the WHOLE board is blank. A blank page of a board that
+ * holds shapes on its other pages (a starter opened on its own page, then the first page shown) says that instead, naming the
+ * pages that hold them, so a reopened board is never called blank while 21 shapes sit one page away.
+ */
+function guideWords(pages) {
+  const held = pages.filter((p) => p.shapes > 0);
+  if (!held.length) return null;
+  const list = held.map((p) => `${p.name} (${p.shapes})`).join(', ');
+  return `This page is blank. The board holds ${held.reduce((n, p) => n + p.shapes, 0)} shape${held.reduce((n, p) => n + p.shapes, 0) === 1 ? '' : 's'} on ${held.length === 1 ? 'its page' : 'its pages'} ${list}: the page menu (top left) opens ${held.length === 1 ? 'it' : 'them'}.`;
+}
+function boardPages(editor) {
+  const counts = new Map();
+  for (const r of editor.store.allRecords()) if (r.typeName === 'shape') counts.set(r.parentId, (counts.get(r.parentId) || 0) + 1);
+  return editor.getPages().map((p) => ({ id: p.id, name: p.name, shapes: counts.get(p.id) || 0 }));
+}
 function showGuide(editor) {
-  document.getElementById('guide').hidden = editor.getCurrentPageShapes().length > 0;
+  const guide = document.getElementById('guide');
+  const here = editor.getCurrentPageShapes().length;
+  if (here > 0) { guide.hidden = true; return; }
+  const words = guideWords(boardPages(editor).filter((p) => p.id !== editor.getCurrentPageId()));
+  const head = guide.querySelector('strong');
+  const how = guide.querySelectorAll('.guide-how, .guide-save');
+  if (words) {
+    guide.dataset.blank = 'page';
+    if (head) head.textContent = words;
+    for (const el of how) el.hidden = true;
+  } else {
+    guide.dataset.blank = 'board';
+    if (head) head.textContent = 'This board is blank.';
+    for (const el of how) el.hidden = false;
+  }
+  guide.hidden = false;
+}
+
+// ── R11 round 7 (H176; D14 R76): the board reopens on the page it was left on ────────────────────────────────────────────────
+/** The document's meta key that names the page shown when the board was last saved (tldraw's document record travels with the board). */
+const CURRENT_PAGE_META = 'timmyCurrentPage';
+/** The page each editor last showed, so only a CHANGE of page is recorded (opening a board writes nothing to it). */
+const shownPage = new WeakMap();
+/** Records the page shown in the document's meta (outside tldraw's history) once it changed from the one the board opened on. */
+function keepCurrentPage(editor) {
+  const page = editor.getCurrentPageId();
+  const was = shownPage.get(editor);
+  shownPage.set(editor, page);
+  if (was === undefined || was === page) return;
+  const meta = editor.getDocumentSettings().meta || {};
+  if (meta[CURRENT_PAGE_META] === page) return;
+  editor.run(() => editor.updateDocumentSettings({ meta: { ...meta, [CURRENT_PAGE_META]: page } }), { history: 'ignore' });
+}
+/** Shows the page the board was saved on, when the board still has it. */
+function restoreCurrentPage(editor) {
+  const meta = editor.getDocumentSettings().meta || {};
+  const page = typeof meta[CURRENT_PAGE_META] === 'string' ? meta[CURRENT_PAGE_META] : '';
+  if (page && page !== editor.getCurrentPageId() && editor.getPage(page)) editor.run(() => editor.setCurrentPage(page), { history: 'ignore' });
+  shownPage.set(editor, editor.getCurrentPageId());
 }
 
 // ── R5 (H133): drafts in the side panel: each pending draft with Show, Accept and Discard ───────────────────────────────
@@ -1567,6 +1655,8 @@ function followEditor(editor) {
     requestAnimationFrame(() => {
       queued = false;
       if (current !== editor) return;
+      // R11 round 7 (H176; D14 R76): the page shown travels with the board (its document's meta), so it reopens there
+      if (!identity.blocked()) { try { keepCurrentPage(editor); } catch { /* the next change keeps it */ } }
       showGuide(editor);
       showJobs(editor);
       // R5 (H133): the pending drafts follow the board (a person's own deletes and undo included)
@@ -1636,6 +1726,8 @@ function mount(snapshot, b = canvas) {
             placeRive: (component, o) => riveShape.place(editor, String(component), o && typeof o === 'object' && o.at && typeof o.at.x === 'number' && typeof o.at.y === 'number' ? { x: o.at.x, y: o.at.y } : placeAt(editor, { w: 240, h: 200 }), o && typeof o === 'object' ? o : {}),
           };
           attachEditor(editor, b);
+          // R11 round 7 (H176; D14 R76): the board opens on the page it was saved on (its document's meta), not on its first page
+          try { restoreCurrentPage(editor); } catch { /* the first page then */ }
           followEditor(editor);
           showStatus(editor);
           // R11 round 6: the SDK's license verdict as it settles (pending → its state), said by the Details line; one watch per editor
@@ -1673,6 +1765,9 @@ function showFrame() {
   const strip = document.getElementById('frame');
   if (!strip) return;
   strip.hidden = false;
+  // R11 round 7 (H176; D14 R75): the frame's work (the steps, the activity) is in Timmy's panel, shown with the strip
+  const work = document.getElementById('frame-work');
+  if (work) work.hidden = false;
   const follow = () => document.documentElement.style.setProperty('--frame-h', `${strip.hidden ? 0 : Math.ceil(strip.getBoundingClientRect().height)}px`);
   follow();
   if (typeof ResizeObserver === 'function') new ResizeObserver(follow).observe(strip);
@@ -1680,6 +1775,8 @@ function showFrame() {
 function hideFrame() {
   const strip = document.getElementById('frame');
   if (strip) strip.hidden = true;
+  const work = document.getElementById('frame-work');
+  if (work) work.hidden = true;
   document.documentElement.style.setProperty('--frame-h', '0px');
   frameStrip?.stop();
   frameStrip = null;
@@ -1788,6 +1885,8 @@ async function start() {
   const settings = await cards.config();
   if (!settings.ok || !settings.body) throw new Error(`Timmy answered ${settings.status} for the canvas settings`);
   const config = settings.body;
+  // R11 round 7 (H176; item 7): the kind of key, for the Details line (the key itself goes to <Tldraw/> below and nowhere else)
+  licenseKeyKind = licenseKeyKindOf(config.licenseKey);
   if (config.tldrawVersion !== BUILT_WITH) {
     throw new Error(`this canvas was built with tldraw ${BUILT_WITH}, but Timmy pins ${config.tldrawVersion}. Rebuild it: npm run build:canvas`);
   }
@@ -1828,7 +1927,7 @@ async function start() {
     // R5 (H133): a pending draft's outline and label, in front of the canvas; the main menu without the color scheme
     // R7 (H151): and tldraw's style panel, folded while the board is idle on a small window (TimmyStylePanel)
     // R11 round 7 (H176): the desk behind the shapes (OnTheCanvas) and its bar where tldraw's zoom menu and minimap were (NavigationPanel)
-    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu, StylePanel: TimmyStylePanel, OnTheCanvas: desk.Desk, NavigationPanel: desk.DeskBar },
+    components: { InFrontOfTheCanvas: InFront, MainMenu: TimmyMainMenu, StylePanel: TimmyStylePanel, OnTheCanvas: desk.Desk, NavigationPanel: desk.DeskBar },
   };
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.

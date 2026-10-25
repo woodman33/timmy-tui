@@ -48,7 +48,11 @@
 
   const S = { project: null, host: null, root: null, ctx: null, at: 0, sig: '', answer: null, asking: null, ticket: 0, thumbs: new Map(), timer: null,
     // R11 round 7 (H176): the selected item (its shape id), drawn in the page's context; what the page last registered with the shell
-    selected: '', pageSig: '' };
+    selected: '', pageSig: '',
+    // the board page the map draws (chosen by its tab; else the selected item's page, else the fullest)
+    mapPage: '',
+    // why the last Open Timmy Studio opened the plain address (no grant could be made), said in the records
+    openWhy: '' };
   /** The shell, when it is on the page (SHELL CONTRACT v1); null before it lands: the panel then draws its own head, dock, context and records. */
   const shell = () => (typeof window.TimmyShell === 'object' && window.TimmyShell && typeof window.TimmyShell.page === 'function' ? window.TimmyShell : null);
   /** The page's section on the scaffold (its dock, context and records), or null. */
@@ -90,7 +94,7 @@
   }
 
   function reset(project) {
-    S.project = project; S.ticket += 1; S.answer = null; S.sig = ''; S.at = 0; S.root = null; S.selected = ''; S.pageSig = '';
+    S.project = project; S.ticket += 1; S.answer = null; S.sig = ''; S.at = 0; S.root = null; S.selected = ''; S.pageSig = ''; S.mapPage = ''; S.openWhy = '';
     S.thumbs.clear();
   }
 
@@ -107,6 +111,9 @@
           h('h2', { class: 'box-title', id: 'studio-board-title', 'data-studio': 'title' }, 'On the board'),
           h('div', { class: 'box-body' },
             h('p', { class: 'sb-summary', 'data-studio': 'summary', role: 'status' }, 'Reading the board…'),
+            // R11 round 7 (H176; the lead's D14 R88): the board's map — each item where it sits on its page, drawn from the saved
+            // board (the preview, since the Studio itself cannot be embedded here: the companion's page policy frames only itself)
+            h('div', { class: 'sb-map', 'data-studio': 'map', hidden: true }),
             h('ol', { class: 'sb-list', 'data-studio': 'list' }),
             h('p', { class: 'sb-foot', 'data-studio': 'foot' }))),
         // the selected item's context, drawn here while the shell's context column is not on the page
@@ -136,19 +143,44 @@
       // (no kicker, title or intro of the panel's own: the shell's words for Canvas stand, with the rail's number)
       sh.page('canvas', {
         primary: HERE && studio
-          ? { label: 'Open Timmy Studio', run: () => { try { window.open(`${studio}/`, '_blank', 'noopener'); } catch (e) { /* the link in the records is the same */ } } }
+          ? { label: 'Open Timmy Studio', run: () => openStudio() }
           : { label: 'Open Timmy Studio', disabled: true, why: studio ? `Studio runs on the computer that runs Timmy: open ${studio}/ there` : 'Studio\'s address is not known yet' },
         context: 'selection',
         dock: 'CANVAS TOOLS',
       });
       if (!a) sh.state('canvas', 'content');
       else if (a.board.unreadable) sh.state('canvas', 'error', { words: `${name}'s saved board could not be read, so nothing of it is listed. Studio keeps such a file aside when it opens the board; nothing was changed here.`, next: { label: 'Read the board again', run: () => { S.sig = ''; void read(); } } });
-      else if (!a.items.length) sh.state('canvas', 'empty', { words: `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts, reference images and nodes on it, and New board opens a guided starter.`, next: HERE && studio ? { label: 'Open Timmy Studio', run: () => window.open(`${studio}/`, '_blank', 'noopener') } : undefined });
+      else if (!a.items.length) sh.state('canvas', 'empty', { words: `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts, reference images and nodes on it, and New board opens a guided starter.`, next: HERE && studio ? { label: 'Open Timmy Studio', run: () => openStudio() } : undefined });
       else sh.state('canvas', 'content');
     } catch (e) { /* the shell's registration is a courtesy: the panel's own work is drawn either way */ }
   }
 
-  /** The page's tools, in the shell's dock when it is there (else the panel's own row): Open Timmy Studio, Read the board again. */
+  /**
+   * R11 round 7 (H176; D14 R88): Open Timmy Studio opens a page that LOADS: the window is opened in the click (so no blocker stops
+   * it), then the companion is asked for the Studio's address with a one-time grant (POST /api/panel/studio/open: made when the
+   * Studio's token file is in this Timmy home), and the window goes there; without a grant it goes to the Studio's plain address,
+   * which says what to type in Timmy, and the page's band says why.
+   */
+  function openStudio() {
+    const a = S.answer;
+    const studio = String((a && a.studio) || '').replace(/\/+$/, '');
+    let w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    const go = (url) => { try { if (w && !w.closed) w.location.href = url; else window.open(url, '_blank', 'noopener'); } catch (e) { /* the address is in the records */ } };
+    const ctx = S.ctx;
+    if (!ctx || !studio) { go(`${studio}/`); return; }
+    ctx.fetch(ctx.api('open'), { method: 'POST' }).then((r) => r.json().catch(() => null)).then((b) => {
+      const t = b && b.ok === true && b.target ? b.target : null;
+      if (t && t.ok === true && typeof t.url === 'string') { go(t.url); return; }
+      go(`${studio}/`);
+      const why = t && typeof t.why === 'string' ? t.why : 'The companion could not make a grant for Studio.';
+      S.openWhy = why;
+      drawRecords(ctx.h);
+      try { if (shell()) shell().toast(why); } catch (e) { /* the records say it */ }
+    }).catch(() => go(`${studio}/`));
+  }
+
+  /** The page's tools, in the shell's dock when it is there (else the panel's own row): Read the board again (Open Timmy Studio is the page's primary). */
   function drawDock(h) {
     const a = S.answer;
     const studio = String((a && a.studio) || '').replace(/\/+$/, '');
@@ -157,8 +189,9 @@
     const dock = (shellDock && (shellDock.querySelector(':scope > .dock-tools') || shellDock)) || (S.root && S.root.querySelector('[data-studio="dock"]'));
     if (!dock) return;
     const own = dock.querySelector('[data-studio-dock="canvas"]');
+    // (the lead's D14 R88: ONE way to open Studio — the page's primary next action; the dock holds the page's other tool only)
+    void studio;
     const tools = h('span', { 'data-studio-dock': 'canvas', class: 'sb-tools' },
-      HERE && studio ? h('a', { class: 'dock-btn btn-action tiny sb-link', 'data-studio-open': '1', href: `${studio}/`, target: '_blank', rel: 'noopener noreferrer' }, 'Open Timmy Studio') : h('span', { class: 'dock-btn sb-addr', title: 'Studio runs on the computer that runs Timmy' }, studio ? `Studio: ${studio}/ on the computer that runs Timmy` : 'Studio: address not known yet'),
       h('button', { type: 'button', class: 'dock-btn btn-action tiny', 'data-studio-act': 'again', title: 'Reads the board from Timmy\'s home again' }, 'Read the board again'));
     if (own) own.replaceWith(tools); else dock.append(tools);
   }
@@ -174,7 +207,8 @@
       h('summary', null, `Records · revision ${a.board.revision ?? 'none'}${a.board.savedAt ? `, saved ${when(a.board.savedAt)}` : ''}`),
       h('p', { class: 'sb-rec-line' }, a.board.unreadable ? 'The saved board could not be read.' : `${a.project.name}'s board, as Studio last saved it: ${countWords(a.counts) || 'nothing on it'}${a.drafts.length ? ` · ${plural(a.drafts.length, 'draft', 'drafts')} waiting for Accept or Discard in Studio` : ''}.`),
       a.oldLayout ? h('p', { class: 'sb-rec-line' }, a.oldLayout) : null,
-      h('p', { class: 'sb-rec-line' }, 'Studio: ', HERE ? h('a', { class: 'sb-link', href: `${studio}/`, target: '_blank', rel: 'noopener noreferrer' }, `${studio}/`) : h('code', null, `${studio}/`), HERE ? '' : ' on the computer that runs Timmy'),
+      h('p', { class: 'sb-rec-line' }, 'Studio: ', h('code', { class: 'sb-addr' }, `${studio}/`), HERE ? ' (Open Timmy Studio, above, opens it with a one-time grant when the Studio\'s token file is in this Timmy home)' : ' on the computer that runs Timmy'),
+      S.openWhy ? h('p', { class: 'sb-rec-line sb-rec-muted', 'data-studio': 'open-why' }, S.openWhy) : null,
       Array.isArray(a.starters) && a.starters.length ? h('details', { class: 'ui-details sb-starters' }, h('summary', null, `Houdini starters New board offers (${a.starters.length})`),
         h('ul', { class: 'sb-starter-list' }, a.starters.map((t) => h('li', { 'data-studio-starter': t.id }, h('strong', null, t.title), ' — ', t.steps.join(' · '), '. ', h('span', { class: 'sb-rec-muted' }, t.intro))))) : null);
     if (own) own.replaceWith(rec); else host.append(rec);
@@ -207,14 +241,103 @@
     for (const li of S.root ? S.root.querySelectorAll('[data-shape]') : []) li.setAttribute('aria-current', li.dataset.shape === S.selected ? 'true' : 'false');
     drawContext(S.ctx.h);
   }
+
+  // ── R11 round 7 (H176; D14 R88): the board's map — the page's work beside the list ──
+  /** An item's box on its page as the map draws it: a shape without a size gets a card's (notes and texts carry none in the record). */
+  const MAP_DEFAULT = { w: 200, h: 120 };
+  const boxOf = (it) => { const b = it.box || { x: 0, y: 0, w: 0, h: 0 }; return { x: b.x, y: b.y, w: b.w > 0 ? b.w : MAP_DEFAULT.w, h: b.h > 0 ? b.h : MAP_DEFAULT.h }; };
+  /** The pages of the board with their items, in the board's order. */
+  function mapPages(a) {
+    const pages = new Map();
+    for (const it of a.items) { if (!pages.has(it.page)) pages.set(it.page, []); pages.get(it.page).push(it); }
+    return [...pages.entries()].map(([name, items]) => ({ name, items }));
+  }
+  /** The page the map draws: the one chosen by its tab, else the selected item's, else the fullest. */
+  function mapPage(a) {
+    const pages = mapPages(a);
+    if (!pages.length) return null;
+    const asked = S.mapPage && pages.find((p) => p.name === S.mapPage);
+    const withSelected = S.selected && pages.find((p) => p.items.some((it) => it.shape === S.selected));
+    return asked || withSelected || pages.reduce((best, p) => (p.items.length > best.items.length ? p : best), pages[0]);
+  }
+  /** The map: an SVG of the chosen page (its items as boxes, labelled where they are wide enough), the page tabs when the board has more than one. */
+  function drawMap(h) {
+    const a = S.answer;
+    const host = q('map');
+    if (!host) return;
+    const page = a && !a.board.unreadable ? mapPage(a) : null;
+    if (!page) { host.hidden = true; put(host); return; }
+    const pages = mapPages(a);
+    const boxes = page.items.map((it) => ({ it, b: boxOf(it) }));
+    const pad = 48;
+    const minX = Math.min(...boxes.map((x) => x.b.x)) - pad;
+    const minY = Math.min(...boxes.map((x) => x.b.y)) - pad;
+    const maxX = Math.max(...boxes.map((x) => x.b.x + x.b.w)) + pad;
+    const maxY = Math.max(...boxes.map((x) => x.b.y + x.b.h)) + pad;
+    const w = Math.max(1, maxX - minX);
+    const ht = Math.max(1, maxY - minY);
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'sb-map-svg');
+    svg.setAttribute('viewBox', `${minX} ${minY} ${w} ${ht}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `The board's page ${page.name}: ${plural(page.items.length, 'item', 'items')} where they sit`);
+    svg.dataset.page = page.name;
+    // the page's ground and the items, each a box with its kind; the words are the list's (the map says where, the list what)
+    const ground = document.createElementNS(ns, 'rect');
+    ground.setAttribute('class', 'sb-map-ground');
+    ground.setAttribute('x', String(minX)); ground.setAttribute('y', String(minY)); ground.setAttribute('width', String(w)); ground.setAttribute('height', String(ht));
+    svg.append(ground);
+    // a label's size follows the page's scale (about 14 px on screen for a page 1600 units wide shown at ~600 px)
+    const unit = Math.max(10, Math.round(w / 48));
+    for (const { it, b } of boxes) {
+      const g = document.createElementNS(ns, 'g');
+      g.setAttribute('class', `sb-map-item kind-${it.kind}${it.draft ? ' is-draft' : ''}${it.shape === S.selected ? ' is-selected' : ''}`);
+      g.dataset.shape = it.shape;
+      g.dataset.kind = it.kind;
+      g.setAttribute('role', 'button');
+      g.setAttribute('tabindex', '0');
+      g.setAttribute('aria-label', `${kindWords(it)}: ${it.title}${it.draft ? ' (a draft waiting in Studio)' : ''}`);
+      const r = document.createElementNS(ns, 'rect');
+      r.setAttribute('x', String(b.x)); r.setAttribute('y', String(b.y)); r.setAttribute('width', String(b.w)); r.setAttribute('height', String(b.h));
+      r.setAttribute('rx', String(Math.round(unit * 0.6)));
+      g.append(r);
+      if (b.w >= unit * 6 && b.h >= unit * 1.8) {
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', String(b.x + unit * 0.8)); t.setAttribute('y', String(b.y + unit * 1.6));
+        t.setAttribute('font-size', String(unit));
+        const room = Math.max(3, Math.floor((b.w - unit * 1.6) / (unit * 0.56)));
+        const words = Array.from(it.title || kindWords(it));
+        t.textContent = words.length > room ? `${words.slice(0, Math.max(1, room - 1)).join('')}…` : words.join('');
+        g.append(t);
+      }
+      svg.append(g);
+    }
+    const tabs = pages.length > 1 ? h('div', { class: 'sb-map-pages', role: 'tablist', 'aria-label': 'The board\'s pages' },
+      pages.map((p) => h('button', { type: 'button', role: 'tab', class: 'sb-map-page', 'data-map-page': p.name, 'aria-selected': p.name === page.name ? 'true' : 'false' }, `${p.name} · ${p.items.length}`))) : null;
+    put(host, tabs, svg, h('p', { class: 'sb-map-foot' }, `The board as Studio last saved it, page ${page.name}: ${plural(page.items.length, 'item', 'items')} where they sit (a drawing of the saved board, not the live canvas; a box names its item in the list).`));
+    host.hidden = false;
+  }
   function onClick(event) {
     const t = event.target instanceof Element ? event.target : null;
     if (!t) return;
     if (t.closest('[data-studio-act="again"]')) { S.sig = ''; void read(); return; }
+    // the map: a box chooses its item (and brings its row into view); a page tab chooses the page drawn
+    const tab = t.closest('[data-map-page]');
+    if (tab) { S.mapPage = tab.dataset.mapPage; drawMap(S.ctx.h); return; }
+    const box = t.closest('.sb-map-item[data-shape]');
+    if (box) {
+      select(box.dataset.shape);
+      drawMap(S.ctx.h);
+      const row = S.root && S.root.querySelector(`.sb-item[data-shape="${CSS.escape(box.dataset.shape)}"]`);
+      if (row) row.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     // a row chosen (not one of its own controls: Open in VoxVision, Open run, a receipt link, a thumbnail)
     if (t.closest('button, a, summary')) return;
     const row = t.closest('[data-shape]');
-    if (row) select(row.dataset.shape);
+    if (row) { select(row.dataset.shape); drawMap(S.ctx.h); }
   }
   function onKey(event) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -222,6 +345,7 @@
     if (!t || !t.matches('[data-shape]')) return;
     event.preventDefault();
     select(t.dataset.shape);
+    drawMap(S.ctx.h);
   }
 
   // ── reading ──
@@ -353,11 +477,12 @@
       const waiting = a.drafts.length ? ` ${plural(a.drafts.length, 'draft', 'drafts')} of Timmy's waiting for Accept or Discard in Studio.` : '';
       put(summary, `${name}'s own board, as Studio last saved it (revision ${a.board.revision}${a.board.savedAt ? `, ${when(a.board.savedAt)}` : ''}): ${countWords(a.counts)}.${waiting}`);
     }
+    drawMap(h);
     put(q('list'), a.items.map((it) => itemOf(it, h)));
     put(q('foot'),
       a.more ? `${a.more} more on the board are not listed (the first ${a.items.length}, in reading order). ` : null,
       a.oldLayout ? `${a.oldLayout} ` : null,
-      HERE ? h('a', { class: 'sb-link', 'data-studio-open': '1', href: `${studio}/`, target: '_blank', rel: 'noopener noreferrer' }, 'Open Timmy Studio') : `Studio: open ${studio}/ on the computer that runs Timmy.`);
+      HERE ? null : `Studio: open ${studio}/ on the computer that runs Timmy.`);
     if (kept) {
       const li = S.root.querySelector(`[data-shape="${CSS.escape(kept.shape)}"]`);
       const el = li && (kept.cls ? [...li.querySelectorAll(`.${kept.cls}`)].find((e) => !kept.attr || e.getAttribute('data-open-vox') === kept.attr || e.getAttribute('data-open-run') === kept.attr) : null);

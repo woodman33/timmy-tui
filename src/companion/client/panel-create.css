@@ -18,22 +18,27 @@
   letter-spacing: var(--timmy-ui-tracking-title, -0.02em); color: var(--timmy-ui-text, #ECF1F5); }
 .create-intro { margin: 0; max-width: 64ch; font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text-secondary, #BDCADA); }
 
-/* the guided flow: three step cards in a row; the step in focus is the light focal object, the others raised */
+/* the guided flow: three step cards in a row (1300 px and wider), the step in focus the light focal object, the others raised. Each card:
+   its number, its name, its state line (the project's own words, one line, shortened with an ellipsis — the card's title says them whole)
+   and its ONE verb (a button that does something now; the operator's 19:18 order, item 6): the name and the verb on the first row, the
+   state under them. Under 1300 px the cards stack, one row each (number · name · state · verb); on a phone (under 720 px) three rows. */
 .create-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--timmy-ui-space-3, 12px); flex: 0 0 auto; }
-/* one line each — number · verb · state — so the row costs the view little height (the shell's head and band sit above it) */
-.create-step { display: grid; grid-template-columns: auto auto minmax(0, 1fr); grid-template-rows: auto; column-gap: var(--timmy-ui-space-3, 12px); align-items: baseline; text-align: left;
-  padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-4, 16px); border-radius: var(--timmy-ui-radius-control, 10px);
+.create-step { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: var(--timmy-ui-space-3, 12px); row-gap: 2px; align-items: center; text-align: left; min-width: 0;
+  padding: 6px var(--timmy-ui-space-4, 16px); border-radius: var(--timmy-ui-radius-control, 10px);
   background: var(--timmy-ui-elev-raised, #1C2936); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); box-shadow: var(--timmy-ui-shadow-raised, none);
-  color: var(--timmy-ui-text, #ECF1F5); font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); cursor: pointer;
+  color: var(--timmy-ui-text, #ECF1F5); font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
   transition: background var(--timmy-ui-motion-state, 180ms) var(--timmy-ui-ease, ease), color var(--timmy-ui-motion-state, 180ms) var(--timmy-ui-ease, ease); }
 .create-step:hover { border-color: var(--timmy-ui-border, #44586B); }
-.create-step:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; box-shadow: 0 0 0 2px var(--timmy-ui-focus-halo, #080B0F); }
-.create-step-n { font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1 var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace); color: var(--timmy-ui-accent, #D6AA64); letter-spacing: .06em; }
-.create-step-verb { font-weight: var(--timmy-ui-weight-strong, 600); font-size: var(--timmy-ui-size-body, 14px); line-height: var(--timmy-ui-leading-label, 1.35); white-space: nowrap; }
-.create-step-state { color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.create-step[aria-pressed="true"] { background: var(--timmy-ui-elev-paper, #E8EFF5); border-color: var(--timmy-ui-paper, #E8EFF5); box-shadow: var(--timmy-ui-shadow-paper, none); color: var(--timmy-ui-ink, #1C3043); }
-.create-step[aria-pressed="true"] .create-step-state { color: var(--timmy-ui-ink-soft, #3B5168); }
-.create-step[aria-pressed="true"] .create-step-n { color: var(--timmy-ui-ink, #1C3043); }
+.create-step-n { grid-column: 1; grid-row: 1 / span 2; align-self: center; font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1 var(--timmy-ui-font-mono, ui-monospace, Menlo, monospace); color: var(--timmy-ui-accent, #D6AA64); letter-spacing: .06em; }
+.create-step-verb { grid-column: 2; grid-row: 1; min-width: 0; font-weight: var(--timmy-ui-weight-strong, 600); font-size: var(--timmy-ui-size-body, 14px); line-height: var(--timmy-ui-leading-label, 1.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.create-step-state { grid-column: 2 / span 2; grid-row: 2; min-width: 0; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the verb: a raised control on the card (its words are the verb; the step's name beside it is not a control) */
+.create-step-do { grid-column: 3; grid-row: 1; justify-self: end; white-space: nowrap; }
+.create-step-do:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.create-step[data-current="true"] { background: var(--timmy-ui-elev-paper, #E8EFF5); border-color: var(--timmy-ui-paper, #E8EFF5); box-shadow: var(--timmy-ui-shadow-paper, none); color: var(--timmy-ui-ink, #1C3043); }
+.create-step[data-current="true"] .create-step-state { color: var(--timmy-ui-ink-soft, #3B5168); }
+.create-step[data-current="true"] .create-step-n { color: var(--timmy-ui-ink, #1C3043); }
+.create-step[data-current="true"] .create-step-state.tone-failed { color: var(--timmy-ui-ink, #1C3043); }
 
 /* the sources: a parameter file, a workflow, a starter (raised, quiet) */
 .create-source, .create-starter { display: grid; gap: 4px; padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px); border-radius: var(--timmy-ui-radius-control, 10px);
@@ -61,18 +66,31 @@
 .create-details > summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); }
 
 /* the columns: the view central and tallest; the sources beside it. On the scaffold the page grows with its content (the window
-   scrolls it), so the stage keeps a height of its own: the view is the page's centre, never a strip under the sources. */
-.create-page .create-stage { flex: 0 0 auto; height: clamp(220px, 44vh, 640px); }
+   scrolls it), so the stage keeps a height of its own: the view is the page's centre, never a strip under the sources. (42vh: the
+   step cards' second row, the state line, took 16 px; the view gives them back, so the page's chrome stays where it was) */
+.create-page .create-stage { flex: 0 0 auto; height: clamp(220px, 42vh, 640px); }
 /* (a height of its own, not the columns': the sources arriving beside it never resize the view, so what it draws stays comparable) */
 .create-cols .create-left > .box.create-params-box, .create-cols .create-left > .box.create-workflows-box { flex: 0 1 auto; max-height: 40%; min-height: 5em; }
 .create-cols .create-right > .box.create-houdini-box { flex: 0 1 auto; max-height: 46%; min-height: 6em; }
 
-/* a phone (D5): the flow stacks, the columns stack, nothing is cut */
+/* under 1300 px three cards cannot hold a name and a verb each beside the number (H172's LEGACY 01 at 800 × 600: the words were cut), so
+   the cards stack, one row each — number · name · state (shortened with an ellipsis, said whole in the card's title) · verb; nothing cut,
+   nothing past the card's edge */
+@media (max-width: 1299px) {
+  .create-flow { grid-template-columns: minmax(0, 1fr); gap: var(--timmy-ui-space-2, 8px); }
+  .create-step { grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-rows: auto; }
+  .create-step-n { grid-row: 1; }
+  .create-step-verb { grid-column: 2; grid-row: 1; }
+  .create-step-state { grid-column: 3; grid-row: 1; }
+  .create-step-do { grid-column: 4; grid-row: 1; }
+}
+/* a phone (D5): three rows a card — the number and the name, the state, the verb; the columns stack; nothing is cut */
 @media (max-width: 720px) {
-  .create-flow { grid-template-columns: minmax(0, 1fr); }
-  .create-step { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; }
-  .create-step-n { grid-row: 1 / span 2; }
-  .create-step-state { white-space: normal; overflow-wrap: anywhere; }
+  .create-step { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto; }
+  .create-step-n { grid-column: 1; grid-row: 1; }
+  .create-step-verb { grid-column: 2; grid-row: 1; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  .create-step-state { grid-column: 2; grid-row: 2; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  .create-step-do { grid-column: 2; grid-row: 3; justify-self: start; }
   .create-cols { grid-template-columns: minmax(0, 1fr); }
   .create-cols .create-left > .box, .create-cols .create-right > .box { max-height: none; }
 }
