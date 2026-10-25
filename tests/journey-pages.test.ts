@@ -777,8 +777,13 @@ describe('every major page on the shell, from the running companion and Studio: 
       await expectScaffold(o.page, 'Models & accounts (unreachable)');
       const local = o.page.locator('[data-provider="ollama-local"]').first();
       await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
-      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered/i.test(s), 20_000);
+      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered|answered at/i.test(s), 20_000);
       const state = await local.getAttribute('data-state');
+      const cardWords0 = (await local.innerText()).replace(/\s+/g, ' ');
+      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local after Check for a user whose address is a closed port'), facts: [`Ollama · local for a user whose providers.json names ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card reads state "${state ?? '(none)'}" and says: ${cardWords0.slice(0, 400)}`, 'This user is a second FAKE user of this run (the first user\'s address is the FAKE Ollama that answers): the card must name THIS user\'s address, never the other user\'s or the companion\'s own.'], full: true });
+      // the host the card names is THIS user's own (user isolation of the provider setting): never another port of 127.0.0.1
+      const hostsNamed = [...cardWords0.matchAll(/127\.0\.0\.1:(\d+)/g)].map((m) => m[1]);
+      expect(hostsNamed.filter((port) => port !== '9'), `the card names only this user's address (127.0.0.1:9), never another port — said: ${hostsNamed.join(', ') || 'none'}`).toEqual([]);
       // the card's state word is this computer's Ollama (H170 on chat-view's readOllamaLocal: "not installed" when no ollama program is on
       // this computer — true in this sandbox —, "installed, stopped" when it is, "unreachable" for a remote address); the refusal is in
       // its words ("nothing answered at 127.0.0.1:9 just now (…ECONNREFUSED…)"); never "checked" or "connected"
@@ -787,7 +792,6 @@ describe('every major page on the shell, from the running companion and Studio: 
       const localWords = await local.innerText();
       expect(localWords, 'the local card says nothing answered at the address').toMatch(/nothing answered|unreachable|refused|could not be reached|not reachable|no answer/i);
       expect(t, 'never "connected" on a refused connection').not.toMatch(/\bconnected\b/i);
-      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local unreachable after Check (a closed port)'), facts: [`Ollama · local for a user whose address is ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card says it in its own words; state "${state ?? '(none)'}" (this computer's install state: no ollama program in this sandbox, so "not installed" is true here; the refusal is in the words); nothing green.`], full: true });
       await clean(o, 'unreachable');
     } finally { await o.close(); }
   });
@@ -937,9 +941,10 @@ const PROBES: Record<string, Probe> = {
       expect([consoleHandles0, consoleHandles1], 'one console handle throughout the turn').toEqual([1, 1]);
       expect(rivFetchesInTurn, 'the .riv not fetched again during the turn').toBe(0);
       expect(h1!.word, 'the console\'s word at the end of the turn').toMatch(/idle|ready/i);
-      expect(Number(h1!.values?.State ?? NaN), 'State 0 (idle) at the end').toBe(0);
+      const stateEnd = await o.page.evaluate((k) => { const R = (window as unknown as { TimmyRive?: { inspect?: () => Array<{ component: string; runtime: { inputs: Array<{ name: string; value: unknown }> } | null }> } }).TimmyRive; const h = (R?.inspect?.() ?? []).find((x) => x.component === k || x.component === 'activity'); return h?.runtime?.inputs.find((i) => i.name === 'State')?.value ?? null; }, consoleKey);
+      expect(Number(stateEnd), 'State 0 (idle) at the end (the runtime\'s own input)').toBe(0);
       const newEvents = h1!.events.length - h0.events.length;
-      facts.push(`SSE → the right instance: the console handle ${h0.id} is the same instance after the REAL turn (${consoleHandles0}→${consoleHandles1} console handle); the .riv fetched ${rivFetchesInTurn} times during the turn; ${newEvents} binding event(s) over the turn (the last: ${h1!.events.slice(-3).map((e) => `${e.word ?? '?'} ← ${(e.source ?? '').slice(0, 40)}`).join(' · ')}); the word "${h1!.word}" (State ${String(h1!.values?.State)}) at the end; "working" seen on the label during the turn: ${sawWorking ? 'yes' : 'no (the FAKE answers within a second)'}.`);
+      facts.push(`SSE → the right instance: the console handle ${h0.id} is the same instance after the REAL turn (${consoleHandles0}→${consoleHandles1} console handle); the .riv fetched ${rivFetchesInTurn} times during the turn; ${newEvents} binding event(s) over the turn (the last: ${h1!.events.slice(-3).map((e) => `${e.word ?? '?'} ← ${(e.source ?? '').slice(0, 40)}`).join(' · ')}); the word "${h1!.word}" (State ${String(stateEnd)}) at the end; "working" seen on the label during the turn: ${sawWorking ? 'yes' : 'no (the FAKE answers within a second)'}.`);
     } else if (consoleKey) facts.push('The console handle could not be read before the turn (TimmyRive.inspect()): the instance identity not asserted (said).');
     await caps.cap(o.page, size, 'chat-content-turn', { line: line('Chat', 'a content turn answered (REAL agent, FAKE model)'), facts: ['A REAL turn through the agent, answered by the FAKE model (one tool call get_current_time, then its fixed answer), its receipt sealed on the USER\'s project chain; the evidence line under the answer.'], reveal: { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last(), what: 'the answered turn' }, full: true });
     facts.push('A content turn: sent, answered by the FAKE model through the REAL agent, its receipt read back.');
@@ -984,7 +989,7 @@ const PROBES: Record<string, Probe> = {
       expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
       expect(await o.page.evaluate(() => document.documentElement.outerHTML), 'the key\'s value reaches no DOM').not.toContain(FAKE_CLOUD_KEY);
       const cloudState = await o.page.locator('[data-provider="ollama-cloud"]').first().getAttribute('data-state');
-      expect(cloudState ?? '', 'a saved key is not "checked"').not.toMatch(/checked|connected/i);
+      expect(cloudState ?? '', 'a saved key is not "checked" (H170: "saved, not checked" until Check the key)').not.toMatch(/^checked$|\bconnected\b/i);
       await caps.cap(o.page, size, 'models-accounts-key-saved-not-checked', { line: line('Models & accounts', 'a FAKE cloud key saved, not checked'), facts: [`Ollama · cloud: a FAKE key pasted and saved (sent once in the request body; its value in no screen and no DOM, asserted); the card's state "${cloudState ?? '(none)'}" — saved is not checked, nothing green.`], full: true });
       facts.push(`A FAKE cloud key saved, not checked: state "${cloudState ?? '(none)'}".`);
       await o.page.getByRole('button', { name: /Forget the key/ }).first().click({ timeout: 5_000 }).catch(() => undefined);
