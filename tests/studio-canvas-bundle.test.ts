@@ -71,7 +71,9 @@ describe('Timmy Canvas loads nothing from another host', () => {
     expect(pkg.scripts['build:canvas']).toBe('node scripts/canvas/build.mjs');
     expect(pkg.scripts.build).toContain('node scripts/canvas/build.mjs');
     // A package carries tldraw, so it must carry tldraw's license: prepack refuses a build without it.
-    expect(pkg.scripts.prepack).toBe('npm run build && node scripts/canvas/build.mjs --check');
+    // R12: and the Timmy app, which bundles tldraw too (companion/timmy-app), is checked the same way
+    expect(pkg.scripts.prepack).toBe('npm run build && node scripts/canvas/build.mjs --check && node scripts/canvas/build-app.mjs --check');
+    expect(pkg.scripts.build).toContain('node scripts/canvas/build-app.mjs');
   });
 });
 

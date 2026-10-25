@@ -44,6 +44,8 @@ export interface AppLaunchDeps {
   keys?: NodeJS.ReadStream | null;
   /** resolves when the launcher should stop (a test's); SIGINT/SIGTERM/q otherwise */
   until?: Promise<void>;
+  /** the app's folder (a test's); appRoot() when absent */
+  root?: string;
 }
 
 export async function runApp(argv: readonly string[], deps: AppLaunchDeps = {}): Promise<number> {
@@ -55,7 +57,7 @@ export async function runApp(argv: readonly string[], deps: AppLaunchDeps = {}):
     if (a === '--port') { i += 1; continue; }
     if (!known.has(a)) { out(`timmy app: unknown argument ${a}\n\n${APP_USAGE}`); return 2; }
   }
-  if (!existsSync(join(appRoot(), 'dist', 'app.js'))) { out(`timmy app: ${APP_NOT_BUILT}`); return 69; }
+  if (!existsSync(join(deps.root ?? appRoot(), 'dist', 'app.js'))) { out(`timmy app: ${APP_NOT_BUILT}`); return 69; }
   const env = deps.env ?? process.env;
   let asked: number;
   const at = argv.indexOf('--port');
