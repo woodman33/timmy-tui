@@ -253,10 +253,10 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.cn-note').textContent()).toContain('Nothing is downloaded until you confirm.');
     // the records are closed until asked; the dock's Records opens them
     expect(await page.locator('.cn-records').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
-    await page.getByRole('button', { name: '▤ Records', exact: true }).click();
+    await page.getByRole('button', { name: 'Records', exact: true }).click();
     expect(await page.locator('.cn-records').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
     expect(await page.locator('.cn-record').count()).toBe(6);
-    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', '← Back', '→ Explore without a model', 'Set up a model', '⇩ Download a model']) {
+    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', 'Back', 'Explore without a model', 'Set up a model', 'Download a model']) {
       await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
     }
     // the picker changes the context, not any connection
@@ -324,8 +324,9 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.page-records .cn-records').count()).toBe(1);
     expect(await page.locator('.page-context .cn-context-card').count()).toBe(1);
     // the steps go where the shell says: Explore → chat; Back → account; the primary (no route ready) selects the recommended card
-    await page.getByRole('button', { name: '→ Explore without a model', exact: true }).click();
-    await page.getByRole('button', { name: '← Back', exact: true }).click();
+    // (D8: the dock's words carry no arrow — the page's one arrow is the shell's primary)
+    await page.getByRole('button', { name: 'Explore without a model', exact: true }).click();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.getByRole('button', { name: 'Set up a model', exact: true }).click();
     expect(await page.evaluate(() => document.activeElement?.getAttribute('data-cn-verb'))).toBe('ollama-cloud');
     expect(await page.evaluate(() => (window as unknown as { __went: string[]; __landed: number }).__went)).toEqual(['chat', 'account']);
@@ -432,7 +433,8 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.cn-card .cn-rive').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); const c = e.closest('.cn-card')!.getBoundingClientRect(); return r.left >= c.left && r.right <= c.right + 0.5; }))).toEqual([true, true, true, true]);
     // R11 round 7, 390×844: the shell's regions in order; the screen's cards in one column, the context's picker scrolls sideways
     // inside its box (the context's sheet and the band's stacking are the shell's, not drawn by this FAKE page)
-    await expect(page.getByRole('button', { name: /^(Set up a model|Continue to the workspace →)$/ }).count()).resolves.toBe(1);
+    // (D8: the registered label carries no arrow; the shell's button draws the one →)
+    await expect(page.getByRole('button', { name: /^(Set up a model|Continue to the workspace)$/ }).count()).resolves.toBe(1);
     const order = await page.locator('#screen-connections > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
     expect(order.every((t, i) => i === 0 || t >= order[i - 1])).toBe(true);
     expect(await page.locator('.cn-picker').evaluate((e) => e.scrollWidth <= e.clientWidth + 1 || getComputedStyle(e).overflowX === 'auto')).toBe(true);
