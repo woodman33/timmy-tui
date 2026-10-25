@@ -416,6 +416,8 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(asked.filter((a) => !a.startsWith('http://127.0.0.1:') && !a.startsWith('https://ollama.com/'))).toEqual([]);
     // the shell shows the screen again (a second draw): the four handles are unmounted first, then four fresh ones fed afresh
     await page.evaluate(() => { const sh = (window as unknown as { TimmyShell: { draws: Record<string, (host: Element, shell: unknown) => void> } }).TimmyShell; sh.draws.connections(document.getElementById('screen-connections')!, sh); });
+    // (the unmounts are synchronous in the redraw; the four fresh mounts come with its asynchronous render — waited for, not assumed)
+    await page.waitForFunction(() => (window as unknown as { __mounts: unknown[] }).__mounts.length >= 8, null, { timeout: 15_000 });
     await page.getByRole('heading', { level: 1, name: 'One model is enough to begin.' }).waitFor();
     await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
     expect(await page.evaluate(() => (window as unknown as { __unmounted: number }).__unmounted)).toBe(4);
@@ -426,16 +428,21 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     // R103 (the lead's D22): the band's Account cell says the TIMMY account's truth — "Signed in · <name>" with the session's name,
     // "Signed in" when the session carries an id but no name (H168's page: the cell read "Not signed in" while signed in), "This
     // computer's operator" with no identity provider configured, "Not signed in" otherwise; the provider accounts are the cards'
+    // (the redraw registers its page asynchronously — refresh() → render() → TimmyShell.page(): the previous draw's head and cards stand
+    // meanwhile, so a read of the last registration right after the redraw could return the PREVIOUS call's band (hold C, 00:13, under
+    // --maxWorkers=2): the read waits for the registrations to grow by this redraw's, then reads that one)
+    const registrations = () => page.evaluate(() => (window as unknown as { __pages: unknown[] }).__pages.length);
     const accountCell = async (user: Record<string, string> | null, token: string, identity: Record<string, unknown> | null) => {
+      const before = await registrations();
       await page.evaluate(([u, t, i]) => {
         const sh = (window as unknown as { TimmyShell: Record<string, any> }).TimmyShell;
         sh.session = { user: () => u, get: () => t };
         if (i) sh.identity = () => i; else delete sh.identity;
         sh.draws.connections(document.getElementById('screen-connections')!, sh);
       }, [user, token, identity] as const);
-      await page.getByRole('heading', { level: 1, name: 'One model is enough to begin.' }).waitFor();
+      await page.waitForFunction((n) => (window as unknown as { __pages: unknown[] }).__pages.length > n, before, { timeout: 15_000 });
       await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
-      return page.evaluate(() => (window as unknown as { __pages: Array<{ reg: { band: Array<{ k: string; v: string }> } }> }).__pages.at(-1)!.reg.band);
+      return page.evaluate((n) => (window as unknown as { __pages: Array<{ reg: { band: Array<{ k: string; v: string }> } }> }).__pages[n]!.reg.band, before);
     };
     expect(await accountCell({ id: 'user_FAKE0000', username: '' }, 'FAKE-session-token', { configured: true })).toEqual([{ k: 'Account', v: 'Signed in' }]); // (no raw id in the band)
     expect(await accountCell({ id: 'user_FAKE0000', username: '', name: 'Alice Example' }, 'FAKE-session-token', { configured: true })).toEqual([{ k: 'Account', v: 'Signed in · Alice Example' }]);
