@@ -314,6 +314,21 @@ async function toGlacier(page: Page): Promise<string> {
 }
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
+/**
+ * THE TRUTH LINE of every drawn production face (H174's 22:28 FOR H172; D18, 9bc54381): read from the runtime's own report — TimmyRive.inspect()
+ * — never guessed from the picture: headline { px, scale, reached } (the word the face draws, scaled to the 13-px floor where its room
+ * allows), words = the EFFECTIVE mode ('spoken': the face carries the word at ≥ 13 px and the HTML status is off the screen; 'beside': the
+ * HTML status is the visible word) with wordsWhy as the sentence, the ask (wordsAsked), the face's size and accessible name, the word.
+ * One line per mounted, drawn face; '' when none is drawn.
+ */
+const faceTruth = (page: Page): Promise<string[]> => page.evaluate(() => {
+  type H = { id: string; component: string; artboard: string | null; state: string; mounted: boolean; shown: string | null; word: string; words: string | null; wordsAsked: string | null; wordsWhy: string | null; faceName: string | null; faceWidth: number | null; faceHeight: number | null; headline: { px: number; scale: number; reached: boolean; floor: number; authored?: number; nodes?: number } | null };
+  const R = (window as unknown as { TimmyRive?: { inspect?: () => H[] } }).TimmyRive;
+  return (R?.inspect?.() ?? []).filter((h) => h.mounted && h.state === 'drawn').map((h) => {
+    const hl = h.headline;
+    return `${h.component} (${h.artboard ?? '?'}, ${h.faceWidth ?? '?'}×${h.faceHeight ?? '?'} px): headline ${hl ? `${hl.px} px (scale ×${hl.scale}, floor ${hl.floor} px, reached ${hl.reached})` : 'not fitted (no headline report)'} · words "${h.words ?? '(none)'}" (asked "${h.wordsAsked ?? '(none)'}") — ${h.wordsWhy ?? 'no wordsWhy'} · the word "${h.shown ?? h.word}" · aria-label "${h.faceName ?? '(none)'}"`;
+  });
+});
 async function until(page: Page, what: string, test: (t: string) => boolean, ms = 20_000): Promise<string> {
   const end = Date.now() + ms;
   let last = '';
@@ -982,7 +997,11 @@ const PROBES: Record<string, Probe> = {
       const newEvents = h1!.events.length - h0.events.length;
       facts.push(`SSE → the right instance: the console handle ${h0.id} is the same instance after the REAL turn (${consoleHandles0}→${consoleHandles1} console handle); the .riv fetched ${rivFetchesInTurn} times during the turn; ${newEvents} binding event(s) over the turn (the last: ${h1!.events.slice(-3).map((e) => `${e.word ?? '?'} ← ${(e.source ?? '').slice(0, 40)}`).join(' · ')}); the word "${h1!.word}" (State ${String(stateEnd)}) at the end; "working" seen on the label during the turn: ${sawWorking ? 'yes' : 'no (the FAKE answers within a second)'}.`);
     } else if (consoleKey) facts.push('The console handle could not be read before the turn (TimmyRive.inspect()): the instance identity not asserted (said).');
-    await caps.cap(o.page, size, 'chat-content-turn', { line: line('Chat', 'a content turn answered (REAL agent, FAKE model)'), facts: ['A REAL turn through the agent, answered by the FAKE model (one tool call get_current_time, then its fixed answer), its receipt sealed on the USER\'s project chain; the evidence line under the answer.'], reveal: { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last(), what: 'the answered turn' }, full: true });
+    // THE TRUTH LINE of the drawn faces (H174's 22:28; D18): the runtime's own report of the headline's size and the effective words mode
+    const facesAfterTurn = await faceTruth(o.page);
+    const truthLines = facesAfterTurn.length ? facesAfterTurn.map((l) => `Drawn face (the runtime's inspect(), not the picture): ${l}.`) : ['No drawn production face on this page at this capture (the words only).'];
+    facts.push(...truthLines);
+    await caps.cap(o.page, size, 'chat-content-turn', { line: line('Chat', 'a content turn answered (REAL agent, FAKE model)'), facts: ['A REAL turn through the agent, answered by the FAKE model (one tool call get_current_time, then its fixed answer), its receipt sealed on the USER\'s project chain; the evidence line under the answer.', ...truthLines], reveal: { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last(), what: 'the answered turn' }, full: true });
     facts.push('A content turn: sent, answered by the FAKE model through the REAL agent, its receipt read back.');
     // a failed turn (H168's §13: the FAKE's error script): the FAKE answers 500 → the turn fails → the page says so with a verb-led way on (its words read)
     await input.fill('FAKE: fail this turn please');
@@ -1036,7 +1055,13 @@ const PROBES: Record<string, Probe> = {
     expect(foundText, 'the context\'s "What the check found" block names the FAKE model').toMatch(/What the check found/);
     const state = await local.getAttribute('data-state');
     expect(state, 'the local card\'s state word after an observed answer').toBe('checked');
-    await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1 — pressed: ${pressedCheck}; the context's "What the check found": "${foundText.slice(0, 200)}"; the card's state "${state ?? '(none)'}" (an observed answer; no model ran)${phone ? '; the context open as a sheet in this picture' : ''}.`], reveal: { to: o.page.locator('[data-cn-found="ollama-local"]').first(), what: 'the context\'s "What the check found"' }, full: true });
+    // THE TRUTH LINE of the drawn faces (H174's 22:28; D18): each card's face from the runtime's inspect() — the headline's px/scale/reached,
+    // the EFFECTIVE words mode ('spoken' at ≥ 13 px, else 'beside' with the HTML word visible) and why — never read off the picture
+    await o.page.waitForTimeout(400); // (the fit runs after the draw and the redraw)
+    const cardFaces = await faceTruth(o.page);
+    const cardTruth = cardFaces.length ? cardFaces.map((l) => `Drawn face (the runtime's inspect(), not the picture): ${l}.`) : ['No drawn production face in the cards at this capture (the words only).'];
+    facts.push(...cardTruth);
+    await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1 — pressed: ${pressedCheck}; the context's "What the check found": "${foundText.slice(0, 200)}"; the card's state "${state ?? '(none)'}" (an observed answer; no model ran)${phone ? '; the context open as a sheet in this picture' : ''}.`, ...cardTruth], reveal: { to: o.page.locator('[data-cn-found="ollama-local"]').first(), what: 'the context\'s "What the check found"' }, full: true });
     facts.push(`Ollama · local after Check (pressed: ${pressedCheck}): ${MODEL} in the context's "What the check found"; state "${state ?? '(no data-state)'}".`, 'The other cards in their unconfigured words — nothing invented, nothing "free".');
     await contextClose();
     // a key saved, not checked (H168's §13; D15): the key field #cn-ollama-cloud-key is drawn in the CONTEXT once the cloud card is selected —
