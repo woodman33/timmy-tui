@@ -3,35 +3,36 @@
 // does not pan, zoom or take a shortcut while the person scrolls a list, presses a button or types).
 import { useEffect, useRef } from 'react';
 
-/** Keeps the board's own gestures out of an element: the wheel scrolls it, the keys reach its controls (native listeners). */
+/**
+ * Keeps the board's wheel out of an element (a native listener: tldraw listens for the wheel on its own container, inside the
+ * page's React root, so only a listener on the element itself stops it before tldraw). The keys and the clipboard are kept with
+ * React's handlers (keepKeys) instead: tldraw hears those on the document, after React's root, and a native stop here would keep
+ * them from React too (the composer's ⌘/Ctrl + Enter never arrived).
+ */
 export function useIsolated() {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
-    const stop = (e) => { e.stopPropagation(); };
     const wheel = (e) => {
-      // the wheel scrolls the body when it can scroll; ⌘/Ctrl + wheel stays the board's zoom
+      // the wheel scrolls the body; ⌘/Ctrl + wheel stays the board's zoom
       if (e.ctrlKey || e.metaKey) return;
       e.stopPropagation();
     };
+    // a key on a button, a link or a list in the body is that control's (Space and Enter press it natively; tldraw would take
+    // Space as its hand tool): stopped here, before tldraw's container hears it. Keys in a text field are left alone (tldraw
+    // takes no shortcut while one is focused, and the composer's own React handler needs them).
+    const key = (e) => { const t = e.target; if (t && t.closest && t.closest('button, a, select, [role="button"]')) e.stopPropagation(); };
     el.addEventListener('wheel', wheel, { passive: true });
-    el.addEventListener('keydown', stop);
-    el.addEventListener('keyup', stop);
-    el.addEventListener('copy', stop);
-    el.addEventListener('paste', stop);
-    el.addEventListener('cut', stop);
-    return () => {
-      el.removeEventListener('wheel', wheel);
-      el.removeEventListener('keydown', stop);
-      el.removeEventListener('keyup', stop);
-      el.removeEventListener('copy', stop);
-      el.removeEventListener('paste', stop);
-      el.removeEventListener('cut', stop);
-    };
+    el.addEventListener('keydown', key);
+    el.addEventListener('keyup', key);
+    return () => { el.removeEventListener('wheel', wheel); el.removeEventListener('keydown', key); el.removeEventListener('keyup', key); };
   }, []);
   return ref;
 }
+
+/** React's handlers that keep the keys and the clipboard of a card's body from the board's shortcuts (on the document). */
+export const keepKeys = { onKeyDown: (e) => e.stopPropagation(), onKeyUp: (e) => e.stopPropagation(), onCopy: (e) => e.stopPropagation(), onCut: (e) => e.stopPropagation(), onPaste: (e) => e.stopPropagation() };
 
 /** React's pointer down, kept out of the board (the card's body is not a drag handle). */
 export const keepPointer = (e) => { e.stopPropagation(); };
@@ -45,9 +46,9 @@ export function Card({ id, kicker, title, face, tools, children, className = '' 
           {kicker ? <p className="ta-kicker">{kicker}</p> : null}
           <h2 className="ta-card-title" id={`ta-card-${id}-title`}>{title}</h2>
         </div>
-        {tools ? <div className="ta-card-tools" onPointerDown={keepPointer}>{tools}</div> : null}
+        {tools ? <div className="ta-card-tools" onPointerDown={keepPointer} {...keepKeys}>{tools}</div> : null}
       </header>
-      <div className="ta-card-body" ref={body} onPointerDown={keepPointer}>
+      <div className="ta-card-body" ref={body} onPointerDown={keepPointer} {...keepKeys}>
         {face ? <div className="ta-card-face">{face}</div> : null}
         {children}
       </div>

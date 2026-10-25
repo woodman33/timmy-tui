@@ -17,7 +17,7 @@ import { buildApp } from '../scripts/canvas/build-app.mjs';
 import { appRoot } from '../src/companion/timmy-app.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { browserPath, launchBrowser } from './helpers/companion-page-kit.js';
-import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+import { startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const ANSWER = 'FAKE app answer: the board streamed the real turn (no model behind it).';
 
@@ -43,7 +43,14 @@ describe.skipIf(!browserPath)('the Timmy app: the board, its cards and its Rive 
         { name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] },
         { name: 'fake-embed:1', capabilities: ['embedding'] },
       ],
-      chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE app answer: ', 'the board streamed ', 'the real turn ', '(no model behind it).']), delayMs: 200 })],
+      chat: [
+        () => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE app answer: ', 'the board streamed ', 'the real turn ', '(no model behind it).']), delayMs: 200 }),
+        // NEEDS YOU: the FAKE model asks for write_project_file, which asks the person; allowed once on the page, it runs
+        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-app.md', content: 'from the FAKE model, allowed once in the app\n' } }]) }),
+        () => ({ chunks: textChunks('fake-qwen3:8b', ['Written', '.']), delayMs: 100 }),
+        // Stop: a turn that never answers
+        () => ({ hang: true }),
+      ],
     });
     const home = process.env.TIMMY_HOME!;
     // the setup names this FAKE's address and no model yet: the page chooses one
@@ -122,6 +129,39 @@ describe.skipIf(!browserPath)('the Timmy app: the board, its cards and its Rive 
     await page.waitForSelector('.ta-card[data-card="receipts"] .ta-table td .ta-verified', { timeout: 30_000 });
     expect(await page.locator('.ta-card[data-card="receipts"] .ta-table tbody tr').first().innerText()).toContain('fake-qwen3:8b');
     expect(await page.locator('.ta-band .ta-cell').nth(2).innerText()).toContain('verified');
+    await page.context().close();
+  }, 180_000);
+
+  it('NEEDS YOU: the tool waits for the person; the Rive ActionButton "Allow once" answers it, the tool runs, the file is written', async () => {
+    const page = await open(1440, 900);
+    await page.click('.ta-step:has-text("Chat")');
+    await page.waitForSelector('.ta-card[data-card="chat"] textarea.ta-input:not([disabled])', { timeout: 30_000 });
+    await page.fill('.ta-card[data-card="chat"] textarea.ta-input', 'Write a note into the project.');
+    await page.keyboard.press('Control+Enter');
+    await page.waitForSelector('.ta-needs[aria-label="NEEDS YOU"]', { timeout: 60_000 });
+    expect(await page.locator('.ta-needs').innerText()).toContain('write_project_file');
+    await page.waitForFunction(() => document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') === 'awaiting', null, { timeout: 30_000 });
+    // the answers are the bindings' own <button>s around the ActionButton faces
+    const allow = page.locator('.ta-needs button[aria-label="Allow once"]');
+    expect(await allow.count()).toBe(1);
+    await allow.click();
+    await page.waitForFunction(() => (document.querySelector('.ta-card[data-card="chat"] .ta-turns')?.textContent ?? '').includes('Written.'), null, { timeout: 60_000 });
+    expect(existsSync(join(process.env.TIMMY_REPO ?? join(box, 'project'), 'notes-app.md')) || existsSync(join(box, 'project', 'notes-app.md'))).toBe(true);
+    await page.context().close();
+  }, 180_000);
+
+  it('Stop: a turn that hangs is stopped from the page; the face says stopped, Send comes back', async () => {
+    const page = await open(1440, 900);
+    await page.click('.ta-step:has-text("Chat")');
+    await page.waitForSelector('.ta-card[data-card="chat"] textarea.ta-input:not([disabled])', { timeout: 30_000 });
+    await page.fill('.ta-card[data-card="chat"] textarea.ta-input', 'This one will be stopped.');
+    await page.click('.ta-card[data-card="chat"] button:has-text("Send")');
+    await page.waitForSelector('.ta-card[data-card="chat"] button:has-text("Stop")', { timeout: 30_000 });
+    await page.waitForFunction(() => document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') === 'working', null, { timeout: 30_000 });
+    await page.click('.ta-card[data-card="chat"] button:has-text("Stop")');
+    await page.waitForFunction(() => ['stopping', 'stopped'].includes(document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') ?? ''), null, { timeout: 30_000 });
+    await page.waitForSelector('.ta-card[data-card="chat"] button:has-text("Send")', { timeout: 60_000 });
+    await page.waitForFunction(() => document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') === 'stopped', null, { timeout: 30_000 });
     await page.context().close();
   }, 180_000);
 
