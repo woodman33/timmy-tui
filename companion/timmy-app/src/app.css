@@ -383,7 +383,7 @@ li.ta-turn.ta-tool { align-self: flex-start; opacity: .85; }
 .ta-page.is-compact { gap: 14px; padding-top: 20px; }
 .ta-page.is-compact .ta-title { font-size: 28px; margin-top: 4px; }
 .ta-page.is-compact .ta-lead { margin-top: 4px; font-size: 13px; max-width: 80ch; }
-.ta-tool.is-icon { padding: 0 10px; }
+.ta-tool.is-icon { position: relative; padding: 0 10px; }
 .ta-tool.is-icon .ta-tool-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ── narrower windows ── */
