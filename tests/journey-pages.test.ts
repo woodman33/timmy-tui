@@ -339,7 +339,14 @@ const activeOf = (page: Page): Promise<string> => page.evaluate(() => { const a 
 
 // ── the scaffold (D4) ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface Scaffold { page: string; kicker: string; title: string; description: string; primary: string; summary: string; regions: Record<string, boolean>; states: string[]; railN: string | null }
+interface Scaffold {
+  page: string; kicker: string; title: string; description: string; primary: string; summary: string; regions: Record<string, boolean>; states: string[]; railN: string | null;
+  /** the band's one action (its text), '' when none */
+  bandAction: string;
+  /** the operator's 19:18 order, item 3 (H171): an ESTABLISHED Chat has a COMPACT head — #ws-chat.cx-compact: kicker + title on one row (the
+   *  kicker's number alone at ≤ 720 px), NO intro, the primary "Continue the conversation"; the turn's state is the box's / the band's */
+  compact: boolean;
+}
 /** The scaffold's selectors alone (strings: what page.evaluate can carry). */
 const SCAFFOLD_SEL = { shown: SHELL.shown, head: SHELL.head, kicker: SHELL.kicker, title: SHELL.title, description: SHELL.description, primary: SHELL.primary, summary: SHELL.summary, work: SHELL.work, context: SHELL.context, dock: SHELL.dock, records: SHELL.records };
 /** What the shown page carries of the scaffold, read in the page (every piece named so a missing one is said by name). */
@@ -357,7 +364,7 @@ const scaffoldOf = (page: Page): Promise<Scaffold> => page.evaluate((S) => {
   const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ id: string; n?: string | number; rail?: boolean }> } }).TimmyShell?.PAGES;
   const entry = Array.isArray(pages) ? pages.find((p) => p.id === pageId) : undefined;
   const railN = entry ? (entry.n === '' || entry.n === undefined || entry.n === null ? '' : String(entry.n).padStart(2, '0')) : null;
-  return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states, railN };
+  return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states, railN, bandAction: t(q(`${S.summary} .band-action`)), compact: Boolean(shown && shown.classList.contains('cx-compact')) };
 }, SCAFFOLD_SEL);
 
 /** The scaffold asserted on the shown page, each missing piece named as H175's contract piece. */
@@ -366,15 +373,26 @@ async function expectScaffold(page: Page, name: string): Promise<Scaffold> {
   const piece = (what: string): string => `${name}: ${what} (H175's SHELL CONTRACT v1 — the page scaffold; adjust SHELL in this test to the posted line if the names differ); the page read: ${JSON.stringify({ page: s.page, kicker: s.kicker, title: s.title, primary: s.primary, regions: s.regions }).slice(0, 600)}`;
   expect(s.page, piece('a shown page (section.page)')).not.toBe('');
   // the kicker: "NN / VERB PHRASE" (the number is the rail's order, §2.3); a page outside the rail carries its name instead of a number
-  // (H173's Settings: "SETTINGS / SET HOW TIMMY RUNS")
-  expect(s.kicker, piece('the kicker "NN / VERB PHRASE" (a page outside the rail: "NAME / VERB PHRASE")')).toMatch(/^(\d{2}|[A-Z][A-Z &]*)\s*\/\s*\S+/);
+  // (H173's Settings: "SETTINGS / SET HOW TIMMY RUNS"). The operator's 19:18 order, item 3 (H171, 2c01a896): an ESTABLISHED Chat's
+  // head is ONE ROW (#ws-chat.cx-compact) — kicker + title at 1440, the kicker's NUMBER alone + the title at ≤ 720 px (the verb phrase
+  // hidden), NO intro by design, the primary "Continue the conversation" (never "Send": Send lives in the composer alone), the band's
+  // action text (never "Send")
+  if (s.compact) expect(s.kicker, piece('the compact Chat head\'s kicker: the number ("01"), with its verb phrase where the width allows')).toMatch(/^\d{2}(\s*\/\s*\S+)?/);
+  else expect(s.kicker, piece('the kicker "NN / VERB PHRASE" (a page outside the rail: "NAME / VERB PHRASE")')).toMatch(/^(\d{2}|[A-Z][A-Z &]*)\s*\/\s*\S+/);
   // the number is the shell's own (TimmyShell.PAGES[].n: the rail's order, v1.1 — Models & accounts 08, VoxVision 06, Control Room 10);
   // a page the shell lists outside the rail (n '') carries no number; a shell without PAGES (null) is not asserted on
-  if (s.railN) expect(s.kicker, piece(`the kicker's number is the rail's order from TimmyShell.PAGES (${s.railN})`)).toMatch(new RegExp(`^${s.railN}\\s*\\/`));
+  if (s.railN) expect(s.kicker, piece(`the kicker's number is the rail's order from TimmyShell.PAGES (${s.railN})`)).toMatch(new RegExp(`^${s.railN}(\\s*\\/|$)`));
   else if (s.railN === '') expect(s.kicker, piece('a page outside the rail carries its name, not a number (TimmyShell.PAGES n = "")')).not.toMatch(/^\d{2}\s*\//);
   expect(s.title.length, piece('the title')).toBeGreaterThan(0);
-  expect(s.description.length, piece('the one-line description')).toBeGreaterThan(0);
+  if (s.compact) expect(s.description, piece('the compact Chat head carries NO intro (item 3: one row — the conversation and the composer in view at once)')).toBe('');
+  else expect(s.description.length, piece('the one-line description')).toBeGreaterThan(0);
   expect(s.primary.length, piece('the PRIMARY NEXT ACTION at the right')).toBeGreaterThan(0);
+  if (s.page === 'chat') {
+    expect(s.primary, piece('the Chat head\'s primary is never "Send" (item 3: Send lives in the composer alone — Continue the conversation / Start a conversation / Retry)')).not.toMatch(/^Send\b/i);
+    expect(s.bandAction, piece('the Chat band\'s action is the next step as text, never "Send"')).not.toMatch(/^Send\b/i);
+    // (the established conversation's usual primary is "Continue the conversation"; a turn under way, a failed one or a route not ready give
+    // their own — Stop / Answer Timmy / Retry / Choose a model — all primaryAction()'s words, none of them Send: read into the facts, not pinned)
+  }
   expect(s.regions.head, piece('the head container')).toBe(true);
   expect(s.regions.summary, piece('the summary band (Workspace / project · Model · Records + the one action)')).toBe(true);
   expect(s.regions.work, piece('the work container')).toBe(true);
@@ -575,7 +593,7 @@ describe('every major page on the shell, from the running companion and Studio: 
           await goTo(o, p.name);
           // the page's picture FIRST (a reviewer needs it whether or not a scaffold piece is missing), then the scaffold asserted
           const read = await scaffoldOf(o.page);
-          const facts = [`${p.name} on the scaffold: kicker "${read.kicker}" · title "${read.title}" · primary next action "${read.primary || '(NONE drawn)'}" · states marked: ${read.states.join(', ') || '(none marked)'}.`, `The summary band: "${read.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}".`];
+          const facts = [`${p.name} on the scaffold: kicker "${read.kicker}" · title "${read.title}" · primary next action "${read.primary || '(NONE drawn)'}" · states marked: ${read.states.join(', ') || '(none marked)'}${read.compact ? ' · the COMPACT one-row head of an established conversation (item 3: no intro by design; the kicker\'s number alone at ≤ 720 px)' : ''}.`, `The summary band: "${read.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}"${read.bandAction ? ` — its action (text): "${read.bandAction}"` : ''}.`];
           await caps.cap(o.page, size, `${slug(p.name)}-page`, { line: line(p.name, 'as reached by the navigation'), facts, full: true });
           await expectScaffold(o.page, p.name);
           await PROBES[p.name]?.(o, size, facts);
@@ -775,23 +793,41 @@ describe('every major page on the shell, from the running companion and Studio: 
       await landed(o.page);
       await goTo(o, 'Models & accounts');
       await expectScaffold(o.page, 'Models & accounts (unreachable)');
+      // D15 (H170; the operator's 19:18 order, item 5): the card carries ONE status line and ONE verb ("Install Ollama ↗" here: nothing is
+      // installed on this computer); "Check" is the CONTEXT's tool for the SELECTED card, and the mechanics — the address asked, what was
+      // observed in full — stand behind the context's Details, never on the card. So: the card pressed (selected), the context's Check
+      // pressed (said), the Details opened, the words read THERE.
       const local = o.page.locator('[data-provider="ollama-local"]').first();
-      await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
-      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered|answered at/i.test(s), 20_000);
+      await local.click();
+      const localVerb = ((await local.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+      const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
+      let pressedCheck: string;
+      if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's verb reads "${localVerb}")`; }
+      else if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+      else throw new Error(`no Check control for Ollama · local: neither the context's tool nor the card's verb (reads "${localVerb}"); the context read: ${((await o.page.locator('[data-cn-context]').first().innerText().catch(() => '')) ?? '').slice(0, 600)}`);
+      const details = o.page.locator('[data-cn-details="ollama-local"]').first();
+      const openDetails = async (): Promise<void> => { if (await details.count()) await details.evaluate((d) => { (d as HTMLDetailsElement).open = true; }).catch(() => undefined); };
+      await openDetails();
+      const contextRead = async (): Promise<string> => ((await o.page.locator('[data-cn-context]').first().innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+      await o.page.waitForFunction(() => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered|answered at/i.test(document.querySelector('[data-cn-context]')?.textContent ?? ''), null, { timeout: 20_000 }).catch(async () => { throw new Error(`the context's Details did not say what the check against the closed port observed within 20 s after ${pressedCheck}; the context read: ${(await contextRead()).slice(0, 800)}`); });
+      await openDetails();
+      const t = await contextRead();
       const state = await local.getAttribute('data-state');
       const cardWords0 = (await local.innerText()).replace(/\s+/g, ' ');
-      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local after Check for a user whose address is a closed port'), facts: [`Ollama · local for a user whose providers.json names ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card reads state "${state ?? '(none)'}" and says: ${cardWords0.slice(0, 400)}`, 'This user is a second FAKE user of this run (the first user\'s address is the FAKE Ollama that answers): the card must name THIS user\'s address, never the other user\'s or the companion\'s own.'], full: true });
-      // the host the card names is THIS user's own (user isolation of the provider setting): never another port of 127.0.0.1
-      const hostsNamed = [...cardWords0.matchAll(/127\.0\.0\.1:(\d+)/g)].map((m) => m[1]);
-      expect(hostsNamed.filter((port) => port !== '9'), `the card names only this user's address (127.0.0.1:9), never another port — said: ${hostsNamed.join(', ') || 'none'}`).toEqual([]);
+      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local after Check for a user whose address is a closed port'), facts: [`Ollama · local for a user whose providers.json names ${UNREACHABLE_OLLAMA} (nothing listens there): pressed ${pressedCheck}; after it the card reads state "${state ?? '(none)'}" with its one status line "${cardWords0.slice(0, 200)}"; the context's Details (opened) say: ${t.slice(0, 500)}`, 'This user is a second FAKE user of this run (the first user\'s address is the FAKE Ollama that answers): the context must name THIS user\'s address, never the other user\'s or the companion\'s own; the card itself names no address (D15: the mechanics behind Details).'], reveal: { to: details, what: 'the context\'s Details with what the check observed' }, full: true });
+      // the host the context names is THIS user's own (user isolation of the provider setting): never another port of 127.0.0.1; the card names none
+      const hostsNamed = [...`${t} ${cardWords0}`.matchAll(/127\.0\.0\.1:(\d+)/g)].map((m) => m[1]);
+      expect(hostsNamed.length, `the context's Details name this user's address (127.0.0.1:9) — read: ${t.slice(0, 300)}`).toBeGreaterThan(0);
+      expect(hostsNamed.filter((port) => port !== '9'), `the context names only this user's address (127.0.0.1:9), never another port — said: ${hostsNamed.join(', ') || 'none'}`).toEqual([]);
       // the card's state word is this computer's Ollama (H170 on chat-view's readOllamaLocal: "not installed" when no ollama program is on
       // this computer — true in this sandbox —, "installed, stopped" when it is, "unreachable" for a remote address); the refusal is in
       // its words ("nothing answered at 127.0.0.1:9 just now (…ECONNREFUSED…)"); never "checked" or "connected"
       expect(state ?? '', 'the card\'s state after a refused connection').toMatch(/unreachable|refused|not set up|failed|not installed|installed, stopped/i);
       expect(state ?? '', 'never "checked" after a refused connection').not.toMatch(/checked|connected/i);
-      const localWords = await local.innerText();
-      expect(localWords, 'the local card says nothing answered at the address').toMatch(/nothing answered|unreachable|refused|could not be reached|not reachable|no answer/i);
-      expect(t, 'never "connected" on a refused connection').not.toMatch(/\bconnected\b/i);
+      // (D15: the card's one status line is the state word + one plain sentence — "Ollama is not installed on this computer." —; that nothing
+      // answered at the address is the context's Details "Observed" row, read in `t`)
+      expect(t, 'the context\'s Details say nothing answered at the address').toMatch(/nothing answered|unreachable|refused|could not be reached|not reachable|no answer/i);
+      expect(`${t} ${cardWords0}`, 'never "connected" on a refused connection').not.toMatch(/\bconnected\b/i);
       await clean(o, 'unreachable');
     } finally { await o.close(); }
   });
@@ -969,31 +1005,68 @@ const PROBES: Record<string, Probe> = {
     expect(t).not.toMatch(/\bfree\b/i);
     const states = async (): Promise<string> => (await Promise.all(PROVIDERS.map(async (id) => `${id}: ${(await o.page.locator(`[data-provider="${id}"]`).first().getAttribute('data-state')) ?? '(none)'}`))).join(' · ');
     await caps.cap(o.page, size, 'models-accounts-first-use', { line: line('Models & accounts', 'first use: the four cards unconfigured'), facts: [`The four provider cards on first use, in their state words: ${await states()}; nothing set up, nothing "free", nothing green.`], full: true });
-    // Check on Ollama · local against the FAKE Ollama: its model listed (the state word "connected" only after an observed answer)
+    // D15 (H170, the operator's 19:18 order, item 5): a card carries ONE status line and ONE verb; every other control, form and fact is
+    // the CONTEXT column's, for the SELECTED card (a press anywhere on the card selects it; on a phone the context is the shell's sheet,
+    // opened from .page-context-btn in the head)
+    const phone = size.width <= 720;
+    const contextOpen = async (): Promise<void> => {
+      if (!phone) return;
+      if (await o.page.locator(SHELL.contextSheet).first().isVisible().catch(() => false)) return;
+      await o.page.locator(SHELL.contextButton).first().click();
+      await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 });
+    };
+    const contextClose = async (): Promise<void> => { if (phone && await o.page.locator(SHELL.contextSheet).first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape'); };
+    const contextText = async (): Promise<string> => ((await o.page.locator('[data-cn-context]').first().innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+    // Check on Ollama · local against the FAKE Ollama: "Check" is the context's tool for the SELECTED card (the local card's own verb reads
+    // "Install Ollama ↗" while nothing is installed on this computer) — the card pressed (selected), the context opened on a phone, then the
+    // context's Check; when the card's own verb already IS the check ("Check again", after an answer) that verb is pressed instead. What was
+    // pressed is said. The FAKE's model then stands in the context's "What the check found"; the card's state word "checked" only after an
+    // observed answer (never "connected" on a refused one).
     const local = o.page.locator('[data-provider="ollama-local"]').first();
-    await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
-    await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000);
+    await local.click();
+    await contextOpen();
+    const localVerb = ((await local.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+    const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
+    let pressedCheck: string;
+    if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
+    else if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}" (the context draws no second Check then)`; }
+    else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the context read: ${(await contextText()).slice(0, 600)}`);
+    await o.page.waitForFunction((m) => (document.querySelector('[data-cn-found="ollama-local"]')?.textContent ?? '').includes(m), MODEL, { timeout: 20_000 }).catch(async () => { throw new Error(`the FAKE Ollama's model "${MODEL}" did not reach the context's "What the check found" within 20 s after ${pressedCheck}; the context read: ${(await contextText()).slice(0, 800)}`); });
+    const foundText = ((await o.page.locator('[data-cn-found="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+    expect(foundText, 'the context\'s "What the check found" block names the FAKE model').toMatch(/What the check found/);
     const state = await local.getAttribute('data-state');
-    await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1: its model ${MODEL} listed; the card's state "${state ?? '(none)'}" (an observed answer; no model ran).`], full: true });
-    facts.push(`Ollama · local after Check: ${MODEL} listed; state "${state ?? '(no data-state)'}".`, 'The other cards in their unconfigured words — nothing invented, nothing "free".');
-    // a key saved, not checked (H168's §13): the FAKE cloud key pasted and saved; the card says saved / not checked; the value in no DOM
-    const keyField = o.page.getByRole('textbox', { name: /Ollama API key/i }).or(o.page.locator('#cn-ollama-cloud-key')).first();
-    if (await keyField.count()) {
-      await keyField.fill(FAKE_CLOUD_KEY);
-      // the form's submit "Save the key" (H170's card: its verb "Save an Ollama key" focuses the field and says the next step; it does not submit)
-      const cloudCard = o.page.locator('[data-provider="ollama-cloud"]').first();
-      const submit = cloudCard.getByRole('button', { name: /^Save the key$/ }).or(o.page.getByRole('button', { name: /^Save the key$/ })).first();
-      if (await submit.count()) await submit.click(); else await keyField.press('Enter');
-      // (the card offers "Check the key" / "Forget the key" only once a key is held: the saved state, not a word that may already be on the page)
-      const savedWords = await until(o.page, 'the key saved, said (Check the key / Forget the key offered)', (s) => /Check the key|Forget the key/.test(s), 15_000);
-      expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
-      expect(await o.page.evaluate(() => document.documentElement.outerHTML), 'the key\'s value reaches no DOM').not.toContain(FAKE_CLOUD_KEY);
-      const cloudState = await o.page.locator('[data-provider="ollama-cloud"]').first().getAttribute('data-state');
-      expect(cloudState ?? '', 'a saved key is not "checked" (H170: "saved, not checked" until Check the key)').not.toMatch(/^checked$|\bconnected\b/i);
-      await caps.cap(o.page, size, 'models-accounts-key-saved-not-checked', { line: line('Models & accounts', 'a FAKE cloud key saved, not checked'), facts: [`Ollama · cloud: a FAKE key pasted and saved (sent once in the request body; its value in no screen and no DOM, asserted); the card's state "${cloudState ?? '(none)'}" — saved is not checked, nothing green.`], full: true });
-      facts.push(`A FAKE cloud key saved, not checked: state "${cloudState ?? '(none)'}".`);
-      await o.page.getByRole('button', { name: /Forget the key/ }).first().click({ timeout: 5_000 }).catch(() => undefined);
-    } else facts.push('No Ollama API key field on this page (said).');
+    expect(state, 'the local card\'s state word after an observed answer').toBe('checked');
+    await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1 — pressed: ${pressedCheck}; the context's "What the check found": "${foundText.slice(0, 200)}"; the card's state "${state ?? '(none)'}" (an observed answer; no model ran)${phone ? '; the context open as a sheet in this picture' : ''}.`], reveal: { to: o.page.locator('[data-cn-found="ollama-local"]').first(), what: 'the context\'s "What the check found"' }, full: true });
+    facts.push(`Ollama · local after Check (pressed: ${pressedCheck}): ${MODEL} in the context's "What the check found"; state "${state ?? '(no data-state)'}".`, 'The other cards in their unconfigured words — nothing invented, nothing "free".');
+    await contextClose();
+    // a key saved, not checked (H168's §13; D15): the key field #cn-ollama-cloud-key is drawn in the CONTEXT once the cloud card is selected —
+    // the card's ONE verb "Save an Ollama key" (no key held) selects it, opens the context (a sheet on the phone) and focuses the field;
+    // another verb (a key already held: "Check the key") → the card itself is pressed and the context opened. What was pressed is said, and
+    // the step is never skipped silently: the field must be there. The FAKE key pasted and saved; the card says saved, not checked; the
+    // value in no screen and no DOM.
+    const cloudCard = o.page.locator('[data-provider="ollama-cloud"]').first();
+    const cloudVerbEl = cloudCard.locator('[data-cn-verb="ollama-cloud"]').first();
+    const cloudVerb = ((await cloudVerbEl.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+    let pressedKey: string;
+    if (/Save an Ollama key|Save a new key/.test(cloudVerb) && (await cloudVerbEl.count())) { await cloudVerbEl.click(); await contextOpen(); pressedKey = `the cloud card's verb "${cloudVerb}" (it selects the card, opens the context and focuses the field)`; }
+    else { await cloudCard.click(); await contextOpen(); pressedKey = `the cloud card itself (its verb reads "${cloudVerb || '(none)'}")`; }
+    const keyField = o.page.locator('#cn-ollama-cloud-key').first();
+    await keyField.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
+    expect(await keyField.count(), `the Ollama API key field (#cn-ollama-cloud-key) in the context once the cloud card is selected — pressed: ${pressedKey}; the context read: ${(await contextText()).slice(0, 600)}`).toBeGreaterThan(0);
+    await keyField.fill(FAKE_CLOUD_KEY);
+    // the form's submit "Save the key" in the context's tools (the verb itself does not submit)
+    const submit = o.page.locator('[data-cn-tools="ollama-cloud"]').getByRole('button', { name: /^Save the key$/ }).or(o.page.getByRole('button', { name: /^Save the key$/ })).first();
+    if (await submit.count()) await submit.click(); else await keyField.press('Enter');
+    // (the context offers "Check the key" / "Forget the key" only once a key is held: the saved state, not a word that may already be on the page)
+    const savedWords = await until(o.page, 'the key saved, said (Check the key / Forget the key offered in the context)', (s) => /Check the key|Forget the key/.test(s), 15_000);
+    expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
+    expect(await o.page.evaluate(() => document.documentElement.outerHTML), 'the key\'s value reaches no DOM').not.toContain(FAKE_CLOUD_KEY);
+    const cloudState = await cloudCard.getAttribute('data-state');
+    expect(cloudState ?? '', 'a saved key is not "checked" (H170: "saved, not checked" until Check the key)').not.toMatch(/^checked$|\bconnected\b/i);
+    await caps.cap(o.page, size, 'models-accounts-key-saved-not-checked', { line: line('Models & accounts', 'a FAKE cloud key saved, not checked'), facts: [`Ollama · cloud: pressed ${pressedKey}; a FAKE key pasted into the context's field and saved (sent once in the request body; its value in no screen and no DOM, asserted); the card's state "${cloudState ?? '(none)'}" — saved is not checked, nothing green${phone ? '; the context open as a sheet in this picture' : ''}.`], full: true });
+    facts.push(`A FAKE cloud key saved, not checked (pressed: ${pressedKey}): state "${cloudState ?? '(none)'}".`);
+    await o.page.locator('[data-cn-tools="ollama-cloud"]').getByRole('button', { name: /Forget the key/ }).or(o.page.getByRole('button', { name: /Forget the key/ })).first().click({ timeout: 5_000 }).catch(() => undefined);
+    await contextClose();
     // a native ProviderCard per card when mounted (H170 on H174's mountProviderCard)
     const faces = await o.page.locator('[data-provider] [data-rive-component]').count();
     facts.push(faces ? `${faces} native ProviderCard face(s) mounted in the cards (drawn: ${await o.page.locator('[data-provider] canvas[data-timmy-rive][data-loaded]').count()}).` : 'No native ProviderCard face mounted in the cards on this head (said).');

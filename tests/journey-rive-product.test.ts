@@ -306,7 +306,7 @@ async function until(page: Page, what: string, test: (t: string) => boolean, ms 
 }
 
 /** What TimmyRive.inspect() reports of one component: state, contract, the runtime's names and live input values, the events with the native input each set. */
-interface Handle { component?: string; id: string; state: string; why?: string; contract: string | null; nativeReduced: boolean; artboard?: string | null; runtime: { artboardNames: string[]; stateMachineNames: string[]; inputs: Array<{ name: string; type: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string; did: string; native: { input: string; value: unknown; note?: string } | null }> }
+interface Handle { component?: string; id: string; state: string; why?: string; contract: string | null; nativeReduced: boolean; artboard?: string | null; runtime: { artboardNames: string[]; stateMachineNames: string[]; inputs: Array<{ name: string; type: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string; did: string; native: { input: string; value: unknown; note?: string } | null; shown?: string }> }
 const handles = (page: Page): Promise<Handle[]> => page.evaluate(() => { const R = (window as unknown as { TimmyRive?: { inspect?: () => Handle[] } }).TimmyRive; return R?.inspect?.() ?? []; });
 const handleOf = async (page: Page, key: string): Promise<Handle | null> => (await handles(page)).find((x) => x.component === key) ?? null;
 const inputValue = async (page: Page, key: string, name: string): Promise<unknown> => (await handleOf(page, key))?.runtime?.inputs.find((i) => i.name === name)?.value ?? null;
@@ -322,12 +322,18 @@ async function inputIs(page: Page, key: string, name: string, value: unknown, ms
   }
 }
 /** The newest event of `input = word` on a component: its native input and value, and its source. */
-async function eventOf(page: Page, key: string, input: string, word: unknown): Promise<{ native: string; source: string; did: string } | null> {
+async function eventOf(page: Page, key: string, input: string, word: unknown): Promise<{ native: string; source: string; did: string; shown?: string } | null> {
   const h = await handleOf(page, key);
   const e = [...(h?.events ?? [])].reverse().find((x) => x.input === input && x.value === word);
-  return e ? { native: e.native ? `${e.native.input} ${JSON.stringify(e.native.value)}` : '(HTML only)', source: e.source, did: e.did } : null;
+  return e ? { native: e.native ? `${e.native.input} ${JSON.stringify(e.native.value)}` : '(HTML only)', source: e.source, did: e.did, ...(typeof e.shown === 'string' ? { shown: e.shown } : {}) } : null;
 }
 const label = (page: Page, key: string): Promise<string> => page.locator(`[data-rive-status="${key}"]`).first().innerText().then((t) => t.trim());
+/**
+ * The word a face's HTML label reads for a connection event (H174's 9b6b2449, item 4): the OBSERVED word H170's screen fed — `shown`
+ * ("checked", "not set up") — when it differs from the binding vocabulary's word (`value`: connected / disconnected / checking / failed),
+ * else the vocabulary word (an older bindings file; or a word the screen passes as it is). The face's headline draws that same word.
+ */
+const labelWordOf = (e: { value: unknown; shown?: string }): string => (typeof e.shown === 'string' && e.shown ? e.shown : String(e.value));
 /**
  * The caption a drawn face carries, read back from the RUNTIME (H174's dafb636d: the text run named by its baked words; a live face
  * says LIVE, the Inspect view's preview says PREVIEW — the operator's rule). "(not readable)" when the runtime has no such read.
@@ -339,9 +345,15 @@ const captionOf = (page: Page, key: string): Promise<string> => page.evaluate((k
   for (const name of ['Caption', 'PREVIEW  /  NOT A LIVE JOB']) { try { const v = h?.rive?.getTextRunValue?.(name); if (typeof v === 'string') return v; } catch { /* the other name */ } }
   return '(not readable)';
 }, key);
-/** the caption a live face carries (v1 "LIVE  /  THE TURN’S EVENTS" with two spaces; v2 "LIVE / THE TURN'S EVENTS"): never PREVIEW */
-const LIVE_TURN = /^LIVE\s*\/\s*THE TURN.S EVENTS$/;
-const LIVE_CONNECTIONS = /^LIVE\s*\/\s*GET \/api\/connections$/;
+/**
+ * The caption a PRODUCTION face carries: "" since H174's 9b6b2449 (the operator's 19:18 order, item 4 — a production face draws the state
+ * word alone; the Title/Tag/Caption runs read "" on every production mount), the LIVE words before it (v1 "LIVE  /  THE TURN’S EVENTS" with
+ * two spaces; v2 "LIVE / THE TURN'S EVENTS") — NEVER PREVIEW (the Inspect view's preview artboards alone say "PREVIEW / NOT A LIVE JOB").
+ */
+const LIVE_TURN = /^(LIVE\s*\/\s*THE TURN.S EVENTS)?$/;
+const LIVE_CONNECTIONS = /^(LIVE\s*\/\s*GET \/api\/connections)?$/;
+/** the caption's reading for a sidecar: "" said as item 4's empty run */
+const captionSaid = (c: string): string => (c === '' ? '"" (empty: item 4 — a production face carries the state word alone)' : `"${c}"`);
 /** The handles per component key, as "key×n" sorted — ONE runtime instance per mounted component is the invariant. */
 async function handleCensus(page: Page): Promise<string[]> {
   const hs = await handles(page);
@@ -463,8 +475,8 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(await label(o.page, key)).toBe('idle');
         expect(await inputValue(o.page, key, 'State'), 'State 0 Idle before any turn').toBe(0);
         const consoleCaption = await captionOf(o.page, key);
-        if (consoleCaption !== '(not readable)') expect(consoleCaption, 'a live face says LIVE (the runtime\'s own text run), never PREVIEW').toMatch(LIVE_TURN);
-        await caps.cap(o.page, size, 'chat-console-idle', ['The AgentConsole in the chat, drawn, idle (State 0); the model chosen for the next turn.', `The face\'s caption, read back from the runtime\'s text run: "${consoleCaption}".`], { to: root, what: 'the console' });
+        if (consoleCaption !== '(not readable)') { expect(consoleCaption, 'a production face never says PREVIEW (the runtime\'s own text run)').not.toMatch(/PREVIEW/); expect(consoleCaption, 'a production face\'s Caption: "" (item 4, H174 9b6b2449: the state word alone) or the LIVE words of the earlier asset').toMatch(LIVE_TURN); }
+        await caps.cap(o.page, size, 'chat-console-idle', ['The AgentConsole in the chat, drawn, idle (State 0); the model chosen for the next turn.', `The face\'s Caption run, read back from the runtime: ${captionSaid(consoleCaption)}; the face draws the state word alone (its headline), the HTML label beside it says the same.`], { to: root, what: 'the console' });
         seen.push('the console drawn, idle (State 0)');
         // ── the focus order: Tab from the textarea reaches Send; no canvas takes the focus ──
         const order = await tabOrder(o.page);
@@ -685,7 +697,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
       }
     });
 
-    it.skipIf(!browserPath)(`${at} CONNECTIONS: a ProviderCard drawn in each card; Check → the fed event "GET /api/connections: ollama-local" with State 1 while it ran, State 0 after with the label connected (no success pose, said); the four states in quick succession (one instance per card, the last word's mapping); ${phone ? '' : 'recorded; '}no page error`, async () => {
+    it.skipIf(!browserPath)(`${at} CONNECTIONS: a ProviderCard drawn in each card; Check (the context's tool for the selected card, D15) → the fed event "GET /api/connections: ollama-local" with State 1 while it ran, State 0 after with the face's observed word (item 4; the binding connected: no success pose, said); the four states in quick succession (one instance per card, the last word's mapping); ${phone ? '' : 'recorded; '}no page error`, async () => {
       const o = await open(size, { record: phone ? undefined : 'recording-connections-1440x900' });
       let connPassed = false;
       const seen: string[] = [];
@@ -702,17 +714,34 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
           expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
         }
         const cardCaptions: string[] = [];
-        for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; const c = await captionOf(o.page, k); cardCaptions.push(`${id}: "${c}"`); if (c !== '(not readable)') expect(c, `${id}'s live face says LIVE, never PREVIEW`).toMatch(LIVE_CONNECTIONS); }
+        for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; const c = await captionOf(o.page, k); cardCaptions.push(`${id}: ${captionSaid(c)}`); if (c !== '(not readable)') { expect(c, `${id}'s production face never says PREVIEW`).not.toMatch(/PREVIEW/); expect(c, `${id}'s production face's Caption: "" (item 4: the state word alone) or the LIVE words of the earlier asset`).toMatch(LIVE_CONNECTIONS); } }
         const cardWords: string[] = [];
         for (const id of PROVIDERS) { const k = (await o.page.locator(SEL.cardComponent(id)).first().getAttribute('data-rive-component'))!; cardWords.push(`${id}: card state "${await o.page.locator(SEL.card(id)).first().getAttribute('data-state')}", the face's word "${await label(o.page, k)}", State ${JSON.stringify(await inputValue(o.page, k, 'State'))}`); }
         await caps.cap(o.page, size, 'connections-cards', ['The connections screen: a ProviderCard drawn in each of the four cards; the cards\' buttons stay HTML buttons.', `Each card as it stands in this picture — ${cardWords.join(' · ')}.`, `The faces\' captions, read back from the runtime\'s text runs: ${cardCaptions.join(' · ')}.`]);
         const local = o.page.locator(SEL.cardComponent('ollama-local')).first();
         const key = (await local.getAttribute('data-rive-component'))!;
-        await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click();
+        // D15 (H170; the operator's 19:18 order, item 5): the card carries ONE verb ("Install Ollama ↗" while nothing is installed here) and
+        // "Check" is the CONTEXT's tool for the SELECTED card: the local card pressed (selected), on a phone the context sheet opened
+        // (.page-context-btn → .page-context.is-open), then the context's Check (or the card's own verb when it already IS the check:
+        // "Check again"); what was pressed is said
+        const localCard = o.page.locator(SEL.card('ollama-local')).first();
+        await localCard.click();
+        if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+        const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+        const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
+        let pressedCheck: string;
+        if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
+        else if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+        else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the page read:\n${(await text(o.page)).slice(0, 1500)}`);
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' });
         await inputIs(o.page, key, 'State', 0, 15_000);
-        expect(await label(o.page, key)).toBe('connected');
-        seen.push('the four cards with their ProviderCards drawn', 'Check on Ollama · local against the FAKE → the card checked, the face connected (State 0)');
+        // item 4 (H174's 9b6b2449): the face's HTML label and headline read the OBSERVED word the screen fed ("checked"); the binding's
+        // vocabulary word for it is "connected" (State 0, no success pose) — the label reads the observed word when the bindings carry it
+        const connectedEvent = await eventOf(o.page, key, 'connection', 'connected');
+        expect(connectedEvent, 'the connection event "connected" (State 0) recorded on the local card\'s face').toBeTruthy();
+        const labelAfter = await label(o.page, key);
+        expect(labelAfter, `the face's label reads the observed word (item 4: "${connectedEvent!.shown ?? '(no shown word on this bindings file: the vocabulary word)'}")`).toBe(labelWordOf({ value: 'connected', shown: connectedEvent!.shown }));
+        seen.push('the four cards with their ProviderCards drawn', `Check on Ollama · local against the FAKE (pressed: ${pressedCheck}) → the card checked, the face's word "${labelAfter}" (the binding connected, State 0)`);
         // (H170 feeds one line per state CHANGE from render(); against the FAKE, Check answers within milliseconds, so a "checking"
         // word is fed only when the screen draws a pending state in between — asserted when it is there, said when it is not)
         const checking = await eventOf(o.page, key, 'connection', 'checking');
@@ -723,7 +752,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         // (the word may reach the card before its file loaded — "kept until the file loads" — and is applied on load: the live State 0 above says it)
         expect(connected!.did).toMatch(/no success pose|kept until the file loads/);
         expect(connected!.source).toMatch(/GET \/api\/connections: ollama-local/);
-        await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check against the FAKE: the card checked, the ProviderCard State 0 with the label "connected" (no success pose is authored, said in the event); the checking event (State 1) recorded from GET /api/connections: ollama-local.'], { to: o.page.locator(SEL.card('ollama-local')).first(), what: 'the local card' });
+        await caps.cap(o.page, size, 'connections-after-check', [`Ollama · local after Check against the FAKE (pressed: ${pressedCheck}): the card checked, the ProviderCard State 0 (the binding "connected": no success pose is authored, said in the event) with the face's word "${labelAfter}" (item 4: the observed word as its headline); the checking event (State 1) recorded from GET /api/connections: ollama-local${phone ? '; the context open as a sheet in this picture' : ''}.`], { to: o.page.locator(SEL.card('ollama-local')).first(), what: 'the local card' });
         // ── RAPID EVENTS (the operator's 07:06 bar): the four cards' states changed in quick succession — every Check the screen
         // offers pressed within a second (the FAKE local Ollama answers in milliseconds; a card without a key offers none), and a
         // burst of backend-shaped words through the REAL feed (TimmyRive.fromProviderState, H170's one line; the test's calls are
@@ -759,7 +788,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
             const [fakeWord] = expected[finalWord[id]];
             const word = String(lastEvent.value);
             expect([fakeWord, expected[(await o.page.locator(SEL.card(id)).first().getAttribute('data-state')) || 'not set up']?.[0] ?? fakeWord], `${id}: the last event is the test's last word (${finalWord[id]} → ${fakeWord}) or the real refresh's`).toContain(word);
-            expect(await label(o.page, keys[id]), `${id}'s HTML word = its LAST event's word`).toBe(word);
+            expect(await label(o.page, keys[id]), `${id}'s HTML word = its LAST event's word (item 4: the observed word it carried — "${lastEvent.shown ?? word}" — else the vocabulary's)`).toBe(labelWordOf(lastEvent));
             await inputIs(o.page, keys[id], 'State', stateOfWord[word], 10_000);
           }
           const censusAfter = await handleCensus(o.page);

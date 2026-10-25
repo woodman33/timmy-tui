@@ -390,7 +390,8 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         // a card ALREADY "checked" when the view opens (the companion kept the observation from an earlier Check) → "connected" at once
         for (const p of ['openrouter', 'ollama-cloud', 'cloudflare']) expect(await label(o.page, `connection-${p}`), `connection-${p}`).toBe('disconnected');
         const localState = await o.page.locator('[data-provider="ollama-local"]').first().getAttribute('data-state');
-        if (localState === 'checked') expect(await labelIs(o.page, 'connection-ollama-local', /^connected$/, 5_000).catch((e: Error) => e.message), 'a card already checked when the Inspect view opens must read connected (H174: the first look() runs before the view\'s handles exist, so a state seen then is never applied to them)').toBe('connected');
+        // (item 4, H174's 9b6b2449: the label reads the OBSERVED word "checked" where the bindings carry it beside the vocabulary's "connected")
+        if (localState === 'checked') expect(['connected', 'checked'], 'a card already checked when the Inspect view opens must read connected / checked (H174: the first look() runs before the view\'s handles exist, so a state seen then is never applied to them)').toContain(await labelIs(o.page, 'connection-ollama-local', /^(connected|checked)$/, 5_000).catch((e: Error) => e.message));
         else expect(await label(o.page, 'connection-ollama-local')).toBe('disconnected');
         // the PREVIEW label on every operational card; the welcome has none (a user trigger); the mark has no preview
         for (const key of ['connection-openrouter', 'connection-ollama-local', 'connection-ollama-cloud', 'connection-cloudflare', 'activity']) {
@@ -424,16 +425,30 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         while (Date.now() < end) { fired = (await events(o.page, 'welcome')).filter((e) => /welcome/.test(e)); if (fired.length) break; await o.page.waitForTimeout(100); }
         expect(fired.length, 'one welcome event from the trusted click').toBeGreaterThan(0);
         expect(fired[0]).toMatch(/click|Enter|Space|trusted/i);
-        // Check on Ollama · local against the FAKE: the card's state becomes "checked" and the binding derives "connected", said so
+        // Check on Ollama · local against the FAKE: the card's state becomes "checked" and the binding derives "connected", said so.
+        // D15 (H170; the operator's 19:18 order, item 5): the card carries ONE verb ("Install Ollama ↗" while nothing is installed here) and
+        // "Check" is the CONTEXT's tool for the SELECTED card — the local card pressed (selected), on a phone the context sheet opened
+        // (.page-context-btn → .page-context.is-open), then the context's Check (or the card's own verb when it already IS the check)
         await closeInspect(o.page);
-        await o.page.getByRole('button', { name: /^Check$/ }).first().click();
+        const localCard = o.page.locator('[data-provider="ollama-local"]').first();
+        await localCard.click();
+        if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+        const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+        const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
+        if (await contextCheck.count()) await contextCheck.first().click();
+        else if (/^Check( again)?$/.test(localVerb)) await localCard.locator('[data-cn-verb="ollama-local"]').first().click();
+        else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}")`);
         // the card's own state first (H170's data-state: "checked" once the FAKE answered its list), then the binding's word
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' }).catch(async () => {
           const st = await o.page.locator('[data-provider="ollama-local"]').first().getAttribute('data-state').catch(() => null);
           throw new Error(`the local card did not become "checked" after Check (H170's card): data-state="${st}"`);
         });
+        if (size.width <= 720 && await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape');
         await openInspect(o.page);
-        expect(await labelIs(o.page, 'connection-ollama-local', /^connected$/)).toBe('connected');
+        // item 4 (H174's 9b6b2449): the label reads the OBSERVED word the screen fed ("checked") where the bindings carry it beside the
+        // vocabulary's "connected" (State 0); an older bindings file reads the vocabulary word — either is the derivation, said which
+        const connLabel = await labelIs(o.page, 'connection-ollama-local', /^(connected|checked)$/);
+        expect(['connected', 'checked']).toContain(connLabel);
         const conn = await events(o.page, 'connection-ollama-local');
         const derived = conn.find((e) => /connection = "connected"/.test(e));
         expect(derived, `the connected event: ${conn.join(' | ')}`).toBeTruthy();
