@@ -127,9 +127,17 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       expect(band[1][1]).toMatch(/fake-qwen3:8b/);
       expect(band[2][1].length, 'the Records cell: the companion\'s own words (H171\'s band() once Chat registers, else the legacy state words)').toBeGreaterThan(3);
       expect(band[2][1]).not.toMatch(/^Reading/);
-      // the live status word: green only while the socket is observed open, with its words
-      expect(await text(page, '#shell-status')).toBe('Companion answering');
+      // the live status word is the SOCKET only (the operator's 19:18 order, item 7): "Companion connected", green only while the
+      // socket is observed open; never a turn's activity — a closed socket says offline, in the muted colour, with no green
+      expect(await text(page, '#shell-status')).toBe('Companion connected');
       expect(await page.$eval('#shell-status', (e) => e.classList.contains('is-live'))).toBe(true);
+      expect(await page.$eval('#shell-status', (e) => getComputedStyle(e).color)).toBe('rgb(40, 254, 20)');
+      expect(await page.$eval('#shell-status', (e) => (e.textContent ?? '').toLowerCase())).not.toMatch(/answer/);
+      await page.evaluate(() => { const st = document.getElementById('status-text')!; const dot = document.querySelector('#status .status-dot') as HTMLElement; st.textContent = 'COMPANION SOCKET · LOST'; dot.classList.remove('is-live'); dot.dataset.state = 'lost'; });
+      await page.waitForFunction(() => document.getElementById('shell-status')?.textContent === 'Companion offline · reconnecting', null, { timeout: 5_000 });
+      expect(await page.$eval('#shell-status', (e) => [e.classList.contains('is-live'), getComputedStyle(e).color])).toEqual([false, 'rgb(189, 202, 218)']);
+      await page.evaluate(() => { const st = document.getElementById('status-text')!; const dot = document.querySelector('#status .status-dot') as HTMLElement; st.textContent = 'COMPANION SOCKET · CONNECTED'; dot.classList.add('is-live'); delete dot.dataset.state; });
+      await page.waitForFunction(() => document.getElementById('shell-status')?.textContent === 'Companion connected', null, { timeout: 5_000 });
       // every page: the scaffold's regions, the kicker numbered in the rail's order, a title and an intro, the dock with the frame's
       // actions inside it (the strip moved there), the records region; by a page id and by a legacy id
       const expectPage = async (goId: string, id: string, legacy: string, el: string, n: string) => {
