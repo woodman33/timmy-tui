@@ -1494,15 +1494,8 @@ body.slate-absent p { max-width: 72ch; }
 #ws-studio .studio-host > .box.sb-box { flex: 1 1 auto; min-height: 0; margin-top: 8px; }
 /* the tab's layout on a wide screen: the board list takes the wide right column, whole height; the Studio state, the canvas's
    revision and jobs, and the tab's actions stack on the left (each box scrolls inside). A narrow screen keeps the page's order. */
-@media (min-width: 861px) {
-  /* (R11 round 7, H176's finding: the grid sits in the scaffold's work region, .page-body > .page-work, not under the section) */
-  #ws-studio > .cols-two, #ws-studio .page-work > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
-  #ws-studio > .cols-two > .col-stack, #ws-studio .page-work > .cols-two > .col-stack { display: contents; }
-  #ws-studio section[aria-labelledby="studio-state-title"] { grid-column: 1; grid-row: 1; max-height: none; }
-  #ws-studio #tab-canvas { grid-column: 1; grid-row: 2; }
-  #ws-studio section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 3; }
-  #ws-studio .studio-host { grid-column: 2; grid-row: 1 / span 3; }
-}
+/* (R11 round 7: the Canvas page's wide layout — the board list in the wide right column, the state / canvas / actions boxes stacked
+   left — lives in H176's panel-studio.css, the one copy, under the scaffold's .page-work) */
 .sb-summary { color: var(--timmy-text); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .sb-summary.tone-failed { color: var(--timmy-failure); }
 .sb-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
@@ -1731,13 +1724,25 @@ body.shell ::selection { background: var(--timmy-ui-raised); color: var(--timmy-
 body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; margin: 0; border: 0; display: block; scrollbar-width: thin; }
 
 /* the records band (D4's progress and evidence): the activity stream, foldable; the companion's own facts under Details */
-.shell-body > .ws-activity { flex-shrink: 0; max-height: 36vh; display: flex; flex-direction: column; min-height: 0; margin: 0; padding: 8px 28px 10px; border: 0; border-top: 1px solid var(--timmy-ui-border-quiet); border-radius: 0; background: var(--timmy-ui-surface); }
+/* folded by default (D4's quiet records; shell.js folds it at boot unless the viewer chose "open" — companion.js foldActivity keeps
+   the choice in localStorage timmy.companion.activity): ONE row — the label, the count, the newest line, Unfold — 56 px at 1440;
+   unfolded, the stream scrolls inside at most 28vh */
+.shell-body > .ws-activity { flex-shrink: 0; max-height: 28vh; display: flex; flex-direction: column; min-height: 0; margin: 0; padding: 8px 28px 10px; border: 0; border-top: 1px solid var(--timmy-ui-border-quiet); border-radius: 0; background: var(--timmy-ui-surface); }
 .shell-body > .ws-activity .activity-head { position: static; display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
 .shell-body > .ws-activity .activity-head > * { background: transparent; padding: 0; }
 .shell-body > .ws-activity .activity-counts { color: var(--timmy-ui-text-muted); }
-.shell-body > .ws-activity .strip-title { font-size: 13px; letter-spacing: var(--timmy-ui-tracking-kicker); text-transform: uppercase; color: var(--timmy-ui-text-muted); font-weight: var(--timmy-ui-weight-medium); }
+.shell-body > .ws-activity .strip-title { font-size: 13px; letter-spacing: var(--timmy-ui-tracking-kicker); text-transform: uppercase; color: var(--timmy-ui-text-muted); font-weight: var(--timmy-ui-weight-medium); white-space: nowrap; }
 .shell-body > .ws-activity .activity-list { min-height: 0; overflow-y: auto; font-family: var(--timmy-ui-font-mono); }
 .shell-body > .ws-activity .btn-action { border-radius: 8px; border-color: var(--timmy-ui-border); color: var(--timmy-ui-text-secondary); }
+.shell-body > .ws-activity.folded { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; column-gap: 14px; min-height: 52px; max-height: 60px; padding: 6px 28px; overflow: hidden; }
+.shell-body > .ws-activity.folded > *, .shell-body > .ws-activity.folded .activity-head > * { min-width: 0; }
+.shell-body > .ws-activity.folded .activity-head { display: contents; }
+.shell-body > .ws-activity.folded .strip-title { order: 1; overflow: hidden; text-overflow: ellipsis; }
+.shell-body > .ws-activity.folded .activity-counts { order: 2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shell-body > .ws-activity.folded .activity-list { order: 3; display: block; max-height: 1.6em; overflow: hidden; white-space: nowrap; }
+.shell-body > .ws-activity.folded .activity-list > li { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* (one line, cut with an ellipsis: the legacy .ev grid would widen the page) */
+.shell-body > .ws-activity.folded .btn-action { order: 4; margin-left: 0; }
+.shell-body > .ws-activity.folded .shell-details { order: 5; grid-column: 1 / -1; display: none; } /* (the companion's facts: under the unfolded band's Details) */
 .shell-details { margin-top: 6px; font-size: 13px; color: var(--timmy-ui-text-secondary); }
 .shell-details > summary { cursor: pointer; color: var(--timmy-ui-text-muted); }
 .shell-details[open] > summary { margin-bottom: 8px; color: var(--timmy-ui-text-secondary); }
@@ -1769,9 +1774,9 @@ body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidd
 .page-head-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; padding-bottom: 2px; }
 .page-primary:empty { display: none; }
 /* the band: Workspace · Model · Records (+ the page's cells) · the primary as a text action */
-.page-band { display: flex; align-items: center; gap: 0; flex-shrink: 0; padding: 14px 22px; border: 1px solid var(--timmy-ui-border-quiet); border-radius: var(--timmy-ui-radius-panel); background: var(--timmy-ui-elev-surface); box-shadow: var(--timmy-ui-shadow-panel); }
+.page-band { display: flex; align-items: center; gap: 0; flex-shrink: 0; padding: 10px 20px; border: 1px solid var(--timmy-ui-border-quiet); border-radius: var(--timmy-ui-radius-panel); background: var(--timmy-ui-elev-surface); box-shadow: var(--timmy-ui-shadow-panel); } /* (one row of cells, ≈ 60 px at 1440) */
 .page-band:empty { display: none; }
-.band-cell { display: flex; flex-direction: column; gap: 3px; flex: 1 1 0; min-width: 0; padding-right: 20px; margin-right: 20px; border-right: 1px solid var(--timmy-ui-border-quiet); }
+.band-cell { display: flex; flex-direction: column; gap: 1px; flex: 1 1 0; min-width: 0; padding-right: 20px; margin-right: 20px; border-right: 1px solid var(--timmy-ui-border-quiet); }
 .band-cell:last-child { border-right: 0; margin-right: 0; padding-right: 0; }
 .band-k { font-size: 13px; color: var(--timmy-ui-text-muted); }
 .band-v { font-size: 14px; font-weight: var(--timmy-ui-weight-medium); color: var(--timmy-ui-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1789,7 +1794,7 @@ body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidd
 .page-state-next { margin-top: 10px; }
 .page-context { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; scrollbar-width: thin; }
 .page-context:empty { display: none; }
-.page-context-btn { display: none; } /* (the phone's opener; a desk shows the column itself) */
+#ws-main .page-head .page-context-btn { display: none; } /* (the phone's opener; a desk — one column or two — shows the column itself) */
 /* the dock: the label, the frame's actions (the strip, moved here), the page's tools, the Stop slot */
 .page-dock { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; flex-shrink: 0; padding: 12px 0 0; border-top: 1px solid var(--timmy-ui-border-quiet); }
 .page-dock[data-empty="true"] { display: none; }
@@ -1799,7 +1804,7 @@ body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidd
 .dock-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 12px; border: 1px solid transparent; border-radius: var(--timmy-ui-radius-control); background: transparent; color: var(--timmy-ui-text-secondary); font-size: 13px; cursor: pointer; }
 .dock-btn:hover { border-color: var(--timmy-ui-border); background: var(--timmy-ui-highlight); color: var(--timmy-ui-text); }
 #ws-main .page-dock .ws-strip { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-#ws-main .page-dock .ws-strip .strip-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#ws-main .page-dock .ws-strip .strip-title { display: none; } /* (the dock's label names the strip; aria-labelledby still reads this heading) */
 #ws-main .page-dock .strip-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 0; list-style: none; }
 #ws-main .page-dock .strip-actions li { margin: 0; }
 #ws-main .page-dock .strip-actions button, #ws-main .page-dock .strip-actions .cmd { border-radius: var(--timmy-ui-radius-control); }
@@ -1873,6 +1878,19 @@ body.shell.rail-open .nav-rail { display: flex; }
 #ws-main .page .box[data-more]::after { background: var(--timmy-ui-surface); bottom: 2px; }
 #ws-main .page .unfinished { background: var(--timmy-ui-surface); border-color: var(--timmy-ui-border); border-radius: var(--timmy-ui-radius-control); }
 
+/* Home (legacy, key 1 / Help & find; the lead's D10): its two columns stack at ≤ 860 (the legacy rule) and nothing of it is wider than
+   the window at 390 or cut at 800 × 600 — every box, image, list and the connections grid shrink with their column */
+#ws-home .cols-home { min-width: 0; }
+#ws-home .cols-home > .col-stack, #ws-home .box, #ws-home .box-body, #ws-home .stage, #ws-home .preview, #ws-home .work-list, #ws-home .conn-grid { min-width: 0; max-width: 100%; }
+#ws-home .stage-img, #ws-home img, #ws-home canvas, #ws-home video { max-width: 100%; height: auto; }
+#ws-home .work-list li, #ws-home .stage, #ws-home .preview, #ws-home .prefs { overflow-wrap: anywhere; }
+@media (max-width: 860px) {
+  #ws-home .cols-home { display: flex; flex-direction: column; gap: 12px; }
+  #ws-home .cols-home > .col-stack { display: contents; }
+  #ws-home .home-left > .box, #ws-home .home-right > .box { flex: none; min-height: 0; max-height: none; }
+  #ws-home .conn-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ---------- 1280 × 720: the context narrower, nothing cut ---------- */
 @media (max-width: 1320px) {
   .page-body { grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; }
@@ -1887,8 +1905,10 @@ body.shell.rail-open .nav-rail { display: flex; }
 
 /* ---------- a phone (D5, ≤ 720 px): the rail a top strip and a sheet; the context a sheet; the dock reachable; nothing cut ---------- */
 @media (max-width: 720px) {
-  html, body { overflow: auto; height: auto; }
-  body.shell { height: auto; min-height: 100vh; }
+  /* the root scrolls (html auto), the body does NOT become a scroll container (overflow visible): position: sticky then engages
+     against the viewport for the dock and the Chat's composer (H171's 16:48 measurement) */
+  html { overflow: auto; height: auto; }
+  body, body.shell { overflow: visible; height: auto; min-height: 100vh; }
   .frame { display: block; height: auto; }
   .nav-rail { position: fixed; top: 0; left: 0; right: 0; z-index: 46; height: 56px; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--timmy-ui-border-quiet); }
   .rail-top { width: 100%; height: 56px; padding: 0 12px 0 16px; }
@@ -1913,25 +1933,51 @@ body.shell.rail-open .nav-rail { display: flex; }
   body.shell #ws-main { overflow: visible; }
   #ws-main .page { padding: 16px 16px 18px; gap: 14px; min-height: 0; }
   #ws-main .page[data-page="chat"] { height: auto; }
-  .page-head { flex-direction: column; align-items: stretch; gap: 14px; }
-  #ws-main .page-title { font-size: 26px; }
-  .page-head-actions { flex-wrap: wrap; }
-  .page-primary, .page-primary .ui-primary { width: 100%; }
-  .page-band { flex-wrap: wrap; gap: 12px 0; padding: 12px 16px; }
-  .band-cell { flex: 1 1 42%; padding-right: 12px; margin-right: 12px; }
-  .band-cell:nth-child(2n) { border-right: 0; margin-right: 0; padding-right: 0; }
-  .band-action { flex-basis: 100%; justify-content: flex-start; padding-left: 0; }
+  /* the head: the context opener on the kicker's row, the intro two lines at most, the primary full width under them (the lead's
+     16:55 decision a: the work starts near 400 px, the composer and the primary in view) */
+  .page-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 12px; }
+  .page-head-words { grid-column: 1; grid-row: 1; }
+  .page-head-actions { display: contents; }
+  #ws-main .page-head .page-context-btn:not([hidden]) { display: inline-flex; grid-column: 2; grid-row: 1; align-self: start; min-height: 34px; padding: 6px 10px; }
+  .page-primary { grid-column: 1 / -1; grid-row: 2; }
+  .page-primary:empty { display: none; }
+  .page-primary .ui-primary { width: 100%; }
+  #ws-main .page-title { font-size: 24px; margin-top: 6px; }
+  .page-intro { margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* the band ONE row: Workspace · Model · Records as a line; the action is the head's */
+  .page-band { flex-wrap: nowrap; gap: 8px; padding: 8px 14px; overflow: hidden; }
+  .band-cell { flex: 0 1 auto; flex-direction: row; align-items: baseline; gap: 5px; padding: 0; margin: 0; border: 0; }
+  .band-cell:first-child { flex-shrink: 0; }
+  .band-cell + .band-cell::before { content: '·'; color: var(--timmy-ui-text-muted); margin-right: 3px; }
+  .band-k { white-space: nowrap; }
+  .band-k::after { content: ':'; }
+  .band-v { min-width: 0; }
+  .band-cell.is-attn { flex-shrink: 0; }
+  .band-action { display: none; }
   .page-body { display: flex; flex-direction: column; gap: 14px; }
-  .page-context { position: fixed; left: 0; right: 0; bottom: 0; z-index: 46; max-height: 82vh; padding: 16px 16px 20px; border-top: 1px solid var(--timmy-ui-border); border-radius: var(--timmy-ui-radius-workspace) var(--timmy-ui-radius-workspace) 0 0; background: var(--timmy-ui-surface); box-shadow: var(--timmy-ui-shadow-raised); transform: translateY(104%); transition: transform var(--timmy-ui-motion-panel) var(--timmy-ui-ease); }
-  .page-context.is-open { transform: none; }
+  /* the context sheet: closed, it is off screen AND hidden (not painted into a full-page capture, nothing of it in the Tab order:
+     H171's 16:48 measurement); the transition moves it, visibility follows it at the end */
+  .page-context { position: fixed; left: 0; right: 0; bottom: 0; z-index: 46; max-height: 82vh; padding: 16px 16px 20px; border-top: 1px solid var(--timmy-ui-border); border-radius: var(--timmy-ui-radius-workspace) var(--timmy-ui-radius-workspace) 0 0; background: var(--timmy-ui-surface); box-shadow: var(--timmy-ui-shadow-raised); transform: translateY(104%); visibility: hidden; pointer-events: none; transition: transform var(--timmy-ui-motion-panel) var(--timmy-ui-ease), visibility 0s linear var(--timmy-ui-motion-panel); }
+  .page-context.is-open { transform: none; visibility: visible; pointer-events: auto; transition: transform var(--timmy-ui-motion-panel) var(--timmy-ui-ease), visibility 0s; }
   .page-context:empty { display: none; }
-  .page-dock { position: sticky; bottom: 0; z-index: 20; padding: 10px 0; background: var(--timmy-ui-canvas); }
-  .shell-body > .ws-activity { max-height: none; padding: 8px 16px 10px; }
+  .page-dock { position: sticky; bottom: 0; z-index: 20; padding: 8px 0; background: var(--timmy-ui-canvas); flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 8px; scrollbar-width: none; }
+  .page-dock > .dock-label { display: none; }
+  #ws-main .page-dock .ws-strip { flex: 0 0 auto; flex-wrap: nowrap; }
+  /* (the legacy narrow-screen rule stacks the strip's actions in a column: in the dock they stay one row, scrolling sideways) */
+  #ws-main .page-dock .strip-actions { flex-direction: row; flex-wrap: nowrap; align-items: center; }
+  #ws-main .page-dock .strip-actions > li, #ws-main .page-dock .strip-actions .act { width: auto; flex: 0 0 auto; }
+  #ws-main .page-dock .strip-actions li, #ws-main .page-dock .strip-actions button { white-space: nowrap; }
+  #ws-main .page-dock .strip-actions .act-why, #ws-main .page-dock .strip-actions li > small, #ws-main .page-dock .strip-actions li > span:not(.act) { display: none; } /* (an action's "not now: …" words stay in its title) */
+  #ws-main .page-dock .strip-note { display: none; }
+  .dock-tools, .dock-stop { flex-wrap: nowrap; flex: 0 0 auto; }
+  .shell-body > .ws-activity { max-height: 40vh; padding: 8px 16px 10px; }
+  .shell-body > .ws-activity.folded { grid-template-columns: auto minmax(0, 1fr) auto; padding: 6px 16px; min-height: 44px; }
+  .shell-body > .ws-activity.folded .activity-counts { display: none; }
   .help { width: calc(100vw - 16px); max-height: 86vh; }
   .help-head, .help-find-label, .help-lists { padding-left: 14px; padding-right: 14px; }
   #ws-main .page-work > .cx { height: auto; min-height: 70vh; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .page-context { transition: none; }
+  .page-context, .page-context.is-open { transition: none; }
   .ui-primary .ui-arrow, .nav-rail .rail-item, .ui-primary { transition: none; }
 }
