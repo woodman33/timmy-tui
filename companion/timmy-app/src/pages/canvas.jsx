@@ -148,12 +148,16 @@ let themes = null;
 function placeFor(editor, w, h) {
   const taken = editor.getCurrentPageShapes().map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
   const inner = { x: DESK.x + 64, y: DESK.y + 64, w: DESK.w - 128, h: DESK.h - 128 };
-  for (let y = inner.y; y + h <= inner.y + inner.h; y += 40) {
-    for (let x = inner.x; x + w <= inner.x + inner.w; x += 40) {
-      if (!taken.some((b) => x < b.x + b.w + 16 && x + w + 16 > b.x && y < b.y + b.h + 16 && y + h + 16 > b.y)) return { x, y };
-    }
+  const free = (x, y) => !taken.some((b) => x < b.x + b.w + 16 && x + w + 16 > b.x && y < b.y + b.h + 16 && y + h + 16 > b.y);
+  for (let y = inner.y; y + h <= inner.y + inner.h; y += 20) {
+    for (let x = inner.x; x + w <= inner.x + inner.w; x += 20) if (free(x, y)) return { x, y };
   }
-  return { x: inner.x + 24, y: inner.y + 24 };
+  // a full desk: the first free place in its margin, else beside the last shape (never on top of a card)
+  for (let y = DESK.y + 8; y + h <= DESK.y + DESK.h - 8; y += 20) {
+    for (let x = DESK.x + 8; x + w <= DESK.x + DESK.w - 8; x += 20) if (free(x, y)) return { x, y };
+  }
+  const last = taken[taken.length - 1];
+  return last ? { x: last.x + 32, y: last.y + 32 } : { x: inner.x, y: inner.y };
 }
 
 export const NODES = Object.freeze([
@@ -187,6 +191,8 @@ export function addNode(editor, node) {
     }
     editor.select(id);
   });
+  // a new note is written at once (tldraw's own text editing; Escape ends it)
+  if (node === 'note') { try { editor.setCurrentTool('select'); editor.setEditingShape(id); } catch { /* selected, not editing */ } }
   return id;
 }
 
@@ -288,7 +294,7 @@ function NodesMenu({ editor }) {
       {open && editor ? (
         <div className="ta-popover" role="menu" aria-label="Add to the desk">
           {NODES.map((n) => (
-            <button key={n.id} type="button" role="menuitem" className="ta-popover-item" data-node={n.id} onClick={() => { setOpen(false); addNode(editor, n.id); editor.setCurrentTool('select'); }}>
+            <button key={n.id} type="button" role="menuitem" className="ta-popover-item" data-node={n.id} onClick={() => { setOpen(false); if (n.id !== 'note') editor.setCurrentTool('select'); addNode(editor, n.id); }}>
               <span className="ta-tool-glyph" aria-hidden="true">{n.glyph}</span>{n.label}
             </button>
           ))}
