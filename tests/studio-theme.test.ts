@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fontDir, startStudioServer } from '../src/studio/server.js';
-import { FONT_FILES, HOMEBREW } from '../src/theme/tokens.js';
+import { FONT_FILES, HOMEBREW, LEGACY_WEB_ALIAS, UI, UI_THEMES } from '../src/theme/tokens.js';
 
 let server: Server | undefined;
 const dirs: string[] = [];
@@ -31,7 +31,12 @@ describe('the shared look on Timmy Canvas\'s server', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^text\/css/);
     const css = await res.text();
-    expect(css).toContain(`--timmy-accent: ${HOMEBREW.accent};`);
+    // D12 (R11 round 7, H175): the B10 web names are aliases of their B11 role — the legacy accent is the family's accent, the exact
+    // amber is the registry's focus; the values are read from the token source, never written here
+    expect(css).toContain(`--timmy-accent: var(--timmy-ui-${LEGACY_WEB_ALIAS.accent});`);
+    expect(css).toContain(`--timmy-ui-accent: ${UI_THEMES.amber.accent};`);
+    expect(css).toContain(`--timmy-ui-focus: ${UI.focus};`);
+    expect(UI.focus).toBe(HOMEBREW.accent); // (the terminal's amber and the registry's focus are the one value)
     expect(css).toContain('font-family: "Monaspace Argon"');
   });
   it.skipIf(!fontDir())('serves each Monaspace Argon face it names, unmodified, and nothing else', async () => {
@@ -60,7 +65,9 @@ describe('the shared look on Timmy Canvas\'s server', () => {
       expect(res.headers.get('content-security-policy')).toContain("font-src 'self'");
       const html = await res.text();
       expect(html).toContain('var(--timmy-font-mono)');
-      expect(html).toContain(`--timmy-ground: ${HOMEBREW.ground};`);
+      // D12: the ground is the registry's canvas through its alias (the value from the token source)
+      expect(html).toContain(`--timmy-ground: var(--timmy-ui-${LEGACY_WEB_ALIAS.ground});`);
+      expect(html).toContain(`--timmy-ui-canvas: ${UI.canvas};`);
     } finally {
       await new Promise<void>((done) => s.close(() => done()));
     }

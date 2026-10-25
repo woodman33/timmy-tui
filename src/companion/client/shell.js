@@ -211,11 +211,14 @@
     // crumb show — R94), then the frame's; never two sources with two spellings
     const named = $('project-name') ? ($('project-name').textContent || '').trim() : '';
     const proj = (named && named !== 'not known yet' ? named : '') || (f && f.project && f.project.name) || '';
+    // a page PINNED on its project says so where the operator looks — in the band, in words (the legacy #project bar's PINNED
+    // mark lives under the records' Details, hidden while the band is folded; companion.js keeps its data-mode current)
+    const pinned = Boolean($('project') && $('project').dataset.mode === 'pinned');
     const route = $('cx-route-words') ? ($('cx-route-words').textContent || '').trim() : '';
     const records = $('cx-state-words') ? ($('cx-state-words').textContent || '').trim() : '';
     // never a label with an empty value (D19): a cell without words is not drawn
     const cells = [
-      { k: 'Workspace', v: own.workspace || proj || 'Reading the project…' },
+      { k: 'Workspace', v: own.workspace || (proj ? `${proj}${pinned ? ' · pinned on this page' : ''}` : 'Reading the project…') },
       { k: 'Model', v: own.model || (route && !/^Asking/.test(route) ? route : 'Not chosen yet') },
       { k: 'Records', v: own.records || records || 'Local records' },
       ...(Array.isArray(r.band) ? r.band : []),
@@ -775,10 +778,14 @@
   function watchLegacy() {
     const status = $('status');
     const name = $('project-name');
+    const bar = $('project');
     try {
       const mo = new MutationObserver(() => { drawStatus(); drawCrumb(pageOf(shown)); });
       if (status) mo.observe(status, { subtree: true, childList: true, characterData: true, attributes: true });
-      if (name) mo.observe(name, { subtree: true, childList: true, characterData: true });
+      // the project's name or mode (following / pinned / fixed) changed: the crumb and the shown page's band follow
+      const onProject = new MutationObserver(() => { const p = pageOf(shown); drawCrumb(p); if (p) drawHead(p); });
+      if (name) onProject.observe(name, { subtree: true, childList: true, characterData: true });
+      if (bar) onProject.observe(bar, { attributes: true, attributeFilter: ['data-mode'] });
     } catch (e) { /* drawn on the next frame instead */ }
     drawStatus();
   }

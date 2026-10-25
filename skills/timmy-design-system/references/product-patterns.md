@@ -27,7 +27,9 @@ div#shell-main.shell-body
 
 `body[data-page]` is the page shown (`data-dest` keeps the legacy tab id). Settings and Account are reached from the account
 block and Help & find, not the rail; Home and Fleet & Clef keep their keys only. The project is named with ONE spelling — the
-rail's card, the crumb and the band's Workspace cell all read the companion's display name (`#project-name`, R94).
+rail's card, the crumb and the band's Workspace cell all read the companion's display name (`#project-name`, R94); a page pinned
+on its project says so in that cell ("<project> · pinned on this page" — the legacy #project bar with its PINNED mark lives under
+the records band's Details, hidden while the band is folded).
 
 ### The landing rule (`TimmyShell.land(why?)`)
 
