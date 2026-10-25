@@ -772,8 +772,9 @@ document.addEventListener('click', (event) => {
   const WF_SECTION = 'ws-workflows';
   const wfShown = () => Boolean(WF.host && document.contains(WF.host) && !WF.host.closest('[hidden]') && !document.hidden);
 
+  /** The route's ONE next action as the head's primary; before the first read there is none of ours (the shell draws the frame's primary action meanwhile). No arrow in a label (D8: the shell draws the one →). */
   function wfPrimary(next) {
-    if (!next) return { label: 'Open Runs & receipts', run: () => goTo('logs') };
+    if (!next) return null;
     if (next.kind === 'open' && next.operation) return { label: 'Open the run under way', run: () => showDetail(next.operation) };
     if (next.kind === 'open') return { label: 'Open Runs & receipts', run: () => goTo('logs') };
     if (next.kind === 'install') return { label: 'Copy: timmy doctor', run: () => copyWords(next.command || 'timmy doctor', null, WF.host && WF.host.querySelector('[data-wf="said"]')) };
@@ -787,7 +788,7 @@ document.addEventListener('click', (event) => {
     page('workflows', {
       kicker: `${kickerN('workflows', '03')} / RUN A WORKFLOW`, title: docs ? 'Run the work the project describes.' : 'Describe the work as a workflow.',
       intro: docs ? 'Each document is Markdown with named blocks; a run starts in the terminal, and its receipt lands in Runs & receipts.' : 'A workflow is a Markdown file with named blocks (```bash [name:build]); the tray-workflow starter makes a project with one.',
-      primary: wfPrimary(a && a.next), context: WF.selected ? 'selection' : null, dock: 'WORKFLOW TOOLS',
+      primary: a ? wfPrimary(a.next) : null, context: WF.selected ? 'selection' : null, dock: 'WORKFLOW TOOLS',
       band: a ? [{ k: 'Workflows', v: `${docs} document${docs === 1 ? '' : 's'} · ${running} running` }] : [],
     });
     if (!a) return;
@@ -994,7 +995,8 @@ document.addEventListener('click', (event) => {
     page('runs', { // the PAGE id (the rail's 'runs'); the panel's tab stays the legacy 'logs'
       kicker: `${kickerN('runs', '04')} / REVIEW WHAT RAN`, title: 'Every run, and its receipt.',
       intro: 'Newest first. A receipt\'s mark turns green only once this companion verified it against the project\'s chain; nothing is assumed.',
-      primary: newest ? { label: 'Open the newest run', run: () => showDetail(newest.operation) } : { label: 'Open Workflows', run: () => goTo('workflows') },
+      // (before the first read there is no primary of ours: the shell draws the frame's primary action meanwhile)
+      primary: !a ? null : newest ? { label: 'Open the newest run', run: () => showDetail(newest.operation) } : { label: 'Open Workflows', run: () => goTo('workflows') },
       context: RL.selected ? 'selection' : null, dock: 'RECORD TOOLS',
       band: a ? [{ k: 'Records', v: `${a.total} run${a.total === 1 ? '' : 's'} · ${a.rows.filter((r) => r.receipt && r.receipt.verified).length} verified` }] : [],
     });

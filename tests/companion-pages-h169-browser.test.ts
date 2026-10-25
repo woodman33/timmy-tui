@@ -86,12 +86,14 @@ const FAKE_SHELL = `(() => {
       window.__meta[id] = meta;
       const sec = section(id); if (!sec) return;
       const head = sec.querySelector('.page-head');
-      const btn = h('button', { type: 'button', class: 'ui-primary', 'data-primary': id, disabled: !!meta.primary.disabled, title: meta.primary.why || null }, meta.primary.label);
-      btn.addEventListener('click', () => meta.primary.run());
+      // (as shell.js: a registration without a primary falls back to the frame's primary action — a FAKE one here)
+      const primary = meta.primary || { label: 'FAKE frame primary action', run() {} };
+      const btn = h('button', { type: 'button', class: 'ui-primary', 'data-primary': id, disabled: !!primary.disabled, title: primary.why || null }, primary.label);
+      btn.addEventListener('click', () => primary.run());
       head.replaceChildren(h('div', null, h('p', { class: 'page-kicker' }, meta.kicker), h('h1', { class: 'page-title', tabindex: '-1' }, meta.title), h('p', { class: 'page-intro' }, meta.intro)), h('div', { class: 'page-primary' }, btn));
       const band = sec.querySelector('.page-band');
       const cells = [['Workspace', 'FAKE-project'], ['Model', 'not chosen'], ['Records', 'Local']].concat((meta.band || []).map((c) => [c.k, c.v]));
-      const act = h('button', { type: 'button', class: 'band-action' }, meta.primary.label); act.addEventListener('click', () => meta.primary.run());
+      const act = h('button', { type: 'button', class: 'band-action' }, primary.label); act.addEventListener('click', () => primary.run());
       band.replaceChildren(...cells.map(([k, v]) => h('div', { class: 'band-cell' }, h('span', { class: 'band-k' }, k), h('strong', { class: 'band-v' }, v))), act);
       const ctx = sec.querySelector('.page-context'); if (ctx) ctx.hidden = !meta.context;
       const dock = sec.querySelector('.page-dock'); if (dock && !dock.querySelector('.dock-label')) dock.prepend(h('span', { class: 'dock-label' }, meta.dock || (id.toUpperCase() + ' TOOLS')), h('span', { class: 'dock-stop' }));
@@ -209,7 +211,7 @@ async function open(width: number, height: number, hash = ''): Promise<Opened> {
   return { context, page, errors, left };
 }
 const show = (page: Page, tab: string, id = pid) => page.evaluate(([t, p]) => (window as unknown as { __show(tab: string, project: string): boolean }).__show(t, p), [tab, id]);
-const meta = (page: Page, id: string) => page.evaluate((i) => { const m = (window as unknown as { __meta: Record<string, { kicker: string; title: string; intro: string; context: string | null; dock: string; band: { k: string; v: string }[]; primary: { label: string } }> }).__meta[i]; return m ? { kicker: m.kicker, title: m.title, context: m.context, dock: m.dock, band: m.band, primary: m.primary.label } : null; }, id);
+const meta = (page: Page, id: string) => page.evaluate((i) => { const m = (window as unknown as { __meta: Record<string, { kicker: string; title: string; intro: string; context: string | null; dock: string; band: { k: string; v: string }[]; primary: { label: string } | null }> }).__meta[i]; return m ? { kicker: m.kicker, title: m.title, context: m.context, dock: m.dock, band: m.band, primary: m.primary ? m.primary.label : null } : null; }, id);
 const lastState = (page: Page, id: string) => page.evaluate((i) => (window as unknown as { __states: { id: string; s: string; words?: string; next?: string }[] }).__states.filter((x) => x.id === i).at(-1), id);
 const text = async (page: Page, selector: string): Promise<string> => ((await page.locator(selector).first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
 const colour = (page: Page, selector: string) => page.locator(selector).first().evaluate((e) => getComputedStyle(e).color);
