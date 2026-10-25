@@ -107,7 +107,9 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       expect(await page.$$eval('[data-timmy-rive-shape] canvas[data-loaded]', (els) => els.length)).toBe(1);
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-source')).toContain('as saved with the board; no backend event has set it on this page');
       // tldraw's selection → selected; its width → expanded
-      await page.evaluate((sid) => (window as unknown as Win).timmyCanvas.editor.select(sid), id);
+      // (block bodies that return a word: editor.select() / selectNone() RETURN the Editor, whose serialization by Playwright ends
+      // the evaluation with "Execution context was destroyed" — H172's round-6 reading of zoomToFit; the same read here on 2e6266ff)
+      await page.evaluate((sid) => { (window as unknown as Win).timmyCanvas.editor.select(sid); return 'ok'; }, id);
       await page.waitForSelector('[data-timmy-rive-shape].is-selected', { timeout: 10_000 });
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected · selected');
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-foot')).toContain('selected');
@@ -115,7 +117,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       await page.waitForSelector('[data-timmy-rive-shape].is-expanded', { timeout: 10_000 });
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-more')).toContain('ProviderCard · TimmyUI: State, Hover, Pressed, ReducedMotion');
       expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('disconnected · selected · expanded');
-      await page.evaluate(() => (window as unknown as Win).timmyCanvas.editor.selectNone());
+      await page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.selectNone(); return 'ok'; });
       await page.waitForSelector('[data-timmy-rive-shape]:not(.is-selected)', { timeout: 10_000 });
       let events = (await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect()))[0].events;
       expect(events.map((e) => [e.input, e.value, e.source.split(' (')[0]])).toEqual([['selected', false, 'tldraw selection'], ['expanded', false, 'tldraw size'], ['selected', true, 'tldraw selection'], ['expanded', true, 'tldraw size'], ['selected', false, 'tldraw selection']]);
