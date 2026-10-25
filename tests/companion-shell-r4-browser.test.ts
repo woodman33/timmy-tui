@@ -95,7 +95,7 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
     return o;
   }
 
-  it('with no identity provider configured the page is this companion\'s own workspace (Chat; the rail says This computer\'s operator and names the dependency); the account screen says what is missing; the connections screen reads as the operator', async () => {
+  it('with no identity provider configured the page is this companion\'s own workspace (Chat; the rail says This computer\'s operator · Sign-in is not set up — the brief, no env name); the account screen says what is missing; the connections screen reads as the operator', async () => {
     const { context, page, errors } = await land(withRoute, { width: 1440, height: 900 });
     try {
       // (the landing rule: nothing to sign into here, so the workspace, as before accounts; configured and not signed in →
@@ -193,9 +193,11 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       expect(await page.getAttribute('#rail-menu .rail-item[data-dest="chat"]', 'aria-current')).toBe('page');
       expect(await page.getAttribute('#rail-menu .rail-item[data-page="connections"]', 'data-dest')).toBe('connections');
       expect(await text(page, '#rail-avatar')).toBe('T');
-      // (the lead's ruling of 21:48: no identity provider → this computer's operator, the dependency named)
+      // (the lead's ruling of 21:48: no identity provider → this computer's operator; R95 (H173's brief, the lead's 18:18): the
+      // block's second line is GET /api/identity's `brief` — plain words, no environment name; the CLERK_* names are the account
+      // page's, behind its blocker)
       expect(await text(page, '#rail-account-name')).toBe('This computer’s operator');
-      expect(await text(page, '#rail-account-sub')).toMatch(/^no identity provider configured \(CLERK_[A-Z_]+(, CLERK_[A-Z_]+)*\)$/);
+      expect(await text(page, '#rail-account-sub')).toBe('Sign-in is not set up');
       expect(await page.isVisible('#rail-signout')).toBe(false);
       // the top line: "<project> / Chat", the state words, Connections
       expect(await text(page, '.cx-crumb')).toBe('fresh / Chat');
@@ -375,7 +377,16 @@ describe.skipIf(!browserPath)('the page shell and the main agent Chat as the pre
       let welcomeAt = 0;
       let shellAt = 0;
       page.on('websocket', (ws) => ws.on('framereceived', (f) => { if (!welcomeAt && /"type":"welcome"/.test(String(f.payload))) welcomeAt = Date.now(); }));
-      await page.route('**/chat-shell.js', async (route) => { await new Promise((r) => setTimeout(r, 1500)); shellAt = Date.now(); await route.continue(); });
+      // (R11 round 7, H171's hold S: the race staged with a fixed 1.5 s hold lost once under three suites' parallel load — the welcome
+      // came 222 ms after the release; so the script is released once the welcome frame WAS seen (plus a small grace), or after 10 s
+      // when none came — then the pin below fails for its real reason, not the timer's)
+      await page.route('**/chat-shell.js', async (route) => {
+        const t0 = Date.now();
+        while (!welcomeAt && Date.now() - t0 < 10_000) await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 150));
+        shellAt = Date.now();
+        await route.continue();
+      });
       await page.goto(`${urlOf(withRoute)}/#t=${tokenOf(withRoute)}`);
       await page.waitForFunction(() => Boolean(document.body.dataset.screen), null, { timeout: 30_000 });
       // no identity provider: the landing rule opens the workspace (a remembered screen counts only when signed in)

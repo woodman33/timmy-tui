@@ -44,6 +44,39 @@ const text = async (page: Page, sel: string): Promise<string> => ((await page.te
  * column put back to their tops first (a focused textarea scrolls itself into view, which hid the fault in the captures) — with the
  * heights that make the page: the head, the band, the console band, the welcome, the dock, the records.
  */
+/** The operator's 19:18 order, item 3: the Chat's chrome on an established conversation — the head's and the band's heights, the
+ *  kicker and the title on one row (the kicker's words as drawn, the title's width and whether it is cut), no intro, the primary at
+ *  the head's right (a desk), the work's top. */
+const chromeOf = (page: Page): Promise<{ compact: boolean; head: number; band: number; oneRow: boolean; kicker: string; kickerWidth: number; titleWidth: number; titleCut: boolean; intro: boolean; primaryRight: boolean | null; primary: string | null; bandAction: string | null; workTop: number; inner: number }> => page.evaluate(() => {
+  const m = document.getElementById('ws-main');
+  if (m) m.scrollTop = 0;
+  window.scrollTo(0, 0);
+  const sec = document.getElementById('ws-chat')!;
+  const R = (el: Element | null) => (el && (el as HTMLElement).getClientRects().length ? el.getBoundingClientRect() : null);
+  const head = R(sec.querySelector(':scope > .page-head'));
+  const band = R(sec.querySelector(':scope > .page-band'));
+  const kickerEl = sec.querySelector(':scope > .page-head .page-kicker') as HTMLElement | null;
+  const kicker = R(kickerEl);
+  const titleEl = sec.querySelector(':scope > .page-head .page-title') as HTMLElement | null;
+  const title = R(titleEl);
+  const intro = sec.querySelector(':scope > .page-head .page-intro');
+  const primary = sec.querySelector(':scope > .page-head .page-primary .ui-primary');
+  const pr = R(primary);
+  const work = R(sec.querySelector(':scope > .page-body'));
+  return {
+    compact: sec.classList.contains('cx-compact'), head: head ? Math.round(head.height) : 0, band: band ? Math.round(band.height) : 0,
+    oneRow: Boolean(kicker && title && Math.abs((kicker.top + kicker.height / 2) - (title.top + title.height / 2)) <= 8),
+    // (innerText: the kicker's hidden spans — the phone's compact head draws its number alone — are not read)
+    kicker: kickerEl ? kickerEl.innerText.replace(/\s+/g, ' ').trim() : '', kickerWidth: kicker ? Math.round(kicker.width) : 0,
+    titleWidth: title ? Math.round(title.width) : 0, titleCut: Boolean(titleEl && titleEl.scrollWidth > titleEl.clientWidth + 1),
+    intro: Boolean(intro && (intro as HTMLElement).getClientRects().length && (intro.textContent ?? '').trim()),
+    primaryRight: pr && head && title ? pr.left >= title.right - 1 && pr.top >= head.top - 1 && pr.bottom <= head.bottom + 1 : null,
+    primary: primary ? (primary.querySelector('span:first-child')?.textContent ?? '').trim() : null,
+    bandAction: (sec.querySelector(':scope > .page-band .band-action')?.textContent ?? '').replace(/\s+/g, ' ').trim() || null,
+    workTop: work ? Math.round(work.top) : 0, inner: window.innerHeight,
+  };
+});
+
 const composerPlace = (page: Page): Promise<{ bottom: number; inner: number; overflow: number; parts: Record<string, number>; folded: boolean | null; face: number | null }> => page.evaluate(() => {
   const m = document.getElementById('ws-main');
   if (m) m.scrollTop = 0;
@@ -252,6 +285,19 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#ws-chat > .page-head .page-title')).toBe('Help me turn this folder into a plan.');
       expect(await page.$eval('#ws-chat > .page-head .page-title', (e) => getComputedStyle(e).textTransform)).toBe('none');
       await page.waitForFunction(() => document.querySelector('#ws-chat > .page-band .band-cell:first-child .band-v')?.textContent?.trim() === 'tray', null, { timeout: 10_000 });
+      // the operator's 19:18 order, item 3: an ESTABLISHED conversation's head is ONE ROW — the kicker and the title on one line,
+      // no intro, the primary at the right — and the band one row (the chrome measured for the handoff)
+      const chrome = await chromeOf(page);
+      console.info(`[ITEM 3] established conversation at 1440 × 900: ${JSON.stringify(chrome)}`);
+      expect(chrome.compact, JSON.stringify(chrome)).toBe(true);
+      expect(chrome.oneRow, `the kicker and the title on one row: ${JSON.stringify(chrome)}`).toBe(true);
+      // (a desk: the whole kicker — number, separator, verb phrase — and the fixture's first message whole, not cut)
+      expect(chrome.kicker).toBe('01 / CONTINUE THE CONVERSATION');
+      expect(chrome.titleCut, `the title whole at 1440: ${JSON.stringify(chrome)}`).toBe(false);
+      expect(chrome.intro, 'no intro').toBe(false);
+      expect(chrome.head, `the head one row: ${JSON.stringify(chrome)}`).toBeLessThanOrEqual(60);
+      expect(chrome.band, `the band one row: ${JSON.stringify(chrome)}`).toBeLessThanOrEqual(44);
+      expect(chrome.primaryRight, `the primary at the right of the head: ${JSON.stringify(chrome)}`).toBe(true);
       // D13 (H168's R77 High; the lead's ruling): at 1440 × 900 the composer is in view with NOTHING scrolled — here the content
       // state; the console band is one row (its face ≤ 48 px) while no turn runs; the heights are in the message for the handoff
       const content = await composerPlace(page);
@@ -259,17 +305,20 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(content.bottom, `CONTENT state at 1440 × 900: ${JSON.stringify(content)}`).toBeLessThanOrEqual(content.inner);
       expect(content.folded, `the band is one row while idle: ${JSON.stringify(content)}`).toBe(true);
       if (content.face !== null) expect(content.face, `the one row's face ≤ 48 px: ${JSON.stringify(content)}`).toBeLessThanOrEqual(48);
-      // R79: with nothing typed the head's primary is the step — to write: it puts the keyboard in the composer, which keeps its own
-      // Send; the band's action is its text twin; "Send" is the head's only while a draft exists
+      // R79 → the operator's 19:18 order, item 3: SEND LIVES ONLY IN THE COMPOSER — the head's primary is the next step ("Continue the
+      // conversation": it puts the keyboard in the composer), the band's action its text twin, neither ever "Send", draft or none
       const primary = () => text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child');
       expect(await primary()).toBe('Continue the conversation');
       expect(await text(page, '#ws-chat > .page-band .band-action')).toContain('Continue the conversation');
       await page.click('#ws-chat > .page-head .page-primary .ui-primary');
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
       await page.keyboard.type('a draft');
-      await page.waitForFunction(() => document.querySelector('#ws-chat > .page-head .page-primary .ui-primary span:first-child')?.textContent?.trim() === 'Send', null, { timeout: 5_000 });
+      await page.waitForTimeout(300);
+      expect(await primary()).toBe('Continue the conversation');
+      const sends = () => page.$$eval('#ws-chat .page-primary button, #ws-chat .band-action, #ws-chat button, #ws-chat [role="button"]', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length && (/^Send\b/.test((e.textContent ?? '').trim()) || /^Send\b/.test(e.getAttribute('aria-label') ?? ''))).map((e) => `${e.id || e.className}:${(e.getAttribute('aria-label') ?? e.textContent ?? '').trim()}`));
+      expect(await sends(), 'ONE Send on the page: the composer\'s').toEqual(['cx-send:Send message']);
       await page.fill('#cx-input', '');
-      await page.waitForFunction(() => document.querySelector('#ws-chat > .page-head .page-primary .ui-primary span:first-child')?.textContent?.trim() === 'Continue the conversation', null, { timeout: 5_000 });
+      expect(await primary()).toBe('Continue the conversation');
       // the route of the next turn
       expect(await text(page, '#cx-route-words')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer');
       // the Models rail: Ollama local first (the route's), its installed model in use and selected
@@ -944,6 +993,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           // "Start with" and the starters)
           expect(await text(page, '#ws-chat .page-head .page-title')).toBe('What would you like to make?');
           expect(await text(page, '#ws-chat .page-head .page-intro')).toBe('Your models, tools and ideas share one workspace.');
+          // (item 3 of the 19:18 order: the first use keeps the FULL head — the compact one-row form is an established conversation's)
+          expect(await page.$eval('#ws-chat', (e) => e.classList.contains('cx-compact'))).toBe(false);
           expect(await text(page, '#cx-empty .cx-welcome-start')).toBe('Start with');
           expect(await page.$$eval('#cx-empty .cx-welcome-title, #cx-empty .cx-welcome-line', (els) => els.length)).toBe(0);
           const starters = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent?.trim()]));
@@ -1002,6 +1053,21 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const sheet = await page.$eval('#ws-chat .page-context', (e) => { const r = e.getBoundingClientRect(); return { open: e.classList.contains('is-open'), position: getComputedStyle(e).position, top: Math.round(r.top), inner: window.innerHeight, holdsModels: Boolean(e.querySelector('#cx-models')) }; });
       expect(sheet).toMatchObject({ open: false, position: 'fixed', holdsModels: true });
       expect(sheet.top, `the closed sheet is off the screen: ${JSON.stringify(sheet)}`).toBeGreaterThanOrEqual(sheet.inner);
+      // the operator's 19:18 order, item 3, on the phone: the established conversation's head is the kicker and the title on one
+      // row (the primary on its own row under them — H175's phone head), no intro; the band one row; the chrome measured
+      await page.waitForFunction(() => document.getElementById('ws-chat')?.classList.contains('cx-compact'), null, { timeout: 10_000 });
+      const chrome390 = await chromeOf(page);
+      console.info(`[ITEM 3] established conversation at 390 × 844: ${JSON.stringify(chrome390)}`);
+      expect(chrome390.oneRow, `the kicker and the title on one row: ${JSON.stringify(chrome390)}`).toBe(true);
+      // (the phone's row is the kicker's NUMBER and the title — the verb phrase would leave the title no room at 390; the title has
+      // at least half the words column, cut with an ellipsis where the message is longer, never hidden)
+      expect(chrome390.kicker).toBe('01');
+      expect(chrome390.titleWidth, `the title's room on the phone: ${JSON.stringify(chrome390)}`).toBeGreaterThanOrEqual(150);
+      expect(chrome390.intro, 'no intro').toBe(false);
+      expect(chrome390.head, `the head: a row of words and the primary's row: ${JSON.stringify(chrome390)}`).toBeLessThanOrEqual(96);
+      expect(chrome390.band, `the band one row: ${JSON.stringify(chrome390)}`).toBeLessThanOrEqual(44);
+      expect(chrome390.primary).toBe('Continue the conversation');
+      await page.evaluate(() => window.scrollTo(0, 0));
       // (the composer reachable on the phone: scrolled to, whole above the sticky dock — the first screen is the shell's head and band)
       await page.$eval('#cx-composer', (f) => f.scrollIntoView({ block: 'center' }));
       expect(await page.evaluate(() => { const r = document.getElementById('cx-composer')!.getBoundingClientRect(); const d = document.querySelector('#ws-chat .page-dock')!.getBoundingClientRect(); return { inView: r.top >= 0 && r.bottom <= window.innerHeight, clearOfDock: r.bottom <= d.top + 1, sticky: getComputedStyle(document.getElementById('cx-composer')!).position }; })).toEqual({ inView: true, clearOfDock: true, sticky: 'sticky' });
@@ -1139,8 +1205,18 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(box.hidden).toBe(false);
       expect(box.words).toMatch(/HTTP 500|FAKE error|llama runner process has terminated/);
       expect(box.next).toBe('Retry');
-      expect(await text(page, '#ws-chat > .page-head .page-title')).toBe('The turn did not finish.');
+      // (item 3 of the 19:18 order: the established head stays the conversation's one row — its title the saved conversation's FIRST
+      // message as drawn (the view is the project's NEWEST session: the one the NEEDS-YOU case began with "write notes"), never the
+      // state's sentence — the state is the box's, the band's Records word and the console's; the head's primary is the way on)
+      const first = await text(page, '#cx-turns > .cx-turn.is-you .cx-text');
+      expect(first, 'the saved conversation\'s first message, the title\'s source').not.toBe('');
+      const title = await text(page, '#ws-chat > .page-head .page-title');
+      expect(title).not.toBe('The turn did not finish.');
+      if (first.length <= 72) expect(title).toBe(first); else expect(title).toMatch(/…$/);
+      expect(await page.$eval('#ws-chat', (e) => e.classList.contains('cx-compact'))).toBe(true);
       expect(await text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child')).toBe('Retry');
+      expect(await text(page, '#ws-chat > .page-band .band-cell:nth-child(3) .band-v')).toMatch(/^failed · /);
+      expect(await text(page, '#cx-console [data-rive-status]')).toBe('failed');
       // the turn below: its mark only (the reason is the box's), the other ways on; no second paint of the words
       expect(await text(page, '#cx-own li.cx-turn.is-failed .cx-meta')).toBe('✕ did not finish');
       expect(await page.$$eval('#cx-own li.cx-turn.is-failed .cx-recover button', (els) => els.map((b) => b.textContent?.trim()))).toEqual(['Change model', 'New conversation']);
