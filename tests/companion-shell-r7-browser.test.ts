@@ -159,12 +159,15 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.waitForSelector('#screen-connections .page-primary .ui-primary', { timeout: 15_000 });
       expect(await page.$eval('#screen-connections .page-work', (e) => e.childElementCount)).toBeGreaterThan(0);
       expect(await page.isVisible('#shell-rail')).toBe(true);
-      // the frame's primary action is the page's default primary next action (the head's button and the band's text action, the same words)
+      // the page's primary next action: the head's button and the band's text action carry the same words (the page's own
+      // registration — H169's Workflows — or, unregistered, the frame's primary action: Fleet & Clef, legacy, has only the frame's)
       await go(page, 'workflows');
       const primary = await text(page, '#ws-workflows .page-primary .ui-primary span:first-child');
       expect(primary.length).toBeGreaterThan(3);
       expect(await text(page, '#ws-workflows .band-action')).toContain(primary);
-      expect(await page.$eval('#ws-workflows .page-dock #ws-actions li[data-primary="true"]', (e) => (e.textContent ?? '').trim())).toContain(primary);
+      await go(page, 'fleet');
+      const framePrimary = await page.$eval('#ws-fleet .page-dock #ws-actions li[data-primary="true"]', (e) => (e.textContent ?? '').replace(/^\d+\.\s*/, '').trim()).catch(() => '');
+      if (framePrimary) expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe(framePrimary);
       // the keys of the old row still switch pages: 0 opens Runs & receipts (logs), 2 Chat
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
       await page.keyboard.press('0');
@@ -198,6 +201,15 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.evaluate(() => (window as unknown as { TimmyShell: { state(id: string, s: string, o?: object): void } }).TimmyShell.state('fleet', 'approval', { words: 'A test approval waits' }));
       expect(await text(page, '#ws-fleet .page-band .band-cell.is-attn')).toContain('Needs you');
       expect(await page.$eval('#ws-fleet .page-band .band-cell.is-attn .band-v', (e) => getComputedStyle(e).color)).toBe('rgb(255, 176, 0)');
+      // D8: the shell draws the ONE arrow; a label registered with a trailing arrow loses it (never "→ →")
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { primary: { label: 'Continue to the workspace →', run: () => undefined } }));
+      expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe('Continue to the workspace');
+      expect(await page.$$eval('#ws-fleet .page-primary .ui-primary, #ws-fleet .band-action', (els) => els.map((e) => ((e.textContent ?? '').match(/[→↗]/g) ?? []).length))).toEqual([1, 1]);
+      // D11: a digit key puts the focus on the page's title (the tab button is hidden), never on the body
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+      await page.keyboard.press('3');
+      await page.waitForFunction(() => document.body.dataset.page === 'workflows', null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.className ?? '')).toContain('page-title');
       // the type: the UI face for the title and the rail, the mono face for a key
       expect(await page.$eval('.page:not([hidden]) .page-title', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
       expect(await page.$eval('#rail-menu .rail-item', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
@@ -302,7 +314,7 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       let s = await shown(page);
       expect(s.scrollW).toBeLessThanOrEqual(s.innerW);
       // the band wraps to two by two; the dock is on the page with the frame's actions
-      expect(await page.$$eval('#ws-workflows .page-band .band-cell', (els) => els.length)).toBe(3);
+      expect(await page.$$eval('#ws-workflows .page-band .band-cell', (els) => els.length)).toBeGreaterThanOrEqual(3); // (the three standard cells; an owner may add its own — H169 does)
       expect(await page.isVisible('#ws-workflows .page-dock #ws-actions')).toBe(true);
       // the context as a sheet: a registered context with something in it shows its opener; open, Escape, the focus back
       await page.evaluate(() => {
@@ -332,7 +344,7 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       expect(dlg.right).toBeLessThanOrEqual(390);
       await page.keyboard.press('Escape');
       // every page at this size: nothing sideways, no small shell text
-      for (const id of ['chat', 'runs', 'connections', 'canvas', 'control', 'files']) {
+      for (const id of ['chat', 'runs', 'connections', 'canvas', 'control', 'files', 'home']) {
         await go(page, id);
         s = await shown(page);
         expect(s.scrollW, `${id}: no horizontal overflow at 390`).toBeLessThanOrEqual(s.innerW);

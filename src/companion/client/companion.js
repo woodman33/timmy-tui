@@ -1456,7 +1456,7 @@ function showWorkspaceTab(id, o = {}) {
     if (on) page = p;
   }
   if (page && was !== id) fade(page, 0, 1, 150, GSAP_POWER2_OUT).catch(() => undefined);
-  if (o.focus) btn.focus();
+  if (o.focus) { const title = page && page.querySelector(':scope > .page-head .page-title'); (title instanceof HTMLElement ? title : btn).focus(); } // (R11 round 7, H175, the lead's D11: the shell's page title takes the focus — the tab button is hidden under the one rail)
   if (workspace.frame) drawActions(workspace.frame, !otherProject(workspace.frame));
   if (id === 'studio') refreshCanvas();
   if (id === 'create') openSlate();
