@@ -262,7 +262,10 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
           return w.lowSettle.n >= 3 ? m : null;
         }, undefined, { timeout: 10_000 })).jsonValue())!;
         heights[`${width}x${height}`] = low.height;
-        expect(low.sideways, `${width}x${height}`).toBeLessThanOrEqual(0);
+        // R111 (H168 pass 2; the lead's D23): the theme switch keeps its two words at this width — never an empty pill
+        const theme = await page.$$eval('#frame-theme button', (bs) => bs.map((b) => ({ word: (b.textContent ?? '').trim(), w: Math.round(b.getBoundingClientRect().width), h: Math.round(b.getBoundingClientRect().height), inside: b.getBoundingClientRect().right <= innerWidth + 0.5 })));
+        expect(theme.map((t) => t.word), `${width}x${height}: the switch's words`).toEqual(['Amber', 'Glacier']);
+        expect(theme.every((t) => t.w >= 40 && t.h >= 16 && t.inside), `${width}x${height}: each word drawn whole on screen`).toBe(true);
         expect(low.first, `${width}x${height}`).toBe(true);
         expect(low.right, `${width}x${height}: the primary whole on screen`).toBeLessThanOrEqual(low.inner);
         expect(Math.abs(low.root - low.strip), `${width}x${height}`).toBeLessThanOrEqual(1);

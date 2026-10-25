@@ -94,3 +94,11 @@
   .create-cols { grid-template-columns: minmax(0, 1fr); }
   .create-cols .create-left > .box, .create-cols .create-right > .box { max-height: none; }
 }
+
+/* R11 round 7 (H176; the lead's D23 on R106): the frame's Unfinished box never sits between the head and the band — the panel hides
+   the companion's box on the scaffold and says its words in the page's records (open: evidence, in the frame's own words) */
+#ws-create > .unfinished[data-create-hidden="d23"] { display: none !important; }
+.page-records .create-rec { font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.page-records .create-rec > summary { cursor: pointer; color: var(--timmy-ui-text, #ECF1F5); }
+.create-rec-line { margin: 2px 0 0; line-height: var(--timmy-ui-leading-body, 1.55); overflow-wrap: anywhere; }
+.create-rec-k { color: var(--timmy-ui-text, #ECF1F5); font-weight: var(--timmy-ui-weight-medium, 500); }
