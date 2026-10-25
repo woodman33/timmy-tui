@@ -67,6 +67,9 @@ function installedWords(): string[] {
     const p = process.env[name]?.trim();
     if (p) { try { out.push(`${label}: ${p.split('/').pop()} · sha256 ${createHash('sha256').update(readFileSync(p)).digest('hex')}`); } catch { out.push(`${label}: ${p.split('/').pop()} (not readable for its sha256)`); } }
   }
+  // an INTERIM package (the lead's, R11 round 7): its own words of what has NOT run on its revision, copied into every sidecar
+  const note = process.env.TIMMY_INSTALLED_NOTE?.trim();
+  if (note) out.push(note);
   return out;
 }
 
@@ -730,6 +733,40 @@ describe('every major page on the shell, from the running companion and Studio: 
     } finally { await o.close(); }
   });
 
+  // ── the owner files and the native asset served (verification 4: from the INSTALLED package when TIMMY_INSTALLED_ROOT is set) ──
+  it('the owner files and the native asset are served: /panel-files.js, /panel-files.css, /panel-settings.js, /panel-settings.css, /rive-bindings.js, /rive-components.css and the listing\'s timmy-ui.riv answer 200 with bytes (a network read, as the page asks them)', async () => {
+    const files = ['/panel-files.js', '/panel-files.css', '/panel-settings.js', '/panel-settings.css', '/rive-bindings.js', '/rive-components.css'];
+    const seen: string[] = [];
+    for (const path of files) {
+      // the client files are served to the page without a token (its <script>/<link> tags carry none): asked the same way
+      const res = await fetch(new URL(path, companion.address));
+      const bytes = Buffer.byteLength(await res.text());
+      seen.push(`${path} → ${res.status}, ${bytes} bytes${res.headers.get('content-type') ? ` (${res.headers.get('content-type')})` : ''}`);
+      expect(res.status, `GET ${path}`).toBe(200);
+      expect(bytes, `GET ${path}: bytes`).toBeGreaterThan(0);
+    }
+    // the native asset at the listing's own path (GET /api/rive/assets as the signed-in user names the file; /assets/rive/<component>/<file>)
+    const listing = await api('GET', '/api/rive/assets');
+    expect(listing.status, 'GET /api/rive/assets with the session').toBe(200);
+    const comps = (listing.json?.components ?? []) as Array<{ component: string; riv: { name: string; bytes: number; sha256: string } | null }>;
+    const ui = comps.find((c) => c.component === 'timmy-ui' && c.riv) ?? comps.find((c) => c.riv);
+    expect(ui, 'a component with a .riv in the listing').toBeTruthy();
+    const rivPath = `/assets/rive/${ui!.component}/${ui!.riv!.name}`;
+    const riv = await fetch(new URL(rivPath, companion.address), { headers: { Authorization: `Bearer ${TOKEN}`, [SESSION_HEADER]: identity.token(USER) } });
+    const rivBytes = Buffer.from(await riv.arrayBuffer());
+    expect(riv.status, `GET ${rivPath}`).toBe(200);
+    expect(rivBytes.length, 'the .riv has bytes').toBeGreaterThan(0);
+    expect(rivBytes.length, 'the served bytes are the listing\'s').toBe(ui!.riv!.bytes);
+    expect(createHash('sha256').update(rivBytes).digest('hex').startsWith(ui!.riv!.sha256.slice(0, 12)), 'the served sha256 starts with the listing\'s 12 hex').toBe(true);
+    seen.push(`${rivPath} → ${riv.status}, ${rivBytes.length} bytes, sha256 ${createHash('sha256').update(rivBytes).digest('hex').slice(0, 12)}… (the listing: ${ui!.riv!.bytes} bytes, ${ui!.riv!.sha256.slice(0, 12)})`);
+    console.log(`served from ${INSTALLED ? `THE INSTALLED PACKAGE (${INSTALLED})` : 'this checkout'}:\n  ${seen.join('\n  ')}`);
+    // said in a sidecar beside the captures (no picture: a network read)
+    try {
+      const dir = process.env.TIMMY_JOURNEY_CAPS?.trim();
+      if (dir) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'served-owner-files-and-native-asset.txt'), [`VERIFICATION 4 · the owner files and the native asset served by the companion (${INSTALLED ? 'THE INSTALLED PACKAGE' : 'this checkout'}) · head ${revisionOf()} · ${new Date().toISOString()}`, ...installedWords(), ...seen, ''].join('\n')); }
+    } catch { /* the log carries it */ }
+  });
+
   // ── Models & accounts: unreachable (a second FAKE user whose Ollama address is a closed port) ────────────────────────────────
   it.skipIf(!browserPath)('1440x900 Models & accounts, unreachable: a user whose Ollama address is a closed port on 127.0.0.1 → Check says so in the card\'s own words; never "connected"', async () => {
     const size = { width: 1440, height: 900 };
@@ -740,8 +777,13 @@ describe('every major page on the shell, from the running companion and Studio: 
       await expectScaffold(o.page, 'Models & accounts (unreachable)');
       const local = o.page.locator('[data-provider="ollama-local"]').first();
       await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
-      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered/i.test(s), 20_000);
+      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered|answered at/i.test(s), 20_000);
       const state = await local.getAttribute('data-state');
+      const cardWords0 = (await local.innerText()).replace(/\s+/g, ' ');
+      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local after Check for a user whose address is a closed port'), facts: [`Ollama · local for a user whose providers.json names ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card reads state "${state ?? '(none)'}" and says: ${cardWords0.slice(0, 400)}`, 'This user is a second FAKE user of this run (the first user\'s address is the FAKE Ollama that answers): the card must name THIS user\'s address, never the other user\'s or the companion\'s own.'], full: true });
+      // the host the card names is THIS user's own (user isolation of the provider setting): never another port of 127.0.0.1
+      const hostsNamed = [...cardWords0.matchAll(/127\.0\.0\.1:(\d+)/g)].map((m) => m[1]);
+      expect(hostsNamed.filter((port) => port !== '9'), `the card names only this user's address (127.0.0.1:9), never another port — said: ${hostsNamed.join(', ') || 'none'}`).toEqual([]);
       // the card's state word is this computer's Ollama (H170 on chat-view's readOllamaLocal: "not installed" when no ollama program is on
       // this computer — true in this sandbox —, "installed, stopped" when it is, "unreachable" for a remote address); the refusal is in
       // its words ("nothing answered at 127.0.0.1:9 just now (…ECONNREFUSED…)"); never "checked" or "connected"
@@ -750,7 +792,6 @@ describe('every major page on the shell, from the running companion and Studio: 
       const localWords = await local.innerText();
       expect(localWords, 'the local card says nothing answered at the address').toMatch(/nothing answered|unreachable|refused|could not be reached|not reachable|no answer/i);
       expect(t, 'never "connected" on a refused connection').not.toMatch(/\bconnected\b/i);
-      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local unreachable after Check (a closed port)'), facts: [`Ollama · local for a user whose address is ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card says it in its own words; state "${state ?? '(none)'}" (this computer's install state: no ollama program in this sandbox, so "not installed" is true here; the refusal is in the words); nothing green.`], full: true });
       await clean(o, 'unreachable');
     } finally { await o.close(); }
   });
@@ -846,12 +887,65 @@ const PROBES: Record<string, Probe> = {
       const drawn = await o.page.locator(`canvas[data-timmy-rive="${consoleKey}"][data-loaded]`).first().waitFor({ state: 'attached', timeout: 20_000 }).then(() => true, () => false);
       facts.push(`The native AgentConsole in the chat: ${drawn ? 'drawn by the runtime (canvas[data-loaded])' : 'mounted but not drawn within 20 s (said)'}; its label [data-rive-status] aria-live="${await o.page.locator(`[data-rive-status="${consoleKey}"]`).first().getAttribute('aria-live').catch(() => null)}".`);
     } else facts.push('No native console mounted on this page (H171 / H174): the words only.');
+    // READINESS PRECEDES SEND (the operator's 17:53 order, verification 2): with a draft in the composer, Send stays disabled while no
+    // route is ready (the composer's own reason "No model chosen: choose one in Models"); once a model is chosen, Send is enabled.
+    // (The USER's one project keeps the route chosen by an earlier case of this run: then the ready state is what is read, and said.)
+    const sendBtn = o.page.locator('#cx-send').first();
+    const sendWhy = async (): Promise<string> => ((await o.page.locator('#cx-send-why').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+    if (await sendBtn.count()) {
+      await composer.fill('FAKE: readiness read');
+      await o.page.waitForTimeout(300);
+      const why0 = await sendWhy();
+      const disabled0 = await sendBtn.isDisabled();
+      if (/No model chosen|route|Send is off/i.test(why0) || disabled0) {
+        expect(disabled0, `Send disabled while no route is ready (the reason: "${why0}")`).toBe(true);
+        facts.push(`Readiness before Send: with a draft, Send disabled while no model is chosen ("${why0}").`);
+      } else facts.push(`Readiness before Send: the route was ready already at this case's start (chosen by an earlier case of this run on the USER's one project): Send enabled with a draft ("${why0 || 'no reason shown'}").`);
+      await composer.fill('');
+    } else facts.push('No #cx-send on this page (the composer\'s Send not read).');
     // a content turn: the FAKE model chosen, a REAL turn through the agent (one tool call, then the FAKE's answer)
     const input = await chooseModel(o);
+    if (await sendBtn.count()) {
+      await input.fill('FAKE: readiness read');
+      await o.page.waitForTimeout(300);
+      expect(await sendBtn.isDisabled(), `Send enabled once a model is chosen (the reason shown: "${await sendWhy()}")`).toBe(false);
+      facts.push('After the model was chosen: Send enabled with a draft.');
+    }
+    // SSE → THE RIGHT INSTANCE, NO REDRAW STORM (verification 5): the console's handle before and after the REAL turn is the same
+    // instance (TimmyRive.inspect() id), one handle for the console, the .riv not fetched again during the turn, the binding events
+    // bounded by the turn's own events, the end state idle / State 0 (the words following the events)
+    type Handle = { id: string; component: string; events: Array<{ word?: string; source?: string }>; restored: number; word: string; values: Record<string, unknown> };
+    const consoleHandle = (): Promise<Handle | null> => o.page.evaluate((k) => {
+      const R = (window as unknown as { TimmyRive?: { inspect?: () => Handle[] } }).TimmyRive;
+      type Handle = { id: string; component: string; events: Array<{ word?: string; source?: string }>; restored: number; word: string; values: Record<string, unknown> };
+      const all = R?.inspect?.() ?? [];
+      const mine = all.filter((h) => h.component === k || h.component === 'activity');
+      return mine.length ? { ...mine[0], events: mine[0].events.slice(-20) } : null;
+    }, consoleKey || 'activity').catch(() => null);
+    const h0 = consoleKey ? await consoleHandle() : null;
+    const consoleHandles0 = consoleKey ? await o.page.evaluate((k) => ((window as unknown as { TimmyRive?: { inspect?: () => Array<{ component: string }> } }).TimmyRive?.inspect?.() ?? []).filter((h) => h.component === k || h.component === 'activity').length, consoleKey) : 0;
+    let rivFetchesInTurn = 0;
+    const onReq = (r: { url(): string }): void => { if (/\.riv(\?|$)/.test(r.url())) rivFetchesInTurn += 1; };
+    o.page.on('request', onReq);
     await input.fill('FAKE: what time is it?');
     await o.page.getByRole('button', { name: /^Send/ }).first().click();
+    const sawWorking = consoleKey ? await o.page.waitForFunction((k) => /working/i.test(document.querySelector(`[data-rive-status="${k}"]`)?.textContent ?? ''), consoleKey, { timeout: 5_000 }).then(() => true, () => false) : false;
     await o.page.waitForFunction((a) => document.body.innerText.includes(a), FAKE_ANSWER, { timeout: 60_000 });
     await o.page.waitForTimeout(800); // (the receipt read back)
+    o.page.off('request', onReq);
+    if (consoleKey && h0) {
+      const h1 = await consoleHandle();
+      const consoleHandles1 = await o.page.evaluate((k) => ((window as unknown as { TimmyRive?: { inspect?: () => Array<{ component: string }> } }).TimmyRive?.inspect?.() ?? []).filter((h) => h.component === k || h.component === 'activity').length, consoleKey);
+      expect(h1, 'the console handle after the turn').not.toBeNull();
+      expect(h1!.id, 'the same console instance before and after the REAL turn (TimmyRive.inspect() id)').toBe(h0.id);
+      expect([consoleHandles0, consoleHandles1], 'one console handle throughout the turn').toEqual([1, 1]);
+      expect(rivFetchesInTurn, 'the .riv not fetched again during the turn').toBe(0);
+      expect(h1!.word, 'the console\'s word at the end of the turn').toMatch(/idle|ready/i);
+      const stateEnd = await o.page.evaluate((k) => { const R = (window as unknown as { TimmyRive?: { inspect?: () => Array<{ component: string; runtime: { inputs: Array<{ name: string; value: unknown }> } | null }> } }).TimmyRive; const h = (R?.inspect?.() ?? []).find((x) => x.component === k || x.component === 'activity'); return h?.runtime?.inputs.find((i) => i.name === 'State')?.value ?? null; }, consoleKey);
+      expect(Number(stateEnd), 'State 0 (idle) at the end (the runtime\'s own input)').toBe(0);
+      const newEvents = h1!.events.length - h0.events.length;
+      facts.push(`SSE → the right instance: the console handle ${h0.id} is the same instance after the REAL turn (${consoleHandles0}→${consoleHandles1} console handle); the .riv fetched ${rivFetchesInTurn} times during the turn; ${newEvents} binding event(s) over the turn (the last: ${h1!.events.slice(-3).map((e) => `${e.word ?? '?'} ← ${(e.source ?? '').slice(0, 40)}`).join(' · ')}); the word "${h1!.word}" (State ${String(stateEnd)}) at the end; "working" seen on the label during the turn: ${sawWorking ? 'yes' : 'no (the FAKE answers within a second)'}.`);
+    } else if (consoleKey) facts.push('The console handle could not be read before the turn (TimmyRive.inspect()): the instance identity not asserted (said).');
     await caps.cap(o.page, size, 'chat-content-turn', { line: line('Chat', 'a content turn answered (REAL agent, FAKE model)'), facts: ['A REAL turn through the agent, answered by the FAKE model (one tool call get_current_time, then its fixed answer), its receipt sealed on the USER\'s project chain; the evidence line under the answer.'], reveal: { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last(), what: 'the answered turn' }, full: true });
     facts.push('A content turn: sent, answered by the FAKE model through the REAL agent, its receipt read back.');
     // a failed turn (H168's §13: the FAKE's error script): the FAKE answers 500 → the turn fails → the page says so with a verb-led way on (its words read)
@@ -895,7 +989,7 @@ const PROBES: Record<string, Probe> = {
       expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
       expect(await o.page.evaluate(() => document.documentElement.outerHTML), 'the key\'s value reaches no DOM').not.toContain(FAKE_CLOUD_KEY);
       const cloudState = await o.page.locator('[data-provider="ollama-cloud"]').first().getAttribute('data-state');
-      expect(cloudState ?? '', 'a saved key is not "checked"').not.toMatch(/checked|connected/i);
+      expect(cloudState ?? '', 'a saved key is not "checked" (H170: "saved, not checked" until Check the key)').not.toMatch(/^checked$|\bconnected\b/i);
       await caps.cap(o.page, size, 'models-accounts-key-saved-not-checked', { line: line('Models & accounts', 'a FAKE cloud key saved, not checked'), facts: [`Ollama · cloud: a FAKE key pasted and saved (sent once in the request body; its value in no screen and no DOM, asserted); the card's state "${cloudState ?? '(none)'}" — saved is not checked, nothing green.`], full: true });
       facts.push(`A FAKE cloud key saved, not checked: state "${cloudState ?? '(none)'}".`);
       await o.page.getByRole('button', { name: /Forget the key/ }).first().click({ timeout: 5_000 }).catch(() => undefined);
@@ -971,9 +1065,16 @@ const PROBES: Record<string, Probe> = {
         try {
           await again.page.waitForFunction((n) => Object.values((window as unknown as Win).timmyCanvas.editor.store.serialize('document')).filter((r) => r.typeName === 'shape').length >= n, shapes, { timeout: 20_000 });
           expect(await records(again.page), 'the board reopened: every record as saved').toEqual(before);
+          // the arrows' bindings read again on the reopened board (verification 6): every flow / port-binding arrow still has its two
+          // tldraw binding records (start, end), as many bindings as were saved
+          const stAgain = await starterOnBoard(again.page);
+          const bindingsSaved = Object.values(before).filter((r) => (r as { typeName?: string }).typeName === 'binding').length;
+          const bindingsNow = await again.page.evaluate(() => Object.values((window as unknown as Win).timmyCanvas.editor.store.serialize('document')).filter((r) => r.typeName === 'binding').length);
+          expect(stAgain.arrowsWithoutTwoBindings, 'after the reopen every flow / port-binding arrow keeps its two bindings').toEqual([]);
+          expect(bindingsNow, 'the bindings after the reopen: as many as saved').toBe(bindingsSaved);
           await again.page.evaluate(() => { (window as unknown as Win).timmyCanvas.editor.zoomToFit(); });
           await again.page.waitForTimeout(400);
-          await caps.cap(again.page, size, 'canvas-reopened', { line: line('Canvas (the Studio)', 'the board reopened in a new page'), facts: [`The board reopened: ${shapes} shapes and every binding exactly as saved (the records compared).`] });
+          await caps.cap(again.page, size, 'canvas-reopened', { line: line('Canvas (the Studio)', 'the board reopened in a new page'), facts: [`The board reopened: ${shapes} shapes and every binding exactly as saved (the records compared); ${stAgain.arrows} flow / port-binding arrow(s), each with its two binding records (start, end) after the reopen — ${bindingsNow} binding records, ${bindingsSaved} saved.`] });
           switchTo('pages-canvas-b', projectB);
           await again.page.waitForFunction(() => { const i = (window as unknown as Win).timmyCanvas.identity; return i?.state === 'shown' && i.project?.name === 'pages-canvas-b'; }, null, { timeout: 20_000 });
           await again.page.waitForTimeout(500);
@@ -988,14 +1089,28 @@ const PROBES: Record<string, Probe> = {
       }
     } catch (e) { await first.context.close().catch(() => undefined); throw e; }
   },
-  async 'Files'(o, _size, facts) { facts.push(await stateWords(o, 'Files', /file|folder|project/i)); },
+  async 'Files'(o, _size, facts) {
+    facts.push(await stateWords(o, 'Files', /file|folder|project/i));
+    // the OWNER's content (H173's panel-files.js into [data-panel-host="files"]), not index.html's stub words (verification 4)
+    const work = await o.page.locator(SHELL.work).first().innerText().catch(() => '');
+    expect(work, 'Files draws its owner content, not the stub').not.toMatch(/This page has no file browser yet/);
+    expect(await o.page.locator('[data-panel-host="files"] .fs-list, [data-panel-host="files"] [role="list"], [data-panel-host="files"] .fs-note, [data-panel-host="files"] .fs-ctx-title').count(), 'H173\'s file listing (or its own words) drawn in the files host').toBeGreaterThan(0);
+    facts.push('Files: the owner page (panel-files.js) drew its listing into the files host — not the stub.');
+  },
   async 'Workflows'(o, _size, facts) { facts.push(await stateWords(o, 'Workflows', /workflow|run|step/i)); },
   async 'Runs & receipts'(o, _size, facts) { facts.push(await stateWords(o, 'Runs & receipts', /run|receipt|record/i)); },
   async 'VoxVision'(o, _size, facts) { facts.push(await stateWords(o, 'VoxVision', /vision|scan|observ|image|source/i)); },
   async 'Motion & 3D'(o, _size, facts) { facts.push(await stateWords(o, 'Motion & 3D', /motion|3D|clip|render|scene|mesh|houdini|template|native application/i)); },
   async 'Tools & integrations'(o, _size, facts) { facts.push(await stateWords(o, 'Tools & integrations', /tool|MCP|integration/i)); },
   async 'Control Room'(o, _size, facts) { facts.push(await stateWords(o, 'Control Room', /control|fleet|clef|workspace|agent/i)); },
-  async 'Settings'(o, _size, facts) { facts.push(await stateWords(o, 'Settings', /setting|theme|preference|account/i)); },
+  async 'Settings'(o, _size, facts) {
+    facts.push(await stateWords(o, 'Settings', /setting|theme|preference|account/i));
+    // the OWNER's content (H173's panel-settings.js into [data-panel-host="settings"]: its cards, the Theme group), not the stub words
+    const work = await o.page.locator(SHELL.work).first().innerText().catch(() => '');
+    expect(work, 'Settings draws its owner content, not the stub').not.toMatch(/Settings are not drawn on this page yet/);
+    expect(await o.page.locator('[data-panel-host="settings"] .st-card, [data-panel-host="settings"] [data-theme-pick], [data-panel-host="settings"] .st-theme').count(), 'H173\'s settings cards drawn in the settings host').toBeGreaterThan(0);
+    facts.push('Settings: the owner page (panel-settings.js) drew its cards into the settings host — not the stub.');
+  },
   async 'Help'(o, _size, facts) { facts.push(await stateWords(o, 'Help', /help|find|key|shortcut/i)); },
 };
 /** A page's purpose words and its state: an empty state with a verb-led action, or content; said for the sidecar, the purpose asserted. */
