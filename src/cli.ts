@@ -62,6 +62,7 @@ Commands:
   runtimes list   List local, SDK, and remote agent runtime profiles
   runtimes doctor Detect runtime readiness without executing agent tasks
   sceneforge      Use the authenticated Cloudflare control plane via MCPorter
+  framer          Framer MCP tools, OAuth, publishing and Motion code generation
   events          Stream the TUI's event envelope as NDJSON (--follow, --human, --otlp)
   logs            Live web companion: event bus + receipt chain + verify (auto-pops browser; --port N)
   vision          Roboflow visual templates, inspections, evidence and review (--port N)
@@ -113,6 +114,12 @@ function printTable(rows: { label: string; value: string }[]) {
 }
 
 const args = process.argv.slice(2);
+
+// Framer owns its JSON files and help flags; do not run the global argument filter.
+if (args[0] === 'framer') {
+  const { framerMain } = await import('./framer/cli.js');
+  process.exit(await framerMain(args.slice(1)));
+}
 
 // Filter out --json, --out <dir>
 const cleanArgs: string[] = [];
