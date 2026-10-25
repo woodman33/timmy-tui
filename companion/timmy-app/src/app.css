@@ -205,7 +205,8 @@ code, .ta-mono { font-family: var(--timmy-ui-font-mono, "Monaspace Argon", ui-mo
 }
 
 /* ── a narrow window: the step path under the brand, the band as a strip, the cards as a column (no board) ── */
-.ta-stack { display: grid; gap: 12px; padding: 12px; overflow: auto; height: 100%; box-sizing: border-box; }
+.ta-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px; overflow: auto; height: 100%; box-sizing: border-box; align-content: start; }
+.ta-stack-card { min-width: 0; }
 .ta-stack-card .ta-card { height: auto; max-height: none; }
 .ta-stack-card .ta-card-chat { height: 78vh; }
 .ta-stack-card .ta-card-head { cursor: default; }
@@ -229,6 +230,10 @@ code, .ta-mono { font-family: var(--timmy-ui-font-mono, "Monaspace Argon", ui-mo
   .ta-stage { border-radius: var(--timmy-ui-radius-panel, 16px); overflow: auto; }
   .ta-stack { padding: 0; }
   .ta-provider { grid-template-columns: 1fr; }
+  .ta-card-head { flex-wrap: wrap; }
+  .ta-card-title { white-space: normal; }
+  .ta-card-tools { flex-wrap: wrap; }
+  .ta-turn { max-width: 100%; box-sizing: border-box; }
   .ta-models-grid { grid-template-columns: 1fr; }
   .ta-search { min-width: 0; width: 140px; }
   .ta-clip { max-width: 120px; }

@@ -9,6 +9,14 @@ import {
 } from './store.js';
 import { Button, Card, Empty, Facts, Out, StateWord, clock, day } from './ui.jsx';
 
+/** Brings a card into view: the board's camera on it, or (a column) the page scrolled to it. */
+export function showCard(id) {
+  const app = typeof window !== 'undefined' ? window.timmyApp : null;
+  if (app && typeof app.show === 'function') { app.show(id); return; }
+  const el = typeof document !== 'undefined' ? document.querySelector(`.ta-card[data-card="${id}"]`) : null;
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 const PROVIDER_NAMES = { openrouter: 'OpenRouter', 'ollama-local': 'Ollama · this computer', 'ollama-cloud': 'Ollama · cloud', cloudflare: 'Cloudflare' };
 const providerName = (id) => PROVIDER_NAMES[id] || id;
 const providerOf = (view, id) => (view && Array.isArray(view.providers) ? view.providers.find((p) => p.id === id) : null);
@@ -156,7 +164,8 @@ export function ProvidersCard({ theme }) {
     if (r.ok && r.url) window.open(r.url, '_blank', 'noopener');
   };
   return (
-    <Card id="providers" kicker="01 · CONNECTIONS" title="Where models can run">
+    <Card id="providers" kicker="01 · CONNECTIONS" title="Where models can run"
+      tools={<Button onClick={() => showCard('catalog')} title="OpenRouter's catalog, below these cards">OpenRouter’s catalog ↓</Button>}>
       {!providers.length ? <Empty>{view ? 'The companion listed no providers.' : 'Reading the providers…'}</Empty> : (
         <ul className="ta-providers">
           {providers.map((p) => {
@@ -329,13 +338,9 @@ export function RouteCard() {
       <p className="ta-line"><StateWord word={view.route && view.route.ready ? 'ready' : 'Send is off'} live={false} /> {c.words || (view.route && view.route.label)}</p>
       {c.check ? <p className="ta-muted"><StateWord word={c.check.state} live={c.check.state === 'ready'} /> {c.check.words}</p> : null}
       <Facts rows={[
-        ['model', c.model || null],
         ['chosen in', c.from || null],
-        ['free only', view.policy ? (view.policy.freeOnly ? 'on' : 'off') : null],
-        ['local only', view.policy ? (view.policy.localOnly ? 'on' : 'off') : null],
-        ['tools', view.scope ? view.scope.tools : null],
-        ['logs', view.logs ? view.logs.words : null],
-        ['read', day(viewAt)],
+        ['policy', view.policy ? `free only ${view.policy.freeOnly ? 'on' : 'off'} · local only ${view.policy.localOnly ? 'on' : 'off'}` : null],
+        ['read', <span key="r" title={view.logs ? view.logs.words : ''}>{day(viewAt)}</span>],
       ]} />
     </Card>
   );
@@ -395,10 +400,11 @@ export function SummaryCard() {
 export const CARDS = Object.freeze({
   'models-here': { page: 'connect', C: ModelsHereCard, x: 0, y: 0, w: 520, h: 640 },
   providers: { page: 'connect', C: ProvidersCard, x: 556, y: 0, w: 544, h: 640 },
-  catalog: { page: 'connect', C: CatalogCard, x: 0, y: 676, w: 1100, h: 460 },
-  chat: { page: 'chat', C: ChatCard, x: 0, y: 0, w: 700, h: 700 },
-  activity: { page: 'chat', C: ActivityCard, x: 736, y: 0, w: 364, h: 420 },
-  route: { page: 'chat', C: RouteCard, x: 736, y: 452, w: 364, h: 248 },
+  // (below the page's two cards, outside its fit: the Providers card's "OpenRouter's catalog ↓" brings the board to it)
+  catalog: { page: 'connect', C: CatalogCard, x: 0, y: 700, w: 1100, h: 480, fit: false },
+  chat: { page: 'chat', C: ChatCard, x: 0, y: 0, w: 700, h: 640 },
+  activity: { page: 'chat', C: ActivityCard, x: 736, y: 0, w: 364, h: 404 },
+  route: { page: 'chat', C: RouteCard, x: 736, y: 428, w: 364, h: 212 },
   receipts: { page: 'review', C: ReceiptsCard, x: 0, y: 0, w: 736, h: 640 },
   summary: { page: 'review', C: SummaryCard, x: 772, y: 0, w: 328, h: 380 },
 });

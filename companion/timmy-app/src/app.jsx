@@ -44,6 +44,8 @@ function App() {
   const [refused, setRefused] = useState(refusal());
   const [editor, setEditor] = useState(null);
   useEffect(() => onRefused(setRefused), []);
+  // (a column has no board: a card is brought into view by scrolling, ./cards.jsx showCard)
+  useEffect(() => { if (narrow && window.timmyApp) window.timmyApp = null; }, [narrow]);
   useEffect(() => {
     let stopped = false;
     let timer = 0;

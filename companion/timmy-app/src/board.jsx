@@ -45,7 +45,9 @@ class TimmyCardUtil extends BaseBoxShapeUtil {
       </HTMLContainer>
     );
   }
-  getIndicatorPath(shape) { const p = new Path2D(); p.roundRect(0, 0, shape.props.w, shape.props.h, 16); return p; }
+  // no outline of its own: a card under the pointer is not drawn hovered (the pointer is over a card nearly always on this board);
+  // a selected card shows tldraw's selection box and handles
+  getIndicatorPath() { return new Path2D(); }
 }
 
 const cssVar = (name, fallback) => { try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; } catch { return fallback; } };
@@ -90,9 +92,18 @@ export const FIT = Object.freeze({ left: 24, right: 24, top: 64, bottom: 76 });
  * taller than the window is panned down by the person (the wheel, or the hand tool). (screen = (page + camera) × zoom)
  */
 export function fitPage(editor, page, animate = true) {
-  const boxes = cardsOf(page).map((c) => editor.getShapePageBounds(cardIdOf(c.id))).filter(Boolean);
+  const boxes = cardsOf(page).filter((c) => c.fit !== false).map((c) => editor.getShapePageBounds(cardIdOf(c.id))).filter(Boolean);
   if (!boxes.length) return;
-  const b = Box.Common(boxes);
+  frame(editor, Box.Common(boxes), animate);
+}
+
+/** One card in view (the camera on it, as wide as the window lets it be). */
+export function showCardOnBoard(editor, card) {
+  const b = editor.getShapePageBounds(cardIdOf(card));
+  if (b) frame(editor, b, true);
+}
+
+function frame(editor, b, animate) {
   const vp = editor.getViewportScreenBounds();
   const zw = (vp.w - FIT.left - FIT.right) / b.w;
   const zh = (vp.h - FIT.top - FIT.bottom) / b.h;
@@ -155,7 +166,7 @@ export const Board = memo(function Board({ licenseKey, onEditor }) {
           const p = PAGES.find((x) => pageIdOf(x.id) === current);
           if (p && p.id !== getState().page) goTo(p.id);
         });
-        window.timmyApp = { editor, fit: () => fitPage(editor, getState().page), reset: () => resetLayout(editor, getState().page) };
+        window.timmyApp = { editor, fit: () => fitPage(editor, getState().page), reset: () => resetLayout(editor, getState().page), show: (card) => showCardOnBoard(editor, card) };
         if (onEditor) onEditor(editor);
         return () => { off(); };
       }}
