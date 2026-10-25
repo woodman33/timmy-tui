@@ -16,8 +16,10 @@ aside#shell-rail.nav-rail             the permanent rail (a top strip + a sheet 
                                       VoxVision, Motion & 3D · CONNECT Models & accounts, Tools & integrations · Control Room
   .rail-foot                          #shell-help "Help & find" (⌘K · ?), the account block (#rail-account …)
 div#shell-main.shell-body
-  header#shell-top.topbar             #shell-crumb-ws / #shell-crumb-page ("project / Page"), #shell-status (the live word:
-                                      green ONLY while the socket is observed open), .theme-switch [data-theme]
+  header#shell-top.topbar             #shell-crumb-ws / #shell-crumb-page ("project / Page"), #shell-status (the live word is
+                                      the SOCKET only: "Companion connected" — green ONLY while it is observed open — or
+                                      "Companion offline · reconnecting"; a turn's activity is the Chat's console band word and
+                                      the band's Records cell, never this word), .theme-switch [data-theme]
   nav.ws-nav[hidden] #ws-tabs         the old tab row: hidden, the keys 1–9/0 and companion.js's switcher drive it
   main#ws-main                        one section.page per destination (below)
   section#ws-activity                 the records band: the activity stream, foldable; the companion's own facts under Details
