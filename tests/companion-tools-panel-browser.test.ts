@@ -84,11 +84,16 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     .filter((el) => { const s = getComputedStyle(el); return (greens as string[]).some((g) => s.color === g || s.backgroundColor === g || s.borderTopColor === g); })
     .filter((el) => !el.closest('.is-live, .is-verified'))
     .map((el) => `${el.tagName.toLowerCase()}.${el.className}`), GREENS);
-  /** The controls filled with the page's own accent (the family accent, resolved on the page through a probe): the ONE primary, and nothing else. */
+  /**
+   * The visible controls filled with the page's own accent (the family accent, resolved on the page through a probe; a solid fill or
+   * the shell's gradient ending on it — the amber-fit read): D24 — exactly ONE per page, the head's primary (its arrow glyph struck
+   * here); the inspector's own step buttons keep is-primary (the next step) in the raised secondary look under the scaffold.
+   */
   const amberFills = (): Promise<string[]> => page.$$eval('#ws-tools *', (els) => {
     const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe);
     const amber = getComputedStyle(probe).color; probe.remove();
-    return els.filter((el) => getComputedStyle(el).backgroundColor === amber).map((el) => (el.textContent ?? '').trim());
+    return els.filter((el) => (el as HTMLElement).getClientRects().length > 0 && (getComputedStyle(el).backgroundColor === amber || getComputedStyle(el).backgroundImage.includes(amber)))
+      .map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').replace(/\s*→\s*$/, '').trim());
   });
 
   it('opens on tab 9 with the ingest modes as Timmy has them, both routes\' rungs, and the FAKE fixture as a stdio server not contacted yet', async () => {
@@ -105,12 +110,14 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     // 'timmy-fake-fixturestdioTimmy', as innerText gives an element not laid out yet): the row is read as drawn, once it is
     await expect.poll(() => text('[data-server="fixture"]'), { timeout: 15_000, interval: 100 })
       .toMatch(/^FAKE · timmy-fake-fixture stdio Timmy's own test server: its tools and answers are made up · not contacted from this page$/);
-    // the one primary next step: list its tools (amber), and no other amber fill on the tab
+    // the one primary next step: list its tools — the in-work button carries the step (is-primary) in the raised secondary look; the
+    // ONE accent fill on the page is the head's primary, which says the same action (D24)
     expect(await page.$eval('[data-tools-action="list"]', (el) => el.classList.contains('is-primary'))).toBe(true);
     expect(await text('[data-tools-action="list"]')).toBe("List the FAKE fixture's tools via the SDK route");
     // what the listing starts, said before it is asked for
     expect(await text('[data-tools-before]')).toBe("Listing starts Timmy's FAKE fixture on this computer for the list, and the route stops it.");
-    expect(await amberFills()).toEqual(["List the FAKE fixture's tools via the SDK route"]);
+    expect(await amberFills()).toEqual(['List the FAKE fixture’s tools']);
+    expect(await page.$eval('[data-tools-action="list"]', (el) => { const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe); const amber = getComputedStyle(probe).color; probe.remove(); const s = getComputedStyle(el); return s.backgroundColor === amber || s.backgroundImage.includes(amber); })).toBe(false);
     expect(await text('.tools-step.is-next')).toMatch(/^▶ 2\. tools\/list through the SDK route$/);
     // no tool yet: the request pane says what to do, and draws no empty request or lines (nothing reads "null")
     expect(await text('.tools-request .box-body')).toBe("List a server's tools, then pick one: its request form is made from its input schema.");
@@ -177,7 +184,9 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     expect(await text('[data-cli="mcporter"] .cmd')).toMatch(/^mcporter call --stdio node --stdio-arg .* --tool fake_echo --args '\{"times":1,"text":"FAKE hello from the page"\}'$/);
     expect(await text('[data-cli="sdk"] .cmd')).toMatch(/mcp-sdk-cli\.(ts|js) call fake_echo --args '\{"times":1,"text":"FAKE hello from the page"\}' --json -- node /);
     expect(await text('[data-tools-rule]')).toBe('Runs from this page: the server lists fake_echo as read-only and closed-world (its own claim, not checked), so the call runs from this page, as a /mcp call you typed would.');
-    expect(await amberFills()).toEqual(['Call fake_echo via the SDK route']);
+    // (D24: the head's primary says the step — "Call fake_echo" — and is the one accent fill; the in-work call button is is-primary in the secondary look)
+    expect(await amberFills()).toEqual(['Call fake_echo']);
+    expect(await page.$eval('[data-tools-action="call"]', (el) => el.classList.contains('is-primary'))).toBe(true);
     expect(await text('.tools-step.is-next')).toMatch(/^▶ 4\. Call through the SDK route$/);
     await cap('h142-03-request-form-and-json-rpc');
     expect(errors).toEqual([]);
@@ -339,7 +348,11 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     expect(await text('.tools-step[data-step="2"]')).toBe("▶ 2. tools/list NEEDS YOU: in Timmy's terminal");
     expect(await text('[data-tools-action="list"]')).toBe("Check the line for Timmy's terminal");
     expect(await text('[data-tools-before="stdio"]')).toBe('This page starts no program typed here: checking it gives the exact lines to list it from Timmy\'s terminal.');
-    expect(await amberFills()).toEqual(["Copy the line for Timmy's terminal"]);
+    // (D24: after NEEDS YOU the page's next step is the copy — the head's primary says so and is the one accent fill; the in-work copy
+    // button is is-primary in the secondary look)
+    expect(await amberFills()).toEqual(['Copy the line for Timmy’s terminal']);
+    expect(await page.$eval('[data-needs-copy] [data-tools-action="copy-terminal"]', (el) => el.classList.contains('is-primary'))).toBe(true);
+    expect(await text('#ws-tools .page-head .page-primary')).toMatch(/^Copy the line for Timmy’s terminal/);
     expect(await greenWhere()).toEqual([]);
     // no tool to call: the request pane says what to do, and draws no empty request or lines
     expect(await text('.tools-request .box-body')).toBe("List a server's tools, then pick one: its request form is made from its input schema.");

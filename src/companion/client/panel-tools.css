@@ -8,6 +8,11 @@
    tool's schema brought to the top of its pane) */
 .page-work > .tools-host { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .page-work .tools-grid { flex: none; height: min(62vh, 760px); min-height: 340px; }
+/* D24 (the lead, 00:13 / 00:31): ONE accent-filled primary per page — the head's (D8). Under the scaffold the inspector's own step
+   buttons keep their words, their place and their is-primary meaning (the step that is next), but draw the raised secondary look
+   (.ui-btn's tokens), never the accent fill the head's primary carries. Drawn without the scaffold (no .page-work), the fill stands. */
+.page-work .tools-go.is-primary { background: var(--timmy-ui-elev-raised, var(--timmy-raised)); border-color: var(--timmy-ui-border, var(--timmy-line-strong)); color: var(--timmy-text); }
+.page-work .tools-go.is-primary:hover:not(:disabled) { border-color: var(--timmy-ui-text-muted, var(--timmy-text-secondary)); }
 
 /* where tools work */
 .tools-wherebox { flex: 0 0 auto; margin: 0 0 12px; }

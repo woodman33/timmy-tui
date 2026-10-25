@@ -73,6 +73,19 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
   }, path, { timeout: 15_000 });
   const text = (page: Page, sel: string) => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
   /**
+   * D24: the page's visible elements filled with the family accent (a solid fill or the shell's gradient ending on it), named — exactly one,
+   * the head's primary. The dock's frame steps (`.page-dock .act`, drawn by the shell from the workspace frame, companion.css) are left out
+   * of this read: their fill is the lead's own D24 item (hold C2: the raised look), pinned by companion-amber-fit; this panel's own
+   * controls — the Commands box's copy buttons, the dock buttons it draws — are what is read here.
+   */
+  const accentFilled = (page: Page): Promise<string[]> => page.evaluate(() => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe);
+    const rgb = getComputedStyle(probe).color; probe.remove();
+    const root = document.getElementById('ws-voxvision') ?? document.body;
+    return [...root.querySelectorAll('*')].filter((e) => !e.closest('.page-dock .act') && (e as HTMLElement).getClientRects().length > 0 && (getComputedStyle(e).backgroundColor === rgb || getComputedStyle(e).backgroundImage.includes(rgb)))
+      .map((e) => `${e.tagName.toLowerCase()}.${String((e as HTMLElement).className)} "${(e.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)}"`);
+  });
+  /**
    * R7 (H152): each mark's label, as laid out: on the band outside the image (its box never over the image's frame), shown
    * whole (not cut: as wide as its words or wrapped), and joined to its mark by a leader line.
    */
@@ -243,6 +256,12 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(primaryLabel).toMatch(/^Copy the command to (?:open in Rerun|measure it|observe it|do it again|open the record)/);
       expect(primaryLabel).not.toMatch(/[/<>]/);
       expect(await page.$$eval('[data-vox="actions"] .vox-act-cmd', (els) => els.map((e) => e.textContent ?? ''))).toEqual(expect.arrayContaining([expect.stringMatching(/^\/(?:vox view|measure|observe|open|detect)/)]));
+      // (D24 at 1376: exactly one accent-filled control of the page's own — the head's primary; the Commands box's next command is a
+      // bordered copy button, not a fill)
+      const filled = await accentFilled(page);
+      expect(filled, `accent-filled: ${filled.join(' | ')}`).toHaveLength(1);
+      expect(filled[0]).toMatch(/^button\.ui-primary/);
+      expect(await page.$$eval('[data-vox="actions"] .vox-act, #ws-voxvision .page-dock [data-vox-dock]', (els) => { const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe); const rgb = getComputedStyle(probe).color; probe.remove(); return els.filter((e) => getComputedStyle(e).backgroundColor === rgb || getComputedStyle(e).backgroundImage.includes(rgb)).length; })).toBe(0);
       // (R102's pin on this page: no text node reading "null" or "undefined")
       expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-voxvision') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
       // the rule said on the page: the commands box's own line, and every dock button's title
@@ -299,6 +318,10 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(new Set(cols.map((c) => c.left)).size).toBe(1);
       for (let i = 1; i < cols.length; i += 1) expect(cols[i].top).toBeGreaterThan(cols[i - 1].top);
       for (const c of cols) expect(c.right).toBeLessThanOrEqual(390);
+      // (D24 at 390: exactly one accent-filled control — the head's primary)
+      const filled = await accentFilled(page);
+      expect(filled, `390: accent-filled: ${filled.join(' | ')}`).toHaveLength(1);
+      expect(filled[0]).toMatch(/^button\.ui-primary/);
       // (R102's pin at 390 on this page: no text node reading "null" or "undefined")
       expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-voxvision') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
       expect(errors).toEqual([]);

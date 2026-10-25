@@ -24,6 +24,18 @@ const LONG = 240_000;
 const FAKE_READ = 'FAKE rows given to the companion by a test: nothing on this computer was read';
 const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 const texts = (page: Page, sel: string): Promise<string[]> => page.$$eval(sel, (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+/**
+ * D24 (the lead, 00:13 / 00:31): the visible elements of the page filled with the family accent — a solid fill, or the shell's gradient
+ * ending on it (the amber-fit read) — each named: exactly ONE per page, the head's primary; the page's own step buttons draw the raised
+ * secondary look under the scaffold.
+ */
+const accentFilled = (page: Page, scope: string): Promise<string[]> => page.evaluate((sel) => {
+  const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe);
+  const rgb = getComputedStyle(probe).color; probe.remove();
+  const root = document.querySelector(sel) ?? document.body;
+  return [...root.querySelectorAll('*')].filter((e) => (e as HTMLElement).getClientRects().length > 0 && (getComputedStyle(e).backgroundColor === rgb || getComputedStyle(e).backgroundImage.includes(rgb)))
+    .map((e) => `${e.tagName.toLowerCase()}.${String((e as HTMLElement).className)} "${(e.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)}"`);
+}, scope);
 /** the chips in card order: a row none of the words holds for has no chip (the terminal's rule: never a fourth word) */
 const CHIPS = ['● available', '● configured', '● available', '● exercised', '● configured'];
 
@@ -150,6 +162,12 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
       // (H168's R108, the lead's D22: the primary names what pressing it does on this page — a tools/list on the picked server, the FAKE
       // fixture here, named FAKE — not "List the tools" while the inventory's list is already in view)
       expect(await text(page, '#ws-tools .page-head .page-primary')).toMatch(/^List the FAKE fixture’s tools/);
+      // (D24: exactly one accent-filled control on the page — the head's primary; the inspector's own list button says the same action
+      // in the raised secondary look)
+      const filled = await accentFilled(page, '#ws-tools');
+      expect(filled, `accent-filled: ${filled.join(' | ')}`).toHaveLength(1);
+      expect(filled[0]).toMatch(/^button\.ui-primary/);
+      expect(await page.$eval('#ws-tools [data-tools-action="list"]', (el) => el.classList.contains('is-primary'))).toBe(true);
       // (R102's pin on this page: no text node reading "null" or "undefined")
       expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-tools') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
       expect(await page.$$eval('#ws-tools .page-dock .dock-tools [data-tools-dock]', (els) => els.map((e) => e.getAttribute('data-tools-dock')))).toEqual(['check', 'directory', 'records']);
@@ -205,8 +223,8 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
     expect((await fetch(`http://127.0.0.1:${companion.port}/api/panel/tools/inventory`)).status).toBe(401);
   }, LONG);
 
-  it('at 1280 × 720 the same words; at 390 × 844 the cards stack, each the width of the page, nothing cut', async () => {
-    for (const size of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+  it('at 1376 × 768 and 1280 × 720 the same words; at 390 × 844 the cards stack, each the width of the page, nothing cut; one accent-filled control at every size', async () => {
+    for (const size of [{ width: 1376, height: 768 }, { width: 1280, height: 720 }, { width: 390, height: 844 }]) {
       const { page, errors } = await open(size);
       try {
         expect(await texts(page, '[data-tools-caps] .tl-chip')).toEqual(CHIPS);
@@ -220,7 +238,11 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
           const tops = await page.$$eval('[data-tl-group="Models"] .tl-card', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
           expect(new Set(tops).size).toBe(tops.length);
         }
-        // (R102's pin at both sizes on this page: no text node reading "null" or "undefined")
+        // (D24 at every size: exactly one accent-filled control — the head's primary)
+        const filled = await accentFilled(page, '#ws-tools');
+        expect(filled, `${size.width}: accent-filled: ${filled.join(' | ')}`).toHaveLength(1);
+        expect(filled[0]).toMatch(/^button\.ui-primary/);
+        // (R102's pin at every size on this page: no text node reading "null" or "undefined")
         expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-tools') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
         expect(errors).toEqual([]);
       } finally { await page.close(); }
