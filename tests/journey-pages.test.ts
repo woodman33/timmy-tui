@@ -362,6 +362,9 @@ interface Scaffold {
   /** the operator's 19:18 order, item 3 (H171): an ESTABLISHED Chat has a COMPACT head — #ws-chat.cx-compact: kicker + title on one row (the
    *  kicker's number alone at ≤ 720 px), NO intro, the primary "Continue the conversation"; the turn's state is the box's / the band's */
   compact: boolean;
+  /** settleHead: how long the read waited for the head's primary to carry words, and whether it did (set by expectScaffold / goTo) */
+  headWaitMs?: number;
+  headSettled?: boolean;
 }
 /** The scaffold's selectors alone (strings: what page.evaluate can carry). */
 const SCAFFOLD_SEL = { shown: SHELL.shown, head: SHELL.head, kicker: SHELL.kicker, title: SHELL.title, description: SHELL.description, primary: SHELL.primary, summary: SHELL.summary, work: SHELL.work, context: SHELL.context, dock: SHELL.dock, records: SHELL.records };
@@ -383,10 +386,30 @@ const scaffoldOf = (page: Page): Promise<Scaffold> => page.evaluate((S) => {
   return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states, railN, bandAction: t(q(`${S.summary} .band-action`)), compact: Boolean(shown && shown.classList.contains('cx-compact')) };
 }, SCAFFOLD_SEL);
 
-/** The scaffold asserted on the shown page, each missing piece named as H175's contract piece. */
+/**
+ * THE SETTLED HEAD (the lead's 01:44, the freeze's unit group on a2ae1f45: Runs & receipts at 1280×720 read primary '' under --maxWorkers=2
+ * — the owner pages register their primary after their first data read, panel-run.js :1027 "before the first read there is no primary of
+ * ours: the shell draws the frame's primary action meanwhile", and a loaded run read the head before either arrived). The contract says
+ * every page has a primary next action, so a read waits — bounded — for the shown page's `.page-primary` to carry words, and says how long
+ * it waited; a head still empty after the wait fails the scaffold as before, with the page read.
+ */
+async function settleHead(page: Page, ms = 10_000): Promise<{ settled: boolean; waitedMs: number }> {
+  const t0 = Date.now();
+  const settled = await page.waitForFunction((S) => {
+    const shown = [...document.querySelectorAll<HTMLElement>(S.shown)].find((el) => el.offsetParent !== null || getComputedStyle(el).position === 'fixed') ?? null;
+    const p = shown?.querySelector<HTMLElement>(S.primary) ?? null;
+    return Boolean(p && (p.innerText || p.textContent || '').trim());
+  }, { shown: SHELL.shown, primary: SHELL.primary }, { timeout: ms }).then(() => true, () => false);
+  return { settled, waitedMs: Date.now() - t0 };
+}
+
+/** The scaffold asserted on the shown page, each missing piece named as H175's contract piece; the head settled first (settleHead), said. */
 async function expectScaffold(page: Page, name: string): Promise<Scaffold> {
+  const head = await settleHead(page);
   const s = await scaffoldOf(page);
-  const piece = (what: string): string => `${name}: ${what} (H175's SHELL CONTRACT v1 — the page scaffold; adjust SHELL in this test to the posted line if the names differ); the page read: ${JSON.stringify({ page: s.page, kicker: s.kicker, title: s.title, primary: s.primary, regions: s.regions }).slice(0, 600)}`;
+  s.headWaitMs = head.waitedMs;
+  s.headSettled = head.settled;
+  const piece = (what: string): string => `${name}: ${what} (H175's SHELL CONTRACT v1 — the page scaffold; adjust SHELL in this test to the posted line if the names differ); the head's primary ${head.settled ? `carried words after ${head.waitedMs} ms` : `still EMPTY after ${head.waitedMs} ms of waiting (the owner page registers its primary after its first data read; the shell draws the frame's meanwhile)`}; the page read: ${JSON.stringify({ page: s.page, kicker: s.kicker, title: s.title, primary: s.primary, regions: s.regions }).slice(0, 600)}`;
   expect(s.page, piece('a shown page (section.page)')).not.toBe('');
   // the kicker: "NN / VERB PHRASE" (the number is the rail's order, §2.3); a page outside the rail carries its name instead of a number
   // (H173's Settings: "SETTINGS / SET HOW TIMMY RUNS"). The operator's 19:18 order, item 3 (H171, 2c01a896): an ESTABLISHED Chat's
@@ -438,7 +461,7 @@ async function openRailSheet(o: Opened): Promise<Locator> {
 }
 
 /** A destination reached as a person reaches it: the rail's item (on a phone through the rail sheet); Settings through Help & find (D3 amended). */
-async function goTo(o: Opened, name: string, seen?: string[]): Promise<void> {
+async function goTo(o: Opened, name: string, seen?: string[]): Promise<{ settled: boolean; waitedMs: number }> {
   const phone = o.size.width <= 720;
   const p = PAGES.find((x) => x.name === name)!;
   if (p.via === 'help') {
@@ -465,7 +488,10 @@ async function goTo(o: Opened, name: string, seen?: string[]): Promise<void> {
   if (p.via === 'rail') expect(await o.page.locator(SHELL.railItem(p.id)).first().getAttribute('aria-current'), `the rail's item "${name}" marked current (§3.1)`).toBe('page');
   // the sheet closed by the navigation (§2.4: go() closes any open sheet)
   if (phone) expect(await o.page.locator(SHELL.railSheet).first().isVisible().catch(() => false), 'the rail sheet closed on the navigation (§2.4)').toBe(false);
-  seen?.push(`${name} opened by ${p.via === 'help' ? 'Help & find' : phone ? 'the rail sheet' : 'the rail'}`);
+  // the head settled: the page's primary next action carries words (bounded wait, said), so a read that follows sees the settled head
+  const head = await settleHead(o.page);
+  seen?.push(`${name} opened by ${p.via === 'help' ? 'Help & find' : phone ? 'the rail sheet' : 'the rail'}${head.settled ? ` (the head's primary carried words after ${head.waitedMs} ms)` : ` (the head's primary still EMPTY after ${head.waitedMs} ms)`}`);
+  return head;
 }
 
 /** The page's common assertions after a step: nothing cut, no page error, nothing left 127.0.0.1, nothing the companion has not. */
@@ -606,10 +632,10 @@ describe('every major page on the shell, from the running companion and Studio: 
         const o = await open(size);
         try {
           await landed(o.page);
-          await goTo(o, p.name);
+          const head = await goTo(o, p.name);
           // the page's picture FIRST (a reviewer needs it whether or not a scaffold piece is missing), then the scaffold asserted
           const read = await scaffoldOf(o.page);
-          const facts = [`${p.name} on the scaffold: kicker "${read.kicker}" · title "${read.title}" · primary next action "${read.primary || '(NONE drawn)'}" · states marked: ${read.states.join(', ') || '(none marked)'}${read.compact ? ' · the COMPACT one-row head of an established conversation (item 3: no intro by design; the kicker\'s number alone at ≤ 720 px)' : ''}.`, `The summary band: "${read.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}"${read.bandAction ? ` — its action (text): "${read.bandAction}"` : ''}.`];
+          const facts = [`${p.name} on the scaffold: kicker "${read.kicker}" · title "${read.title}" · primary next action "${read.primary || '(NONE drawn)'}" (the head's primary ${head.settled ? `carried words ${head.waitedMs} ms after the navigation` : `still empty ${head.waitedMs} ms after the navigation`}) · states marked: ${read.states.join(', ') || '(none marked)'}${read.compact ? ' · the COMPACT one-row head of an established conversation (item 3: no intro by design; the kicker\'s number alone at ≤ 720 px)' : ''}.`, `The summary band: "${read.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}"${read.bandAction ? ` — its action (text): "${read.bandAction}"` : ''}.`];
           await caps.cap(o.page, size, `${slug(p.name)}-page`, { line: line(p.name, 'as reached by the navigation'), facts, full: true });
           await expectScaffold(o.page, p.name);
           await PROBES[p.name]?.(o, size, facts);
