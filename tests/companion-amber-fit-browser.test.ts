@@ -39,13 +39,17 @@ const ambers = (page: Page): Promise<Amber[]> => page.evaluate(() => {
     // the strip's primary; on tab 9, where the strip gives none, the inspector's own one primary action (H142). R10 CHAT (H171):
     // on Chat, the composition's: Send, the first run's suggested way, or the no-model state's Choose a model
     // R11 round 4 (H171): on Chat with no model connected, "Set up a model →" (the route line) is the one primary step
-    ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary, .cx-send:not(.is-muted):not(:disabled), .cx-btn.is-primary, .cx-way.is-suggested, .cx-route .cx-change.is-setup')],
+    // R11 round 7 (H172, SHELL CONTRACT v1 / B11): the shell's primary button and the band's action are the family's accent, never
+    // #FFB000 — listed so a stray amber on them is named by its role rather than "no role"
+    ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary, .cx-send:not(.is-muted):not(:disabled), .cx-btn.is-primary, .cx-way.is-suggested, .cx-route .cx-change.is-setup, .page-primary .ui-primary, .band-action')],
     // R11 round 4 (H171): the right panel's Models | Tools tab chosen draws its amber border
     ['the selection', (el) => within(el, '[aria-current="true"], [aria-pressed="true"], [aria-selected="true"]:not([role="tab"]), .is-selected, .is-picked, .is-shown, .view-btn.active, .cm-providers [role="tab"][aria-selected="true"], .cx-panel-tabs [role="tab"][aria-selected="true"]')],
     ['.intent or .predict', (el) => within(el, '.is-intent, .is-predict, .rd-before, [data-stage="predict"], [data-stage="intent"], .tone-intent, .log-msg.user, .sd-user')],
     // R11 (H171): the model chip's dot while this page checks a model (amber, with its word "checking…")
-    ['what waits for you', (el) => within(el, '.tab-waiting, .waits, #token-note, .tools-needs, .sd-approval, .tools-rule.is-waiting, #mirror-status[data-state="reconnecting"], #mirror-status[data-state="restored"], .mirror-note, .saved-banner, .sb-draft, .tone-setup, .st-needs-setup, .cx-dot[data-state="checking"], .cx-spin')],
-    ['a failure, with ✕ and its word', (el) => within(el, '.tone-failed, .is-failed, .run-error, .canvas-fail, .conn-state.is-failed, [data-state="failed"], .tools-attn, .tools-refused, .tools-fielderr, .is-invalid, .log-level.error, .sb-thumb-failed, .st-failed, .tone-failure')],
+    // R11 round 7 (B11, the shell): the rail's waiting count, the band's attention cell, a state word marked attention
+    ['what waits for you', (el) => within(el, '.tab-waiting, .waits, #token-note, .tools-needs, .sd-approval, .tools-rule.is-waiting, #mirror-status[data-state="reconnecting"], #mirror-status[data-state="restored"], .mirror-note, .saved-banner, .sb-draft, .tone-setup, .st-needs-setup, .cx-dot[data-state="checking"], .cx-spin, .rail-count, .band-cell.is-attn, .ui-state.is-attn, .page[data-state="approval"] .page-state-words')],
+    // R11 round 7 (B11, the shell): the page's error state words (✕ and the word, the focus token's edge)
+    ['a failure, with ✕ and its word', (el) => within(el, '.tone-failed, .is-failed, .run-error, .canvas-fail, .conn-state.is-failed, [data-state="failed"], .tools-attn, .tools-refused, .tools-fielderr, .is-invalid, .log-level.error, .sb-thumb-failed, .st-failed, .tone-failure, .page-state-words.is-error, .page[data-state="error"] .page-state-words, .is-error')],
   ];
   const out: Array<{ role: string; tag: string; cls: string; text: string; how: string[] }> = [];
   for (const el of document.querySelectorAll('body *')) {
@@ -91,7 +95,10 @@ const fit = (page: Page) => page.evaluate(() => {
     if (r.width > 0 && (r.left < -0.5 || r.right > W + 0.5)) out.push(`outside the window: ${el.tagName.toLowerCase()}.${(el as HTMLElement).className} ${Math.round(r.left)}..${Math.round(r.right)}`);
   }
   const cut = (el: Element): boolean => (el as HTMLElement).scrollWidth > (el as HTMLElement).clientWidth + 1;
-  const visible = (el: Element): boolean => (el as HTMLElement).getClientRects().length > 0;
+  // R11 round 7 (H172): a title kept for assistive readers only (the sr-only pattern: a 1 px box, clipped — the strip's title in
+  // the page's dock is one) is not cut: it was never meant to be seen
+  const srOnly = (el: Element): boolean => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return (r.width <= 1 && r.height <= 1) || cs.clip === 'rect(0px, 0px, 0px, 0px)'; };
+  const visible = (el: Element): boolean => (el as HTMLElement).getClientRects().length > 0 && !srOnly(el);
   for (const el of document.querySelectorAll('#ws-tabs .tab-label')) if (visible(el) && cut(el)) out.push(`tab label cut: ${el.textContent}`);
   const where = shownPage ? [shownPage, document.querySelector('#ws-strip')!] : [document.querySelector('#ws-strip')!];
   for (const root of where) {
@@ -114,7 +121,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
     let p: PageProject | undefined;
     try {
       p = await pageProject(kit, { prefix: 'amber-fit-browser-' });
-      const report: Record<string, { ambers: Amber[]; primaries: number; fit: string[]; words: string[] }> = {};
+      const report: Record<string, { ambers: Amber[]; primaries: number; fit: string[]; words: string[]; current: boolean }> = {};
       for (const size of SIZES) {
         const at = `${size.width}x${size.height}`;
         const { context, page, errors } = await openPage(browser, p, size);
@@ -132,7 +139,18 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
             const list = await ambers(page);
             // R10 CHAT (H171): on Chat the strip is behind the composition, whose one primary is its own (an amber fill too)
             const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary, .cx-send, .cx-btn.is-primary, .cx-way-act, .cx-route .cx-change.is-setup', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
-            report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page) };
+            const current = await page.evaluate((legacy) => {
+              const item = document.querySelector('#rail-menu .rail-item[aria-current="page"]') as HTMLElement | null;
+              const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ legacy: string; rail: boolean }> } }).TimmyShell?.PAGES ?? [];
+              const inRail = pages.some((p) => p.legacy === legacy && p.rail);
+              if (!inRail) return !item; // outside the rail: nothing is current
+              if (!item || item.dataset.dest !== legacy) return false;
+              const accent = getComputedStyle(document.documentElement).getPropertyValue('--timmy-ui-accent').trim();
+              const probe = document.createElement('span'); probe.style.color = accent; document.body.append(probe); const rgb = getComputedStyle(probe).color; probe.remove();
+              const glyph = item.querySelector('.rail-glyph');
+              return Boolean(glyph) && getComputedStyle(glyph!).color === rgb;
+            }, id);
+            report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page), current };
             // with TIMMY_CAPTURE_DIR, each tab as measured (the window's view; at 800x600 the page's top, it scrolls on)
             if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/tab${key}-${id}-${at}.png` });
             if (id === 'chat') {
@@ -142,7 +160,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
               await page.click('#btn-streamdown');
               await page.waitForSelector('#tab-streamdown.active #streamdown-root > *', { timeout: 20_000 });
               await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-              report[`${at} tab ${key} ${id} · Ask a model here`] = { ambers: await ambers(page), primaries: 0, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page) };
+              report[`${at} tab ${key} ${id} · Ask a model here`] = { ambers: await ambers(page), primaries: 0, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page), current };
               await page.click('#btn-chat');
             }
           }
@@ -166,7 +184,13 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
           expect(report[k].primaries, k).toBe(1);
         }
       }
-      for (const [k, v] of Object.entries(report)) expect(v.ambers.some((a) => a.role === 'the active tab'), k).toBe(true);
+      // the destination shown is marked: R10's tab row drew its tab in amber; on the round-7 shell (SHELL CONTRACT v1, B11) the rail's
+      // current item carries aria-current="page" and the FAMILY's accent (never #FFB000), and a page outside the rail (Home, Fleet)
+      // marks no item — read per size on the last page shown, from the report's own mark where the old row still draws it
+      for (const [k, v] of Object.entries(report)) {
+        const marked = v.ambers.some((a) => a.role === 'the active tab');
+        if (!marked) expect(v.current, `${k}: the destination shown is marked on the rail (aria-current) with the family accent, or the page is outside the rail`).toBe(true);
+      }
     } finally { await closeProject(p); }
   }, 240_000);
 });

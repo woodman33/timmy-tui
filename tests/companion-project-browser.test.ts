@@ -260,7 +260,29 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     expect(seen.outside).toEqual([]);
   };
   const connected = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
-  const shows = (page: Page, name: string, timeout = 10_000): Promise<unknown> => page.waitForFunction((n) => document.getElementById('project-name')?.textContent === n, name, { timeout });
+  // R11 round 7 (H172, SHELL CONTRACT v1): the project's name is shown in the topbar crumb ("<project> / <page>") and in the rail's
+  // switcher (#rail-project-name); the records' Details (closed by default) keep the legacy project bar (#project-name, its mode, Pin)
+  const shows = (page: Page, name: string, timeout = 10_000): Promise<unknown> => page.waitForFunction((n) => document.getElementById('project-name')?.textContent === n
+    && document.getElementById('rail-project-name')?.textContent === n && document.getElementById('shell-crumb-ws')?.textContent === n, name, { timeout });
+  /** The records' Details opened (the legacy project bar, the socket's status and the folder live under it on the round-7 shell). */
+  const openRecords = async (page: Page): Promise<void> => { await page.evaluate(() => { const d = document.getElementById('shell-details') as HTMLDetailsElement | null; if (d && !d.open) d.open = true; }); };
+  /** Pin / Unpin as a person does it on the shell: the rail's project switcher and its "Keep this page on <project>" / "Follow the active project". */
+  const pinViaRail = async (page: Page, on: boolean): Promise<void> => {
+    const menu = page.locator('#rail-project-menu');
+    if (!(await menu.isVisible())) await page.click('#rail-project');
+    await menu.waitFor({ state: 'visible', timeout: 5_000 });
+    await menu.locator(`[data-cx="${on ? 'pin' : 'unpin'}"]`).first().click();
+    if (await menu.isVisible()) await page.keyboard.press('Escape');
+  };
+  /** The rail switcher's own words about the project's mode (its menu opened, read, closed). */
+  const railMode = async (page: Page): Promise<string> => {
+    const menu = page.locator('#rail-project-menu');
+    if (!(await menu.isVisible())) await page.click('#rail-project');
+    await menu.waitFor({ state: 'visible', timeout: 5_000 });
+    const words = ((await menu.locator('.rail-mode').first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
+    await page.keyboard.press('Escape');
+    return words;
+  };
   const text = async (page: Page, selector: string): Promise<string> => ((await page.textContent(selector)) ?? '').replace(/\s+/g, ' ').trim();
   const turns = (page: Page): Promise<string[]> => page.$$eval('#console-logs [data-mirror="repl-turn"]', (rows) => rows.map((r) => (r.textContent ?? '').replace(/\s+/g, ' ')));
   const turnShown = (page: Page, receipt: string): Promise<unknown> => page.waitForFunction((r) => [...document.querySelectorAll('#console-logs [data-mirror="repl-turn"]')].some((row) => (row.textContent ?? '').includes(r)), receipt, { timeout: 15_000 });
@@ -271,8 +293,15 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
     // the page opens on it
     if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
-    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
-    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
+    // R11 round 7 (H172): the workspace tab row is hidden (D3: the rail is the navigation) — a panel's own switch is clicked only
+    // where it is drawn and visible, never the row's [data-tab] button
+    const own = page.locator(`.view-switch [data-tab="${name}"]`);
+    const other = page.locator(`[data-tab="${name}"]:not(.ws-tab)`).filter({ visible: true });
+    // (R11 round 7, H171 d5a6f005: the Chat's older views are the Chat page's records, a details closed by default — opened as a
+    // person opens it before its switch is used)
+    if (await own.count()) await page.evaluate((sel) => { const sw = document.querySelector(sel); for (let d = sw?.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true; }, `.view-switch [data-tab="${name}"]`);
+    if (await own.count()) await own.first().click();
+    else if (await other.count()) await other.first().click();
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const record = (): string => tildePath(join(home, 'state', 'active-project.json'));
@@ -286,10 +315,13 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     try {
       await connected(page);
       await shows(page, 'alpha');
+      await openRecords(page);
       expect(await text(page, '#project-mode')).toBe('following the active project');
       expect(await page.isHidden('#project-pin-mark')).toBe(true);
       expect(await text(page, '#project-pin')).toBe('Pin: keep this page on alpha');
       expect(await page.isEnabled('#project-pin')).toBe(true);
+      // the rail's switcher says the same, in its words
+      expect(await railMode(page)).toBe('Following the active project: this page moves when Timmy’s active project changes.');
       expect(await page.getAttribute('#project', 'data-project')).toBe(projectId(alpha.root));
       // (R10 H167: said in words on the line; the folder whole under its Details)
       expect(await text(page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
@@ -336,8 +368,9 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     try {
       await Promise.all([connected(pinned.page), connected(following.page)]);
       await Promise.all([shows(pinned.page, 'beta'), shows(following.page, 'beta')]);
-      // Pin: this page keeps beta
-      await pinned.page.click('#project-pin');
+      await Promise.all([openRecords(pinned.page), openRecords(following.page)]);
+      // Pin: this page keeps beta — through the rail's project switcher ("Keep this page on beta"); the records' bar follows
+      await pinViaRail(pinned.page, true);
       await pinned.page.waitForFunction(() => !document.getElementById('project-pin-mark')?.hidden, null, { timeout: 5_000 });
       expect(await text(pinned.page, '#project-pin-mark')).toBe('PINNED');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned on this page');
@@ -351,6 +384,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await text(pinned.page, '#project-name')).toBe('beta');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned · the active project is gamma');
       expect(await text(pinned.page, '#project-pin')).toBe('Unpin: follow the active project (gamma)');
+      expect(await railMode(pinned.page)).toBe('Pinned on this page; the active project is gamma.');
       // (R10 H167: said in words on the line; the folder whole under its Details)
       expect(await text(pinned.page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(beta.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Pinned on this page; the active project is now gamma (${tildePath(gamma.root)}).`);
       expect(await pinned.page.isHidden('#project-pin-mark')).toBe(false);
@@ -368,6 +402,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       await landWorkspace(pinned.page);
       await connected(pinned.page);
       await shows(pinned.page, 'beta');
+      await openRecords(pinned.page);
       await pinned.page.waitForFunction(() => document.getElementById('project')?.dataset.mode === 'pinned', null, { timeout: 5_000 });
       expect(await text(pinned.page, '#project-mode')).toBe('pinned · the active project is gamma');
       const fresh = await open(own);
@@ -378,8 +413,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
         clean(fresh.seen);
       } finally { await fresh.context.close(); }
 
-      // Unpin: the page follows the active project again
-      await pinned.page.click('#project-pin');
+      // Unpin: the page follows the active project again (the rail's "Follow the active project")
+      await pinViaRail(pinned.page, false);
       await shows(pinned.page, 'gamma', 5_000);
       expect(await text(pinned.page, '#project-mode')).toBe('following the active project');
       expect(await pinned.page.isHidden('#project-pin-mark')).toBe(true);
