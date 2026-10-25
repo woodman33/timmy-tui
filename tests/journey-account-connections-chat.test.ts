@@ -7,8 +7,9 @@
  * openChatSession: the FAKE model answers with one tool call, then text; its receipt is sealed on the project's chain and
  * verified here).
  *
- *   1. identity not configured → the account screen, reviewable, naming the exact env names; the social buttons say what they
- *      need; nothing signs in and no request leaves 127.0.0.1;
+ *   1. identity not configured → the operator's chat; the rail's account block reads the identity brief ("Sign-in is not set up":
+ *      R95, no env name in the rail) and opens the account page, which names the exact env names; the social buttons say what
+ *      they need; nothing signs in and no request leaves 127.0.0.1;
  *   2. configured with the FAKE provider's key, a minted session given to the page through its test seam (the same call the
  *      Clerk flow makes; the server still verifies the token) → the connections screen: four cards with their state words;
  *      Ollama · local against the FAKE Ollama: a model listed; Download a local model → its size, a confirmation, progress,
@@ -247,23 +248,28 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
   for (const size of SIZES) {
     const at = `${size.width}x${size.height}`;
 
-    it(`1. identity not configured at ${at}: the page lands on the operator's chat, the rail's account block names the env names and opens the account screen, whose social buttons say what they need; nothing signs in, nothing leaves 127.0.0.1`, async () => {
+    it(`1. identity not configured at ${at}: the page lands on the operator's chat, the rail's account block reads the identity brief ("Sign-in is not set up", no env name in the rail — R95) and opens the account page, which names the env names and whose social buttons say what they need; nothing signs in, nothing leaves 127.0.0.1`, async () => {
       const o = await open(unconfigured!, size);
       try {
         // the lead's 21:48 ruling (a)+(b): no provider configured → the companion as it was, the operator's own workspace ('chat'),
-        // the rail's account block saying "This computer's operator · no identity provider configured (CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY)"
+        // the rail's account block naming this computer's operator. R95 (H171 + H173, the lead's 18:18; 2c01a896): the block's second
+        // line is GET /api/identity's plain BRIEF — "Sign-in is not set up" — with NO environment name in the rail; the CLERK_ names are
+        // the account page's (its blocker and Details), read there below.
         await until(o.page, 'the operator\'s chat (unconfigured lands on chat)', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen] (unconfigured lands on chat)').toBe('chat');
         // on a phone the rail is folded behind the menu button (round 7, H175's SHELL CONTRACT v1 §4: #shell-menu opens the rail sheet;
         // round 6: H171's #cx-menu named "Menu")
         if (size.width < 600) await o.page.locator('#shell-menu').or(o.page.getByRole('button', { name: 'Menu' })).first().click();
-        const landed = await until(o.page, 'the rail\'s account block naming the dependency (the lead\'s 21:48 words; H171)', (s) => /no identity provider configured/i.test(s), 10_000);
-        expect(landed).toMatch(/CLERK_PUBLISHABLE_KEY/);
-        expect(landed).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
-        expect(landed).toMatch(/This computer.s operator/i);
-        await caps.cap(o.page, size, 'account-block-unconfigured', ['UNCONFIGURED companion (no CLERK_* set): the operator\'s chat with the rail\'s account block naming the dependency.']);
-        // the account block opens the account screen (H171): the dependency named again, in the screen's own words
-        await o.page.getByText(/no identity provider configured/i).first().click();
+        const railSub = o.page.locator('#rail-account-sub').first();
+        await o.page.waitForFunction(() => /Sign-in is not set up/i.test(document.getElementById('rail-account-sub')?.textContent ?? ''), null, { timeout: 10_000 }).catch(async () => { throw new Error(`the rail's account block did not read the identity brief "Sign-in is not set up" (#rail-account-sub) within 10 s — it reads "${(await railSub.textContent().catch(() => '(no #rail-account-sub)')) ?? ''}"; ${facts(o)()}; the page read:\n${(await text(o.page)).slice(0, 1200)}`); });
+        const railName = ((await o.page.locator('#rail-account-name').first().textContent().catch(() => '')) ?? '').trim();
+        expect(railName, 'the rail\'s account block names this computer\'s operator (#rail-account-name)').toMatch(/This computer.s operator/i);
+        const railWords = ((await o.page.locator('#shell-rail').first().innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ');
+        expect(railWords, 'no environment name in the rail (R95: the brief is plain words; the CLERK_ names are the account page\'s)').not.toMatch(/CLERK_/);
+        expect(railWords, 'the rail says the brief').toMatch(/Sign-in is not set up/i);
+        await caps.cap(o.page, size, 'account-block-unconfigured', ['UNCONFIGURED companion (no CLERK_* set): the operator\'s chat with the rail\'s account block — "This computer’s operator · Sign-in is not set up" (the identity brief, R95: no environment name in the rail; the names are the account page\'s).']);
+        // the account block (#rail-account-go, the shell's data-shell-go="account") opens the account page: the dependency named THERE, by its env names
+        await o.page.locator('#rail-account-go').first().click();
         // round 4's words ("Create your Timmy account" / "Welcome back to Timmy"), or round 7's (H173's f82aadf7: an UNCONFIGURED companion
         // says "Sign-in is not set up on this companion." and offers "Continue as the operator"; no account is pretended)
         const t = await until(o.page, 'the account screen (opened from the rail\'s account block)', (s) => /Create your Timmy account|Welcome back to Timmy|Sign-in is not set up on this companion/.test(s), 10_000);
@@ -313,10 +319,30 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(t).not.toMatch(/\bfree\b/i);
         expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
         // Ollama · local against the FAKE Ollama: Check asks it (the card's first state is this computer's PATH: "not installed" with
-        // no ollama program here); its model is then listed
-        await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click();
-        await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000, undefined, facts(o));
-        await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check: the FAKE Ollama on 127.0.0.1 answered its model list (one FAKE model, no model ran).']);
+        // no ollama program here); its model is then listed. D15 (H170; the operator's 19:18 order, item 5): the card carries ONE verb —
+        // "Install Ollama ↗" while nothing is installed — and "Check" is the CONTEXT's tool for the SELECTED card: the card is pressed
+        // (selected), on a phone the context sheet opened (.page-context-btn → .page-context.is-open), then the context's Check pressed
+        // (when the card's own verb already IS the check — "Check again" — that verb); what was pressed is said. The FAKE's model then
+        // stands in the context's "What the check found".
+        const phone = size.width <= 720;
+        const contextOpen = async (): Promise<void> => {
+          if (!phone || await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) return;
+          await o.page.locator('.page-context-btn').first().click();
+          await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 });
+        };
+        const contextClose = async (): Promise<void> => { if (phone && await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape'); };
+        const localCard = o.page.locator('[data-provider="ollama-local"]').first();
+        await localCard.click();
+        await contextOpen();
+        const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+        const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
+        let pressedCheck: string;
+        if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
+        else if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+        else throw new Error(`${at}: no Check control for Ollama · local — neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); ${facts(o)()}; the page read:\n${(await text(o.page)).slice(0, 1500)}`);
+        await o.page.waitForFunction((m) => (document.querySelector('[data-cn-found="ollama-local"]')?.textContent ?? '').includes(m), MODEL, { timeout: 20_000 }).catch(async () => { throw new Error(`${at}: the FAKE Ollama's model "${MODEL}" did not reach the context's "What the check found" within 20 s after ${pressedCheck}; ${facts(o)()}; the page read:\n${(await text(o.page)).slice(0, 1500)}`); });
+        const found = ((await o.page.locator('[data-cn-found="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+        await caps.cap(o.page, size, 'connections-after-check', [`Ollama · local after Check — pressed: ${pressedCheck}; the FAKE Ollama on 127.0.0.1 answered its model list (one FAKE model, no model ran); the context's "What the check found": "${found.slice(0, 200)}"${phone ? '; the context open as a sheet in this picture' : ''}.`]);
         // Download a local model (H170's words, 19:47): the box, the model's name, "Show the size" → the confirmation sentence
         // "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." before anything
         // is pulled; "Confirm the download" → progress "<x> MB of <y> MB · <status> (<n>%)"; Cancel → "Cancelled…", the FAKE
@@ -367,6 +393,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // The operator's 19:18 order, item 2 (the mobile Continue): the page IS the Chat (body[data-page] / data-screen) within 5 s of
         // the press, at every size (H175's land(why) on the head: never back to Models & accounts). The ready-route Continue — the
         // head's primary pressed on Models & accounts at 390 after a model was chosen — is read in case 4.
+        await contextClose(); // (the phone's context sheet, open since the Check, closed first: the dock's control is pressed on the page itself)
         const continueBtn = o.page.getByRole('button', { name: /^Continue to the workspace/ });
         const hasContinue = (await continueBtn.count()) > 0;
         const pressed = hasContinue ? '"Continue to the workspace" (the head\'s primary: the route is ready)' : '"Explore without a model" (the dock: no model is chosen yet, so the head\'s primary is "Set up a model", not Continue)';
