@@ -576,6 +576,10 @@ describe('every major page on the shell, from the running companion and Studio: 
           await caps.cap(o.page, size, `${slug(p.name)}-page`, { line: line(p.name, 'as reached by the navigation'), facts, full: true });
           await expectScaffold(o.page, p.name);
           await PROBES[p.name]?.(o, size, facts);
+          // the probes' facts (a face drawn or not, the states read, the key saved…) were gathered AFTER the page's first picture: they go
+          // into one more capture of the page as the probes left it, and into the log (GATE 05 lost them: said once, fixed here)
+          await caps.cap(o.page, size, `${slug(p.name)}-end-state`, { line: line(p.name, 'as the probes left it (their facts below)'), facts: facts.slice(1) });
+          console.log(`${at} ${p.name} — the probes' facts:\n  ${facts.join('\n  ')}`);
           await clean(o, p.name);
         } finally { await o.close(); }
       });
