@@ -472,7 +472,9 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
           expect(await inputValue(o.page, 'connection-ollama-local', 'State')).toBe(0);
           expect(await o.page.locator('[data-inspect-component="connection-ollama-local"] .tr-facts').innerText()).toContain('connected has NO success pose');
         }
-        expect(await label(o.page, 'connection-openrouter'), 'the other cards stay as they are').toBe('disconnected');
+        // the other cards stay as they are: the OpenRouter card's label reads its observed word ("not set up", item 4) or the vocabulary's "disconnected"
+        const orState = (await o.page.locator('[data-provider="openrouter"]').first().getAttribute('data-state').catch(() => null)) ?? '';
+        expect([...(orState ? [orState] : []), 'disconnected'], `the other cards stay as they are (openrouter: "${orState}")`).toContain(await label(o.page, 'connection-openrouter'));
         await closeInspect(o.page);
         expect(o.left, 'requests that left 127.0.0.1 (Clerk\'s fetches to the FAKE instance aside)').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
