@@ -398,17 +398,17 @@
       for (const el of main.querySelectorAll('.cn-card[data-provider]')) { const on = el.dataset.provider === live.sel; el.classList.toggle('is-chosen', on); if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); }
     }
 
+    /** This screen's buttons for the shell's task dock (D8: plain words — the page's one arrow is the shell's primary). */
     function dock(s, cards) {
       const local = cards.find((c) => c.id === 'ollama-local');
       const checkable = cards.filter((c) => c.model && c.situation === 'existing');
-      return h('div', { class: 'cn-dock page-dock', role: 'toolbar', 'aria-label': 'Models & accounts tools' },
-        h('span', { class: 'sh-label cn-dock-label' }, 'Models & accounts tools'),
-        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'check-all', disabled: checkable.length ? null : true, title: checkable.length ? `Checks ${checkable.map((c) => c.title).join(', ')}: each asks its provider once and runs no model` : 'Nothing to check yet: no provider holds a setup', onClick: async () => { for (const c of checkable) await check(c, c.id); } }, `⟳ Check ${checkable.length ? checkable.length : ''} configured`.replace('  ', ' ')),
-        local ? h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'download', onClick: () => showPull(local) }, '⇩ Download a model') : null,
-        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'explore', onClick: goChat }, `→ ${s.explore || 'Explore without a model'}`),
-        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'back', onClick: () => { if (typeof sh.go === 'function') sh.go('account'); } }, `← ${s.back || 'Back'}`),
-        h('span', { class: 'cn-dock-spacer' }),
-        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'records', 'aria-expanded': live.recordsOpen ? 'true' : 'false', onClick: () => { const d = scope.querySelector('.cn-records'); if (d) { d.open = !d.open; live.recordsOpen = d.open; } } }, '▤ Records'));
+      return [
+        h('button', { type: 'button', class: 'dock-btn cn-dock-btn', 'data-cn-dock': 'check-all', disabled: checkable.length ? null : true, title: checkable.length ? `Checks ${checkable.map((c) => c.title).join(', ')}: each asks its provider once and runs no model` : 'Nothing to check yet: no provider holds a setup', onClick: async () => { for (const c of checkable) await check(c, c.id); } }, `Check ${checkable.length ? checkable.length : ''} configured`.replace('  ', ' ')),
+        local ? h('button', { type: 'button', class: 'dock-btn cn-dock-btn', 'data-cn-dock': 'download', onClick: () => showPull(local) }, 'Download a model') : null,
+        h('button', { type: 'button', class: 'dock-btn cn-dock-btn', 'data-cn-dock': 'explore', onClick: goChat }, s.explore || 'Explore without a model'),
+        h('button', { type: 'button', class: 'dock-btn cn-dock-btn', 'data-cn-dock': 'back', onClick: () => { if (typeof sh.go === 'function') sh.go('account'); } }, s.back || 'Back'),
+        h('button', { type: 'button', class: 'dock-btn cn-dock-btn', 'data-cn-dock': 'records', 'aria-expanded': live.recordsOpen ? 'true' : 'false', onClick: () => { const d = scope.querySelector('.cn-records'); if (d) { d.open = !d.open; live.recordsOpen = d.open; } } }, 'Records'),
+      ].filter(Boolean);
     }
 
     function records(s, data, cards) {
@@ -435,8 +435,9 @@
           kicker: `${kickerNumber() ? `${kickerNumber()} / ` : ''}${s.kicker || 'CONNECT A PROVIDER'}`,
           title: s.title || '',
           intro: s.lead || '',
+          // (D8: the label carries no arrow — the shell's primary button draws the one →, the band's action its ↗)
           primary: ready
-            ? { label: `${s.continue || 'Continue to the workspace'} →`, run: land }
+            ? { label: s.continue || 'Continue to the workspace', run: land }
             : { label: s.setUp || 'Set up a model', run: () => { live.sel = primaryId; drawContext(); markChosen(); focusVerb(primaryId); } },
           context: 'selection',
           band: [{ k: 'Account', v: who ? `Signed in · ${who}` : 'Not signed in' }],
@@ -465,7 +466,7 @@
         let tools = regions.dock.querySelector(':scope > .dock-tools');
         if (!tools) { tools = h('div', { class: 'dock-tools' }); regions.dock.append(tools); }
         for (const old of tools.querySelectorAll('[data-cn-dock]')) old.remove();
-        for (const b of dock(s, cards).querySelectorAll('[data-cn-dock]')) { b.classList.add('dock-btn'); b.classList.remove('sh-btn-text'); tools.append(b); }
+        tools.append(...dock(s, cards));
       }
       if (regions.records) regions.records.replaceChildren(records(s, data, cards));
       register(s, sum, cards, primaryId);
