@@ -77,6 +77,22 @@ const chromeOf = (page: Page): Promise<{ compact: boolean; head: number; band: n
   };
 });
 
+/** D21 (the lead's 22:58): the elements IN VIEW inside the Chat's work region (#ws-chat .page-work — the conversation, the note, the
+ *  console band, the route line, the composer; the records' status row and the context's NEXT TURN card are outside it) whose own
+ *  text says "Next turn", by id or class — exactly one is the rule: the composer's route line (it carries Change model). */
+const nextTurnSayings = (page: Page): Promise<string[]> => page.evaluate(() => {
+  const work = document.querySelector('#ws-chat .page-work');
+  if (!work) return ['(no .page-work)'];
+  return [...work.querySelectorAll('*')]
+    .filter((e) => (e as HTMLElement).getClientRects().length && [...e.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && /Next turn/.test(n.textContent ?? '')))
+    .map((e) => e.id || e.className || e.tagName.toLowerCase());
+});
+/** D21: where the context column (the Models rail and its list) is scrolled to — all 0 after the page opens, before any selection. */
+const contextScroll = (page: Page): Promise<{ context: number | null; rail: number | null; list: number | null }> => page.evaluate(() => {
+  const top = (sel: string): number | null => { const e = document.querySelector(sel); return e ? Math.round(e.scrollTop) : null; };
+  return { context: top('#ws-chat .page-context'), rail: top('#cx-models'), list: top('#cm-list') };
+});
+
 const composerPlace = (page: Page): Promise<{ bottom: number; inner: number; overflow: number; parts: Record<string, number>; folded: boolean | null; face: number | null }> => page.evaluate(() => {
   const m = document.getElementById('ws-main');
   if (m) m.scrollTop = 0;
@@ -298,6 +314,12 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(chrome.head, `the head one row: ${JSON.stringify(chrome)}`).toBeLessThanOrEqual(60);
       expect(chrome.band, `the band one row: ${JSON.stringify(chrome)}`).toBeLessThanOrEqual(44);
       expect(chrome.primaryRight, `the primary at the right of the head: ${JSON.stringify(chrome)}`).toBe(true);
+      // D21 (the lead's 22:58): "Next turn" is said ONCE in the work — the composer's route line (it carries Change model); the
+      // context's NEXT TURN card is the selected model's facts (D15), outside the work; the companion's read-back of a choice is no
+      // longer a box above the console band. And the context opens at its top: nothing scrolled it on the page's open
+      expect(await nextTurnSayings(page), 'ONE "Next turn" in the work: the route line').toEqual(['cx-route-words']);
+      await page.waitForSelector('#cm-list', { state: 'attached', timeout: 10_000 });
+      expect(await contextScroll(page), 'the context at its top after the page opens').toEqual({ context: 0, rail: 0, list: 0 });
       // D13 (H168's R77 High; the lead's ruling): at 1440 × 900 the composer is in view with NOTHING scrolled — here the content
       // state; the console band is one row (its face ≤ 48 px) while no turn runs; the heights are in the message for the handoff
       const content = await composerPlace(page);
@@ -309,7 +331,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // conversation": it puts the keyboard in the composer), the band's action its text twin, neither ever "Send", draft or none
       const primary = () => text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child');
       expect(await primary()).toBe('Continue the conversation');
-      expect(await text(page, '#ws-chat > .page-band .band-action')).toContain('Continue the conversation');
+      // (the band's text action, WHEN the shell draws one, is the primary's twin and never "Send"; D19 — H175, the lead's 22:58 —
+      // draws none when its label would equal the primary's, so its absence is right too)
+      const bandAction = await page.$eval('#ws-chat > .page-band', (b) => { const a = b.querySelector('.band-action'); return a && a.getClientRects().length ? (a.textContent ?? '').replace(/\s+/g, ' ').trim() : null; });
+      if (bandAction !== null) expect(bandAction).toContain('Continue the conversation');
       await page.click('#ws-chat > .page-head .page-primary .ui-primary');
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
       await page.keyboard.type('a draft');
@@ -608,7 +633,13 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cx-status .is-logs')).toBe('Logs stay on this computer');
       expect(await page.$eval('#rail-menu .rail-item[data-dest="tools"] .rail-label', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
       expect(await text(page, '#cx-status .cx-st-sync')).toBe('cloud sync off · spend no charge');
-      expect(await text(page, '#cx-note')).toBe('Next turn: fake-llama:1b on this computer.');
+      // D21: the companion's read-back of the choice ("Next turn: fake-llama:1b on this computer.") is NOT a box above the console
+      // band — the route line says the next turn, once in the work; the note stays hidden
+      expect(await page.$eval('#cx-note', (e) => ({ hidden: (e as HTMLElement).hidden, words: (e.textContent ?? '').trim() }))).toEqual({ hidden: true, words: '' });
+      expect(await nextTurnSayings(page), 'ONE "Next turn" in the work after the choice').toEqual(['cx-route-words']);
+      // (the choice made, the context reads from its top as the selected model's facts — nothing scrolled back into view: the row
+      // "✓ in use" sits below the rail's fold at 1440 (128 px), and a "nearest" scroll to it would cut the top again)
+      expect(await contextScroll(page), 'the context at its top after the choice').toEqual({ context: 0, rail: 0, list: 0 });
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready' && /^fake-llama:1b · this computer · ready \d\d:\d\d$/.test(document.getElementById('cx-chip-words')?.textContent ?? ''), null, { timeout: 20_000 });
       expect(await text(page, '#cm-list .cm-row[data-model="fake-llama:1b"] .cm-inuse')).toBe('✓ in use');
       // a row Ollama no longer establishes as a chat model (its list is stale): the row says why, nothing changed
@@ -977,9 +1008,12 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
             expect(empty.bottom, `EMPTY state at 1440 × 900: ${JSON.stringify(empty)}`).toBeLessThanOrEqual(empty.inner);
             expect(empty.parts.welcome, `the welcome ≤ 120 px: ${JSON.stringify(empty)}`).toBeLessThanOrEqual(120);
             expect(empty.folded, `the band one row on the empty Chat: ${JSON.stringify(empty)}`).toBe(true);
-            // R78/R79: ONE next step on the empty Chat — the head's primary (to write; the band's action its text twin); no solid chip
+            // R78/R79: ONE next step on the empty Chat — the head's primary (to write); no solid chip. The band's trailing action:
+            // the Chat registers no bandAction of its own (no second verb worth an arrow), so under D19 (H175, the lead's 22:58) the
+            // band draws NONE — the primary carries the one arrow; an older shell drew the primary's text twin, never "Send"
             expect(await text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child')).toBe('Start a conversation');
-            expect(await text(page, '#ws-chat > .page-band .band-action')).toContain('Start a conversation');
+            const emptyBandAction = await page.$eval('#ws-chat > .page-band', (b) => { const a = b.querySelector('.band-action'); return a && a.getClientRects().length ? (a.textContent ?? '').replace(/\s+/g, ' ').trim() : null; });
+            if (emptyBandAction !== null) expect(emptyBandAction).toContain('Start a conversation');
             expect(await page.$$eval('#ws-chat .cx-change.is-setup, #ws-chat .cm-connect.sh-btn', (els) => els.length)).toBe(0);
           } else {
             await page.$eval('#cx-composer', (f) => f.scrollIntoView({ block: 'center' }));
@@ -1065,8 +1099,12 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(chrome390.titleWidth, `the title's room on the phone: ${JSON.stringify(chrome390)}`).toBeGreaterThanOrEqual(150);
       expect(chrome390.intro, 'no intro').toBe(false);
       expect(chrome390.head, `the head: a row of words and the primary's row: ${JSON.stringify(chrome390)}`).toBeLessThanOrEqual(96);
-      expect(chrome390.band, `the band one row: ${JSON.stringify(chrome390)}`).toBeLessThanOrEqual(44);
+      // (the phone's band is the shell's — D19, H175: the first two facts WHOLE, a long Model value wrapping to a second line rather
+      // than cut to nothing, the rest behind "· more" — so two lines at most here, not one)
+      expect(chrome390.band, `the band at most two lines (D19's whole facts): ${JSON.stringify(chrome390)}`).toBeLessThanOrEqual(60);
       expect(chrome390.primary).toBe('Continue the conversation');
+      // D21 on the phone: "Next turn" once in the work (the route line); the context sheet is closed — its scroll read when it opens below
+      expect(await nextTurnSayings(page), 'ONE "Next turn" in the work at 390').toEqual(['cx-route-words']);
       await page.evaluate(() => window.scrollTo(0, 0));
       // (the composer reachable on the phone: scrolled to, whole above the sticky dock — the first screen is the shell's head and band)
       await page.$eval('#cx-composer', (f) => f.scrollIntoView({ block: 'center' }));
@@ -1097,14 +1135,23 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.waitForSelector('#ws-chat .page-context.is-open', { timeout: 5_000 });
       expect(await page.isVisible('#cx-models')).toBe(true);
       expect(await page.isVisible('#cx-chip')).toBe(true);
+      // D21: the sheet opens at its top — nothing scrolled the context, the rail or the list before the person's own selection
+      await page.waitForSelector('#cm-list', { state: 'attached', timeout: 10_000 });
+      expect(await contextScroll(page), 'the context sheet at its top when it opens').toEqual({ context: 0, rail: 0, list: 0 });
       await page.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
       await page.waitForSelector('#cm-list .cm-row[data-model="fake-llama:1b"]', { timeout: 20_000 });
+      // (D21, the capture's own path: the row CLICKED first — the selection's one scroll, its detail brought into the sheet's view
+      // with block 'nearest' — then chosen with Enter)
+      await page.click('#cm-list .cm-row[data-model="fake-llama:1b"]');
+      await page.waitForSelector('#cm-detail', { state: 'attached', timeout: 10_000 });
       await page.focus('#cm-list .cm-row[data-model="fake-llama:1b"]');
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.getElementById('cx-route-words')?.textContent?.startsWith('Next turn: fake-llama:1b'), null, { timeout: 20_000 });
       // (the drawer closes and the composer takes the keyboard once the choice's read-back is drawn)
       await page.waitForFunction(() => !document.querySelector('#ws-chat .page-context.is-open') && document.activeElement?.id === 'cx-input', null, { timeout: 10_000 });
       expect(await page.$eval('#ws-chat .page-context', (e) => e.classList.contains('is-open'))).toBe(false);
+      // (D21: the choice made, the context reads from its top again — the selection's scroll residue does not outlive the choice)
+      expect(await contextScroll(page), 'the context at its top after the choice (the sheet closed)').toEqual({ context: 0, rail: 0, list: 0 });
       expect(await page.inputValue('#cx-input')).toBe('phone draft');
       expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
       expect(errors).toEqual([]);
