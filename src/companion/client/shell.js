@@ -200,32 +200,49 @@
     drawState(p);
   }
 
-  /** The summary band: Workspace · Model · Records (+ the page's cells) · the primary as a text action. */
+  /** The summary band: Workspace · Model · Records (+ the page's cells) · an action only for a verb that differs from the primary's (D19). */
   function drawBand(p, primary) {
     const band = region(p, 'page-band');
     if (!band) return;
     const r = spec(p);
     const own = bands[p.id] || {};
     const f = frame();
-    const proj = (typeof companion !== 'undefined' && companion && companion.project && companion.project.name) || (f && f.project && f.project.name) || ($('project-name') && $('project-name').textContent !== 'not known yet' ? $('project-name').textContent : '') || '';
+    // the project by its ONE spelling: the display name companion.js writes into #project-name (what the rail's card and the
+    // crumb show — R94), then the frame's; never two sources with two spellings
+    const named = $('project-name') ? ($('project-name').textContent || '').trim() : '';
+    const proj = (named && named !== 'not known yet' ? named : '') || (f && f.project && f.project.name) || '';
     const route = $('cx-route-words') ? ($('cx-route-words').textContent || '').trim() : '';
     const records = $('cx-state-words') ? ($('cx-state-words').textContent || '').trim() : '';
+    // never a label with an empty value (D19): a cell without words is not drawn
     const cells = [
       { k: 'Workspace', v: own.workspace || proj || 'Reading the project…' },
       { k: 'Model', v: own.model || (route && !/^Asking/.test(route) ? route : 'Not chosen yet') },
       { k: 'Records', v: own.records || records || 'Local records' },
       ...(Array.isArray(r.band) ? r.band : []),
-    ];
+    ].filter((c) => c && String(c.k == null ? '' : c.k).trim() && String(c.v == null ? '' : c.v).trim());
     const state = sectionOf(p) ? sectionOf(p).dataset.state : 'content';
-    const kids = cells.map((c) => h('div', { class: 'band-cell' }, h('span', { class: 'band-k' }, c.k), h('strong', { class: 'band-v' }, c.v)));
+    const kids = cells.map((c) => h('div', { class: 'band-cell' }, h('span', { class: 'band-k' }, String(c.k)), h('strong', { class: 'band-v' }, String(c.v))));
     if (state === 'approval') kids.unshift(h('div', { class: 'band-cell is-attn' }, h('span', { class: 'band-k' }, 'Needs you'), h('strong', { class: 'band-v' }, '◆ ', (registrations[p.id] && registrations[p.id].stateWords) || 'An approval waits on you')));
-    if (primary) {
-      const b = h('button', { type: 'button', class: 'band-action', 'aria-disabled': primary.disabled ? 'true' : null }, plainLabel(primary.label), ' ', h('span', { 'aria-hidden': 'true' }, '↗'));
-      if (primary.disabled) b.disabled = true;
-      b.addEventListener('click', () => { try { primary.run(); } catch (e) { shell.toast(`The action failed: ${e && e.message ? e.message : e}`); } });
-      kids.push(b);
+    // the phone (D19): the first two facts whole (what waits on you before them), the rest behind a "· more" disclosure
+    const main = state === 'approval' ? 3 : 2;
+    const out = phone() && kids.length > main
+      ? [...kids.slice(0, main), (() => {
+        const word = h('span', { class: 'band-more-word' }, 'more');
+        const d = h('details', { class: 'band-more' }, h('summary', { class: 'band-more-summary' }, h('span', { 'aria-hidden': 'true' }, '· '), word), h('div', { class: 'band-more-cells' }, ...kids.slice(main)));
+        d.addEventListener('toggle', () => { text(word, d.open ? 'less' : 'more'); });
+        return d;
+      })()]
+      : kids;
+    // the trailing action (D19): only a verb that DIFFERS from the page primary's — the primary carries the one arrow (D8); a page
+    // registers a different verb as `bandAction: { label, run, disabled?, why? }`; the same words draw nothing
+    const act = r.bandAction && r.bandAction.label ? r.bandAction : primary;
+    if (act && !(primary && plainLabel(act.label) === plainLabel(primary.label))) {
+      const b = h('button', { type: 'button', class: 'band-action', title: act.disabled && act.why ? String(act.why) : null, 'aria-disabled': act.disabled ? 'true' : null }, plainLabel(act.label), ' ', h('span', { 'aria-hidden': 'true' }, '↗'));
+      if (act.disabled) b.disabled = true;
+      b.addEventListener('click', () => { try { if (typeof act.run === 'function') act.run(); } catch (e) { shell.toast(`The action failed: ${e && e.message ? e.message : e}`); } });
+      out.push(b);
     }
-    band.replaceChildren(...kids);
+    band.replaceChildren(...out);
   }
 
   /** The task dock: the label, the frame's actions strip (#ws-strip, moved here), the page's own tools, a Stop slot while running. */
@@ -244,7 +261,8 @@
     if (!stop) { stop = h('div', { class: 'dock-stop' }); dock.append(stop); }
     const state = sectionOf(p) ? sectionOf(p).dataset.state : 'content';
     stop.hidden = state !== 'running';
-    const visible = [...dock.children].some((c) => c !== label && !c.hidden && c.id !== 'ws-strip' ? c.childElementCount > 0 : c.id === 'ws-strip' ? Boolean(strip && strip.querySelector('#ws-actions li')) : false);
+    // (companion.js's "The frame gives this tab no actions." li.empty is not an action — and the dock says nothing then: D19)
+    const visible = [...dock.children].some((c) => c !== label && !c.hidden && c.id !== 'ws-strip' ? c.childElementCount > 0 : c.id === 'ws-strip' ? Boolean(strip && strip.querySelector('#ws-actions li:not(.empty)')) : false);
     dock.dataset.empty = visible ? 'false' : 'true';
   }
 
@@ -775,6 +793,8 @@
   function boot() {
     restoreTheme();
     foldRecordsByDefault();
+    // the phone band's fold is drawn (D19): crossing 720 px redraws the shown page's head and band
+    try { window.matchMedia(PHONE).addEventListener('change', () => { const p = pageOf(shown); if (p) drawHead(p); }); } catch (e) { /* no matchMedia events: drawn on the next page change */ }
     for (const p of PAGES) { const s = sectionOf(p); if (s) scaffold(s, p); }
     drawRail();
     wireHelp();

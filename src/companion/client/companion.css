@@ -1806,6 +1806,7 @@ body.shell #ws-main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidd
 #ws-main .page-dock .ws-strip .strip-title { display: none; } /* (the dock's label names the strip; aria-labelledby still reads this heading) */
 #ws-main .page-dock .strip-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 0; list-style: none; }
 #ws-main .page-dock .strip-actions li { margin: 0; }
+#ws-main .page-dock .strip-actions > li.empty { display: none; } /* (D19: the dock says nothing when the frame gives no actions — companion.js's sentence is not the dock's) */
 #ws-main .page-dock .strip-actions button, #ws-main .page-dock .strip-actions .cmd { border-radius: var(--timmy-ui-radius-control); }
 #ws-main .page-dock .strip-actions li:not([data-primary="true"]) button { border-color: var(--timmy-ui-border); background: transparent; color: var(--timmy-ui-text-secondary); }
 #ws-main .page-dock .strip-actions li:not([data-primary="true"]) button:hover { background: var(--timmy-ui-highlight); color: var(--timmy-ui-text); }
@@ -1948,15 +1949,22 @@ body.shell.rail-open .nav-rail { display: flex; }
   .page-primary .ui-primary { width: 100%; }
   #ws-main .page-title { font-size: 24px; margin-top: 6px; }
   .page-intro { margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  /* the band ONE row: Workspace · Model · Records as a line; the action is the head's */
-  .page-band { flex-wrap: nowrap; gap: 8px; padding: 8px 14px; overflow: hidden; }
-  .band-cell { flex: 0 1 auto; flex-direction: row; align-items: baseline; gap: 5px; padding: 0; margin: 0; border: 0; }
-  .band-cell:first-child { flex-shrink: 0; }
+  /* the band (the lead's 16:55 decision a, then D19): the first two facts WHOLE (a cell never shrinks to an empty value; a long one wraps to its own line and ellipsizes only
+     past the full width), the rest behind the "· more" disclosure shell.js draws; the band's action never duplicates the primary */
+  .page-band { flex-wrap: wrap; gap: 4px 8px; padding: 8px 14px; overflow: hidden; }
+  .band-cell { flex: 0 0 auto; max-width: 100%; min-width: 0; flex-direction: row; align-items: baseline; gap: 5px; padding: 0; margin: 0; border: 0; }
   .band-cell + .band-cell::before { content: '·'; color: var(--timmy-ui-text-muted); margin-right: 3px; }
   .band-k { white-space: nowrap; }
   .band-k::after { content: ':'; }
-  .band-v { min-width: 0; }
-  .band-cell.is-attn { flex-shrink: 0; }
+  .band-v { min-width: 0; max-width: 100%; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; } /* (whole: a long value wraps, never an ellipsis to nothing) */
+  .band-more { display: block; flex: 0 0 auto; max-width: 100%; }
+  .band-more:not([open]) > .band-more-cells { display: none; }
+  .band-more[open] { flex-basis: 100%; }
+  .band-more > summary { list-style: none; cursor: pointer; font-size: 13px; color: var(--timmy-ui-text-secondary); white-space: nowrap; }
+  .band-more > summary::-webkit-details-marker { display: none; }
+  .band-more > summary .band-more-word { text-decoration: underline; text-underline-offset: 2px; }
+  .band-more-cells { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 2px; }
+  .band-more-cells .band-cell::before { content: none; }
   .band-action { display: none; }
   .page-body { display: flex; flex-direction: column; gap: 14px; }
   /* the context sheet: closed, it is off screen AND hidden (not painted into a full-page capture, nothing of it in the Tab order:
