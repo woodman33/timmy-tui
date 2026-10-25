@@ -737,14 +737,20 @@ function routeWhere(r) {
 // primary action) — computed from the chat's state, drawn into the shell's page head (H175's SHELL CONTRACT) and, until that
 // lands, into the chat's own head and descriptor. The order's hierarchy: Timmy → project → current task → primary next action. ──
 
-/** The current task's words: the newest message of the person's (the conversation's or this page's), cut for a kicker. */
-function taskWords() {
-  const own = cx.own[cx.own.length - 1];
+/**
+ * The conversation's title (D9, the lead's 17:35 ruling): the person's words belong to the h1, never to the kicker — the FIRST
+ * message of the person's (the saved conversation's, else this page's own first turn), one line, cut at 72 characters on a word.
+ * The project is the band's Workspace cell and the topbar's crumb (the shell's); the kicker says only where I am.
+ */
+function conversationTitle() {
   const conv = cx.view && cx.view.conversation;
-  const saved = conv ? [...conv.turns].reverse().find((t) => t.kind === 'you') : null;
-  const words = own ? own.you : saved ? saved.text : '';
+  const saved = conv ? conv.turns.find((t) => t.kind === 'you') : null;
+  const words = saved ? saved.text : cx.own.length ? cx.own[0].you : '';
   const one = String(words || '').replace(/\s+/g, ' ').trim();
-  return one.length > 44 ? `${one.slice(0, 43)}…` : one;
+  if (one.length <= 72) return one;
+  const cut = one.slice(0, 71);
+  const sp = cut.lastIndexOf(' ');
+  return `${(sp > 40 ? cut.slice(0, sp) : cut).trimEnd()}…`;
 }
 
 /**
@@ -772,13 +778,14 @@ function primaryAction() {
 /** The page head's words by state (D4: empty / content / running / approval / error, each with its next action). */
 function pageWords() {
   const st = centerState();
-  const proj = cx.project && cx.project.name ? cx.project.name : 'this project';
   const own = cx.own[cx.own.length - 1];
   const conv = cx.view && cx.view.conversation;
   const n = conv ? conv.turns.filter((t) => t.kind !== 'tool').length : 0;
   const r = routeOf(cx.view);
-  const task = taskWords();
-  const kick = task ? `01 / ${proj} · ${task}` : '01 / START A CONVERSATION';
+  // (D9: the kicker is "NN / VERB PHRASE" only — a conversation under way continues, the first use starts one; the person's
+  // words are the h1's, the project the band's)
+  const title = conversationTitle();
+  const kick = title ? '01 / CONTINUE THE CONVERSATION' : '01 / START A CONVERSATION';
   if (!companion.token || companion.refused) return { kicker: '01 / CHAT', title: 'Open this page from Timmy.', line: 'Nothing is read without the companion’s token; the note above says how.', state: 'error' };
   if (st === 'reading') return { kicker: '01 / CHAT', title: 'Reading the project’s conversation…', line: cx.viewFailed || 'The companion is asked for the conversation and the next turn’s route.', state: cx.viewFailed ? 'error' : 'reading' };
   if (st === 'first-run' || st === 'setup') return { kicker: '01 / START A CONVERSATION', title: 'How would you like to run chat?', line: 'Choose one; you can add the others later. No account is needed to explore.', state: 'empty' };
@@ -788,7 +795,8 @@ function pageWords() {
   if (own && own.state === 'stopped') return { kicker: kick, title: 'Stopped.', line: 'The answer so far is kept; the receipt says it was stopped by you.', state: 'content' };
   if (st === 'no-model') return { kicker: '01 / START A CONVERSATION', title: 'A model is optional until you need an answer.', line: 'Write a draft now; choose a model when you want one.', state: 'empty' };
   if (st === 'empty') return { kicker: '01 / START A CONVERSATION', title: 'What would you like to make?', line: 'Your models, tools and ideas share one workspace.', state: 'empty' };
-  return { kicker: kick, title: 'Think, make and check your work.', line: `${n} message${n === 1 ? '' : 's'} in the project’s conversation${r && r.ready ? ` · the next answer from ${r.model}` : ''} · every answer sealed with its receipt.`, state: 'content' };
+  // (the conversation's title is the h1 — the shell draws it as written, no transform)
+  return { kicker: kick, title: title || 'Think, make and check your work.', line: `${n} message${n === 1 ? '' : 's'} in the project’s conversation${r && r.ready ? ` · the next answer from ${r.model}` : ''} · every answer sealed with its receipt.`, state: 'content' };
 }
 
 /** The shell of H175's SHELL CONTRACT v1 (§2.3), when this page runs on it: TimmyShell.page/state/band are functions there. */
