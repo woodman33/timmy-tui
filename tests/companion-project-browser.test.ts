@@ -387,8 +387,14 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await railMode(pinned.page)).toBe('Pinned on this page; the active project is gamma.');
       // (R10 H167: said in words on the line; the folder whole under its Details)
       expect(await text(pinned.page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(beta.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Pinned on this page; the active project is now gamma (${tildePath(gamma.root)}).`);
-      expect(await pinned.page.isHidden('#project-pin-mark')).toBe(false);
-      expect(await following.page.isHidden('#project-pin-mark')).toBe(true);
+      // R11 round 7 (H175, the lead's 00:13 triage 6): the legacy #project bar — its PINNED mark — lives under the records band's
+      // Details, hidden while the band is folded (the default); the pinned state the operator SEES is the shell band's Workspace
+      // cell, on every page, in words: "<project> · pinned on this page"; the following page's cell names its project alone
+      const workspaceCell = (page: Page): Promise<string> => page.evaluate(() => { const cell = [...document.querySelectorAll('.page:not([hidden]) > .page-band .band-cell')].find((c) => (c.querySelector('.band-k')?.textContent ?? '').trim() === 'Workspace'); return (cell?.querySelector('.band-v')?.textContent ?? '').replace(/\s+/g, ' ').trim(); });
+      expect(await workspaceCell(pinned.page)).toBe('beta · pinned on this page');
+      expect(await workspaceCell(following.page)).toBe('gamma');
+      expect(await pinned.page.getAttribute('#project-pin-mark', 'hidden')).toBeNull(); // (the legacy mark's attribute follows the mode; it is under Details)
+      expect(await following.page.getAttribute('#project-pin-mark', 'hidden')).not.toBeNull();
       // each page's mirror shows its own project's REPL turns
       const inBeta = fakeTurn(beta.bus, 'repl · 1 step');
       const inGamma = fakeTurn(gamma.bus, 'repl · 2 steps');
