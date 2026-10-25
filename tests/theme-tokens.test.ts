@@ -5,14 +5,16 @@
  * alone; Monaspace Argon is preferred, with a monospace fallback that always exists.
  *
  * R11 round 7 (H175; DESIGN.md §10 B11, the SHELL CONTRACT v1): the B11 registry (`UI`, `UI_THEMES`, `--timmy-ui-*`) beside it,
- * additive: the terminal values and the B10 web names stay byte-identical (pinned below), and every B11 text role is
- * re-measured here on every surface it is written on (≥ 4.5:1 text, ≥ 6:1 neutral text), in both families.
+ * additive: the terminal values (HOMEBREW, HOMEBREW_TERMINAL) stay byte-identical (pinned below), and every B11 text role is
+ * re-measured here on every surface it is written on (≥ 4.5:1 text, ≥ 6:1 neutral text), in both families. D12 (the lead's
+ * 18:06 ruling on H168's R83/R84, 2026-10-24): the B10 WEB names are aliases of their B11 role (LEGACY_WEB_ALIAS), so the sheet
+ * carries ONE palette; the alias map and the aliased text's contrast on every dark surface are pinned here.
  */
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from '../src/term/color.js';
 import { measuredFromPalette, namedPalette, TIMMY_HOMEBREW } from '../src/term/palettes.js';
 import { roleSlots } from '../src/term/theme.js';
-import { FONT_FILES, HOMEBREW, HOMEBREW_TERMINAL, TYPE, TYPE_UI, UI, UI_DEFAULT_THEME, UI_ELEVATION, UI_MOTION, UI_PAPER_END, UI_RADIUS, UI_SPACE, UI_THEMES, UI_WEB_FONT_PATH, themeCss, uiThemeCss } from '../src/theme/tokens.js';
+import { FONT_FILES, HOMEBREW, HOMEBREW_TERMINAL, LEGACY_WEB_ALIAS, TYPE, TYPE_UI, UI, UI_DEFAULT_THEME, UI_ELEVATION, UI_MOTION, UI_PAPER_END, UI_RADIUS, UI_SPACE, UI_THEMES, UI_WEB_FONT_PATH, themeCss, uiThemeCss } from '../src/theme/tokens.js';
 import { timmyPalette } from '../src/repl/main.js';
 
 describe('Timmy Homebrew in the terminal', () => {
@@ -63,8 +65,10 @@ describe('the browser settings', () => {
   });
   it('the CSS carries every setting as a variable, Monaspace Argon first, and a fallback that always exists', () => {
     const css = themeCss();
-    for (const [name, value] of Object.entries(HOMEBREW)) expect(css).toContain(`${value}`), expect(css).toContain(`--timmy-${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}:`);
-    expect(css).toContain(`--timmy-font-mono: ${TYPE.stack};`);
+    // every B10 name is still a variable of the sheet (an alias since D12: its value is its B11 role's, below)
+    for (const name of Object.keys(HOMEBREW)) expect(css).toContain(`--timmy-${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}: var(--timmy-ui-`);
+    expect(css).toContain('--timmy-font-mono: var(--timmy-ui-font-mono);');
+    expect(css).toContain(`--timmy-ui-font-mono: ${TYPE.stack};`);
     expect(TYPE.stack.startsWith('"Monaspace Argon"')).toBe(true);
     expect(TYPE.stack.endsWith('monospace')).toBe(true);
     expect(css).toContain(`--timmy-size-body: ${TYPE.size.body}px;`);
@@ -85,8 +89,8 @@ describe('the browser settings', () => {
 });
 
 describe('B11: the browser registry (--timmy-ui-*), additive beside B10', () => {
-  /** The exact B10 values, so a change to them is a change here first (the terminal and the legacy web names). */
-  it('the terminal and the B10 web names are byte-identical to the operator\'s decision of 2026-10-15', () => {
+  /** The exact B10 values, so a change to them is a change here first (the terminal; the web names are aliases, D12). */
+  it('the terminal values are byte-identical to the operator\'s decision of 2026-10-15', () => {
     expect(HOMEBREW).toEqual({
       ground: '#000000', surface: '#070707', raised: '#070707', line: '#333333', lineStrong: '#444444', text: '#F2EFE9', textSecondary: '#8E8E93',
       accent: '#FFB000', accentInk: '#000000', accentSoft: '#333333', silver: '#E8E4D9', attention: '#FFB000', failure: '#FFB000',
@@ -97,11 +101,59 @@ describe('B11: the browser registry (--timmy-ui-*), additive beside B10', () => 
       black: '#070707', red: '#FF5F56', green: '#28FE14', yellow: '#FFB000', blue: '#6CA8FF', magenta: '#B58CFF', cyan: '#5CC8D6', white: '#E8E4D9',
       brightBlack: '#8E8E93', brightRed: '#FF8A80', brightGreen: '#00D700', brightYellow: '#FFC94D', brightBlue: '#9CC3FF', brightMagenta: '#D0B3FF', brightCyan: '#8EE3EC', brightWhite: '#F2EFE9',
     });
+    // the terminal palette is built from HOMEBREW, never from the web aliases
+    expect(HOMEBREW_TERMINAL.background).toBe(HOMEBREW.ground);
+    expect(HOMEBREW_TERMINAL.brightBlack).toBe(HOMEBREW.textSecondary);
+  });
+  /** D12 (ONE PALETTE): each B10 web name is an alias of one B11 role; no B10 value is written into the sheet. */
+  it('the B10 web names are aliases of their B11 role (D12), the B10 block before the B11 block, and no B10 value is written', () => {
+    expect(LEGACY_WEB_ALIAS).toEqual({
+      ground: 'canvas', surface: 'surface', raised: 'raised', line: 'border-quiet', lineStrong: 'border', text: 'text', textSecondary: 'text-muted',
+      accent: 'accent', accentInk: 'accent-ink', accentSoft: 'accent-glow', silver: 'text-secondary', attention: 'focus', failure: 'focus',
+      live: 'verified', liveDim: 'verified-dim', ai: 'text-secondary', link: 'accent-soft', diffAdd: 'diff-add', diffRemove: 'diff-remove',
+    });
     const css = themeCss();
-    // the B10 block is emitted as before, before the B11 block; its values unchanged
-    expect(css.indexOf('--timmy-ground: #000000;')).toBeGreaterThan(0);
-    expect(css.indexOf('--timmy-ground: #000000;')).toBeLessThan(css.indexOf('--timmy-ui-canvas:'));
-    for (const line of ['--timmy-surface: #070707;', '--timmy-line: #333333;', '--timmy-line-strong: #444444;', '--timmy-text: #F2EFE9;', '--timmy-text-secondary: #8E8E93;', '--timmy-accent: #FFB000;', '--timmy-live: #28FE14;']) expect(css).toContain(line);
+    expect(css.indexOf('--timmy-ground: var(--timmy-ui-canvas);')).toBeGreaterThan(0);
+    expect(css.indexOf('--timmy-ground: var(--timmy-ui-canvas);')).toBeLessThan(css.indexOf('--timmy-ui-canvas:'));
+    for (const line of ['--timmy-surface: var(--timmy-ui-surface);', '--timmy-raised: var(--timmy-ui-raised);', '--timmy-line: var(--timmy-ui-border-quiet);',
+      '--timmy-line-strong: var(--timmy-ui-border);', '--timmy-text: var(--timmy-ui-text);', '--timmy-text-secondary: var(--timmy-ui-text-muted);',
+      '--timmy-accent: var(--timmy-ui-accent);', '--timmy-accent-ink: var(--timmy-ui-accent-ink);', '--timmy-accent-soft: var(--timmy-ui-accent-glow);',
+      '--timmy-silver: var(--timmy-ui-text-secondary);', '--timmy-attention: var(--timmy-ui-focus);', '--timmy-failure: var(--timmy-ui-focus);',
+      '--timmy-live: var(--timmy-ui-verified);', '--timmy-live-dim: var(--timmy-ui-verified-dim);', '--timmy-ai: var(--timmy-ui-text-secondary);',
+      '--timmy-link: var(--timmy-ui-accent-soft);', '--timmy-diff-add: var(--timmy-ui-diff-add);', '--timmy-diff-remove: var(--timmy-ui-diff-remove);']) expect(css).toContain(line);
+    // every alias names a role the B11 block defines (in the shared block or in each family)
+    const b11 = css.slice(css.indexOf('/* B11'));
+    for (const role of new Set(Object.values(LEGACY_WEB_ALIAS))) expect(b11, role).toMatch(new RegExp(`--timmy-ui-${role}: `));
+    // the B10 values themselves are nowhere in the sheet: #000000 ground, #070707 wells, #333333 / #444444 lines, #8E8E93 muted, #F2EFE9 text, #E8E4D9 silver
+    for (const value of ['#000000', '#070707', '#333333', '#444444', '#8E8E93', '#F2EFE9', '#E8E4D9']) expect(css, value).not.toContain(value);
+    // the type lines keep their values (a legacy h1/h2 has no one B11 size)
+    expect(css).toContain(`--timmy-size-small: ${TYPE.size.small}px;`);
+    expect(css).toContain(`--timmy-size-h1: ${TYPE.size.h1}px;`);
+  });
+  /** The aliased muted text (the old #8E8E93, 6.4:1 on black) on each dark surface it is now drawn on — measured, not assumed. */
+  it('the aliased text names keep ≥ 6:1 on the canvas, surface and raised; silver\'s and link\'s targets ≥ 4.5:1 on each, in both families', () => {
+    const roleValue = (role: string, family: 'amber' | 'glacier'): string => {
+      const shared = UI as Record<string, string>;
+      const camel = role.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+      if (camel in shared) return shared[camel];
+      return (UI_THEMES[family] as unknown as Record<string, string>)[camel];
+    };
+    const muted = roleValue(LEGACY_WEB_ALIAS.textSecondary, 'amber');
+    expect(muted).toBe('#9AAFC3');
+    const measured = { canvas: contrastRatio(muted, UI.canvas), surface: contrastRatio(muted, UI.surface), raised: contrastRatio(muted, UI.raised) };
+    expect(measured.canvas).toBeGreaterThanOrEqual(8.7);
+    expect(measured.surface).toBeGreaterThanOrEqual(7.7);
+    expect(measured.raised).toBeGreaterThanOrEqual(6.5);
+    for (const bg of [UI.canvas, UI.surface, UI.raised]) {
+      for (const name of ['text', 'textSecondary', 'silver', 'ai'] as const) expect(contrastRatio(roleValue(LEGACY_WEB_ALIAS[name], 'amber'), bg), `${name} on ${bg}`).toBeGreaterThanOrEqual(6);
+      for (const family of ['amber', 'glacier'] as const) for (const name of ['accent', 'link'] as const) expect(contrastRatio(roleValue(LEGACY_WEB_ALIAS[name], family), bg), `${family} ${name} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      for (const name of ['attention', 'failure', 'live'] as const) expect(contrastRatio(roleValue(LEGACY_WEB_ALIAS[name], 'amber'), bg), `${name} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    }
+    // accent-ink on the family accent (the B10 primary's label) and on the verified green (a green fill's label): ≥ 6:1
+    for (const family of ['amber', 'glacier'] as const) {
+      expect(contrastRatio(UI_THEMES[family].accentInk, UI_THEMES[family].accent)).toBeGreaterThanOrEqual(6);
+      expect(contrastRatio(UI_THEMES[family].accentInk, UI.verified)).toBeGreaterThanOrEqual(6);
+    }
   });
   it('the shared roles are the study\'s v0.1 values, with the measured changes said (accent-ink, ink-soft, border-quiet); focus and verified are exact in both families', () => {
     expect(UI).toMatchObject({ canvas: '#080B0F', surface: '#111A23', raised: '#1C2936', paper: '#E8EFF5', border: '#44586B', text: '#ECF1F5', textSecondary: '#BDCADA', textMuted: '#9AAFC3', ink: '#1C3043', focus: '#FFB000', verified: '#28FE14' });

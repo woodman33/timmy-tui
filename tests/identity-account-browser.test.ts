@@ -48,6 +48,9 @@ async function mint(o: { sub?: string; azp: string; key?: KeyObject }): Promise<
 const FAKE_SHELL = `(() => {
   'use strict';
   const token = (/#t=([0-9a-f]{64})/.exec(location.hash) || [])[1] || '';
+  // the test's start: ?from=<page> — the person CHOSE that page (a rail click), then opened Account from the rail; without it,
+  // the real shell's boot shape: the default tab Chat ('load'), then the landing's Account ('landing')
+  const from = (/[?&]from=([a-z-]+)/.exec(location.search) || [])[1] || '';
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
   let current = ''; let sessionTok = null; let sessionUser = null; let ident = null;
   const draws = {}; const listeners = {};
@@ -104,7 +107,9 @@ const FAKE_SHELL = `(() => {
       get: () => sessionTok, user: () => sessionUser,
     },
     identity: () => ident,
-    async land() { window.__landed += 1; shell.go(ident && ident.configured && !sessionTok ? 'account' : 'chat', 'landing'); },
+    // THE LANDING RULE as the real shell's land() decides (D7): not configured → the workspace (Chat); configured and not
+    // signed in → Account; signed in → Models & accounts, since no route is usable here (the real one asks /api/chat/route)
+    async land() { window.__landed += 1; shell.go(!(ident && ident.configured) ? 'chat' : (sessionTok ? 'connections' : 'account'), 'landing'); },
     toast(words, o) { window.__toasts.push({ words, live: !!(o && o.live) }); },
     on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); },
   };
@@ -113,8 +118,7 @@ const FAKE_SHELL = `(() => {
   const start = () => shell.fetch('/api/identity').then(async (r) => {
     ident = r.status === 200 ? await r.json() : { configured: false, needs: [], words: 'GET /api/identity answered ' + r.status + '.' };
     emit('identity', ident);
-    // the test's start: the person came from Files (the return path), then the account page
-    shell.go('files', 'test'); shell.go('account', 'test');
+    if (from) { shell.go(from, 'rail'); shell.go('account', 'rail'); } else { shell.go('chat', 'load'); shell.go('account', 'landing'); }
   });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
@@ -134,6 +138,7 @@ body{margin:0;background:var(--timmy-ui-canvas);color:var(--timmy-ui-text);font:
 </section>
 <section class="page ws-page" id="ws-files" data-page="files" hidden><header class="page-head"><h1 class="page-title">Files</h1></header></section>
 <section class="page ws-page" id="ws-chat" data-page="chat" hidden><header class="page-head"><h1 class="page-title">Chat</h1></header></section>
+<section class="page ws-page" id="screen-connections" data-page="connections" hidden><header class="page-head"><h1 class="page-title">Models &amp; accounts</h1></header></section>
 </main>
 <script src="/fake-shell.js"></script>
 <script src="/account.js"></script>
@@ -156,6 +161,7 @@ async function startCompanion(env: Record<string, string>): Promise<{ base: stri
   const sendPage = (req: express.Request, res: express.Response) => { res.setHeader('Content-Security-Policy', policy(req.headers.host)); res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.send(PAGE); };
   const file = (name: string, type: string, dir = CLIENT): express.RequestHandler => (_req, res) => { res.setHeader('Content-Type', type); res.send(readFileSync(join(dir, name), 'utf8')); };
   app.get('/', sendPage);
+  app.get('/account/callback', sendPage); // as the companion serves the OAuth return (account-callback.js is not part of this FAKE)
   app.get('/fake-shell.js', file('fake-shell.js', 'text/javascript; charset=utf-8', root));
   app.get('/account.js', file('account.js', 'text/javascript; charset=utf-8'));
   app.get('/account.css', file('account.css', 'text/css; charset=utf-8'));
@@ -192,11 +198,16 @@ afterAll(async () => {
 });
 
 interface Watched { requests: { url: string; type: string; failed: string | null; status: number | null }[]; errors: string[]; console: string[] }
-type AccountState = { view: string; configured: boolean; module: boolean; clerk: boolean; loading: boolean; words: string; verified: unknown; clerkSession: boolean; social: string[]; returnTo: string };
+type AccountState = { view: string; provider: 'unconfigured' | 'starting' | 'down' | 'ready'; facts: { script: string; module: boolean; host: string; status: string; loaded: boolean; environment: boolean; client: boolean } | null; lastCheck: string; configured: boolean; module: boolean; clerk: boolean; loading: boolean; words: string; verified: unknown; clerkSession: boolean; social: string[]; returnTo: string };
+/** FAKE, said: a Clerk double the page takes as "the provider answered" (window.timmyAccount.useProvider) — the dashboard's social
+ *  settings only; it signs nothing in (every session below is still the companion's verdict on a token the test minted). */
+const FAKE_PROVIDER = { FAKE: 'a Clerk double of the test\'s: no instance behind it', environment: { userSettings: { social: { oauth_google: { enabled: true }, oauth_github: { enabled: false } } } }, user: null, session: null };
+const useProvider = (page: Page) => page.evaluate((fake) => (window as unknown as { timmyAccount: { useProvider(f: unknown): void } }).timmyAccount.useProvider(fake), FAKE_PROVIDER);
+const providerIs = (page: Page, which: AccountState['provider']) => page.waitForFunction((w) => (window as unknown as { timmyAccount: { state(): { provider: string } } }).timmyAccount.state().provider === w, which, { timeout: 30_000 });
 type Meta = { kicker: string; title: string; intro: string; context: string | null; dock: string; primary: { label: string; disabled?: boolean; why?: string } };
 
 /** A page with its request log, its uncaught errors and its console; opened on the account page after the FAKE shell's start. */
-async function open(base: string, width: number, height: number): Promise<{ page: Page; w: Watched }> {
+async function open(base: string, width: number, height: number, path = '/'): Promise<{ page: Page; w: Watched }> {
   const page = await browser!.newPage({ viewport: { width, height } });
   const w: Watched = { requests: [], errors: [], console: [] };
   const seen = new Map<PwRequest, Watched['requests'][number]>();
@@ -205,45 +216,51 @@ async function open(base: string, width: number, height: number): Promise<{ page
   page.on('response', (r) => { const e = seen.get(r.request()); if (e) e.status = r.status(); });
   page.on('pageerror', (e) => w.errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') w.console.push(m.text()); });
-  await page.goto(`${base}/#t=${LAUNCH}`);
-  await page.waitForFunction(() => document.body.dataset.page === 'account' && Boolean(document.querySelector('#screen-account .ac-card')), null, { timeout: 15_000 });
+  await page.goto(`${base}${path}#t=${LAUNCH}`);
+  await onAccount(page);
   return { page, w };
 }
+const onAccount = (page: Page) => page.waitForFunction(() => document.body.dataset.page === 'account' && Boolean(document.querySelector('#screen-account .ac-card')), null, { timeout: 15_000 });
+const landed = (page: Page) => page.evaluate(() => (window as unknown as { __landed: number }).__landed);
+const allWent = (page: Page) => page.evaluate(() => (window as unknown as { __went: string[] }).__went);
 const state = (page: Page) => page.evaluate(() => (window as unknown as { timmyAccount: { state(): AccountState } }).timmyAccount.state());
 const meta = (page: Page) => page.evaluate(() => (window as unknown as { __meta: Meta }).__meta);
 const went = (page: Page) => page.evaluate(() => { const w = (window as unknown as { __went: string[] }).__went; return w[w.length - 1]; });
 
 describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real routes, Clerk\'s real module from 127.0.0.1)', () => {
-  it('CONFIGURED, 1440x900: the registration per view; Clerk\'s module fetched from this companion only and run; the instance unreachable → the words, the primary disabled with them; the declared social choices; no script from any other host', async () => {
+  it('CONFIGURED, 1440x900: Clerk\'s module fetched from this companion only and run; the instance unreachable → AN EXPLICIT BLOCKER (D16): no form, no social button, no "Create account" — the facts named, the ONE next step "Check the identity setup" re-asks GET /api/identity and says its answer; the provider answered (a said FAKE) → the registration per view, the social choices as the dashboard says', async () => {
     if (!browser) return;
     const { page, w } = await open(configuredBase, 1440, 900);
     try {
-      // the head is the shell's, from the registration: the sign-up view first
-      expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / CREATE YOUR ACCOUNT', title: 'Make room for your next idea.', context: 'selection', dock: 'ACCOUNT TOOLS', primary: { label: 'Create account' } });
-      expect(await page.locator('#screen-account .page-kicker').textContent()).toBe('ACCOUNT / CREATE YOUR ACCOUNT');
-      expect(await page.locator('#screen-account .page-title').textContent()).toBe('Make room for your next idea.');
-      expect(await page.locator('.ac-card h2').textContent()).toBe('Create your Timmy account');
-      expect(await page.locator('.ac-field-k').allTextContents()).toEqual(['Username', 'Email address', 'Password']);
-      // the social choices: both declared (CLERK_SOCIAL=google,github), drawn; the divider's words
-      expect(await page.locator('.ac-social').allTextContents()).toEqual(['GContinue with Google', '⌘Continue with GitHub']);
-      expect(await page.locator('.ac-divider').textContent()).toBe('or create an account');
-      expect((await state(page)).social).toEqual(['google', 'github']);
-      // the right column: identity apart from provider authorization
-      expect(await page.locator('.ac-ctx-title').textContent()).toBe('Two different things');
-      expect(await page.locator('.ac-ctx-dl').first().locator('dt').allTextContents()).toEqual(['Your Timmy account', 'Provider authorization']);
-      expect(await page.locator('.page-dock .dock-btn').allTextContents()).toEqual(['Sign in instead', 'Settings']);
-      expect(await page.locator('.page-records details.records summary').textContent()).toBe('How sign-in is verified here');
-
       const installed = Boolean(configuredMount.clerkDir);
       if (!installed) console.warn('identity-account-browser: @clerk/clerk-js is not installed here, so the module checks are skipped');
-      // the module: imported from /vendor/clerk/ and run — then Clerk.load() against the instance, which has no address here
-      await page.waitForFunction(() => { const s = (window as unknown as { timmyAccount: { state(): AccountState } }).timmyAccount.state(); return !s.loading && s.words !== ''; }, null, { timeout: 30_000 });
+      // the start, then the instance that has no address here: the provider is DOWN and the page says so — nothing invites
+      await providerIs(page, 'down');
       const s = await state(page);
       expect(s.configured).toBe(true);
       expect(s.clerk).toBe(false);
+      expect(s.view).toBe('provider-down');
+      expect(await page.locator('#screen-account').getAttribute('data-state')).toBe('error');
+      expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / THE PROVIDER DID NOT ANSWER', title: 'Sign-in cannot start here yet.', context: 'selection', dock: 'ACCOUNT TOOLS', primary: { label: 'Check the identity setup', disabled: false } });
+      expect(await page.locator('#screen-account .page-kicker').textContent()).toBe('ACCOUNT / THE PROVIDER DID NOT ANSWER');
+      expect(await page.locator('[data-ac="provider-state"]').textContent()).toBe('The identity provider did not answer');
+      expect(await page.locator('#ac-provider-title').textContent()).toBe('Sign-in cannot start here yet.');
+      expect(await page.locator('#screen-account form, #screen-account input, #screen-account .ac-social, [data-ac="dock-switch"]').count()).toBe(0);
+      expect(await page.locator('#screen-account').textContent()).not.toMatch(/Create account|Create your Timmy account/);
+      expect(await page.locator('.page-dock .dock-btn').allTextContents()).toEqual(['Settings']);
+      expect(await page.evaluate(() => { const st = (window as unknown as { __states: { s: string; next: string }[] }).__states; return st[st.length - 1]; })).toMatchObject({ s: 'error', next: 'Check the identity setup' });
+      // the right column: identity apart from provider authorization (drawn in every state)
+      expect(await page.locator('.ac-ctx-title').textContent()).toBe('Two different things');
+      expect(await page.locator('#screen-account .page-context .ac-ctx-dl').first().locator('dt').allTextContents()).toEqual(['Your Timmy account', 'Provider authorization']);
+      expect(await page.locator('.page-records details.records summary').textContent()).toBe('How sign-in is verified here');
       if (installed) {
+        // the module: imported from /vendor/clerk/ and run — then Clerk.load() against the instance; what did not load, named
         expect(s.module).toBe(true);
         expect(s.words).toBe(`Clerk could not start from ${HOST}: its environment and client did not load (no network to it, or the key names an instance that does not exist); Clerk reports status "ready".`);
+        expect(s.facts).toEqual({ script: `${CLERK_VENDOR_PATH}${CLERK_SCRIPT}`, module: true, host: HOST, status: 'ready', loaded: true, environment: false, client: false });
+        expect(await page.locator('#ac-provider-words').textContent()).toBe(s.words);
+        expect(await page.locator('.ac-blocker .ac-sub').textContent()).toBe(`Clerk at ${HOST} did not answer this page: the environment and the client did not load from ${HOST}. There is no account to make or restore until it does; nothing is pretended.`);
+        expect(await page.locator('.ac-facts dd').allTextContents()).toEqual([`${CLERK_VENDOR_PATH}${CLERK_SCRIPT}`, 'loaded from this companion', `environment not loaded · client not issued · Clerk’s status "ready"`, 'read at the landing; not asked again yet']);
         const vendor = w.requests.filter((r) => r.url.startsWith(`${configuredBase}${CLERK_VENDOR_PATH}`));
         expect(vendor.map((r) => r.url)).toEqual([`${configuredBase}${CLERK_VENDOR_PATH}${CLERK_SCRIPT}`]);
         expect(vendor[0].status).toBe(200);
@@ -260,16 +277,38 @@ describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real ro
       expect(w.errors).toEqual([]);
       const refused = w.console.filter((m) => /Content Security Policy|Refused to/.test(m));
       for (const m of refused) expect(m).toMatch(/^Creating a worker from 'blob:http:\/\/127\.0\.0\.1:\d+\/[0-9a-f-]+' violates the following Content Security Policy directive: "script-src 'self'"/);
-      // the ONE primary (the shell's) disabled with the words as its title; the form's own submit disabled with the words beside; the social buttons too
-      const primary = page.locator('[data-ac="primary"]');
-      expect(await primary.isDisabled()).toBe(true);
-      expect(await primary.getAttribute('title')).toBe(s.words);
-      expect((await meta(page)).primary).toMatchObject({ label: 'Create account', disabled: true, why: s.words });
-      expect(await page.locator('.ac-submit').isDisabled()).toBe(true);
-      expect(await page.locator('#ac-primary-note').textContent()).toBe(s.words);
-      for (const b of await page.locator('.ac-social').all()) expect(await b.isDisabled()).toBe(true);
-      expect(await page.locator('#ac-social-note').textContent()).toBe(s.words);
-      // the dock's switch: the sign-in view, its registration
+      // the ONE next step: "Check the identity setup" (the head's primary) asks GET /api/identity again, says the answer, tries Clerk again
+      const identityAsks = () => w.requests.filter((r) => r.url === `${configuredBase}/api/identity`).length;
+      const asked = identityAsks();
+      const foreignBefore = w.requests.filter((r) => new URL(r.url).hostname !== '127.0.0.1').length;
+      await page.locator('[data-ac="primary"]').click();
+      await page.waitForFunction(() => (window as unknown as { timmyAccount: { state(): AccountState } }).timmyAccount.state().lastCheck !== '', null, { timeout: 15_000 });
+      await providerIs(page, 'down'); // asked again, down again: the same instance has no address here
+      expect(identityAsks()).toBe(asked + 1);
+      const checked = (await state(page)).lastCheck;
+      expect(checked).toMatch(new RegExp(`^GET /api/identity answered at \\d\\d:\\d\\d: configured · Clerk at ${HOST.replace(/\./g, '\\.')} · script ${CLERK_VENDOR_PATH}${CLERK_SCRIPT}\\.$`));
+      expect(await page.locator('.ac-facts dd').nth(3).textContent()).toBe(checked);
+      if (installed) expect(w.requests.filter((r) => new URL(r.url).hostname !== '127.0.0.1').length).toBeGreaterThan(foreignBefore);
+      expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / THE PROVIDER DID NOT ANSWER', primary: { label: 'Check the identity setup', disabled: false } });
+      // THE PROVIDER ANSWERED (a said FAKE: window.timmyAccount.useProvider): the forms, their registration per view
+      await useProvider(page);
+      expect((await state(page)).provider).toBe('ready');
+      expect(await page.locator('#screen-account').getAttribute('data-state')).toBe('content');
+      expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / CREATE YOUR ACCOUNT', title: 'Make room for your next idea.', context: 'selection', dock: 'ACCOUNT TOOLS', primary: { label: 'Create account', disabled: false } });
+      expect(await page.locator('#screen-account .page-kicker').textContent()).toBe('ACCOUNT / CREATE YOUR ACCOUNT');
+      expect(await page.locator('#screen-account .page-title').textContent()).toBe('Make room for your next idea.');
+      expect(await page.locator('.ac-card h2').textContent()).toBe('Create your Timmy account');
+      expect(await page.locator('.ac-field-k').allTextContents()).toEqual(['Username', 'Email address', 'Password']);
+      expect(await page.locator('.ac-submit').isDisabled()).toBe(false);
+      // the social choices: both declared (CLERK_SOCIAL=google,github) and drawn; enabled only as the instance's dashboard says
+      expect(await page.locator('.ac-social').allTextContents()).toEqual(['GContinue with Google', '⌘Continue with GitHub']);
+      expect(await page.locator('.ac-divider').textContent()).toBe('or create an account');
+      expect((await state(page)).social).toEqual(['google', 'github']);
+      expect(await page.locator('[data-social="google"]').isDisabled()).toBe(false);
+      expect(await page.locator('[data-social="github"]').isDisabled()).toBe(true);
+      expect(await page.locator('[data-social="github"]').getAttribute('title')).toBe('Continue with GitHub: the dashboard says this provider is off.');
+      expect(await page.locator('.page-dock .dock-btn').allTextContents()).toEqual(['Sign in instead', 'Settings']);
+      // the dock's switch: the sign-in view, its registration; then the recovery view's
       await page.locator('[data-ac="dock-switch"]').click();
       expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / SIGN IN TO TIMMY', title: 'Welcome back to Timmy.', primary: { label: 'Sign in' } });
       expect(await page.locator('.ac-card h2').textContent()).toBe('Welcome back to Timmy');
@@ -281,14 +320,16 @@ describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real ro
       expect(await page.content()).not.toContain(LAUNCH);
       for (const r of w.requests.slice(1)) expect(r.url).not.toContain(LAUNCH);
       expect(await page.content()).not.toContain('PUBLIC KEY');
+      expect(w.errors).toEqual([]);
     } finally { await page.close(); }
   }, 60_000);
 
   it('a session the server verifies → "You\'re signed in" with the ONE green line from GET /api/identity/me and the return path (back to Files); Clerk\'s state rules; a token of another key → refused with words, the shell\'s 401 rule clears it; sign out → the sign-in view', async () => {
     if (!browser) return;
-    const { page, w } = await open(configuredBase, 1440, 900);
+    const { page, w } = await open(configuredBase, 1440, 900, '/?from=files');
     try {
-      expect((await state(page)).returnTo).toBe('files'); // the page the person came from (the FAKE shell's start)
+      expect((await state(page)).returnTo).toBe('files'); // the page the person CHOSE before the account page (the FAKE shell's start)
+      await useProvider(page); // (D16: the forms exist only once the provider answered — a said FAKE here; the sessions below are the server's verdicts)
       const good = await mint({ azp: configuredBase });
       const u = await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<{ id: string }> } }).timmyAccount.useSession(t), good);
       expect(u.id).toBe(USER_A);
@@ -341,9 +382,53 @@ describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real ro
     } finally { await page.close(); }
   }, 60_000);
 
+  it('D7 THE LANDING RULE: a fresh page (the boot default Chat, the landing\'s Account) remembers no return — a sign-in applies land(), never "back to Chat"; a stale memory is dropped on a fresh page, kept on /account/callback; a chosen page is honoured', async () => {
+    if (!browser) return;
+    // (a) a fresh page, as the real shell boots: Chat by default ('load'), then the landing's Account ('landing') — nothing chosen
+    const { page, w } = await open(configuredBase, 1440, 900);
+    try {
+      expect(await allWent(page)).toEqual(['chat:load', 'account:landing']);
+      expect((await state(page)).returnTo).toBe('');
+      const good = await mint({ azp: configuredBase });
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      // the landing rule decided (here: Models & accounts, no route being usable) — not the boot default remembered as "before Account"
+      expect(await landed(page)).toBe(1);
+      expect(await went(page)).toBe('connections:landing');
+      expect(await allWent(page)).not.toContain('chat:continue');
+      // (b) a memory left in this tab (the person chose Files once) does not survive a fresh page: dropped, the rule applies
+      await page.evaluate(() => { sessionStorage.setItem('timmy.account.return', 'files'); });
+      await page.goto(`${configuredBase}/?fresh=1#t=${LAUNCH}`); // (a query, so this is a page load, not a move within the document)
+      await onAccount(page);
+      expect(await allWent(page)).toEqual(['chat:load', 'account:landing']);
+      expect((await state(page)).returnTo).toBe('');
+      expect(await page.evaluate(() => sessionStorage.getItem('timmy.account.return'))).toBeNull();
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      expect(await went(page)).toBe('connections:landing');
+      // (c) the OAuth round trip: the provider's page reloads this one at /account/callback — the page chosen BEFORE leaving is kept
+      await page.evaluate(() => { sessionStorage.setItem('timmy.account.return', 'files'); });
+      await page.goto(`${configuredBase}/account/callback#t=${LAUNCH}`);
+      await onAccount(page);
+      expect(await allWent(page)).toEqual(['chat:load', 'account:landing']);
+      expect((await state(page)).returnTo).toBe('files');
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      expect(await went(page)).toBe('files:continue');
+      expect(await page.evaluate(() => sessionStorage.getItem('timmy.account.return'))).toBeNull(); // taken once
+      // (d) a page the person chose (a rail click), then Account from the rail: honoured
+      await page.goto(`${configuredBase}/?from=settings#t=${LAUNCH}`);
+      await onAccount(page);
+      expect(await allWent(page)).toEqual(['settings:rail', 'account:rail']);
+      expect((await state(page)).returnTo).toBe('settings');
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      expect(await went(page)).toBe('settings:continue');
+      // the FAKE's session was per page load: each sign-in above was verified by GET /api/identity/me again
+      expect(w.requests.filter((r) => r.url === `${configuredBase}/api/identity/me` && r.status === 200).length).toBeGreaterThanOrEqual(4);
+      expect(w.errors).toEqual([]);
+    } finally { await page.close(); }
+  }, 60_000);
+
   it('NOT CONFIGURED: an explicit blocker page — the exact names to set, what each is and where it comes from, what happens next; no form, no social button, nothing signs in; Continue as the operator', async () => {
     if (!browser) return;
-    const { page, w } = await open(bareBase, 1440, 900);
+    const { page, w } = await open(bareBase, 1440, 900, '/?from=files');
     try {
       expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / SET UP SIGN-IN', title: 'Sign-in is not set up on this companion.', primary: { label: 'Continue as the operator' }, context: 'selection' });
       expect((await state(page)).view).toBe('blocker');
@@ -384,6 +469,15 @@ describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real ro
     if (!browser) return;
     const { page } = await open(configuredBase, 390, 844);
     try {
+      // the provider down (D16): the blocker alone, nothing wider than the screen
+      await providerIs(page, 'down');
+      const overBlocker = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+      expect(overBlocker.scroll, JSON.stringify(overBlocker)).toBeLessThanOrEqual(overBlocker.client);
+      expect(await page.locator('.ac-card').count()).toBe(1);
+      expect(await page.locator('.ac-input, .ac-social').count()).toBe(0);
+      expect(await page.locator('[data-ac="check-setup"]').isVisible()).toBe(true);
+      // the provider answered (a said FAKE): the form
+      await useProvider(page);
       const over = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
       expect(over.scroll, JSON.stringify(over)).toBeLessThanOrEqual(over.client);
       expect(await page.locator('.ac-card').count()).toBe(1);

@@ -376,10 +376,11 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
     }
     // R5 (H132, DESIGN.md §10 B10): Timmy's shared look is served again: the --timmy-* variables with Monaspace Argon's faces,
-    // and the faces' files by their exact names only, beside the page's web files (anything else is a 404 in words, no path)
+    // and the faces' files by their exact names only, beside the page's web files (anything else is a 404 in words, no path).
+    // D12 (R11 round 7, H175): the B10 web names are aliases of their B11 role — one palette; focus and verified exact in the registry
     const theme = await fetch(`${base}/timmy-theme.css`);
     expect(theme.status).toBe(200);
-    expect(await theme.text()).toMatch(/--timmy-ground: #000000;[\s\S]*--timmy-accent: #FFB000;[\s\S]*--timmy-live: #28FE14;/);
+    expect(await theme.text()).toMatch(/--timmy-ground: var\(--timmy-ui-canvas\);[\s\S]*--timmy-accent: var\(--timmy-ui-accent\);[\s\S]*--timmy-live: var\(--timmy-ui-verified\);[\s\S]*--timmy-ui-focus: #FFB000;[\s\S]*--timmy-ui-verified: #28FE14;/);
     const face = await fetch(`${base}/web/fonts/monaspace-argon-latin-400-normal.woff2`);
     expect(face.status).toBe(200);
     expect(face.headers.get('content-type')).toMatch(/^font\/woff2/);
@@ -439,7 +440,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(await turn.locator('.cx-who .cx-chip').textContent()).toBe('FAKE model');
       expect(await turn.locator('.cx-who .cx-model').textContent()).toBe(MODEL);
       // the evidence line: the model, where it ran, the seconds and the receipt's short id (sealed by the real turn)
-      await expect.poll(async () => ((await turn.locator('.cx-evidence').textContent()) ?? '').replace(/\s+/g, ' ').trim(), { timeout: 15_000 }).toMatch(new RegExp(`^▸ ${MODEL} · [^·]+ · \\d+(?:\\.\\d)? s · receipt [0-9a-f]{8}`));
+      await expect.poll(async () => ((await turn.locator('.cx-ev-row').textContent()) ?? '').replace(/\s+/g, ' ').trim(), { timeout: 15_000 }).toMatch(new RegExp(`^▸ ${MODEL} · [^·]+ · \\d+(?:\\.\\d)? s · receipt [0-9a-f]{8}`));
       // one request to the FAKE, with the message as sent, and the turn's request to this server carried the token
       expect(asked().at(-1)).toBe('release notes please');
       expect(seen.requests.some((r) => new URL(r).pathname === '/api/chat/turn')).toBe(true);
@@ -650,9 +651,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         console.warn('companion-page-browser: Slate 3D is built here, so its absence words were not checked');
         return;
       }
-      // R5 (H132): the theme's text (#F2EFE9) on the canvas (#000000), in Monaspace Argon
-      expect(look.color).toBe('rgb(242, 239, 233)');
-      expect(look.ground).toBe('rgb(0, 0, 0)');
+      // R5 (H132): the theme's text on the canvas, in Monaspace Argon — D12: the B10 names are aliases, so the text is the
+      // registry's #ECF1F5 on its canvas #080B0F (17.3:1)
+      expect(look.color).toBe('rgb(236, 241, 245)');
+      expect(look.ground).toBe('rgb(8, 11, 15)');
       expect(look.font).toMatch(/^"?Monaspace Argon"?/);
       expect(contrast(look.color, look.ground)).toBeGreaterThan(7);
       expect(seen.outside).toEqual([]);

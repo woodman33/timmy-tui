@@ -129,7 +129,7 @@ describe.skipIf(!browserPath)('the timmy-rive shape on Timmy Canvas, drawn from 
       await page.evaluate(() => (window as unknown as Win).TimmyRive.fromProviderState('ollama-local', 'checked', 'FAKE (the test): GET /api/connections ollama-local "checked"'));
       await page.waitForFunction(() => document.querySelector('[data-timmy-rive-shape]')?.getAttribute('data-state') === 'connected', null, { timeout: 10_000 });
       expect(await page.evaluate(() => (window as unknown as Win).TimmyRive.inspect()[0].runtime.inputs.find((i: { name: string }) => i.name === 'State')!.value)).toBe(0);
-      expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('connected · expanded');
+      expect(await text(page, '[data-timmy-rive-shape] [data-rive-status]')).toBe('checked · expanded'); // R86: the label says the OBSERVED word; data-state and the board keep the vocabulary's
       expect(await text(page, '[data-timmy-rive-shape] .tr-shape-source')).toBe('from FAKE (the test): GET /api/connections ollama-local "checked"');
       await page.waitForFunction((sid) => (window as unknown as Win).timmyCanvas.editor.getShape(sid)?.props.state === 'connected', id, { timeout: 10_000 });
       // another provider's word moves nothing here (the shape is bound to its own)

@@ -53,8 +53,15 @@
   let refreshTimer = 0;
   let hostEl = null;
   const draft = { username: '', email: '', password: '', code: '', newPassword: '' }; // the typed fields across redraws (never a token)
+  // D16 (H168's R89, the lead's 18:11): what Clerk's start reached, for the blocker that names it — the script (its module
+  // imported from this companion), the instance's environment, its client, Clerk's own status; and the last re-ask of
+  // GET /api/identity by "Check the identity setup" (its answer, said)
+  let facts = null;             // { script, module, host, status, loaded, environment, client } after a start, or null
+  let lastCheck = '';           // the words of the last GET /api/identity re-ask ('' until asked)
+  let checking = false;         // the re-ask in flight
+  let fresh = null;             // GET /api/identity as the re-ask read it (over the shell's landing answer)
 
-  const identity = () => (S() && S().identity()) || null;
+  const identity = () => fresh || (S() && S().identity()) || null;
   const configured = () => Boolean(identity() && identity().configured);
   const hostOf = () => { try { return new URL(identity().frontendApi).host; } catch (e) { return ''; } };
 
@@ -78,11 +85,12 @@
       if (!clerkModule) {
         let mod;
         try { mod = await import(id.clerkScript); } // same origin: /vendor/clerk/clerk.no-rhc.mjs, within script-src 'self'
-        catch (e) { loadWords = `Clerk's module could not be loaded from ${id.clerkScript} (this companion serves it from node_modules/@clerk/clerk-js/dist): ${words(e)}`; throw new Error(loadWords); }
-        if (!mod || typeof mod.Clerk !== 'function') { loadWords = `${id.clerkScript} loaded but exports no Clerk class.`; throw new Error(loadWords); }
+        catch (e) { facts = { script: id.clerkScript, module: false, host: hostOf(), status: '', loaded: false, environment: false, client: false }; loadWords = `Clerk's module could not be loaded from ${id.clerkScript} (this companion serves it from node_modules/@clerk/clerk-js/dist): ${words(e)}`; throw new Error(loadWords); }
+        if (!mod || typeof mod.Clerk !== 'function') { facts = { script: id.clerkScript, module: false, host: hostOf(), status: '', loaded: false, environment: false, client: false }; loadWords = `${id.clerkScript} loaded but exports no Clerk class.`; throw new Error(loadWords); }
         clerkModule = mod;
       }
       let c;
+      facts = { script: id.clerkScript, module: true, host: hostOf(), status: '', loaded: false, environment: false, client: false };
       try {
         c = new clerkModule.Clerk(id.publishableKey || '');
         // telemetry off: the module would otherwise report to clerk-telemetry.com (the page's connect-src names only the instance)
@@ -90,6 +98,8 @@
         // load() resolves even when the instance could not be fetched (observed with 6.40.1, the host unresolvable: status
         // "ready", loaded true, a default environment and a client with no id). The instance was REACHED when it issued a
         // client (client.id) or its environment named the application; otherwise this page says so and signs nothing in.
+        const dc = c.environment && c.environment.displayConfig;
+        facts = { ...facts, status: c.status || 'unknown', loaded: Boolean(c.loaded), environment: Boolean(dc && (dc.applicationName || dc.id)), client: Boolean(c.client && typeof c.client.id === 'string' && c.client.id) };
         if (!c.loaded) throw new Error(`its status is "${c.status || 'unknown'}".`);
         if (!reached(c)) throw new Error(`its environment and client did not load (no network to it, or the key names an instance that does not exist); Clerk reports status "${c.status || 'unknown'}".`);
       } catch (e) { loadWords = `Clerk could not start from ${hostOf() || 'the instance'}: ${words(e)}`; throw new Error(loadWords); }
@@ -304,8 +314,17 @@
     if (!regions.context.getAttribute('aria-label')) regions.context.setAttribute('aria-label', 'About your account');
   }
 
-  // the return path: where the person was going before the account page (kept per tab across the OAuth round trip)
+  // the return path: where the person was going before the account page (kept per tab across the OAuth round trip).
+  // RULING D7 (the lead, 2026-10-24 17:35): the page before Account is honoured only when the person had CHOSEN it — left it
+  // through a go() whose reason is neither the boot's ('load': the tab companion.js showed as it loaded, Chat by default)
+  // nor the landing's ('landing', 'no-token') nor none at all; otherwise Continue / a sign-in applies THE LANDING RULE
+  // (TimmyShell.land(): signed in + no usable route → Models & accounts; a usable route → Chat). GATE 05 found 4 of 5 fresh
+  // sign-ins landing on Chat because the boot default was remembered as "the page before Account".
+  const UNCHOSEN_WHYS = ['', 'load', 'landing', 'no-token'];
+  const chosen = (why) => !UNCHOSEN_WHYS.includes(typeof why === 'string' ? why : '');
   function rememberReturn(id) { if (!id || id === PAGE) return; returnTo = id; try { sessionStorage.setItem(RETURN_KEY, id); } catch (e) { /* no storage */ } }
+  function peekReturn() { let id = returnTo; try { id = id || sessionStorage.getItem(RETURN_KEY) || ''; } catch (e) { /* no storage */ } return id && id !== PAGE ? id : ''; }
+  function forgetReturn() { returnTo = ''; try { sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } }
   function takeReturn() { let id = returnTo; try { id = id || sessionStorage.getItem(RETURN_KEY) || ''; sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } returnTo = ''; return id && id !== PAGE ? id : ''; }
   async function continueOn() {
     const back = takeReturn();
@@ -324,7 +343,7 @@
     const id = identity();
     const declared = id && Array.isArray(id.social) ? id.social : [];
     if (!declared.length) return [];
-    const on = configured() && !loadWords;
+    const on = configured() && Boolean(clerk);
     const enabledAt = (provider) => { try { const soc = clerk && clerk.environment && clerk.environment.userSettings && clerk.environment.userSettings.social; const e = soc && soc[`oauth_${provider}`]; return e ? e.enabled !== false : true; } catch (e) { return true; } };
     const b = (provider) => {
       const label = provider === 'google' ? 'Continue with Google' : 'Continue with GitHub';
@@ -350,7 +369,7 @@
   /** The form's submit: a secondary here when the shell draws the page's ONE primary in the head (the same action); the primary itself on an older shell. */
   let currentForm = null;
   function submitButton(label, onSubmit) {
-    const on = configured() && !loadWords;
+    const on = configured() && Boolean(clerk);
     const btn = h('button', { type: 'submit', class: `${regions && !regions.legacy ? 'sh-btn' : 'sh-btn-primary'} is-wide ac-submit`, disabled: !on || busy, 'aria-describedby': 'ac-primary-note' }, busy ? 'Working…' : label, busy ? null : h('span', { 'aria-hidden': 'true' }, ' →'));
     const note = h('p', { class: 'ac-note ac-center', id: 'ac-primary-note' }, on ? 'Your password goes to the identity provider only; this companion sees the signed session, never the password.' : (configured() ? loadWords : needsWords()));
     return { btn, note, onSubmit, label };
@@ -370,11 +389,77 @@
     currentForm = null;
     if (!configured()) return cardBlocker();
     if (signedIn()) return cardSignedIn();
+    if (!clerk) return cardProvider(); // D16: no form and no "Create account" until the identity provider has answered
     if (view === 'verify' || view === 'code') return cardCode();
     if (view === 'recover') return cardRecover();
     if (view === 'reset') return cardReset();
     if (view === 'signin') return cardSignIn();
     return cardSignUp();
+  }
+
+  /** The provider's state in words: what Clerk's start reached (the script, the instance's environment, its client). */
+  const providerDown = () => configured() && !clerk && !loading && Boolean(loadWords);
+  const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  function notLoaded() {
+    const f = facts;
+    if (!f) return 'nothing of it answered';
+    if (!f.module) return `its script did not load (${f.script || 'no script'})`;
+    const parts = [];
+    if (!f.environment) parts.push('the environment');
+    if (!f.client) parts.push('the client');
+    return parts.length ? `${parts.join(' and ')} did not load from ${f.host || 'the instance'}` : `its status is "${f.status || 'unknown'}"`;
+  }
+  /** Starts Clerk once, when nothing has (a sign-out, a page drawn before the identity answered); the words say the rest. */
+  function ensureProvider() {
+    if (!configured() || clerk || loading || loadWords) return;
+    loadClerk().then(() => redraw(), () => redraw());
+  }
+  /** "Check the identity setup": GET /api/identity asked again (its answer said), then Clerk started again from it. */
+  async function checkSetup() {
+    if (checking) return;
+    checking = true;
+    error = '';
+    redraw();
+    const at = hhmm(new Date());
+    try {
+      const r = await S().fetch('/api/identity');
+      if (r.status === 200) {
+        const j = await r.json();
+        fresh = j;
+        lastCheck = `GET /api/identity answered at ${at}: ${j.configured ? `configured · Clerk at ${hostOf() || 'an instance without a host'} · script ${j.clerkScript || 'not installed'}` : `not configured · missing ${(Array.isArray(j.needs) ? j.needs : []).join(', ') || 'nothing named'}`}.`;
+      } else lastCheck = `GET /api/identity answered HTTP ${r.status} at ${at}.`;
+    } catch (e) { lastCheck = `GET /api/identity could not be read at ${at}: ${words(e)}.`; }
+    clerk = null; loadWords = ''; facts = null;
+    checking = false;
+    redraw();
+    if (configured()) { try { await loadClerk(); } catch (e) { /* loadWords says what did not load */ } }
+    redraw();
+  }
+  /** CONFIGURED but the provider has not answered (starting, or down): an explicit blocker — no form, no invitation, the
+   *  facts named, the one next step "Check the identity setup". Nothing signs in. */
+  function cardProvider() {
+    ensureProvider();
+    const down = providerDown();
+    const f = facts;
+    const host = hostOf();
+    const id = identity();
+    const check = h('button', { type: 'button', class: 'sh-btn', 'data-ac': 'check-setup', disabled: !down || checking }, checking ? 'Asking…' : 'Check the identity setup', checking ? null : h('span', { 'aria-hidden': 'true' }, ' →'));
+    check.addEventListener('click', () => checkSetup());
+    const settings = h('button', { type: 'button', class: 'sh-btn-text ac-text', 'data-ac': 'settings' }, 'Open Settings');
+    settings.addEventListener('click', () => { try { S().go('settings', 'account'); } catch (e) { /* no page */ } });
+    const yesNo = (ok, yes, no) => h('dd', { class: ok ? 'is-ok' : 'is-attn' }, ok ? yes : no);
+    return h('div', { class: `sh-card ac-card${down ? ' ac-blocker' : ''}`, role: 'region', 'aria-labelledby': 'ac-provider-title', 'data-ac': down ? 'provider-down' : 'provider-starting' },
+      h('p', { class: `ac-state${down ? ' is-attn' : ''}`, 'data-ac': 'provider-state' }, down ? 'The identity provider did not answer' : 'Starting the identity provider…'),
+      h('h2', { id: 'ac-provider-title' }, down ? 'Sign-in cannot start here yet.' : 'Checking the identity setup…'),
+      h('p', { class: 'ac-sub' }, down ? `Clerk at ${host || 'the instance'} did not answer this page: ${notLoaded()}. There is no account to make or restore until it does; nothing is pretended.` : `Reaching Clerk at ${host || 'the instance'} — its script from this companion, then the instance's environment and client.`),
+      down && loadWords ? h('p', { class: 'ac-note ac-error', id: 'ac-provider-words', role: 'alert' }, loadWords) : null,
+      h('dl', { class: 'ac-ctx-dl ac-facts' },
+        h('dt', null, 'Clerk’s script'), h('dd', { class: 'ac-mono' }, (f && f.script) || (id && id.clerkScript) || (id && id.clerkWords) || 'not installed'),
+        h('dt', null, 'Its module'), f ? yesNo(f.module, 'loaded from this companion', 'not loaded') : h('dd', null, 'not asked yet'),
+        h('dt', null, `The instance${host ? ` (${host})` : ''}`), h('dd', null, f ? `environment ${f.environment ? 'loaded' : 'not loaded'} · client ${f.client ? 'issued' : 'not issued'} · Clerk’s status "${f.status || 'unknown'}"` : 'not reached yet'),
+        h('dt', null, 'GET /api/identity'), h('dd', null, lastCheck || 'read at the landing; not asked again yet')),
+      h('p', { class: 'ac-note' }, down ? 'Check that the instance exists and this computer can reach it (the key names it), then ask again. Nothing is signed in and no account is pretended.' : 'One moment: the forms appear once the provider has answered.'),
+      h('div', { class: 'ac-actions' }, check, settings));
   }
 
   /** UNCONFIGURED: an explicit blocker — what to set, where it comes from, what happens next. No form, nothing signs in. */
@@ -504,7 +589,7 @@
 
   function dockButtons() {
     const out = [];
-    if (configured() && !signedIn()) {
+    if (configured() && !signedIn() && clerk) {
       const sw = h('button', { type: 'button', class: 'dock-btn sh-btn', 'data-ac': 'dock-switch' }, view === 'signup' ? 'Sign in instead' : 'Create an account instead');
       sw.addEventListener('click', () => { error = ''; view = view === 'signup' ? 'signin' : 'signup'; redraw(); });
       out.push(sw);
@@ -535,9 +620,14 @@
       const u = S().session.user() || {};
       return { kicker: 'ACCOUNT / YOU ARE SIGNED IN', title: `Welcome${u.username ? `, ${u.username}` : ''}.`, intro: verified ? `${WORDS.verified(verified)}. Your projects and records are your own.` : WORDS.verifying, primary: { label: 'Continue', run: continueOn }, context: 'selection', dock: 'ACCOUNT TOOLS' };
     }
-    const submit = () => { if (currentForm && currentForm.el.isConnected) currentForm.el.requestSubmit(); };
-    const on = !loadWords;
     const base = { context: 'selection', dock: 'ACCOUNT TOOLS' };
+    if (!clerk) {
+      // D16: the provider has not answered — an explicit blocker with its one next step, never a "Create account" invitation
+      if (providerDown()) return { ...base, kicker: 'ACCOUNT / THE PROVIDER DID NOT ANSWER', title: 'Sign-in cannot start here yet.', intro: `Clerk at ${hostOf() || 'the instance'} did not answer this page: ${notLoaded()}. There is no account to make or restore until it does; nothing is pretended.`, primary: { label: 'Check the identity setup', run: checkSetup, disabled: checking, why: checking ? 'Asking GET /api/identity…' : '' } };
+      return { ...base, kicker: 'ACCOUNT / STARTING SIGN-IN', title: 'One moment.', intro: `Reaching the identity provider at ${hostOf() || 'the instance'}: its script from this companion, then the instance. The forms appear once it has answered.`, primary: { label: 'Checking the identity setup…', run: () => {}, disabled: true, why: 'The identity provider has not answered yet.' } };
+    }
+    const submit = () => { if (currentForm && currentForm.el.isConnected) currentForm.el.requestSubmit(); };
+    const on = true;
     if (view === 'signin') return { ...base, kicker: 'ACCOUNT / SIGN IN TO TIMMY', title: 'Welcome back to Timmy.', intro: 'Sign in to continue your work. Your account is who you are here; the providers you connect are a separate thing.', primary: { label: 'Sign in', run: submit, disabled: !on, why: on ? '' : loadWords } };
     if (view === 'verify' || view === 'code') return { ...base, kicker: 'ACCOUNT / CHECK YOUR EMAIL', title: 'One code away.', intro: `We sent a code to ${pending ? pending.email : 'your address'}. Enter it below.`, primary: { label: 'Verify', run: submit, disabled: !on, why: on ? '' : loadWords } };
     if (view === 'recover') return { ...base, kicker: 'ACCOUNT / RESET YOUR PASSWORD', title: 'Reset your password.', intro: 'Enter your email address; we send a code.', primary: { label: 'Send code', run: submit, disabled: !on, why: on ? '' : loadWords } };
@@ -547,7 +637,14 @@
   function register() {
     if (!shellHasPages()) return;
     try { S().page(PAGE, pageMeta()); } catch (e) { /* the shell's own */ }
-    try { if (typeof S().state === 'function') S().state(PAGE, !configured() ? 'error' : 'content', !configured() ? { words: 'No identity provider is configured; nothing signs in.', next: { label: 'Continue as the operator', run: continueOn } } : undefined); } catch (e) { /* the shell's own */ }
+    try {
+      if (typeof S().state === 'function') {
+        if (!configured()) S().state(PAGE, 'error', { words: 'No identity provider is configured; nothing signs in.', next: { label: 'Continue as the operator', run: continueOn } });
+        else if (signedIn() || clerk) S().state(PAGE, 'content');
+        else if (providerDown()) S().state(PAGE, 'error', { words: loadWords, next: { label: 'Check the identity setup', run: checkSetup } });
+        else S().state(PAGE, 'running', { words: 'Reaching the identity provider…' });
+      }
+    } catch (e) { /* the shell's own */ }
   }
 
   // an older shell (no page registration): the head, the band and the foot drawn by this page, as round 4 did
@@ -572,14 +669,16 @@
       hostEl.replaceChildren(legacyHead(), h('main', { class: 'sh-main ac-main' }, legacyHero(), card()), legacyFoot());
     } else {
       register();
-      regions.work.replaceChildren(h('div', { class: 'ac-work' }, card()));
+      let work = regions.work.querySelector(':scope > .ac-work');
+      if (!work) { work = h('div', { class: 'ac-work' }); regions.work.append(work); } // (the shell's .page-state stays beside it)
+      work.replaceChildren(card());
       regions.context.replaceChildren(...context());
       let group = regions.dock.querySelector('[data-dock-owner="account"]');
       if (!group) { group = h('span', { class: 'dock-group', 'data-dock-owner': 'account' }); regions.dock.append(group); }
       group.replaceChildren(...dockButtons());
       records();
-      hostEl.dataset.state = configured() ? 'content' : 'error';
-      hostEl.dataset.accountView = configured() ? (signedIn() ? 'signedin' : view) : 'blocker';
+      hostEl.dataset.state = !configured() ? 'error' : (signedIn() || clerk) ? 'content' : providerDown() ? 'error' : 'running';
+      hostEl.dataset.accountView = !configured() ? 'blocker' : signedIn() ? 'signedin' : !clerk ? (providerDown() ? 'provider-down' : 'provider-starting') : view;
     }
     if (focused) { const again = hostEl.querySelector(`#${CSS.escape(focused)}, [data-ac="${CSS.escape(focused)}"]`); if (again && !again.disabled) again.focus({ preventScroll: true }); }
   }
@@ -604,10 +703,23 @@
     if (!shell) return;
     shell.mount(PAGE, draw);
     register();
-    // the page the person came from, for the return path after a sign-in
+    // the page the person came from, for the return path after a sign-in: only a page they CHOSE (D7, above). Reached from
+    // the boot default or by the landing, nothing is remembered and a stale memory is dropped — except on /account/callback,
+    // where the memory IS the page chosen before the OAuth round trip (the provider's page reloads this one).
     if (typeof shell.on === 'function') {
       let last = '';
-      const seen = (d) => { const id = d && d.id; if (!id) return; if (id === PAGE) { if (last && last !== PAGE) rememberReturn(last); } last = id; };
+      let lastWhy = '';
+      const callback = () => location.pathname.replace(/\/$/, '') === '/account/callback';
+      const seen = (d) => {
+        const id = d && d.id;
+        if (!id) return;
+        if (id === PAGE && last !== PAGE) { // entering this page (a screen's second event for the same showing changes nothing)
+          if (last && chosen(lastWhy)) rememberReturn(last);
+          else if (!callback()) forgetReturn();
+        }
+        last = id;
+        lastWhy = d && typeof d.why === 'string' ? d.why : '';
+      };
       shell.on('page', seen);
       shell.on('screen', seen);
     }
@@ -622,10 +734,13 @@
     signOut: () => forget(),
     // Clerk's state as its listener gets it (a test's seam for the active → none rule; what Clerk itself calls)
     clerkState: (state) => onClerkState(state),
+    // FAKE, for tests on 127.0.0.1 (said there): a Clerk double taken as "the provider answered" so the forms and their
+    // registrations can be read where no instance is reachable; it signs nothing in — every session is still the server's verdict
+    useProvider: (fake) => { clerk = fake || null; loadWords = fake ? '' : loadWords; if (fake) facts = { script: (identity() && identity().clerkScript) || 'FAKE', module: true, host: hostOf(), status: 'FAKE', loaded: true, environment: true, client: true }; redraw(); },
     // module: Clerk's module imported from /vendor/clerk/ (its code ran here); clerk: load() reached the instance;
     // clerkSession: the page holds a session CLERK gave it (only that one is let go when Clerk's goes)
-    state: () => ({ view: configured() ? (signedIn() ? 'signedin' : view) : 'blocker', configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession), social: (identity() && identity().social) || [], returnTo: returnTo || '' }),
+    state: () => ({ view: !configured() ? 'blocker' : signedIn() ? 'signedin' : !clerk ? (providerDown() ? 'provider-down' : 'provider-starting') : view, provider: !configured() ? 'unconfigured' : clerk ? 'ready' : providerDown() ? 'down' : 'starting', facts, lastCheck, configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession), social: (identity() && identity().social) || [], returnTo: peekReturn() }),
     meta: pageMeta,
-    forgetReturn: () => { returnTo = ''; try { sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } },
+    forgetReturn,
   };
 })();

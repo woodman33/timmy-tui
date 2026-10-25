@@ -89,6 +89,14 @@
 
   /** The launch token: companion.js keeps it (a classic script's top-level const is shared here); none → the page says so already. */
   const launchToken = () => (typeof companion !== 'undefined' && companion && companion.token) || '';
+  /**
+   * A page opened without any token (an address typed by hand: the token is kept nowhere, by design) asks the companion
+   * nothing: every fetch answers this 401 in the page itself, so a page's script draws these words and companion.js's own
+   * no-token note at the top (said as the page loaded) is never overwritten by the "not the companion's" refusal — a 401 from
+   * the companion to a request that CARRIED a token is the only refusal (the lead's 18:01 ruling on H172's LEGACY 01).
+   */
+  const NO_TOKEN_WORDS = 'This page has no token from Timmy, so it loads nothing. Open it from Timmy: in the Workbench (`timmy workbench`), press c, which opens this page with its token; or in `timmy watch`, press q on HOME, which shows the companion’s address with its token.';
+  const noTokenAnswer = () => new Response(JSON.stringify({ ok: false, needs: 'token', error: NO_TOKEN_WORDS, words: NO_TOKEN_WORDS }), { status: 401, headers: { 'content-type': 'application/json' } });
   /** The workspace frame companion.js read (GET /api/workspace), when it has. */
   const frame = () => (typeof workspace !== 'undefined' && workspace && workspace.frame) || null;
 
@@ -309,7 +317,8 @@
     let words = 'Companion: connecting…';
     if (/CONNECTED/.test(raw) || live) words = 'Companion answering';
     else if (/LOST|CLOSED|RECONNECT/i.test(raw) || state === 'lost') words = 'Companion not answering · reconnecting';
-    else if (/REFUSED|TOKEN/i.test(raw)) words = 'Companion refused this page';
+    else if (/NEEDS ITS TOKEN/i.test(raw)) words = launchToken() ? 'Token refused · open the page from Timmy again' : 'No token · open the page from Timmy';
+    else if (/REFUSED/i.test(raw)) words = 'Companion refused this page';
     else if (raw) words = raw.replace(/^COMPANION SOCKET · /, 'Companion: ').toLowerCase().replace(/^companion: /, 'Companion: ');
     text(el, words);
     el.classList.toggle('is-live', live);
@@ -610,6 +619,8 @@
       // (GET /api/identity and /api/identity/me are how the page learns whether an account is possible and who is signed in:
       // never withheld; the user-data reads — the view, the models, the frame — are what the refusal stops)
       if (needsSession && !sessionToken && !/^\/api\/identity(\/|\?|$)/.test(String(url))) return Promise.resolve(new Response(JSON.stringify({ ok: false, needs: 'session', error: needsWords, words: needsWords }), { status: 401, headers: { 'content-type': 'application/json' } }));
+      // no token at all: nothing is asked, nothing is refused (companion.js's no-token words stand)
+      if (!launchToken()) return Promise.resolve(noTokenAnswer());
       const o = Object.assign({}, init || {});
       const headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + launchToken() });
       if (sessionToken) headers['X-Timmy-Session'] = sessionToken;
@@ -631,7 +642,7 @@
           needsSession = true; needsWords = String(body.words || body.error || 'Sign in to continue.');
           shell.session.clear();
           if (identityAnswer && identityAnswer.configured) { shell.toast(body.words || body.error || 'Sign in to continue.'); shell.go('account', 'session'); }
-        } else if (typeof companion !== 'undefined' && companion && typeof companion.refuse === 'function') companion.refuse();
+        } else if (launchToken() && typeof companion !== 'undefined' && companion && typeof companion.refuse === 'function') companion.refuse(); // (a 401 to a request that carried the token: the token is not the companion's)
         return r;
       });
     },
@@ -645,14 +656,23 @@
       return t;
     },
     on(event, fn) { (listeners[event] = listeners[event] || []).push(fn); return () => { listeners[event] = (listeners[event] || []).filter((f) => f !== fn); }; },
-    /** The landing rule. Returns the page it chose. */
-    async land() {
+    /**
+     * The landing rule. Returns the page it chose. `why` names what asked: the boot's landing (the default), or 'continue' —
+     * Models & accounts' "Continue to the workspace" (H170 runs land()); pressed there, the shown page IS connections, so the
+     * why is 'continue' unless the caller says otherwise.
+     */
+    async land(why) {
       if (landing) return landing;
+      const reason = why || (shown === 'connections' ? 'continue' : 'landing');
       landing = (async () => {
         let configured = false;
-        // the page companion.js showed as it loaded (its remembered tab, the address's ?tab=, else Chat)
+        // the page companion.js showed as it loaded (its remembered tab, the address's ?tab=, else Chat). A WORKSPACE page is
+        // never the landing's own two stops: Models & accounts and Account are where the rule sends a person who cannot work
+        // yet, so a memory of either (the landing itself remembered it; the tab the switcher took) is not a place to land —
+        // the lead's 18:29 ruling: with a usable route, Continue leaves Models & accounts for the workspace (Chat) at every size.
+        const workspaceOf = (id) => { const p = id ? pageOf(id) : null; return p && p.id !== 'account' && p.id !== 'connections' ? p.id : ''; };
         const tabPage = (typeof workspace !== 'undefined' && workspace && byLegacy.get(String(workspace.tab))) || byId.get('chat');
-        const workspacePage = () => (tabPage && tabPage.id !== 'account' ? tabPage.id : 'chat');
+        const workspacePage = () => workspaceOf(tabPage && tabPage.id) || 'chat';
         // no launch token (or not this companion's): the page's own note says how to open it from Timmy; nothing else is read
         if (!launchToken() || (typeof companion !== 'undefined' && companion && companion.refused)) { shell.go(workspacePage(), 'no-token'); return shown; }
         try {
@@ -671,10 +691,11 @@
           let ready = false;
           // (GET /api/chat/route answers the PageRoute itself: { kind, ready, … })
           try { const r = await shell.fetch('/api/chat/route'); if (r.status === 200) { const b = await r.json(); ready = Boolean(b && b.ready); } } catch (e) { ready = false; }
-          const kept = remembered();
-          id = ready ? (pageOf(kept) && kept !== 'account' ? pageOf(kept).id : workspacePage()) : 'connections';
+          // a usable route: the page remembered (a workspace page the person chose; never connections or account), else the
+          // workspace; no usable route: Models & accounts
+          id = ready ? (workspaceOf(remembered()) || workspacePage()) : 'connections';
         }
-        shell.go(id, 'landing');
+        shell.go(id, reason);
         return shown;
       })();
       try { return await landing; } finally { landing = null; }
