@@ -319,11 +319,12 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     // once per card through TimmyRive.mountProviderCard(host, id, { size: 'wide', label }) (the FAKE's marker stands in the host)
     const hosts = await page.locator('.cn-card > .cn-rive').evaluateAll((els) => els.map((e) => ({ id: e.getAttribute('data-rive-host'), card: e.closest('.cn-card')?.getAttribute('data-provider'), next: e.nextElementSibling?.className ?? '', marker: e.querySelector('[data-fake-rive="ProviderCard"]')?.textContent ?? '' })));
     expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, card: id, next: expect.stringContaining('cn-verb-row'), marker: `FAKE ProviderCard ${id}` })));
-    type Mount = { providerId: string; o: { size?: string; label?: string; providerName?: string; detail?: string } | null };
+    type Mount = { providerId: string; o: { size?: string; label?: string; providerName?: string; detail?: string; words?: string } | null };
     expect(await page.evaluate(() => (window as unknown as { __mounts: Mount[] }).__mounts)).toEqual([
-      // (D15: the detail run is the provider's subtitle — a fact; the one state word is the card's, the face's label follows the feed)
-      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter', providerName: 'OpenRouter', detail: 'One account. Many model providers.' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local', providerName: 'Ollama · local', detail: 'On your computer' } },
-      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud', providerName: 'Ollama · cloud', detail: 'Your Ollama account' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare', providerName: 'Cloudflare', detail: 'Optional · gateway, agents and sync' } }]);
+      // (D15: the detail run is the provider's subtitle — a fact; the one state word is the card's, the face's label follows the feed;
+      // item 4 / D18: `words: 'spoken'` — the module takes its own HTML status off the screen only while the face is drawn and legible)
+      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter', providerName: 'OpenRouter', detail: 'One account. Many model providers.', words: 'spoken' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local', providerName: 'Ollama · local', detail: 'On your computer', words: 'spoken' } },
+      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud', providerName: 'Ollama · cloud', detail: 'Your Ollama account', words: 'spoken' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare', providerName: 'Cloudflare', detail: 'Optional · gateway, agents and sync', words: 'spoken' } }]);
     // the feed: the first draw fed each card's state ONCE, the backend's event as the source (never the card's drawing)
     type Handle = { id: string; binds: string[]; events: Array<{ input: string; value: string; source: string }>; word: string | null };
     const inspect = () => page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Handle[] } }).TimmyRive.inspect());
