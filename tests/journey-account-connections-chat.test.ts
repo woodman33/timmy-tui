@@ -307,7 +307,28 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       const session = identity.token(USER);
       const o = await open(configured!, size, { session, capture: true });
       try {
-        const t = await until(o.page, 'the connections screen (the landing rule: signed in, no route yet)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections, facts(o));
+        // THE LANDING RULE (shell.js land(); the lead's 68b34c17 on c72a265a: GET /api/chat/route is the PRINCIPAL's): signed in and no
+        // usable route → Models & accounts; signed in with a usable route → the workspace (the Chat). The first size reaches this case
+        // with nothing chosen; the second finds the USER's route ready (case 3 chose the FAKE model on the user's one project at the
+        // first size), so the landing is the Chat then — read from the server's own word (GET /api/chat/route as the user), SAID in the
+        // sidecar, and Models & accounts is opened by the rail as a person opens it (GATE 06 on 1c9bbebb landed every size on
+        // connections because land() read the companion's own route; GATE 07's first run named this read)
+        await o.page.waitForFunction(() => /^(connections|chat)$/.test(document.body.getAttribute('data-screen') || document.body.getAttribute('data-page') || ''), null, { timeout: 20_000 }).catch(() => undefined);
+        const landedOn = await screenOf(o.page);
+        const routeNow = await api(configured!, 'GET', '/api/chat/route', { session });
+        const routeReady = Boolean(routeNow.json?.ready);
+        let landing: string;
+        if (landedOn === 'chat') {
+          expect(routeReady, `the landing went to the Chat, so the user's route must be usable (GET /api/chat/route as the user): ${routeNow.text.slice(0, 200)}; ${facts(o)()}`).toBe(true);
+          landing = `the Chat (the landing rule: signed in WITH a usable route — "${String(routeNow.json?.label ?? '')}" — goes to the workspace); Models & accounts then opened by the rail${size.width < 600 ? ' sheet' : ''}`;
+          if (size.width < 600) { await o.page.locator('#shell-menu').or(o.page.getByRole('button', { name: 'Menu' })).first().click(); await o.page.waitForTimeout(300); }
+          await o.page.locator('.rail-item[data-page="connections"]').or(o.page.getByRole('button', { name: /Models & accounts|Connections/ })).or(o.page.getByRole('link', { name: /Models & accounts|Connections/ })).filter({ visible: true }).first().click();
+        } else {
+          expect(landedOn, `body[data-page] after the seam: ${facts(o)()}`).toBe('connections');
+          expect(routeReady, `the landing stayed on Models & accounts, so the user's route is not usable yet: ${routeNow.text.slice(0, 200)}`).toBe(false);
+          landing = 'Models & accounts (the landing rule: signed in, no usable route yet)';
+        }
+        const t = await until(o.page, 'the connections screen (Models & accounts)', (s) => /Connect with OpenRouter/.test(s) && /Ollama · local/.test(s), 20_000, noConnections, facts(o));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('connections');
         // the socket rule (the lead, 22:3x): a configured companion answers a socket without a session with { type: 'session',
         // ok: false, needs: 'session' } and NOTHING else (no welcome, bus tail, event or project frame) — the frames before the seam
@@ -318,7 +339,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(beforeSeam.filter((f) => /^(welcome|bus\.tail|event|project|integrations)$/.test(f)), `no project frame before a session (the frames: ${JSON.stringify(beforeSeam).slice(0, 400)})`).toEqual([]);
         expect(o.frames.slice(o.frames.indexOf('--seam--')), 'the user\'s own frames once the session is verified (a welcome)').toContain('welcome');
         for (const words of [/OpenRouter/, /Ollama · local/, /Ollama · cloud/, /Cloudflare/]) expect(t).toMatch(words);
-        await caps.cap(o.page, size, 'connections-four-cards', ['The connections screen after the FAKE session was verified: the four provider cards in their state words (nothing set up yet).']);
+        await caps.cap(o.page, size, 'connections-four-cards', [`Models & accounts after the FAKE session was verified — the landing: ${landing}. The four provider cards in their state words.`]);
         // the state words are H170's provider states: never "free", never "connected" for a selection
         expect(t).not.toMatch(/\bfree\b/i);
         expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
@@ -416,7 +437,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const route = ((await mirror.textContent()) ?? '').replace(/\s+/g, ' ').trim();
         if (!settled) console.warn(`${at}: #mirror-route still asking after 15 s ("${route.slice(0, 120)}"); the stale-refusal read below still holds`);
         expect(route, 'the route mirror after the FAKE sign-in (#mirror-route) keeps no pre-session refusal').not.toMatch(/none was sent/i);
-        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.', `The control pressed on Models & accounts: ${pressed}; the page was the Chat (body[data-page]) ${took} ms after the press (the bound: 5 s).`, `The route mirror in the Chat's records (#mirror-route): "${route.slice(0, 160)}" (never the pre-session "none was sent").`]);
+        await caps.cap(o.page, size, 'chat-welcome', [`The chat screen after Continue: the USER's project ("Untitled project"), the composer; ${hasContinue ? 'the user\'s route ready (a model chosen on this project by an earlier case of this run)' : 'no model chosen yet: the welcome'}.`, `The landing of this case: ${landing}.`, `The control pressed on Models & accounts: ${pressed}; the page was the Chat (body[data-page]) ${took} ms after the press (the bound: 5 s).`, `The route mirror in the Chat's records (#mirror-route): "${route.slice(0, 160)}" (never the pre-session "none was sent").`]);
         if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
