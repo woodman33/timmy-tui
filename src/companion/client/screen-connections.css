@@ -49,6 +49,9 @@
 #screen-connections .cn-status-words { color: var(--timmy-text); }
 #screen-connections .cn-say { margin: 0; }
 #screen-connections .cn-verb-row { grid-area: verb; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
+/* D24 (the lead, 00:47): the recommended card's verb is the head's primary's own target (one action), so it carries the accent as a RING on
+   the .sh-btn look — the page's one accent FILL is the head's primary */
+#screen-connections .cn-verb.is-recommended { border-color: var(--timmy-ui-accent, var(--timmy-accent)); }
 #screen-connections .cn-verb-waiting { color: var(--timmy-accent); }
 /* Cloudflare's optional settings, folded (the card's verb opens the fold) */
 #screen-connections .cn-fold { flex-basis: 100%; }

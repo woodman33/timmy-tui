@@ -92,6 +92,25 @@ const strayWords = (page: import('playwright').Page): Promise<string[]> => page.
   while ((n = walk.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? '(no parent)'}: ${t}`); }
   return out;
 });
+/**
+ * D24 (the lead's 00:47): with no route ready the page has exactly ONE accent-filled control — the head's primary (the amber-fit read: a
+ * solid fill of the family accent, or a gradient ending on it) — and the recommended card's verb carries the accent as its RING, the
+ * .sh-btn look (the head's "Set up a model" selects that card and focuses that verb: one action, one fill).
+ */
+async function oneAccentFill(page: import('playwright').Page, where: string): Promise<void> {
+  const r = await page.evaluate(() => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe);
+    const rgb = getComputedStyle(probe).color; probe.remove();
+    const filled = [...document.querySelectorAll('#screen-connections *')].filter((e) => (e as HTMLElement).getClientRects().length > 0 && (getComputedStyle(e).backgroundColor === rgb || getComputedStyle(e).backgroundImage.includes(rgb)))
+      .map((e) => `${e.tagName.toLowerCase()}.${String((e as HTMLElement).className)} "${(e.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)}"`);
+    const verb = document.querySelector('.cn-verb.is-recommended');
+    return { rgb, filled, ring: verb ? getComputedStyle(verb).borderTopColor : '(no recommended verb)', verbFill: verb ? getComputedStyle(verb).backgroundColor : '' };
+  });
+  expect(r.filled, `${where}: accent-filled: ${r.filled.join(' | ')}`).toHaveLength(1);
+  expect(r.filled[0]).toMatch(/^button\.ui-primary/);
+  expect(r.ring, `${where}: the recommended verb's ring is the accent`).toBe(r.rgb);
+  expect(r.verbFill, `${where}: the recommended verb is not filled`).not.toBe(r.rgb);
+}
 
 /**
  * FAKE TimmyRive (this test's; R11 round 6): H174's 06:37 contract surface only — mountProviderCard(host, providerId, opts) →
@@ -125,7 +144,9 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
 body{margin:0;background:var(--timmy-ground);color:var(--timmy-text);font:15px/1.4 sans-serif}.sh-screen{height:100vh;overflow-y:auto}.sh-main{width:100%;max-width:1240px;margin:0 auto;padding:36px 48px;box-sizing:border-box}.sh-card{padding:28px;border:1px solid var(--timmy-line-strong);border-radius:6px;background:var(--timmy-surface)}.sh-btn,.sh-btn-primary,.sh-btn-text{font:inherit;cursor:pointer}.sh-btn{border:1px solid var(--timmy-line-strong);background:transparent;color:var(--timmy-text);padding:8px 14px}.sh-btn-primary{border:1px solid var(--timmy-accent);background:var(--timmy-accent);color:#000;padding:8px 14px}.sh-btn-text{border:0;background:transparent;color:var(--timmy-text);text-decoration:underline}.sh-input,.sh-select{font:inherit;padding:6px 10px;border:1px solid var(--timmy-line-strong);background:#000;color:var(--timmy-text)}.sh-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.sh-state.is-live{color:var(--timmy-live)}.sh-note{font-size:13px;color:var(--timmy-text-secondary)}.sh-head,.sh-foot{display:flex;justify-content:space-between;gap:16px;padding:16px 48px}.sh-steps{display:flex;gap:20px}@media (max-width:720px){.sh-main{padding:20px 16px}.sh-head,.sh-foot{padding:12px 16px}}
 /* the FAKE scaffold at the real shell's measures (companion.css 1440: the 244 px rail beside the page, padding 26/32, the body grid work + 320 px context, gap 24; ≤ 720: padding 16, one column) so the cards' geometry here is the product's */
 .sh-screen.page{box-sizing:border-box;padding:26px 32px 22px 276px;display:flex;flex-direction:column;gap:18px}.page-head{display:flex;justify-content:space-between;gap:24px}.page-kicker{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase}.page-title{margin:4px 0;font-size:30px;line-height:1.15;font-weight:600}.page-intro{margin:0;font-size:15px}.page-band{min-height:48px;border:1px solid var(--timmy-line);border-radius:10px;padding:12px 16px;box-sizing:border-box}.page-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;align-items:start}.page-body:has(> .page-context[hidden]){grid-template-columns:minmax(0,1fr)}.page-work{min-width:0;display:flex;flex-direction:column;gap:14px}.page-context{min-width:0;display:flex;flex-direction:column;gap:16px}.page-dock{display:flex;gap:12px;align-items:center}.dock-tools{display:flex;flex-wrap:wrap;gap:8px}
-@media (max-width:720px){.sh-screen.page{padding:16px}.page-body{grid-template-columns:minmax(0,1fr)}}</style>
+@media (max-width:720px){.sh-screen.page{padding:16px}.page-body{grid-template-columns:minmax(0,1fr)}}
+/* the shell's head primary as companion.css fills it (its gradient ends on the family accent; a solid fill of that accent here): the page's ONE accent fill (D24) */
+.ui-primary{font:inherit;cursor:pointer;border:1px solid var(--timmy-accent);background:var(--timmy-accent);color:#000;padding:8px 14px}</style>
 <link rel="stylesheet" href="/screen-connections.css"></head><body>
 __SECTION__
 <script>
@@ -259,12 +280,17 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.cn-card .cn-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
     // each card in one of the order's situations, with its verb-led action; the ONE primary is the recommended card's verb
     // (D15: ONE state word per card — the probe's; the situation drives the verb and stays as data-situation, no chip, no frame by colour)
-    expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => [e.getAttribute('data-situation'), e.querySelector('[data-cn-verb]')?.textContent, e.querySelector('[data-cn-verb]')?.className.includes('sh-btn-primary')]))).toEqual([
+    expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => [e.getAttribute('data-situation'), e.querySelector('[data-cn-verb]')?.textContent, e.querySelector('[data-cn-verb]')?.className.includes('is-recommended')]))).toEqual([
       ['no-account', 'Connect with OpenRouter ↗', false], ['no-model', 'Install Ollama ↗', true], ['no-account', 'Save an Ollama key', false], ['no-account', 'Set up Cloudflare', false]]);
     expect(await page.locator('.cn-card .cn-situation').count()).toBe(0);
     expect(await page.locator('.cn-card .cn-state-word').count()).toBe(4); // one per card
     expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => getComputedStyle(e).borderColor))).toEqual(Array(4).fill(await page.locator('.cn-card').first().evaluate((e) => getComputedStyle(e).borderColor))); // no frame by state
-    expect(await page.locator('.sh-btn-primary').count()).toBe(1); // the recommended card's verb alone (the head's primary is the shell's .ui-primary; the context repeats no verb)
+    // D24 (the lead's 00:47): with no route ready the head's "Set up a model" and the recommended card's verb are ONE action, so the page
+    // has exactly one accent FILL (the head's primary) and the recommended verb carries the accent as its RING (the .sh-btn look); no
+    // .sh-btn-primary on any card; the context repeats no verb
+    expect(await page.locator('.cn-card .sh-btn-primary').count()).toBe(0);
+    expect(await page.locator('.cn-verb.is-recommended').count()).toBe(1);
+    await oneAccentFill(page, '1440, no route ready');
     // D15 (H168's R85): the face beside the words at ≤ 160 px, every card's verb above the fold at 1440×900 (the FAKE scaffold at the shell's measures)
     const geometry = await page.locator('.cn-card').evaluateAll((els) => els.map((e) => {
       const r = e.getBoundingClientRect(); const v = e.querySelector('[data-cn-verb]')!.getBoundingClientRect(); const f = e.querySelector('.cn-rive')?.getBoundingClientRect();
@@ -575,6 +601,8 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const order = await page.locator('#screen-connections > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
     expect(order.every((t, i) => i === 0 || t >= order[i - 1])).toBe(true);
     expect(await page.locator('.cn-picker').evaluate((e) => e.scrollWidth <= e.clientWidth + 1 || getComputedStyle(e).overflowX === 'auto')).toBe(true);
+    // D24 at 390: one accent fill (the head's primary), the recommended verb's accent ring
+    await oneAccentFill(page, '390');
     // R102 at 390 (H168's pictures): the context for a card without the download offer — Ollama · cloud pressed — carries no stray word
     await page.locator('.cn-card-ollama-cloud .cn-card-title').click();
     expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('ollama-cloud');
