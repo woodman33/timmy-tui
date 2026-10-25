@@ -499,12 +499,21 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     };
     const name = (el: Element): string => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${el.classList.length ? `.${[...el.classList].join('.')}` : ''}`;
-    const behind = (el: Element): number[] => {
+    // what is behind an element: the nearest opaque ground — a solid background colour, or the opaque stops of a gradient
+    // (B11's elevation gradients: the shell's primary button, the surfaces); every candidate is returned so the WORST contrast
+    // among them is the one read (a gradient's darker and lighter ends both count)
+    const behind = (el: Element): number[][] => {
       for (let e: Element | null = el; e; e = e.parentElement) {
-        const c = parse(getComputedStyle(e).backgroundColor);
-        if (c && c[3] > 0.5) return c.slice(0, 3);
+        const cs = getComputedStyle(e);
+        const grounds: number[][] = [];
+        if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+          for (const m of cs.backgroundImage.match(/rgba?\([^)]+\)/g) ?? []) { const c = parse(m); if (c && c[3] > 0.5) grounds.push(c.slice(0, 3)); }
+        }
+        const c = parse(cs.backgroundColor);
+        if (c && c[3] > 0.5) grounds.push(c.slice(0, 3));
+        if (grounds.length) return grounds;
       }
-      return [0, 0, 0];
+      return [[0, 0, 0]];
     };
     const out = { hue: [] as string[], green: [] as string[], greens: 0, contrast: [] as string[], texts: 0 };
     for (const el of document.querySelectorAll('body, body *')) {
@@ -527,10 +536,11 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       out.texts += 1;
       let opacity = fg[3];
       for (let e: Element | null = el; e; e = e.parentElement) opacity *= Number(getComputedStyle(e).opacity);
-      const bg = behind(el);
-      const seen = [0, 1, 2].map((i) => fg[i] * opacity + bg[i] * (1 - opacity));
-      const [hi, lo] = [lum(seen), lum(bg)].sort((x, y) => y - x);
-      const ratio = (hi + 0.05) / (lo + 0.05);
+      const ratio = Math.min(...behind(el).map((bg) => {
+        const seen = [0, 1, 2].map((i) => fg[i] * opacity + bg[i] * (1 - opacity));
+        const [hi, lo] = [lum(seen), lum(bg)].sort((x, y) => y - x);
+        return (hi + 0.05) / (lo + 0.05);
+      }));
       if (ratio < 4.5) out.contrast.push(`${name(el)} ${ratio.toFixed(2)}: "${(el.textContent ?? '').trim().slice(0, 40)}"`);
     }
     return out;
@@ -681,8 +691,11 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       expect(boxes).toHaveLength(2);
       for (const b of boxes) expect(b.height).toBeGreaterThan(80);
       expect(boxes[1].top).toBeGreaterThanOrEqual(boxes[0].bottom);
+      // R11 round 7 (SHELL CONTRACT v1): the records band lives in the page's records region, drawn after the work region, which
+      // scrolls inside itself — so the band sits below the WORK REGION's edge (the boxes may run on inside it), never over a box
       const strip = await page.$eval('.ws-activity', (e) => e.getBoundingClientRect().top);
-      expect(strip).toBeGreaterThanOrEqual(boxes[1].bottom);
+      const workBottom = await page.$eval('#ws-control .page-work, #ws-control .page-body', (e) => e.getBoundingClientRect().bottom).catch(() => boxes[1].bottom);
+      expect(strip, 'the records band below the work region').toBeGreaterThanOrEqual(Math.min(workBottom, boxes[1].bottom) - 0.5);
       // the turns go on below the first box's edge: it scrolls inside, and its bottom border says so until the end is in view
       const fit = '#ws-control .col-stack > .box.box-fit';
       expect(await page.$eval(`${fit} > .box-body`, (e) => e.scrollHeight > e.clientHeight + 1)).toBe(true);
@@ -696,6 +709,11 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const { page, context, errors } = await open({ viewport: { width: 1376, height: 768 } });
     try {
       await openTab(page, 'logs');
+      // R11 round 7 (H169 on SHELL CONTRACT v1): the page's older boxes (the socket log, the events, the latest receipt) sit in the
+      // page's records, a closed details — opened here as a person opens it, then the sentence read where it is drawn
+      const records = page.locator('#ws-logs .page-records details').filter({ has: page.locator('#proof-none') }).first();
+      await records.waitFor({ state: 'attached', timeout: 15_000 }).catch(() => undefined);
+      if (await records.count()) await records.locator('summary').first().click();
       await page.waitForSelector('#proof-none', { state: 'visible', timeout: 15_000 });
       expect(await page.$eval('#proof-none', (e) => (e.textContent || '').trim())).toBe('No receipt has been sent to this page since it opened. The project\'s sealed receipts so far are in Structured events, as the frame read them.');
       expect(await page.$eval('#proof-box', (e) => getComputedStyle(e).display)).toBe('none');

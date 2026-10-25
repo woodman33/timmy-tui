@@ -48,6 +48,9 @@ async function mint(o: { sub?: string; azp: string; key?: KeyObject }): Promise<
 const FAKE_SHELL = `(() => {
   'use strict';
   const token = (/#t=([0-9a-f]{64})/.exec(location.hash) || [])[1] || '';
+  // the test's start: ?from=<page> — the person CHOSE that page (a rail click), then opened Account from the rail; without it,
+  // the real shell's boot shape: the default tab Chat ('load'), then the landing's Account ('landing')
+  const from = (/[?&]from=([a-z-]+)/.exec(location.search) || [])[1] || '';
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
   let current = ''; let sessionTok = null; let sessionUser = null; let ident = null;
   const draws = {}; const listeners = {};
@@ -104,7 +107,9 @@ const FAKE_SHELL = `(() => {
       get: () => sessionTok, user: () => sessionUser,
     },
     identity: () => ident,
-    async land() { window.__landed += 1; shell.go(ident && ident.configured && !sessionTok ? 'account' : 'chat', 'landing'); },
+    // THE LANDING RULE as the real shell's land() decides (D7): not configured → the workspace (Chat); configured and not
+    // signed in → Account; signed in → Models & accounts, since no route is usable here (the real one asks /api/chat/route)
+    async land() { window.__landed += 1; shell.go(!(ident && ident.configured) ? 'chat' : (sessionTok ? 'connections' : 'account'), 'landing'); },
     toast(words, o) { window.__toasts.push({ words, live: !!(o && o.live) }); },
     on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); },
   };
@@ -113,8 +118,7 @@ const FAKE_SHELL = `(() => {
   const start = () => shell.fetch('/api/identity').then(async (r) => {
     ident = r.status === 200 ? await r.json() : { configured: false, needs: [], words: 'GET /api/identity answered ' + r.status + '.' };
     emit('identity', ident);
-    // the test's start: the person came from Files (the return path), then the account page
-    shell.go('files', 'test'); shell.go('account', 'test');
+    if (from) { shell.go(from, 'rail'); shell.go('account', 'rail'); } else { shell.go('chat', 'load'); shell.go('account', 'landing'); }
   });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
@@ -134,6 +138,7 @@ body{margin:0;background:var(--timmy-ui-canvas);color:var(--timmy-ui-text);font:
 </section>
 <section class="page ws-page" id="ws-files" data-page="files" hidden><header class="page-head"><h1 class="page-title">Files</h1></header></section>
 <section class="page ws-page" id="ws-chat" data-page="chat" hidden><header class="page-head"><h1 class="page-title">Chat</h1></header></section>
+<section class="page ws-page" id="screen-connections" data-page="connections" hidden><header class="page-head"><h1 class="page-title">Models &amp; accounts</h1></header></section>
 </main>
 <script src="/fake-shell.js"></script>
 <script src="/account.js"></script>
@@ -156,6 +161,7 @@ async function startCompanion(env: Record<string, string>): Promise<{ base: stri
   const sendPage = (req: express.Request, res: express.Response) => { res.setHeader('Content-Security-Policy', policy(req.headers.host)); res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.send(PAGE); };
   const file = (name: string, type: string, dir = CLIENT): express.RequestHandler => (_req, res) => { res.setHeader('Content-Type', type); res.send(readFileSync(join(dir, name), 'utf8')); };
   app.get('/', sendPage);
+  app.get('/account/callback', sendPage); // as the companion serves the OAuth return (account-callback.js is not part of this FAKE)
   app.get('/fake-shell.js', file('fake-shell.js', 'text/javascript; charset=utf-8', root));
   app.get('/account.js', file('account.js', 'text/javascript; charset=utf-8'));
   app.get('/account.css', file('account.css', 'text/css; charset=utf-8'));
@@ -196,7 +202,7 @@ type AccountState = { view: string; configured: boolean; module: boolean; clerk:
 type Meta = { kicker: string; title: string; intro: string; context: string | null; dock: string; primary: { label: string; disabled?: boolean; why?: string } };
 
 /** A page with its request log, its uncaught errors and its console; opened on the account page after the FAKE shell's start. */
-async function open(base: string, width: number, height: number): Promise<{ page: Page; w: Watched }> {
+async function open(base: string, width: number, height: number, path = '/'): Promise<{ page: Page; w: Watched }> {
   const page = await browser!.newPage({ viewport: { width, height } });
   const w: Watched = { requests: [], errors: [], console: [] };
   const seen = new Map<PwRequest, Watched['requests'][number]>();
@@ -205,10 +211,13 @@ async function open(base: string, width: number, height: number): Promise<{ page
   page.on('response', (r) => { const e = seen.get(r.request()); if (e) e.status = r.status(); });
   page.on('pageerror', (e) => w.errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') w.console.push(m.text()); });
-  await page.goto(`${base}/#t=${LAUNCH}`);
-  await page.waitForFunction(() => document.body.dataset.page === 'account' && Boolean(document.querySelector('#screen-account .ac-card')), null, { timeout: 15_000 });
+  await page.goto(`${base}${path}#t=${LAUNCH}`);
+  await onAccount(page);
   return { page, w };
 }
+const onAccount = (page: Page) => page.waitForFunction(() => document.body.dataset.page === 'account' && Boolean(document.querySelector('#screen-account .ac-card')), null, { timeout: 15_000 });
+const landed = (page: Page) => page.evaluate(() => (window as unknown as { __landed: number }).__landed);
+const allWent = (page: Page) => page.evaluate(() => (window as unknown as { __went: string[] }).__went);
 const state = (page: Page) => page.evaluate(() => (window as unknown as { timmyAccount: { state(): AccountState } }).timmyAccount.state());
 const meta = (page: Page) => page.evaluate(() => (window as unknown as { __meta: Meta }).__meta);
 const went = (page: Page) => page.evaluate(() => { const w = (window as unknown as { __went: string[] }).__went; return w[w.length - 1]; });
@@ -286,9 +295,9 @@ describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real ro
 
   it('a session the server verifies → "You\'re signed in" with the ONE green line from GET /api/identity/me and the return path (back to Files); Clerk\'s state rules; a token of another key → refused with words, the shell\'s 401 rule clears it; sign out → the sign-in view', async () => {
     if (!browser) return;
-    const { page, w } = await open(configuredBase, 1440, 900);
+    const { page, w } = await open(configuredBase, 1440, 900, '/?from=files');
     try {
-      expect((await state(page)).returnTo).toBe('files'); // the page the person came from (the FAKE shell's start)
+      expect((await state(page)).returnTo).toBe('files'); // the page the person CHOSE before the account page (the FAKE shell's start)
       const good = await mint({ azp: configuredBase });
       const u = await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<{ id: string }> } }).timmyAccount.useSession(t), good);
       expect(u.id).toBe(USER_A);
@@ -341,9 +350,53 @@ describe('the account page in Chromium (FAKE shell on SHELL CONTRACT v1, real ro
     } finally { await page.close(); }
   }, 60_000);
 
+  it('D7 THE LANDING RULE: a fresh page (the boot default Chat, the landing\'s Account) remembers no return — a sign-in applies land(), never "back to Chat"; a stale memory is dropped on a fresh page, kept on /account/callback; a chosen page is honoured', async () => {
+    if (!browser) return;
+    // (a) a fresh page, as the real shell boots: Chat by default ('load'), then the landing's Account ('landing') — nothing chosen
+    const { page, w } = await open(configuredBase, 1440, 900);
+    try {
+      expect(await allWent(page)).toEqual(['chat:load', 'account:landing']);
+      expect((await state(page)).returnTo).toBe('');
+      const good = await mint({ azp: configuredBase });
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      // the landing rule decided (here: Models & accounts, no route being usable) — not the boot default remembered as "before Account"
+      expect(await landed(page)).toBe(1);
+      expect(await went(page)).toBe('connections:landing');
+      expect(await allWent(page)).not.toContain('chat:continue');
+      // (b) a memory left in this tab (the person chose Files once) does not survive a fresh page: dropped, the rule applies
+      await page.evaluate(() => { sessionStorage.setItem('timmy.account.return', 'files'); });
+      await page.goto(`${configuredBase}/?fresh=1#t=${LAUNCH}`); // (a query, so this is a page load, not a move within the document)
+      await onAccount(page);
+      expect(await allWent(page)).toEqual(['chat:load', 'account:landing']);
+      expect((await state(page)).returnTo).toBe('');
+      expect(await page.evaluate(() => sessionStorage.getItem('timmy.account.return'))).toBeNull();
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      expect(await went(page)).toBe('connections:landing');
+      // (c) the OAuth round trip: the provider's page reloads this one at /account/callback — the page chosen BEFORE leaving is kept
+      await page.evaluate(() => { sessionStorage.setItem('timmy.account.return', 'files'); });
+      await page.goto(`${configuredBase}/account/callback#t=${LAUNCH}`);
+      await onAccount(page);
+      expect(await allWent(page)).toEqual(['chat:load', 'account:landing']);
+      expect((await state(page)).returnTo).toBe('files');
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      expect(await went(page)).toBe('files:continue');
+      expect(await page.evaluate(() => sessionStorage.getItem('timmy.account.return'))).toBeNull(); // taken once
+      // (d) a page the person chose (a rail click), then Account from the rail: honoured
+      await page.goto(`${configuredBase}/?from=settings#t=${LAUNCH}`);
+      await onAccount(page);
+      expect(await allWent(page)).toEqual(['settings:rail', 'account:rail']);
+      expect((await state(page)).returnTo).toBe('settings');
+      await page.evaluate((t) => (window as unknown as { timmyAccount: { useSession(t: string): Promise<unknown> } }).timmyAccount.useSession(t), good);
+      expect(await went(page)).toBe('settings:continue');
+      // the FAKE's session was per page load: each sign-in above was verified by GET /api/identity/me again
+      expect(w.requests.filter((r) => r.url === `${configuredBase}/api/identity/me` && r.status === 200).length).toBeGreaterThanOrEqual(4);
+      expect(w.errors).toEqual([]);
+    } finally { await page.close(); }
+  }, 60_000);
+
   it('NOT CONFIGURED: an explicit blocker page — the exact names to set, what each is and where it comes from, what happens next; no form, no social button, nothing signs in; Continue as the operator', async () => {
     if (!browser) return;
-    const { page, w } = await open(bareBase, 1440, 900);
+    const { page, w } = await open(bareBase, 1440, 900, '/?from=files');
     try {
       expect(await meta(page)).toMatchObject({ kicker: 'ACCOUNT / SET UP SIGN-IN', title: 'Sign-in is not set up on this companion.', primary: { label: 'Continue as the operator' }, context: 'selection' });
       expect((await state(page)).view).toBe('blocker');
