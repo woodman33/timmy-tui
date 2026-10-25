@@ -819,9 +819,9 @@ function adoptScaffold() {
     let d = rec.querySelector('details.records');
     // (D3/D4: the R10 views under the composition — the turn mirror with its export tools and the Streamdown "ask a model"
     // island — are records; in the work region they took the conversation's height (the probe of 16:03: #cx at 0 px beside a
-    // 690 px block). Moved here, OPEN so the lead's legacy suites still reach the island's switch; bounded and scrolling on
-    // their own; closing them is the viewer's (the fold is not kept: the records stay a page's quiet end))
-    if (!d) { d = h('details', { class: 'records', open: true }, h('summary', null, 'Records · the status row, the turn mirror and the older chat view')); rec.appendChild(d); }
+    // 690 px block). Moved here, CLOSED by default (D4's quiet records — the lead's 16:56 decision; the legacy suites open
+    // them with one line before their reads); opened, they are bounded and scroll on their own)
+    if (!d) { d = h('details', { class: 'records' }, h('summary', null, 'Records · the status row, the turn mirror and the older chat view')); rec.appendChild(d); }
     if (status && !d.contains(status)) d.appendChild(status);
     if (older && !d.contains(older)) d.appendChild(older);
   }
@@ -2257,7 +2257,7 @@ document.addEventListener('click', (event) => {
   else if (what === 'open-models') { toggleModels(true); $('cm-search')?.focus(); }
   else if (what === 'stop') stopNow();
   else if (what === 'stop-other') stopOther(act);
-  else if (what === 'older') { closeDrawer(); $('cx-older')?.scrollIntoView({ block: 'start' }); }
+  else if (what === 'older') { closeDrawer(); const older = $('cx-older'); const d = older && older.closest('details.records'); if (d) d.open = true; older?.scrollIntoView({ block: 'start' }); }
   else if (what === 'setup-back') { cx.setup = ''; drawChat(); document.querySelector('[data-cx-way]')?.focus({ preventScroll: true }); }
   else if (what === 'setup-choices') { setExplored(false); cx.setup = ''; cx.forceChoices = true; drawChat(); document.querySelector('[data-cx-way]')?.focus({ preventScroll: true }); }
   else if (what === 'refresh') { readView(true, true).then(() => readModels()); }

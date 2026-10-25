@@ -46,6 +46,8 @@ describe.skipIf(!browserPath)('the companion\'s text is 11 px or more on every s
             small[`${at} tab ${key} ${id}`] = await smallText(page);
             if (id === 'chat') {
               // the chat tab's other view: this page's own chat with a model (the Streamdown island)
+              // (R11 round 7, H171: the older views are the Chat page's records, closed by default — opened for this read)
+              await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
               await page.click('#btn-streamdown');
               await page.waitForSelector('#tab-streamdown.active #streamdown-root > *', { timeout: 20_000 });
               small[`${at} tab ${key} ${id} · Ask a model here`] = await smallText(page);

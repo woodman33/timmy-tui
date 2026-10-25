@@ -548,6 +548,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
         const views = t.id === 'chat' && (await page.isVisible('.view-switch [data-tab="streamdown"]')) ? ['chat', 'streamdown'] : [null];
         for (const view of views) {
           if (view) {
+            // (R11 round 7, H171: the older views are the Chat page's records, closed by default — opened for this read)
+            await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
             await page.click(`.view-switch [data-tab="${view}"]`);
             await page.waitForFunction((v) => document.getElementById(`tab-${v}`)?.classList.contains('active') && document.getAnimations().every((a) => a.playState !== 'running'), view, { timeout: 10_000 });
           }
@@ -593,6 +595,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const { page, context, errors, outside } = await open({ on: withTurns });
     try {
       await openTab(page, 'chat');
+      // (R11 round 7, H171: the mirror and the status row are the Chat page's records, closed by default — opened for this read)
+      await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
       await page.waitForSelector('#console-logs [data-mirror="frame-turn"]', { timeout: 15_000 });
       const mirror = await page.$$eval('#console-logs [data-mirror="frame-turn"]', (els) => els.map((e) => ({ surface: (e as HTMLElement).dataset.surface, state: (e as HTMLElement).dataset.state, text: e.textContent ?? '' })));
       // oldest first, as a conversation reads; each names its receipt, and says its words are not here
@@ -631,6 +635,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const { page, context, errors, outside } = await open();
     try {
       await openTab(page, 'chat');
+      // (R11 round 7, H171: the mirror and the status row are the Chat page's records, closed by default — opened for this read)
+      await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
       // R10 CHAT (H171): on Chat the strip is drawn behind the composition (its words checked below); R11 step 3: Stop lives in
       // the composer: its button is Stop while the Workbench answers, saying so beside it
       const btn = await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { state: 'attached', timeout: 15_000 });
