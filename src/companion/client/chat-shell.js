@@ -1695,12 +1695,23 @@ async function chooseRow(id) {
   cx.choosing = null;
   cx.chose = body;
   if (body.ok) {
-    chatNote(body.words, null);
+    // (D21, the lead's 22:58: the companion's read-back "Next turn: <model> on this computer." is NOT painted as a box above the
+    // console band — the composer's route line says the next turn (with Change model) and the context's NEXT TURN card its facts;
+    // a third saying was one too many. An older note (a Stop's answer, New conversation) is cleared: the choice supersedes it)
+    chatNote('', null);
     // a setup panel of the first run gives way to the conversation and the composer
     cx.setup = ''; cx.forceChoices = false;
     // the view read again now: the route, the choice and its readiness as the companion holds them after the write
     await readView(true, true);
     drawChat();
+    // (D21: the choice made, the context reads from its TOP as the selected model's facts (D15) — the column, the rail and its
+    // list at 0. The row's click had scrolled its detail into view (block 'nearest', the person's own selection: the one scroll
+    // of the context, kept), and that residue outlived the choice: the panel's first lines were cut in the candidate's capture.
+    // Nothing is scrolled back into view here — the choice is told by the route line, the chip and the NEXT TURN card, and a
+    // "nearest" scroll to the chosen row would cut the top again wherever the row sits below the rail's fold (measured: 128 px at
+    // 1440). The rail's next redraw keeps this place)
+    const rail = $('cx-models');
+    for (const el of [rail && rail.closest('.page-context'), rail, $('cm-list')]) if (el) el.scrollTop = 0;
     readModels();
     if (narrow()) toggleModels(false);
     const input = $('cx-input');
@@ -2303,7 +2314,8 @@ document.addEventListener('click', (event) => {
   const row = at.closest('[data-model]');
   if (row && row.classList.contains('cm-row')) {
     cx.models.selected = row.dataset.model; drawModelsRail();
-    document.querySelector(`.cm-row[data-model="${CSS.escape(row.dataset.model)}"]`)?.focus();
+    // (D21: the ONE scroll of the context is this selection's, block 'nearest' — the focus itself moves nothing)
+    document.querySelector(`.cm-row[data-model="${CSS.escape(row.dataset.model)}"]`)?.focus({ preventScroll: true });
     // the row's detail (its facts and "Use for the next turn") opens under it: brought into the list's view, so on a phone's
     // short list the action is reachable at once (the lead's journey item d)
     const detail = $('cm-detail');

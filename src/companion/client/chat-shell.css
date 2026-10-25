@@ -591,8 +591,9 @@ body.cx-on-scaffold #cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 140px
 }
 /* The operator's 19:18 order, item 3 (chat-shell.js drawHead sets #ws-chat.cx-compact once the conversation has a message of the
    person's): an ESTABLISHED conversation's head is ONE ROW — the kicker and the title (the first message, one line, ellipsized)
-   side by side, no intro, the primary at the right — and the band ONE row (the phone's form at every width: Workspace: · Model: ·
-   Records: as a line, the next step as text at its end), so the conversation and the composer are in view and usable at once. The
+   side by side, no intro, the primary at the right — and, on a desk, the band ONE LINE (Workspace: · Model: · Records:; a trailing
+   action only for a verb that differs from the primary's, D19), so the conversation and the composer are in view and usable at once.
+   A phone's band is the shell's own (D19's first two facts whole, the rest behind "· more"). The
    first use (no message yet) keeps the shell's full head. The regions are the shell's (SHELL CONTRACT v1); the rules are scoped to
    the Chat's section and say nothing new — a `compact` registration option would be the contract's way (said to H175). */
 #ws-chat.cx-compact > .page-head .page-head-words { display: flex; align-items: baseline; gap: 14px; flex: 1 1 auto; min-width: 0; }
@@ -608,18 +609,21 @@ body.cx-on-scaffold #cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 140px
      row under them (H175's phone head). The spans are the shell's (shell.js draws the kicker as number · separator · verb). */
   #ws-chat.cx-compact > .page-head .page-kicker .page-kicker-sep, #ws-chat.cx-compact > .page-head .page-kicker .page-kicker-verb { display: none; }
 }
-#ws-chat.cx-compact > .page-band { flex-wrap: nowrap; gap: 8px; padding: 6px 16px; overflow: hidden; }
-#ws-chat.cx-compact > .page-band .band-cell { flex: 0 1 auto; flex-direction: row; align-items: baseline; gap: 5px; padding: 0; margin: 0; border: 0; }
-#ws-chat.cx-compact > .page-band .band-cell:first-child { flex-shrink: 0; }
-#ws-chat.cx-compact > .page-band .band-cell + .band-cell::before { content: '·'; color: var(--timmy-ui-text-muted); margin-right: 3px; }
-#ws-chat.cx-compact > .page-band .band-k { white-space: nowrap; }
-#ws-chat.cx-compact > .page-band .band-k::after { content: ':'; }
-#ws-chat.cx-compact > .page-band .band-v { min-width: 0; }
-#ws-chat.cx-compact > .page-band .band-cell.is-attn { flex-shrink: 0; }
-#ws-chat.cx-compact > .page-band .band-action { margin-left: auto; padding: 2px 8px; }
 @media (min-width: 721px) {
   #ws-chat.cx-compact > .page-head { align-items: center; gap: 16px; }
   #ws-chat.cx-compact > .page-head .page-head-actions { padding-bottom: 0; }
+  /* the band as ONE LINE on a desk (Workspace: · Model: · Records: with a trailing action only when the shell draws a different
+     verb — D19). A phone keeps the shell's own band (D19, companion.css: the first two facts whole, the rest behind "· more"):
+     these rules would shrink its cells to nothing, so they stop at 720 px. */
+  #ws-chat.cx-compact > .page-band { flex-wrap: nowrap; gap: 8px; padding: 6px 16px; overflow: hidden; }
+  #ws-chat.cx-compact > .page-band .band-cell { flex: 0 1 auto; flex-direction: row; align-items: baseline; gap: 5px; padding: 0; margin: 0; border: 0; }
+  #ws-chat.cx-compact > .page-band .band-cell:first-child { flex-shrink: 0; }
+  #ws-chat.cx-compact > .page-band .band-cell + .band-cell::before { content: '·'; color: var(--timmy-ui-text-muted); margin-right: 3px; }
+  #ws-chat.cx-compact > .page-band .band-k { white-space: nowrap; }
+  #ws-chat.cx-compact > .page-band .band-k::after { content: ':'; }
+  #ws-chat.cx-compact > .page-band .band-v { min-width: 0; }
+  #ws-chat.cx-compact > .page-band .band-cell.is-attn { flex-shrink: 0; }
+  #ws-chat.cx-compact > .page-band .band-action { margin-left: auto; padding: 2px 8px; }
 }
 /* R81 (H168): the records' mirror keeps its state line; its Save · Download · ✕ Delete row and the planned badge are an older
    interaction model and are not drawn under the fold (the markup is index.html's: said in the handoff) */
