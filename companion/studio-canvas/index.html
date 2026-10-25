@@ -51,7 +51,10 @@
   #frame .fr-theme button { font: inherit; line-height: 18px; padding: 1px 10px; border: 0; border-radius: var(--timmy-ui-radius-pill, 999px); background: none; color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; }
   #frame .fr-theme button[aria-pressed="true"] { background: var(--timmy-ui-raised, #1C2936); color: var(--timmy-ui-text, #ECF1F5); }
   #frame .fr-theme button:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 1px; }
-  @media (max-width: 700px) { #frame .fr-back-word, #frame .fr-crumb-sep, #frame .fr-here, #frame .fr-theme .fr-theme-word { display: none; } #frame #frame-top { gap: 6px 8px; } }
+  /* a narrow window (R11 round 7, H176; H168's R111 at 390: the switch had collapsed to an empty pill): the back arrow alone, the crumb
+     to the project (its name shortened), and the theme switch WITH its two words — a control never loses its words */
+  @media (max-width: 700px) { #frame .fr-back-word, #frame .fr-crumb-sep, #frame .fr-here { display: none; } #frame #frame-top { gap: 6px 8px; } #frame .fr-theme button { padding: 1px 7px; } }
+  #frame #frame-project { flex: 0 1 auto; min-width: 2ch; }
   /* the frame's work, in Timmy's panel: Studio's next steps (the one primary amber, each with Copy; its command while Commands is
      open — frame.js setCommands, R10 H167) and the activity line with its entries (a disclosure, collapsed at first; R5 H137) */
   /* compact: the next step (amber) alone at first, one row of toggles, the activity's line; it keeps its height whole (the lists
@@ -648,7 +651,7 @@
   <div class="fr-row" id="frame-top">
     <a id="frame-back" class="fr-back" href="#" aria-disabled="true" title="Back to Timmy: the companion's Canvas page, once the frame says where the companion answers"><span aria-hidden="true">←</span> <span class="fr-back-word">Back to Timmy</span></a>
     <p id="frame-brand"><span class="fr-mark" aria-hidden="true">T</span> <strong>TIMMY</strong> <span class="fr-crumb-sep" aria-hidden="true">/</span> <span id="frame-project">reading the workspace…</span> <span class="fr-crumb-sep" aria-hidden="true">/</span> <span class="fr-here">Studio</span></p>
-    <div class="fr-theme" id="frame-theme" role="group" aria-label="Theme"><button type="button" data-theme="amber" aria-pressed="true" title="The amber family"><span class="fr-theme-word">Amber</span><span class="fr-theme-dot" aria-hidden="true"></span></button><button type="button" data-theme="glacier" aria-pressed="false" title="The glacier family"><span class="fr-theme-word">Glacier</span></button></div>
+    <div class="fr-theme" id="frame-theme" role="group" aria-label="Theme"><button type="button" data-theme="amber" aria-pressed="true" title="The amber family"><span class="fr-theme-word">Amber</span></button><button type="button" data-theme="glacier" aria-pressed="false" title="The glacier family"><span class="fr-theme-word">Glacier</span></button></div>
   </div>
 </header>
 <div id="root"></div>

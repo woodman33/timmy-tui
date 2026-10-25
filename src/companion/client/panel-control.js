@@ -421,6 +421,35 @@
     return R.asking;
   }
 
+  /**
+   * The frame's "Unfinished · Control Room · Works now / Not yet" box (companion.js drawUnfinished prepends it to the section on
+   * every frame; the shell's sheet orders it between the head and the band) is EVIDENCE, not a region: it moves into the page's
+   * records, in a details open by default (what does not work here yet is this page's truth, so it stays readable), and the
+   * scaffold reads head → band → body (the lead's D23 on H168's R106). A frame that no longer marks the tab takes the box away.
+   */
+  function foldUnfinished(frame) {
+    const section = document.getElementById(SECTION);
+    const rec = section ? section.querySelector(':scope > .page-records') : null;
+    if (!section || !rec) return;
+    const marked = !frame || !Array.isArray(frame.tabs) ? null : frame.tabs.some((t) => t && String(t.id) === 'control' && t.unfinished && typeof t.unfinished.works === 'string');
+    let home = rec.querySelector(':scope > details.records[data-records-owner="unfinished"]');
+    const top = section.querySelector(':scope > .unfinished');
+    if (marked === false) { if (top) top.remove(); if (home) home.remove(); return; }
+    if (!top) return;
+    if (!home) {
+      home = document.createElement('details');
+      home.className = 'records';
+      home.dataset.recordsOwner = 'unfinished';
+      home.open = true;
+      const sum = document.createElement('summary');
+      sum.textContent = 'Unfinished · what works on this page now, and what does not yet';
+      home.append(sum);
+      rec.prepend(home);
+    }
+    for (const old of home.querySelectorAll(':scope > .unfinished')) old.remove();
+    home.append(top);
+  }
+
   function bind() {
     const section = document.getElementById(SECTION);
     if (!section || section.dataset.roomBound) return;
@@ -443,6 +472,7 @@
       const out = panes ? panes.draw(host, frame, ctx) : undefined;
       R.host = host; R.ctx = ctx;
       bind();
+      foldUnfinished(frame);
       if (!ctx.own) { const now = nowBox(); if (now) put(now, ctx.h('p', { class: 'room-quiet' }, 'Not shown: the frame is another project\'s.')); return out; }
       if (R.project !== ctx.project) { R.project = ctx.project; R.room = null; }
       register(R.room);
