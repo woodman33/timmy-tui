@@ -98,6 +98,7 @@ const SHELL = {
   /** §4 a phone (≤ 720 px): #shell-menu opens the rail sheet (.nav-rail.is-open, role=dialog aria-modal); the context is a sheet (.page-context.is-open) opened by .page-context-btn */
   menuButton: '#shell-menu',
   railSheet: '.nav-rail.is-open, #shell-rail[role="dialog"]',
+  /** (every page keeps its own button in the DOM, the hidden pages' too: a read takes the VISIBLE one — `.filter({ visible: true })` — the shown page's) */
   contextButton: '.page-context-btn',
   contextSheet: '.page-context.is-open',
   /** §5 Help & find: the rail's button #shell-help, the <dialog> #shell-help-dialog (⌘K / ?); Settings is reached from it or the account block (D3 amended) */
@@ -290,7 +291,7 @@ const landed = (page: Page): Promise<string> => until(page, 'the landing (a page
 /** The Chat with the FAKE model chosen for the next turn (H171's Models context; on a phone the context opens from its button). */
 async function chooseModel(o: Opened): Promise<Locator> {
   const phone = o.size.width <= 720;
-  if (phone) { await o.page.locator(SHELL.contextButton).first().click(); await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }); }
+  if (phone) { await o.page.locator(SHELL.contextButton).filter({ visible: true }).first().click(); await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }); }
   await o.page.getByRole('tab', { name: 'Ollama local' }).first().click();
   await until(o.page, 'the FAKE model in the list', (s) => s.includes(MODEL), 20_000);
   await o.page.locator('#cm-list').getByText(MODEL, { exact: false }).first().click();
@@ -698,7 +699,7 @@ describe('every major page on the shell, from the running companion and Studio: 
       expect(await composer.isVisible().catch(() => false), 'the composer is visible on the phone').toBe(true);
       const box = await composer.boundingBox();
       expect(box && box.y + box.height <= size.height + 1, `the composer is inside the viewport (${JSON.stringify(box)})`).toBe(true);
-      const ctx = o.page.locator(SHELL.contextButton).first();
+      const ctx = o.page.locator(SHELL.contextButton).filter({ visible: true }).first();
       expect(await ctx.isVisible().catch(() => false), 'the context opens from .page-context-btn in the head on the phone (§4: "Models" / "Details")').toBe(true);
       await ctx.focus();
       await ctx.click();
@@ -926,7 +927,7 @@ const PROBES: Record<string, Probe> = {
     if (firstUse) await caps.cap(o.page, size, 'chat-first-use', { line: line('Chat', 'first use (empty): the welcome and its starters'), facts: ['The empty state: the welcome with its verb-led starters (the project\'s first visit, or New conversation on a project with a saved one); no turn in this conversation yet.'], full: true });
     else facts.push('Not first use at this capture: the conversation as it stands (turns of this run\'s earlier cases; New conversation did not draw the welcome within 15 s — said).');
     // the context at the right (a sheet on a phone): the models, with the catalog's words (H169's CATALOG METADATA; H171's panel)
-    if (phone) await o.page.locator(SHELL.contextButton).first().click().catch(() => undefined);
+    if (phone) await o.page.locator(SHELL.contextButton).filter({ visible: true }).first().click().catch(() => undefined);
     const models = await until(o.page, 'the Models context', (s) => /All makers|All capabilities|Newest first|Choose your model/.test(s), 10_000).catch(() => '');
     facts.push(models ? 'The context at the right (aside.page-context, context: models): the Models panel, its controls read.' : 'The Models context was not read within 10 s (said).');
     if (phone) await o.page.keyboard.press('Escape');
@@ -1031,7 +1032,7 @@ const PROBES: Record<string, Probe> = {
     const contextOpen = async (): Promise<void> => {
       if (!phone) return;
       if (await o.page.locator(SHELL.contextSheet).first().isVisible().catch(() => false)) return;
-      await o.page.locator(SHELL.contextButton).first().click();
+      await o.page.locator(SHELL.contextButton).filter({ visible: true }).first().click();
       await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 });
     };
     const contextClose = async (): Promise<void> => { if (phone && await o.page.locator(SHELL.contextSheet).first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape'); };
@@ -1097,7 +1098,7 @@ const PROBES: Record<string, Probe> = {
     facts.push(faces ? `${faces} native ProviderCard face(s) mounted in the cards (drawn: ${await o.page.locator('[data-provider] canvas[data-timmy-rive][data-loaded]').count()}).` : 'No native ProviderCard face mounted in the cards on this head (said).');
     if (size.width <= 720) {
       // the phone: the page's context as a sheet (H168's §13: "390 with the sheet"), when the page has one
-      const ctx = o.page.locator(SHELL.contextButton).first();
+      const ctx = o.page.locator(SHELL.contextButton).filter({ visible: true }).first();
       if (await ctx.isVisible().catch(() => false)) {
         await ctx.click();
         await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);

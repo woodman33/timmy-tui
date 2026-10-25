@@ -432,7 +432,7 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         await closeInspect(o.page);
         const localCard = o.page.locator('[data-provider="ollama-local"]').first();
         await localCard.click();
-        if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+        if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
         if (await contextCheck.count()) await contextCheck.first().click();

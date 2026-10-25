@@ -327,7 +327,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const phone = size.width <= 720;
         const contextOpen = async (): Promise<void> => {
           if (!phone || await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) return;
-          await o.page.locator('.page-context-btn').first().click();
+          await o.page.locator('.page-context-btn').filter({ visible: true }).first().click();
           await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 });
         };
         const contextClose = async (): Promise<void> => { if (phone && await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape'); };

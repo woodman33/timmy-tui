@@ -726,7 +726,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         // "Check again"); what was pressed is said
         const localCard = o.page.locator(SEL.card('ollama-local')).first();
         await localCard.click();
-        if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+        if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
         let pressedCheck: string;
