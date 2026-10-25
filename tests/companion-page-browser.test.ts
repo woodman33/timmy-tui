@@ -439,7 +439,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(await turn.locator('.cx-who .cx-chip').textContent()).toBe('FAKE model');
       expect(await turn.locator('.cx-who .cx-model').textContent()).toBe(MODEL);
       // the evidence line: the model, where it ran, the seconds and the receipt's short id (sealed by the real turn)
-      await expect.poll(async () => ((await turn.locator('.cx-evidence').textContent()) ?? '').replace(/\s+/g, ' ').trim(), { timeout: 15_000 }).toMatch(new RegExp(`^▸ ${MODEL} · [^·]+ · \\d+(?:\\.\\d)? s · receipt [0-9a-f]{8}`));
+      await expect.poll(async () => ((await turn.locator('.cx-ev-row').textContent()) ?? '').replace(/\s+/g, ' ').trim(), { timeout: 15_000 }).toMatch(new RegExp(`^▸ ${MODEL} · [^·]+ · \\d+(?:\\.\\d)? s · receipt [0-9a-f]{8}`));
       // one request to the FAKE, with the message as sent, and the turn's request to this server carried the token
       expect(asked().at(-1)).toBe('release notes please');
       expect(seen.requests.some((r) => new URL(r).pathname === '/api/chat/turn')).toBe(true);
