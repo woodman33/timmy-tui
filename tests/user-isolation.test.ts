@@ -455,7 +455,9 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     const localCard = (a: Answer): LocalCard => (((a.json?.cards ?? []) as Array<{ id?: string } & LocalCard>).find((c) => c.id === 'ollama-local') ?? {});
     // two pages open at the same time: a socket each, with its own session in its hello (as the page sends it), every message kept
     const open = async (session: string): Promise<{ messages: Array<Record<string, unknown>>; close: () => void }> => {
-      const ws = new WebSocket(companion.address.replace(/^http/, 'ws'), ['timmy-companion', `timmy-token.${TOKEN}`], { origin: companion.address });
+      // (the Origin header the page would send: the companion's origin without the address's trailing slash — isLocalRequest's LOCAL_ORIGIN
+      // reads an origin, and "http://127.0.0.1:<port>/" is refused 403 as foreign: GATE 06's first read)
+      const ws = new WebSocket(companion.address.replace(/^http/, 'ws'), ['timmy-companion', `timmy-token.${TOKEN}`], { origin: companion.address.replace(/\/+$/, '') });
       const messages: Array<Record<string, unknown>> = [];
       ws.on('message', (d) => { try { messages.push(JSON.parse(String(d)) as Record<string, unknown>); } catch { /* not JSON */ } });
       await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
