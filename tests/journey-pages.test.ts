@@ -736,11 +736,17 @@ describe('every major page on the shell, from the running companion and Studio: 
       await expectScaffold(o.page, 'Models & accounts (unreachable)');
       const local = o.page.locator('[data-provider="ollama-local"]').first();
       await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
-      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer/i.test(s), 20_000);
+      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered/i.test(s), 20_000);
       const state = await local.getAttribute('data-state');
-      expect(state ?? '', 'the card\'s state after a refused connection').toMatch(/unreachable|refused|not set up|failed/i);
+      // the card's state word is this computer's Ollama (H170 on chat-view's readOllamaLocal: "not installed" when no ollama program is on
+      // this computer — true in this sandbox —, "installed, stopped" when it is, "unreachable" for a remote address); the refusal is in
+      // its words ("nothing answered at 127.0.0.1:9 just now (…ECONNREFUSED…)"); never "checked" or "connected"
+      expect(state ?? '', 'the card\'s state after a refused connection').toMatch(/unreachable|refused|not set up|failed|not installed|installed, stopped/i);
+      expect(state ?? '', 'never "checked" after a refused connection').not.toMatch(/checked|connected/i);
+      const localWords = await local.innerText();
+      expect(localWords, 'the local card says nothing answered at the address').toMatch(/nothing answered|unreachable|refused|could not be reached|not reachable|no answer/i);
       expect(t, 'never "connected" on a refused connection').not.toMatch(/\bconnected\b/i);
-      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local unreachable after Check (a closed port)'), facts: [`Ollama · local for a user whose address is ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card says it in its own words; state "${state ?? '(none)'}"; nothing green.`], full: true });
+      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local unreachable after Check (a closed port)'), facts: [`Ollama · local for a user whose address is ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card says it in its own words; state "${state ?? '(none)'}" (this computer's install state: no ollama program in this sandbox, so "not installed" is true here; the refusal is in the words); nothing green.`], full: true });
       await clean(o, 'unreachable');
     } finally { await o.close(); }
   });
@@ -876,7 +882,10 @@ const PROBES: Record<string, Probe> = {
     const keyField = o.page.getByRole('textbox', { name: /Ollama API key/i }).or(o.page.locator('#cn-ollama-cloud-key')).first();
     if (await keyField.count()) {
       await keyField.fill(FAKE_CLOUD_KEY);
-      await o.page.getByRole('button', { name: /Save (the|an Ollama) key/ }).first().click();
+      // the form's submit "Save the key" (H170's card: its verb "Save an Ollama key" focuses the field and says the next step; it does not submit)
+      const cloudCard = o.page.locator('[data-provider="ollama-cloud"]').first();
+      const submit = cloudCard.getByRole('button', { name: /^Save the key$/ }).or(o.page.getByRole('button', { name: /^Save the key$/ })).first();
+      if (await submit.count()) await submit.click(); else await keyField.press('Enter');
       // (the card offers "Check the key" / "Forget the key" only once a key is held: the saved state, not a word that may already be on the page)
       const savedWords = await until(o.page, 'the key saved, said (Check the key / Forget the key offered)', (s) => /Check the key|Forget the key/.test(s), 15_000);
       expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
@@ -979,7 +988,7 @@ const PROBES: Record<string, Probe> = {
   async 'Workflows'(o, _size, facts) { facts.push(await stateWords(o, 'Workflows', /workflow|run|step/i)); },
   async 'Runs & receipts'(o, _size, facts) { facts.push(await stateWords(o, 'Runs & receipts', /run|receipt|record/i)); },
   async 'VoxVision'(o, _size, facts) { facts.push(await stateWords(o, 'VoxVision', /vision|scan|observ|image|source/i)); },
-  async 'Motion & 3D'(o, _size, facts) { facts.push(await stateWords(o, 'Motion & 3D', /motion|3D|clip|render|scene/i)); },
+  async 'Motion & 3D'(o, _size, facts) { facts.push(await stateWords(o, 'Motion & 3D', /motion|3D|clip|render|scene|mesh|houdini|template|native application/i)); },
   async 'Tools & integrations'(o, _size, facts) { facts.push(await stateWords(o, 'Tools & integrations', /tool|MCP|integration/i)); },
   async 'Control Room'(o, _size, facts) { facts.push(await stateWords(o, 'Control Room', /control|fleet|clef|workspace|agent/i)); },
   async 'Settings'(o, _size, facts) { facts.push(await stateWords(o, 'Settings', /setting|theme|preference|account/i)); },
@@ -989,7 +998,9 @@ const PROBES: Record<string, Probe> = {
 async function stateWords(o: Opened, name: string, purpose: RegExp): Promise<string> {
   const s = await scaffoldOf(o.page);
   const work = await o.page.locator(SHELL.work).first().innerText().catch(() => '');
-  expect(`${s.title} ${s.description} ${work}`, `${name}: the page's purpose in its words`).toMatch(purpose);
+  // the kicker's verb phrase names the purpose by design (D4: "NN / VERB PHRASE" — "CREATE IN 3D", "SET HOW TIMMY RUNS"), with the title,
+  // the description and the work's words
+  expect(`${s.kicker} ${s.title} ${s.description} ${work}`, `${name}: the page's purpose in its words`).toMatch(purpose);
   // a state marked by the shell (data-state) or read from the words; an empty state carries a verb-led action (a button or a link in the work)
   const actions = await o.page.locator(SHELL.work).first().getByRole('button').or(o.page.locator(SHELL.work).first().getByRole('link')).allInnerTexts().catch(() => [] as string[]);
   const state = s.states[0] || (/nothing yet|no .* yet|empty|none yet/i.test(work) ? 'empty (read from the words)' : 'content (read from the words)');
