@@ -413,8 +413,15 @@ describe('the three capability words, the same on the terminal and the page (R11
         expect(card!.state).toBe(terminal.get(r.id)?.word);
         // the card's words claim what the row's facts hold (its three sentences say "not …" for the rest), never more
         expect(claimed(card!.text), `the words the page's card claims for ${r.name}: ${card!.text}`).toEqual(okWords(r));
-        // the next step in the terminal's words (H167's inventoryNext: the step, where it is set; the terminal's words win)
-        if (r.next) expect(card!.text, `the page's next step for ${r.name}: the terminal says ${JSON.stringify(nextForms(r)[0])}, the inventory's sentence is ${JSON.stringify(r.next)}`).toContain(collapse(nextForms(r)[0]));
+        // the next step (H167's inventoryNext: the step, where it is set; the terminal's words win for the state WORD). R11 round 7, H170's
+        // D22/R108 (9da0fe0d; the Oct 8 direction — friendly labels, implementation names in setup/details): the card's Next line carries the
+        // step in PLAIN words — the terminal's form with any "(ENV_NAME)" parenthetical struck (panel-tools.js plainStep), plus where it is
+        // set — and the inventory's EXACT sentence sits behind the card's "Details · the exact step" (closed, mono; textContent reads it)
+        if (r.next) {
+          const plain = collapse(nextForms(r)[0].replace(/\s*\([A-Z][A-Z0-9_]*\)/g, ''));
+          expect(card!.text, `the page's next step for ${r.name} in PLAIN words (the terminal's form ${JSON.stringify(nextForms(r)[0])} with its "(ENV_NAME)" struck): ${card!.text}`).toContain(plain);
+          expect(card!.text.includes(collapse(r.next)) || card!.text.includes(collapse(nextForms(r)[0])), `the exact step behind the card's "Details · the exact step" for ${r.name}: the inventory's sentence ${JSON.stringify(r.next)} (or the terminal's form ${JSON.stringify(nextForms(r)[0])}): ${card!.text}`).toBe(true);
+        }
       }
     });
   }
