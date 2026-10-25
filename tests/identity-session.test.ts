@@ -101,7 +101,10 @@ describe('identityConfig: configured only when the publishable key and one verif
   });
   it('the page is told the public part only: never the PEM, never whether a secret is set', () => {
     const page = pageIdentity(identityConfig(ENV));
-    expect(page).toEqual({ configured: true, publishableKey: PK, frontendApi: FRONTEND, needs: [], words: expect.any(String), social: [], setup: expect.any(Array) });
+    expect(page).toEqual({ configured: true, publishableKey: PK, frontendApi: FRONTEND, needs: [], words: expect.any(String), brief: `Sign-in through Clerk at ${new URL(FRONTEND).host}`, social: [], setup: expect.any(Array) });
+    // R95: the brief for a small block carries no environment name (the rail's account block showed one, cut off); the names are setup/needs
+    expect(pageIdentity(identityConfig({})).brief).toBe('Sign-in is not set up');
+    expect(pageIdentity(identityConfig({})).brief).not.toMatch(/CLERK_/);
     // R7: the blocker page's steps name every environment name once, what it is and where it comes from — never a value
     expect(page.setup.map((s) => [s.name, s.missing, Boolean(s.optional)])).toEqual([[IDENTITY_ENV.publishable, false, false], [IDENTITY_ENV.jwtKey, false, false], [IDENTITY_ENV.social, false, true]]);
     expect(pageIdentity(identityConfig({})).setup.filter((s) => s.missing).map((s) => s.name)).toEqual([IDENTITY_ENV.publishable, IDENTITY_ENV.jwtKey]);

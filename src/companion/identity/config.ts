@@ -83,6 +83,8 @@ export interface PageIdentity {
   /** the blocker page's steps: every name, what it is, where it comes from (IDENTITY_SETUP); `missing` marks the ones to set */
   setup: Array<SetupStep & { missing: boolean }>;
   words: string;
+  /** R95: a few plain words for a small block (the rail's account block): no environment name — those are `needs` / `setup`, for a Details fold */
+  brief: string;
 }
 
 const PUBLISHABLE = /^pk_(test|live)_([A-Za-z0-9+/=_-]+)$/;
@@ -184,6 +186,7 @@ export function pageIdentity(cfg: IdentityConfig): PageIdentity {
     ...(cfg.frontendApi ? { frontendApi: cfg.frontendApi } : {}),
     needs: [...cfg.needs],
     words: cfg.words,
+    brief: cfg.configured ? `Sign-in through Clerk${cfg.frontendApi ? ` at ${new URL(cfg.frontendApi).host}` : ''}` : 'Sign-in is not set up',
     social: [...cfg.social],
     setup: IDENTITY_SETUP.map((s) => ({ ...s, missing: cfg.needs.includes(s.name) })),
   };
