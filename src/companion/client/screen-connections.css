@@ -10,57 +10,64 @@
    four cards in the host .page-mount), the context's children (Choose your model, in the shell's .page-context), its dock
    buttons (the shell's .dock-btn) and the records. Surfaces and depth from the theme's variables (the B10 names stand on
    this page until it moves to --timmy-ui-*), gradients only on the primary (the shell's) — never on every panel.
-   1440×900: the cards in two columns beside the shell's 320 px context; 390×844: one column, the picker scrolls sideways. */
+   1440×900: the cards in two columns beside the shell's 320 px context; 390×844: one column, the picker 2 × 2. */
 #screen-connections .cn-page { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 #screen-connections .cn-title:focus-visible { outline: none; }
 
-/* the work (the shell's .page-work holds this host; its .page-context the context) */
+/* the work (the shell's .page-work holds this host; its .page-context the context).
+   R11 round 7 (the lead's D15 on H168's R85/R86): a card is a compact cell — a grid whose face column (the native ProviderCard, ≤ 160 px
+   tall) sits BESIDE the head and the state word, never over the words; the body, the verb and the other controls span the card below,
+   so every card's buttons are above the fold at 1440×900 (two columns beside the shell's 320 px context); ONE state word per card
+   (the glyph beside it says the kind), no frame by colour alone. */
 #screen-connections .cn-work { min-width: 0; }
-#screen-connections .cn-work-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
-#screen-connections .cn-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-#screen-connections .cn-card { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 18px; border-radius: 12px; }
-#screen-connections .cn-card[data-state="checked"] { border-color: var(--timmy-live); }
-#screen-connections .cn-card[data-state="pending"] { border-color: var(--timmy-accent); }
-#screen-connections .cn-card.is-chosen { box-shadow: inset 0 0 0 1px var(--timmy-accent-soft, var(--timmy-line-strong)); }
-#screen-connections .cn-card:focus-within { border-color: var(--timmy-accent); }
-#screen-connections .cn-card-head { display: flex; align-items: center; gap: 14px; }
-#screen-connections .cn-card-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--timmy-line-strong); border-radius: 8px; font-size: 18px; color: var(--timmy-text); flex: 0 0 auto; }
-#screen-connections .cn-card-names { min-width: 0; flex: 1 1 auto; }
-#screen-connections .cn-card-title { margin: 0; font-size: 18px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-#screen-connections .cn-card-sub { margin: 2px 0 0; font-size: 13px; }
-#screen-connections .cn-card-body { margin: 0; font-size: 15px; line-height: 1.45; color: var(--timmy-text); }
-/* the situation chip: words in the text colour; the border says which (green only with the checked state's word beside it) */
-#screen-connections .cn-situation { display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid var(--timmy-line-strong); border-radius: 999px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--timmy-text-secondary); white-space: nowrap; flex: 0 0 auto; }
-#screen-connections .cn-situation.is-existing { color: var(--timmy-text); }
-#screen-connections .cn-situation.is-pending { border-color: var(--timmy-accent); color: var(--timmy-accent); }
-#screen-connections .cn-situation.is-refused, #screen-connections .cn-situation.is-unreachable { border-color: var(--timmy-accent); color: var(--timmy-accent); }
-/* R11 round 6 (H170; H174's 06:37 contract): the native ProviderCard (TimmyRive.mountProviderCard, size 'wide') above the state
-   word, the card's width up to the artboard's own 400 px (never upscaled past it); a host left empty — no module, no mount API —
-   takes no room, and the HTML state word beside it stands alone. The component's own box is H174's (rive-components.css). */
-#screen-connections .cn-rive { width: 100%; max-width: 400px; min-width: 0; margin: 0 0 4px; }
+#screen-connections .cn-work-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 8px; font-size: 12px; }
+#screen-connections .cn-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+#screen-connections .cn-card { --cn-face: 152px; display: grid; grid-template-columns: minmax(0, 1fr) var(--cn-face); grid-template-areas: "head face" "state face" "verb verb" "acts acts" "pull pull" "foot foot"; column-gap: 14px; row-gap: 0; align-items: start; padding: 14px 16px 12px; border-radius: 12px; }
+/* (no row gap: an empty region takes no room; each region carries its own margin) */
+#screen-connections .cn-card.is-chosen { box-shadow: inset 0 0 0 1px var(--timmy-ui-accent, var(--timmy-accent)); } /* (D12: the selection's ring is the accent; accent-soft is an 18 % tint now) */
+#screen-connections .cn-card:focus-within { border-color: var(--timmy-ui-focus, var(--timmy-accent)); }
+#screen-connections .cn-card-head { grid-area: head; min-width: 0; }
+#screen-connections .cn-card-title { margin: 0; font-size: 17px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+#screen-connections .cn-card-sub { margin: 1px 0 0; font-size: 12px; }
+/* the native face: the host's width is the face's (the mount's size 'wide'), 152 px → 99 px tall at the artboard's 400:260; a host left
+   empty — no module, no mount API — takes no column (the words take the width). The mount's own status word is not drawn here: the
+   card's one state word is beside it (D15); the mount's note (its honest absence words) stays. */
+#screen-connections .cn-rive { grid-area: face; width: var(--cn-face); max-width: 100%; min-width: 0; justify-self: end; }
+#screen-connections .cn-rive .tr-status { display: none; }
+#screen-connections .cn-card:has(> .cn-rive:empty) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "state" "verb" "acts" "pull" "foot"; }
 #screen-connections .cn-rive:empty { display: none; }
-#screen-connections .cn-card-state { display: flex; flex-direction: column; gap: 4px; }
+/* the face carries the provider's name and subtitle as its runs once drawn: the HTML subtitle then steps back */
+#screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-card-sub { display: none; }
+#screen-connections .cn-card-state { grid-area: state; display: flex; flex-direction: column; gap: 2px; min-width: 0; margin-top: 6px; }
 #screen-connections .cn-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
-#screen-connections .cn-words, #screen-connections .cn-next, #screen-connections .cn-say, #screen-connections .cn-lines { margin: 0; }
-#screen-connections .cn-verb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+#screen-connections .cn-words { font-size: 12px; line-height: 1.4; }
+#screen-connections .cn-words, #screen-connections .cn-say { margin: 0; }
+#screen-connections .cn-verb-row { grid-area: verb; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
 #screen-connections .cn-verb-waiting { color: var(--timmy-accent); }
-#screen-connections .cn-next-label { color: var(--timmy-accent); font-weight: var(--timmy-weight-strong); }
-#screen-connections .cn-actions { margin-top: 0; padding-top: 12px; border-top: 1px solid var(--timmy-line); }
+/* Cloudflare's optional settings, folded (the card's verb opens the fold) */
+#screen-connections .cn-fold { flex-basis: 100%; }
+#screen-connections .cn-fold-summary { cursor: pointer; margin: 0; padding: 4px 0; list-style: none; display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+#screen-connections .cn-fold-summary::-webkit-details-marker { display: none; }
+#screen-connections .cn-fold-summary::before { content: '▸'; color: var(--timmy-text-secondary); }
+#screen-connections .cn-fold[open] .cn-fold-summary::before { content: '▾'; }
+#screen-connections .cn-fold-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 6px; }
+#screen-connections .cn-fold > .cn-form { margin-top: 6px; }
+#screen-connections .cn-actions { grid-area: acts; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--timmy-line); }
+#screen-connections .cn-actions:empty { display: none; }
 #screen-connections .cn-actions .cn-form { flex-basis: 100%; }
 #screen-connections .cn-link { margin-left: auto; }
-#screen-connections .cn-card-foot { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-#screen-connections .cn-card-foot:empty { display: none; }
+#screen-connections .cn-card-foot { grid-area: foot; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12px; }
+#screen-connections .cn-card-foot:empty, #screen-connections .cn-card-foot:not(:has(.cn-say:not(:empty))) { display: none; }
 #screen-connections .cn-say:empty { display: none; }
 #screen-connections .cn-say[data-kind="failed"] { color: var(--timmy-accent); }
 #screen-connections .cn-say[data-kind="step"] { color: var(--timmy-text); }
-#screen-connections .cn-lines { padding-left: 18px; }
-#screen-connections .cn-lines li { margin: 2px 0; }
-#screen-connections .cn-form { display: flex; flex-direction: column; gap: 8px; }
+#screen-connections .cn-form { display: flex; flex-direction: column; gap: 6px; }
 #screen-connections .cn-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-#screen-connections .cn-form-row .sh-input, #screen-connections .cn-form-row .sh-select { flex: 1 1 220px; width: auto; min-height: 36px; padding: 6px 10px; font-size: 13px; }
+#screen-connections .cn-form-row .sh-input, #screen-connections .cn-form-row .sh-select { flex: 1 1 180px; width: auto; min-height: 34px; padding: 5px 10px; font-size: 13px; }
+#screen-connections .cn-label { font-size: 12px; }
 #screen-connections .cn-label, #screen-connections .cn-check { display: block; }
 #screen-connections .cn-check input { margin-right: 6px; accent-color: var(--timmy-accent); }
-#screen-connections .cn-pull { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
+#screen-connections .cn-pull { grid-area: pull; display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
 #screen-connections .cn-pull-status { margin: 0; }
 #screen-connections .cn-offer-words { margin: 0; }
 #screen-connections .cn-progress { width: 100%; height: 6px; accent-color: var(--timmy-accent); }
@@ -68,19 +75,22 @@
 /* the context: Choose your model (the shell's .page-context is the column; these are its children) */
 #screen-connections .cn-context-head p { margin: 4px 0 0; }
 #screen-connections .cn-context-title { margin: 0; font-size: 17px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-#screen-connections .cn-picker { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; border: 1px solid var(--timmy-line); border-radius: 10px; }
-#screen-connections .cn-pick { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--timmy-text-secondary); cursor: pointer; }
+/* the segmented control (R87): one row of four in the shell's 320 px column at 1440, 2 × 2 under 1320 px and at a phone */
+#screen-connections .cn-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--timmy-line); border-radius: 10px; }
+#screen-connections .cn-pick { font: inherit; font-size: 11px; line-height: 1.3; padding: 5px 3px; min-width: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--timmy-text-secondary); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #screen-connections .cn-pick[aria-pressed="true"] { background: var(--timmy-raised); color: var(--timmy-text); border-color: var(--timmy-line-strong); }
-#screen-connections .cn-pick:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
-#screen-connections .cn-context-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--timmy-line); border-radius: 10px; background: var(--timmy-raised); }
-#screen-connections .cn-context-mark { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--timmy-line-strong); border-radius: 8px; color: var(--timmy-text); }
-#screen-connections .cn-context-name { margin: 0; font-size: 16px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-#screen-connections .cn-context-sub, #screen-connections .cn-context-words, #screen-connections .cn-context-state { margin: 0; font-size: 13px; color: var(--timmy-text-secondary); }
-#screen-connections .cn-context-words { color: var(--timmy-text); }
-#screen-connections .cn-context-verb { align-self: flex-start; }
-#screen-connections .cn-facts { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+#screen-connections .cn-pick:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; }
+/* the selected card's facts (R87: never the card again) */
+#screen-connections .cn-context-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--timmy-line); border-radius: 10px; background: var(--timmy-raised); }
+#screen-connections .cn-context-for { margin: 0; font-size: 13px; color: var(--timmy-text-secondary); display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 4px; }
+#screen-connections .cn-context-mark { color: var(--timmy-text); }
+#screen-connections .cn-context-about { margin: 0; font-size: 13px; line-height: 1.45; color: var(--timmy-text); }
+#screen-connections .cn-context-name { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+#screen-connections .cn-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 #screen-connections .cn-facts dt { color: var(--timmy-text-secondary); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 #screen-connections .cn-facts dd { margin: 2px 0 0; color: var(--timmy-text); overflow-wrap: anywhere; }
+#screen-connections .cn-context-lines { margin: 2px 0 0; padding-left: 16px; font-size: 12px; color: var(--timmy-text-secondary); display: flex; flex-direction: column; gap: 3px; }
+#screen-connections .cn-context-lines li { overflow-wrap: anywhere; }
 #screen-connections .cn-context-links { margin-top: 2px; }
 #screen-connections .cn-context-links .cn-link { margin-left: 0; }
 #screen-connections .cn-offer { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px dashed var(--timmy-line-strong); border-radius: 10px; }
@@ -101,7 +111,7 @@
 #screen-connections .cn-records-summary::-webkit-details-marker { display: none; }
 #screen-connections .cn-records-summary::before { content: '▸'; color: var(--timmy-text-secondary); }
 #screen-connections .cn-records[open] .cn-records-summary::before { content: '▾'; }
-#screen-connections .cn-records-summary:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; border-radius: 6px; }
+#screen-connections .cn-records-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 6px; }
 #screen-connections .cn-records-list { margin: 0; padding: 0 0 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
 #screen-connections .cn-record dt { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
 #screen-connections .cn-record dd { margin: 2px 0 0; color: var(--timmy-text-secondary); font-family: var(--timmy-font-mono); overflow-wrap: anywhere; }
@@ -110,10 +120,18 @@
 #screen-connections .cn-note-mark { color: var(--timmy-accent); }
 #screen-connections .cn-failed { margin: 48px auto; max-width: 560px; }
 
+@media (max-width: 1320px) {
+  #screen-connections .cn-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #screen-connections .cn-pick { font-size: 12px; padding: 5px 6px; }
+}
+@media (max-width: 900px) {
+  /* one column of cards once the work is too narrow for two compact cells */
+  #screen-connections .cn-cards { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 720px) {
   #screen-connections .cn-page { gap: 16px; }
-  #screen-connections .cn-cards { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  #screen-connections .cn-cards { gap: 14px; }
+  #screen-connections .cn-card { --cn-face: 124px; column-gap: 10px; padding: 12px 12px 10px; }
   #screen-connections .cn-link { margin-left: 0; }
-  #screen-connections .cn-picker { flex-wrap: nowrap; overflow-x: auto; }
 }
 @media (prefers-reduced-motion: reduce) { #screen-connections * { transition: none !important; animation: none !important; } }

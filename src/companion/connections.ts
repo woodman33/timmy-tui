@@ -40,11 +40,16 @@ import { checkProvider, CLOUDFLARE_SETTINGS_SCHEMA, cloudflareSettingsFile, clou
 import { failRequest } from '../utils/server-failure.js';
 import { HOMEBREW } from '../theme/tokens.js';
 import { pageRoute } from './chat-route.js';
+import { ollamaAt } from '../setup/ollama-models.js';
+import { readSetupState } from '../setup/questions.js';
 
 // ── the contract with the identity owner (C1) ──────────────────────────────────
 
-/** The signed-in user, as C1's withUser puts it on the request (never from a body, a query or a default). */
-export interface ConnectionsUser { id: string; username?: string; email?: string }
+/**
+ * The signed-in user, as C1's withUser puts it on the request (never from a body, a query or a default); `operator` marks
+ * this computer's operator principal (the companion's own env is theirs: identity/scope.ts userEnv).
+ */
+export interface ConnectionsUser { id: string; username?: string; email?: string; operator?: boolean }
 type UserRequest = express.Request & { user?: ConnectionsUser };
 
 export interface ConnectionsDeps {
@@ -200,7 +205,25 @@ function envOf(deps: ConnectionsDeps, user: ConnectionsUser): Env {
   const env: Env = { ...deps.userEnv(user) };
   delete env.OPENROUTER_API_KEY;
   delete env.OLLAMA_API_KEY;
+  // R11 round 7 (H172's installed run, the lead's 18:21): the second user's Check on Ollama · local reached the companion's
+  // OLLAMA_HOST — the first user's FAKE port — because userEnv passes the process's shell variables through and the address
+  // every check asks (src/capabilities/ollama-route.ts) falls back to them when the user's chat is not set to the local model.
+  // A user's Ollama address is the user's OWN record (providers.json ollama_host, else setup.json's answer, in the user's home),
+  // never this process's shell; without a record a user gets Ollama's default. The operator principal keeps the shell's.
+  const recorded = recordedOllamaAddress(env);
+  if (recorded) { env.OLLAMA_HOST = recorded; delete env.OLLAMA_BASE_URL; }
+  else if (!user.operator) { delete env.OLLAMA_HOST; delete env.OLLAMA_BASE_URL; }
   return env;
+}
+/** The Ollama address the user's own home records (the setup's reader; ollamaAt gives a scheme-less record its origin), or none. */
+function recordedOllamaAddress(env: Env): string | undefined {
+  try {
+    const s = readSetupState(env);
+    const raw = s.providers.ollama ?? s.recorded?.answers.ollama;
+    if (!raw) return undefined;
+    const at = ollamaAt(raw);
+    return 'error' in at ? undefined : at.origin;
+  } catch { return undefined; }
 }
 /** The folder a user's lookups treat as "the project": the user's Timmy home (no .env or timmy-tui.config.json of this process is read). */
 const cwdOf = (env: Env): string => timmyHome(env);

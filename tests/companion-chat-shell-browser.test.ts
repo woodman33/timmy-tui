@@ -39,6 +39,26 @@ const ANSWER_1 = 'FAKE answer 1: a plan in three steps (no model behind it).';
 const PARTIAL = 'FAKE partial answer, written before the stop';
 const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 
+/**
+ * D13 (H168's R77, the lead's ruling): where the composer's bottom edge is with NOTHING scrolled — the window and the shell's main
+ * column put back to their tops first (a focused textarea scrolls itself into view, which hid the fault in the captures) — with the
+ * heights that make the page: the head, the band, the console band, the welcome, the dock, the records.
+ */
+const composerPlace = (page: Page): Promise<{ bottom: number; inner: number; overflow: number; parts: Record<string, number>; folded: boolean | null; face: number | null }> => page.evaluate(() => {
+  const m = document.getElementById('ws-main');
+  if (m) m.scrollTop = 0;
+  window.scrollTo(0, 0);
+  const H = (sel: string): number => { const e = document.querySelector(sel); return e && (e as HTMLElement).getClientRects().length ? Math.round(e.getBoundingClientRect().height) : 0; };
+  const r = document.getElementById('cx-composer')!.getBoundingClientRect();
+  const band = document.getElementById('cx-console');
+  const face = band?.querySelector('.tr-face');
+  return {
+    bottom: Math.round(r.bottom), inner: window.innerHeight, overflow: m ? m.scrollHeight - m.clientHeight : document.documentElement.scrollHeight - window.innerHeight,
+    parts: { head: H('#ws-chat > .page-head'), band: H('#ws-chat > .page-band'), console: H('#cx-console'), welcome: H('#cx-empty'), scroll: H('#cx-scroll'), route: H('#cx-route'), composer: Math.round(r.height), hint: H('#ws-chat .cx-hint'), dock: H('#ws-chat > .page-dock'), records: H('#ws-chat > .page-records') },
+    folded: band ? band.classList.contains('is-folded') : null, face: face ? Math.round(face.getBoundingClientRect().height) : null,
+  };
+});
+
 const ANSWER_2 = 'FAKE answer 2: its receipt is hand-written here, so it does not verify.';
 const ANSWER_4 = 'FAKE answer 4, which no receipt of this project seals.';
 
@@ -118,7 +138,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from ', 'the test\'s stand-in.']), delayMs: 250 }), () => ({ hang: true }),
         () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-r6.md', content: 'from the FAKE model, allowed once on the page\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Written', '.', ' The', ' note', ' is', ' there.']), delayMs: 400 }),
         // (the 390 ask case: the same gate, denied on the page)
-        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-390.md', content: 'not written: denied\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Not written.']) })],
+        () => ({ chunks: toolCallChunks('fake-qwen3:8b', [{ name: 'write_project_file', arguments: { path: 'notes-390.md', content: 'not written: denied\n' } }]) }), () => ({ chunks: textChunks('fake-qwen3:8b', ['Not written.']) }),
+        // (the last case, R80: a turn the FAKE fails with Ollama's HTTP 500, then the same message again answered)
+        () => ({ status: 500, error: 'FAKE error: llama runner process has terminated' }), () => ({ chunks: textChunks('fake-llama:1b', ['Recovered', ' on the retry.']) })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
     writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: MODELS }));
@@ -230,6 +252,24 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#ws-chat > .page-head .page-title')).toBe('Help me turn this folder into a plan.');
       expect(await page.$eval('#ws-chat > .page-head .page-title', (e) => getComputedStyle(e).textTransform)).toBe('none');
       await page.waitForFunction(() => document.querySelector('#ws-chat > .page-band .band-cell:first-child .band-v')?.textContent?.trim() === 'tray', null, { timeout: 10_000 });
+      // D13 (H168's R77 High; the lead's ruling): at 1440 × 900 the composer is in view with NOTHING scrolled — here the content
+      // state; the console band is one row (its face ≤ 48 px) while no turn runs; the heights are in the message for the handoff
+      const content = await composerPlace(page);
+      console.info(`[D13] CONTENT state at 1440 × 900: ${JSON.stringify(content)}`);
+      expect(content.bottom, `CONTENT state at 1440 × 900: ${JSON.stringify(content)}`).toBeLessThanOrEqual(content.inner);
+      expect(content.folded, `the band is one row while idle: ${JSON.stringify(content)}`).toBe(true);
+      if (content.face !== null) expect(content.face, `the one row's face ≤ 48 px: ${JSON.stringify(content)}`).toBeLessThanOrEqual(48);
+      // R79: with nothing typed the head's primary is the step — to write: it puts the keyboard in the composer, which keeps its own
+      // Send; the band's action is its text twin; "Send" is the head's only while a draft exists
+      const primary = () => text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child');
+      expect(await primary()).toBe('Continue the conversation');
+      expect(await text(page, '#ws-chat > .page-band .band-action')).toContain('Continue the conversation');
+      await page.click('#ws-chat > .page-head .page-primary .ui-primary');
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
+      await page.keyboard.type('a draft');
+      await page.waitForFunction(() => document.querySelector('#ws-chat > .page-head .page-primary .ui-primary span:first-child')?.textContent?.trim() === 'Send', null, { timeout: 5_000 });
+      await page.fill('#cx-input', '');
+      await page.waitForFunction(() => document.querySelector('#ws-chat > .page-head .page-primary .ui-primary span:first-child')?.textContent?.trim() === 'Continue the conversation', null, { timeout: 5_000 });
       // the route of the next turn
       expect(await text(page, '#cx-route-words')).toBe('Next turn: fake-qwen3:8b · Ollama on this computer');
       // the Models rail: Ollama local first (the route's), its installed model in use and selected
@@ -414,6 +454,12 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.waitForSelector('#cx-own li.cx-turn.is-timmy.is-streaming[data-turn-id]', { timeout: 30_000 });
       await page.waitForSelector('#cx-send.is-stop', { timeout: 10_000 });
       expect(await page.getAttribute('#cx-send', 'aria-label')).toBe('Stop');
+      // D13: while the turn runs the console band OPENS (its face ≤ 160 px) and the composer stays in view with nothing scrolled
+      const running = await composerPlace(page);
+      console.info(`[D13] RUNNING state at 1440 × 900: ${JSON.stringify(running)}`);
+      expect(running.bottom, `RUNNING state at 1440 × 900: ${JSON.stringify(running)}`).toBeLessThanOrEqual(running.inner);
+      expect(running.folded, `the band open while a turn runs: ${JSON.stringify(running)}`).toBe(false);
+      if (running.face !== null) expect(running.face, `the open band's face ≤ 160 px: ${JSON.stringify(running)}`).toBeLessThanOrEqual(160);
       // Stop is pressed while the turn is AT the model: the FAKE holds the request (it never answers), so the turn cannot end
       // on its own before the stop lands (the freeze on 92811157 saw a 409 under load: the turn was no longer running)
       for (let i = 0; i < 60 && ollama.chats().length < chatsBefore + 1; i++) await page.waitForTimeout(250);
@@ -829,10 +875,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // R51: the composer is one row until typed in; it grows with the draft and shrinks back
       expect(await page.$eval('#cx-input', (e) => (e as HTMLTextAreaElement).rows)).toBe(1);
       expect(await page.isDisabled('#cx-send')).toBe(true);
-      // the conversation takes the height first: its scroll box has at least 400 px of the 720 (the head's paragraph, the
-      // field's label and the draft sentence are not drawn at this height; the composer is one row), so an exchange's answer
-      // is above the fold; the last answer's text is in view over the composer
-      expect(await page.$eval('#cx-scroll', (e) => e.clientHeight)).toBeGreaterThanOrEqual(400);
+      // the conversation takes the height first: under the shell's head, band, dock and records (≈ 410 of the 720 — D13: the
+      // page's body keeps a 400 px floor and the main column scrolls for the rest) its scroll box has at least 150 px, the
+      // composer one row and in view, so the last answer's text is in view over the composer
+      const scrollBox = await page.$eval('#cx-scroll', (e) => ({ h: e.clientHeight, top: Math.round(e.getBoundingClientRect().top) }));
+      expect(scrollBox.h, `the conversation's scroll box at 1280 × 720: ${JSON.stringify(scrollBox)}`).toBeGreaterThanOrEqual(150);
       expect(await page.$$eval('#cx-turns .cx-turn.is-timmy .cx-text', (els) => { const r = els[els.length - 1].getBoundingClientRect(); const f = document.getElementById('cx-composer')!.getBoundingClientRect(); return r.top >= 0 && r.bottom <= f.top; })).toBe(true);
       expect(await page.$eval('#cx-sub', (e) => e.getClientRects().length)).toBe(0);
       expect(await page.$eval('#cx-hint-draft', (e) => e.getClientRects().length)).toBe(0);
@@ -874,8 +921,18 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           expect(await page.$eval('#cx-empty .cx-welcome-mark', (e) => e.getBoundingClientRect().top >= 0)).toBe(true);
           // (R11 round 7: at a desk the composer is in view; on the phone the shell's head and band take the first screen (627 px
           // of 844 — said to H175), so the composer is REACHABLE: scrolled to, it sits whole above the sticky dock, not under it)
-          if (size.width > 720) expect(await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().bottom <= window.innerHeight)).toBe(true);
-          else {
+          // D13 (H168's R77): at 1440 × 900 with NOTHING scrolled — the welcome ≤ 120 px, the console band one row, the composer in view
+          if (size.width > 720) {
+            const empty = await composerPlace(page);
+            console.info(`[D13] EMPTY state at 1440 × 900: ${JSON.stringify(empty)}`);
+            expect(empty.bottom, `EMPTY state at 1440 × 900: ${JSON.stringify(empty)}`).toBeLessThanOrEqual(empty.inner);
+            expect(empty.parts.welcome, `the welcome ≤ 120 px: ${JSON.stringify(empty)}`).toBeLessThanOrEqual(120);
+            expect(empty.folded, `the band one row on the empty Chat: ${JSON.stringify(empty)}`).toBe(true);
+            // R78/R79: ONE next step on the empty Chat — the head's primary (to write; the band's action its text twin); no solid chip
+            expect(await text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child')).toBe('Start a conversation');
+            expect(await text(page, '#ws-chat > .page-band .band-action')).toContain('Start a conversation');
+            expect(await page.$$eval('#ws-chat .cx-change.is-setup, #ws-chat .cm-connect.sh-btn', (els) => els.length)).toBe(0);
+          } else {
             await page.$eval('#cx-composer', (f) => f.scrollIntoView({ block: 'center' }));
             expect(await page.evaluate(() => { const r = document.getElementById('cx-composer')!.getBoundingClientRect(); const d = document.querySelector('#ws-chat .page-dock')!.getBoundingClientRect(); return { inView: r.top >= 0 && r.bottom <= window.innerHeight, clearOfDock: r.bottom <= d.top + 1 }; })).toEqual({ inView: true, clearOfDock: true });
             await page.evaluate(() => window.scrollTo(0, 0));
@@ -1014,7 +1071,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await p2.waitForFunction(() => (document.getElementById('cx-route-words')?.textContent ?? '').startsWith('No model connected'), null, { timeout: 30_000 });
         expect(await text(p2, '#ws-chat .page-head .page-title')).toBe('What would you like to make?');
         expect(await text(p2, '#cx-empty .cx-welcome-start')).toBe('Start with');
-        expect(await text(p2, '#cx-change')).toBe('Set up a model →');
+        // (R78: the route line's control is the quiet text twin of the head's "Choose a model" — one verb, one step; the solid
+        // "Set up a model →" chip is gone)
+        expect(await text(p2, '#cx-change')).toBe('Choose a model');
+        expect(await p2.$eval('#cx-change', (b) => ({ setup: b.classList.contains('is-setup'), go: b.getAttribute('data-shell-go'), bg: getComputedStyle(b).backgroundColor }))).toEqual({ setup: false, go: null, bg: 'rgba(0, 0, 0, 0)' });
+        expect(await text(p2, '#ws-chat > .page-head .page-primary .ui-primary span:first-child')).toBe('Choose a model');
         await p2.fill('#cx-input', 'a draft with no model');
         expect(await p2.isDisabled('#cx-send')).toBe(true);
         expect(await text(p2, '#cx-send-why')).toBe('No model chosen: choose one in Models');
@@ -1028,7 +1089,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await p2.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
         await p2.waitForFunction(() => { const e = document.querySelector('#cm-list .cm-empty'); return Boolean(e && !/^Reading/.test(e.textContent ?? '')); }, null, { timeout: 20_000 });
         expect(await text(p2, '#cm-desc-state')).toMatch(/^● answered \d\d:\d\d$/);
-        expect(await text(p2, '#cm-desc .cm-state')).toMatch(/^Ollama answered its list of models at 127\.0\.0\.1:\d+: 0 installed here \(no model ran, no charge\)\. Install a model yourself \(ollama pull .+\); this page downloads nothing\.$/);
+        // (R82: the state in one line; what to do about it — a terminal's command among it — behind Details; the way to the
+        // connections screen a quiet link, not a second primary)
+        expect(await text(p2, '#cm-desc .cm-state')).toMatch(/^Ollama answered its list of models at 127\.0\.0\.1:\d+: 0 installed here \(no model ran, no charge\)\.$/);
+        expect(await p2.$eval('#cm-desc .cm-how', (d) => ({ open: (d as HTMLDetailsElement).open, summary: d.querySelector('summary')?.textContent?.trim(), next: d.querySelector('.cm-next')?.textContent?.replace(/\s+/g, ' ').trim() }))).toMatchObject({ open: false, summary: 'How to set this up', next: expect.stringMatching(/^Install a model yourself \(ollama pull .+\); this page downloads nothing\.$/) });
+        expect(await p2.$eval('#cm-desc .cm-connect', (b) => ({ link: b.classList.contains('cx-link'), solid: b.classList.contains('sh-btn'), bg: getComputedStyle(b).backgroundColor }))).toEqual({ link: true, solid: false, bg: 'rgba(0, 0, 0, 0)' });
         expect(await text(p2, '#cm-list .cm-empty')).toContain('None listed: the line above says why.');
         expect(await p2.$('#cm-foot')).toBeNull();
         expect(await p2.getAttribute('#cx-dot', 'data-state')).toBe('unknown');
@@ -1052,4 +1117,47 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       rmSync(fresh, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it('R80 (H168\'s pass 1; D13): a turn the FAKE fails with HTTP 500 at 1440 × 900 — the reason painted ONCE in the shell\'s error box with Retry as its action and the head\'s primary, the turn below keeping its mark and the other ways on, all in view with nothing scrolled; Retry sends the same message again and the box clears', async () => {
+    const { context, page, errors } = await openPage(browser, { origin }, { width: 1440, height: 900 });
+    page.setDefaultTimeout(30_000);
+    try {
+      await page.goto(`${origin}/#t=${token}`);
+      await landWorkspace(page);
+      await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 30_000 });
+      // (the FAKE's queue: the 500 script is next — said here if the order moved)
+      expect(ollama.chats().length, 'the FAKE\'s /api/chat requests before this case (its failing script is the seventh)').toBe(6);
+      await page.fill('#cx-input', 'FAKE: fail this one');
+      await page.focus('#cx-input');
+      await page.waitForFunction(() => !(document.getElementById('cx-send') as HTMLButtonElement | null)?.disabled, null, { timeout: 30_000 });
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#cx-own li.cx-turn.is-timmy.is-failed', { timeout: 30_000 });
+      // the shell's error box: the companion's reason, once, with Retry; the head says the turn did not finish and names Retry too
+      await page.waitForFunction(() => document.querySelector('#ws-chat')?.getAttribute('data-state') === 'error', null, { timeout: 10_000 });
+      const box = await page.$eval('#ws-chat .page-work > .page-state', (e) => ({ hidden: (e as HTMLElement).hidden, words: (e.textContent ?? '').replace(/\s+/g, ' ').trim(), next: e.querySelector('button')?.textContent?.trim() ?? null }));
+      expect(box.hidden).toBe(false);
+      expect(box.words).toMatch(/HTTP 500|FAKE error|llama runner process has terminated/);
+      expect(box.next).toBe('Retry');
+      expect(await text(page, '#ws-chat > .page-head .page-title')).toBe('The turn did not finish.');
+      expect(await text(page, '#ws-chat > .page-head .page-primary .ui-primary span:first-child')).toBe('Retry');
+      // the turn below: its mark only (the reason is the box's), the other ways on; no second paint of the words
+      expect(await text(page, '#cx-own li.cx-turn.is-failed .cx-meta')).toBe('✕ did not finish');
+      expect(await page.$$eval('#cx-own li.cx-turn.is-failed .cx-recover button', (els) => els.map((b) => b.textContent?.trim()))).toEqual(['Change model', 'New conversation']);
+      expect(await page.$$eval('#ws-chat .page-work', (els) => els.map((e) => ((e.textContent ?? '').match(/llama runner process has terminated/g) ?? []).length)), 'the reason once in the work: the box\'s').toEqual([1]);
+      // D13: the composer, the box and the ways on in view at once with nothing scrolled
+      const failed = await composerPlace(page);
+      console.info(`[D13] FAILED state at 1440 × 900: ${JSON.stringify(failed)}`);
+      expect(failed.bottom, `FAILED state at 1440 × 900: ${JSON.stringify(failed)}`).toBeLessThanOrEqual(failed.inner);
+      expect(await page.$eval('#cx-own li.cx-turn.is-failed .cx-recover', (e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; }), 'the ways on in view').toBe(true);
+      expect(await page.$eval('#ws-chat .page-work > .page-state', (e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; }), 'the box in view').toBe(true);
+      // Retry (the box's action): the same message again, answered this time; the box clears with the state
+      await page.click('#ws-chat .page-work > .page-state button');
+      await page.waitForFunction(() => [...document.querySelectorAll('#cx-own .cx-turn.is-timmy .cx-text, #cx-turns .cx-turn.is-timmy .cx-text')].some((e) => /Recovered on the retry\./.test(e.textContent ?? '')), null, { timeout: 30_000 });
+      expect(ollama.chats().slice(-2).map((c) => c.messages?.at(-1)?.content)).toEqual(['FAKE: fail this one', 'FAKE: fail this one']);
+      await page.waitForFunction(() => document.querySelector('#ws-chat')?.getAttribute('data-state') !== 'error', null, { timeout: 10_000 });
+      expect(await page.$eval('#ws-chat .page-work > .page-state', (e) => (e as HTMLElement).hidden)).toBe(true);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  }, 120_000);
 });

@@ -5,14 +5,14 @@
 //   shell.h                  the page's element helper h(tag, attrs, ...children)
 //   shell.go(id) / land()    Back → 'account'; Explore without a model → 'chat'; Continue to the workspace → land() (the
 //                            landing rule: chat when a route is ready, else this screen again with its words)
-//   shell.toast(words, { live }) green only for an observed fact (a check that answered)
+//   (no shell.toast from this screen since round 7's D15: the observed words go on the card, beside its one state word)
 // Words: the server's (one source: SCREEN_WORDS and each card's provider state). A key pasted for Ollama Cloud goes in a JSON
 // body only: never in the address, never kept in the page, never logged. A selection is never a connection: a card's state
 // word is the provider's. Amber marks focus and the ONE primary step; green marks "checked" only; every glyph has its word.
 // While a sign-in is pending (the browser is away on OpenRouter's page), the screen asks the server again every few seconds
 // until the card's state changes: the callback lands on the companion, not on this tab.
 // R11 round 6 (the operator's 06:32 order; H174's 06:37 contract): the native ProviderCard artboard in each card —
-// TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) into a host of the card's width above the state word,
+// TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) into a host BESIDE the card's words (≤ 160 px tall, D15),
 // mounted ONCE per card for the screen's life (the host outlives a render; handle.unmount() when the screen is destroyed) — and
 // the feed, one line per state change, TimmyRive.fromProviderState(id, state, 'GET /api/connections: ' + id), so the Rive label
 // and the native State come from the backend's event, not from the card's drawing. The card's buttons stay these HTML buttons.
@@ -62,7 +62,6 @@
     };
     const api = (path, init) => (typeof sh.fetch === 'function' ? sh.fetch(path, init) : fetch(path, init));
     const open = (url) => { if (url) window.open(url, '_blank', 'noopener'); };
-    const toast = (words, live) => { if (typeof sh.toast === 'function') sh.toast(words, live ? { live: true } : undefined); };
     const postJson = async (path, body) => {
       let r;
       try { r = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }); } catch { return { status: 0, ok: false, body: { error: 'The companion did not answer.' } }; }
@@ -96,11 +95,14 @@
       el.textContent = words || '';
       el.dataset.kind = kind || '';
     };
-    const userWords = () => { const u = sh.session && typeof sh.session.user === 'function' ? sh.session.user() : null; return u && (u.username || u.email || u.id) ? String(u.username || u.email || u.id) : ''; };
+    /** The session's user, when the shell has one. */
+    const userOf = () => (sh.session && typeof sh.session.user === 'function' ? sh.session.user() : null) || null;
+    /** The band's words for the person: a name, never a raw id (R95: ids stay behind the records' Details). */
+    const userWords = () => { const u = userOf(); return u && u.username ? String(u.username) : ''; };
 
     /**
      * The native ProviderCard's host in a card (R11 round 6): one host per provider for the screen's life, mounted once through
-     * H174's TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) — the card's width — and moved into each
+     * H174's TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) — the host's width, ≤ 160 px tall (D15) — and moved into each
      * redrawn card (a refresh after an action keeps the same runtime instance; its State follows the feed below). No module or no
      * mount API: the host stays empty (hidden by the sheet) and the HTML state word beside it stands alone.
      */
@@ -112,12 +114,13 @@
         const tr = rive();
         if (tr && typeof tr.mountProviderCard === 'function') {
           // RIVE CONTRACT v2 (H174, 14:42): providerName / detail fill the card's ProviderName and ProviderDetail runs (optional; v1 ignores them)
-          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title, providerName: c.title, detail: c.situationWords || '' }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
+          // (D15: the face's detail run is the provider's subtitle — a fact; the one state word is the card's, and H174's label follows it)
+          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title, providerName: c.title, detail: c.subtitle || '' }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
         }
-      } else if (r.handle && typeof r.handle.setProvider === 'function' && r.detail !== (c.situationWords || '')) {
-        try { r.handle.setProvider({ name: c.title, detail: c.situationWords || '' }); } catch { /* the HTML chip says it */ }
+      } else if (r.handle && typeof r.handle.setProvider === 'function' && r.detail !== (c.subtitle || '')) {
+        try { r.handle.setProvider({ name: c.title, detail: c.subtitle || '' }); } catch { /* the HTML words say it */ }
       }
-      r.detail = c.situationWords || '';
+      r.detail = c.subtitle || '';
       return r.host;
     }
     /** The feed (R11 round 6): one line per state change, the backend's own event as the source — never the card's drawing. */
@@ -157,34 +160,40 @@
       }
     }
     const focusKey = (c) => { const el = cardOf(c.id) && cardOf(c.id).querySelector('#cn-ollama-cloud-key'); if (el) { el.focus(); say(cardOf(c.id), 'Paste the key from ollama.com/settings/keys, then Save the key.', 'step'); } };
-    const focusGateway = (c) => { const el = cardOf(c.id) && cardOf(c.id).querySelector('#cn-cloudflare-gateway'); if (el) el.focus(); };
+    const focusGateway = (c) => { const card = cardOf(c.id); const fold = card && card.querySelector('[data-cn-fold="cloudflare"]'); if (fold) fold.open = true; const el = card && card.querySelector('#cn-cloudflare-gateway'); if (el) el.focus(); };
 
     /** A verb that opens another page (a sign-in, an install page) carries the page's glyph for it. */
     const OPENS = new Set(['Connect with OpenRouter', 'Sign in again', 'Install Ollama']);
     const verbLabel = (c) => (OPENS.has(c.verb) ? `${c.verb} ↗` : c.verb);
+    /** The first sentence of the probe's words (the observation); the whole stands in the records' row. */
+    const firstSentence = (words) => { const m = /^(.*?[.!?])(?=\s+[A-Z(“"]|\s*$)/.exec(String(words || '').trim()); return m ? m[1] : String(words || ''); };
+    /**
+     * A card (R11 round 7, the lead's D15 on H168's R85/R86): a compact cell — the native face (≤ 160 px) BESIDE the title and the
+     * state, never over them; ONE state word, the observed one (the probe's: "checked" when the listing answered), with the first
+     * sentence of the probe's words under it (the whole in the records); the situation stays as data-situation and drives the verb;
+     * the verb and the other controls span the card below, above the fold. The provider's description, the next-step sentence and
+     * its detail lines are the context column's facts for the selected card.
+     */
     function cardEl(c, primaryId) {
       const mark = stateMark(c.state);
       const isPrimary = c.id === primaryId;
       const act = verbAction(c);
       const chosen = c.id === live.sel;
-      return h('article', { class: `sh-card cn-card cn-card-${c.id}${chosen ? ' is-chosen' : ''}`, 'data-provider': c.id, 'data-state': c.state, 'data-situation': c.situation, 'aria-labelledby': `cn-card-${c.id}-title`, 'aria-current': chosen ? 'true' : null },
+      // (a press anywhere on a card selects it — a selection, never a connection — so the context shows that card's facts)
+      const select = () => { if (live.sel !== c.id) { live.sel = c.id; drawContext(); markChosen(); } };
+      return h('article', { class: `sh-card cn-card cn-card-${c.id}${chosen ? ' is-chosen' : ''}`, 'data-provider': c.id, 'data-state': c.state, 'data-situation': c.situation, 'aria-labelledby': `cn-card-${c.id}-title`, 'aria-current': chosen ? 'true' : null, onClick: select },
         h('header', { class: 'cn-card-head' },
-          h('span', { class: 'cn-card-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'),
-          h('div', { class: 'cn-card-names' },
-            h('h2', { id: `cn-card-${c.id}-title`, class: 'cn-card-title' }, c.title),
-            h('p', { class: 'sh-sub cn-card-sub' }, c.subtitle)),
-          h('span', { class: `cn-situation is-${c.situation}`, 'data-cn-situation': c.situation }, c.situationWords || '')),
-        h('p', { class: 'cn-card-body' }, c.body),
-        riveHost(c),
+          h('h2', { id: `cn-card-${c.id}-title`, class: 'cn-card-title' }, c.title),
+          h('p', { class: 'sh-sub cn-card-sub' }, c.subtitle)),
         h('div', { class: 'cn-card-state' },
           h('p', { class: `${mark.cls} cn-state` }, h('span', { class: 'cn-state-glyph', 'aria-hidden': 'true' }, mark.glyph), ' ', h('span', { class: 'cn-state-word' }, c.state)),
-          h('p', { class: 'sh-note cn-words' }, c.words)),
+          h('p', { class: 'sh-note cn-words', title: c.words }, firstSentence(c.words))),
+        riveHost(c),
         h('div', { class: 'cn-verb-row' },
-          act ? h('button', { type: 'button', class: `${isPrimary ? 'sh-btn-primary' : 'sh-btn'} is-small cn-verb`, 'data-cn-verb': c.id, onClick: act }, verbLabel(c)) : h('span', { class: 'sh-note cn-verb-waiting', 'data-cn-verb': c.id }, c.verb),
-          c.next ? h('span', { class: 'sh-note cn-next' }, h('span', { class: 'cn-next-label' }, 'Next '), c.next) : null),
+          act ? h('button', { type: 'button', class: `${isPrimary ? 'sh-btn-primary' : 'sh-btn'} is-small cn-verb`, 'data-cn-verb': c.id, onClick: act }, verbLabel(c)) : h('span', { class: 'sh-note cn-verb-waiting', 'data-cn-verb': c.id }, c.verb)),
         actions(c),
+        // (the provider's detail lines — what a check found, Cloudflare's five settings — are the context's facts for the selected card)
         h('footer', { class: 'cn-card-foot' },
-          c.lines && c.lines.length ? h('ul', { class: 'sh-note cn-lines' }, ...c.lines.map((l) => h('li', null, l))) : null,
           h('p', { class: 'sh-note cn-say', 'data-cn-say': '', 'aria-live': 'polite' })));
     }
 
@@ -214,10 +223,10 @@
           input.value = '';
           if (!key.trim()) { say(cardOf(c.id), 'Paste the key from ollama.com/settings/keys first.', 'failed'); return; }
           const r = await postJson('/api/connections/ollama-cloud/key', { key });
-          if (r.ok) { toast(r.body.words, false); await refresh(); }
+          if (r.ok) await refresh();
           say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The key was not saved.'), r.ok ? 'step' : 'failed');
         } },
-          h('label', { for: 'cn-ollama-cloud-key', class: 'sh-note cn-label' }, 'Paste an Ollama API key (sent once, in the request body; never shown again)'),
+          h('label', { for: 'cn-ollama-cloud-key', class: 'sh-note cn-label' }, 'Key: sent once, in the request body; never shown again.'),
           h('div', { class: 'cn-form-row' }, input, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save the key')));
         row.append(h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(page && page.url) }, `${c.action} ↗`), form);
         if (c.key) row.append(btn('Check the key', () => check(c, 'ollama-cloud')), btn('Forget the key', () => forget(c)));
@@ -236,7 +245,9 @@
           h('label', { class: 'sh-note cn-check', for: 'cn-cloudflare-logs' }, logs, ' Cloud logs (optional). Local logs are already part of the design.'),
           h('div', { class: 'cn-form-row' }, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save Cloudflare settings'), (cf.gatewayUrl || cf.cloudLogs) ? h('button', { type: 'button', class: 'sh-btn is-small', onClick: () => forget(c) }, 'Remove the settings') : null));
         const setup = (c.links || [])[0];
-        row.append(h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(setup && setup.url) }, `${c.action} ↗`), form);
+        // (D15: the optional settings folded behind one line; the card's verb "Set up Cloudflare" opens it and focuses the address)
+        const fold = h('details', { class: 'cn-fold', 'data-cn-fold': 'cloudflare', open: (cf.gatewayUrl || cf.cloudLogs) ? true : null }, h('summary', { class: 'sh-note cn-fold-summary' }, 'Gateway address and cloud logs (optional)'), form);
+        row.append(h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(setup && setup.url) }, `${c.action} ↗`), fold);
       }
       return row;
     }
@@ -256,8 +267,8 @@
       if (!r.ok) { say(cardOf(c.id), r.body.error || 'The check did not run.', 'failed'); return; }
       await refresh();
       const s = r.body.state || {};
+      // (the observed words on the card itself, beside its state word — no toast: the shell's would paint over the records band, R96)
       say(cardOf(c.id), s.words || '', 'step');
-      toast(s.words || '', s.state === 'checked');
     }
     async function forget(c) {
       let r; try { r = await api(`/api/connections/${c.id}`, { method: 'DELETE' }); } catch { r = null; }
@@ -334,7 +345,7 @@
             if (ev[1] === 'size') { pull.id = d.id; ui.status.textContent = d.words; ui.confirmBtn.hidden = false; ui.cancelBtn.hidden = false; }
             else if (ev[1] === 'confirmed') { ui.status.textContent = `${d.words} Downloading…`; ui.bar.hidden = false; }
             else if (ev[1] === 'progress') { ui.status.textContent = d.words; if (d.total) { ui.bar.hidden = false; ui.bar.value = String(Math.min(100, Math.round((d.done / d.total) * 100))); ui.status.textContent = `${d.words} (${Math.min(100, Math.round((d.done / d.total) * 100))}%)`; } }
-            else if (ev[1] === 'done') { end(d.words); toast(d.words, false); await refresh(); return; }
+            else if (ev[1] === 'done') { end(d.words); await refresh(); return; }
             else if (ev[1] === 'cancelled' || ev[1] === 'error') { end(d.words); return; }
           }
         }
@@ -356,11 +367,17 @@
     function context(s, sum, cards) {
       const aside = h('aside', { class: 'cn-context page-context', 'aria-label': 'Choose your model' },
         h('div', { class: 'cn-context-head' }, h('h2', { class: 'cn-context-title' }, s.contextTitle || 'Choose your model'), h('p', { class: 'sh-note' }, s.contextLead || '')),
-        h('div', { class: 'cn-picker', role: 'group', 'aria-label': 'Provider' }, ...cards.map((c) => h('button', { type: 'button', class: 'cn-pick', 'data-cn-pick': c.id, 'aria-pressed': c.id === live.sel ? 'true' : 'false', onClick: () => { live.sel = c.id; drawContext(); markChosen(); } }, c.title))),
+        // the segmented control: one row at 1440 (the shell's 320 px column), 2 × 2 at a phone; the short name on the button, the full one as its title
+        h('div', { class: 'cn-picker', role: 'group', 'aria-label': 'Provider' }, ...cards.map((c) => h('button', { type: 'button', class: 'cn-pick', 'data-cn-pick': c.id, title: c.title, 'aria-pressed': c.id === live.sel ? 'true' : 'false', onClick: () => { live.sel = c.id; drawContext(); markChosen(); } }, c.title.replace(' · ', ' ')))),
         h('div', { class: 'cn-context-body', 'data-cn-context': '' }),
         h('div', { class: 'cn-together' }, h('span', { class: 'cn-note-mark', 'aria-hidden': 'true' }, '▤ '), h('span', { class: 'sh-note' }, s.together || '')));
       return aside;
     }
+    /**
+     * The context column (R11 round 7, the lead's D15 on H168's R87): the SELECTED card's facts — what it costs, what a check sends
+     * and asks, when it was last observed, its links — never the card again (its words, state and verb are on the card). Ollama · local
+     * adds the download offer: each starter as "Download <model> (<size>)", nothing downloaded until the card's confirmation.
+     */
     function drawContext() {
       const body = scope.querySelector('[data-cn-context]');
       if (!body || !live.data) return;
@@ -369,28 +386,28 @@
       if (!c) { body.replaceChildren(); return; }
       for (const b of scope.querySelectorAll('[data-cn-pick]')) b.setAttribute('aria-pressed', b.dataset.cnPick === c.id ? 'true' : 'false');
       const chk = live.data.checks && live.data.checks[c.id];
-      const act = verbAction(c);
       const links = (c.links || []).map((l) => h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(l.url) }, `${l.label} ↗`));
+      const fact = (k, v) => (v ? h('div', null, h('dt', null, k), h('dd', null, v)) : null);
       const offer = c.id === 'ollama-local' && c.local && c.local.offer ? h('div', { class: 'cn-offer', 'data-cn-offer': '' },
         h('p', { class: 'cn-offer-lead' }, c.local.offer.lead),
         h('ul', { class: 'cn-starters' }, ...(c.local.starters || []).map((m) => h('li', { class: 'cn-starter' },
-          h('button', { type: 'button', class: 'sh-btn is-small cn-starter-pick', 'data-cn-starter': m.model, onClick: () => showPull(c, m.model) }, `Offer ${m.model}`),
-          h('span', { class: 'cn-starter-words' }, h('strong', null, m.size), ` on disk · ${m.use}${m.default ? ' · the default' : ''}`)))),
+          h('button', { type: 'button', class: 'sh-btn is-small cn-starter-pick', 'data-cn-starter': m.model, onClick: () => showPull(c, m.model) }, `Download ${m.model} (${typeof m.bytes === 'number' && m.bytes > 0 ? bytesWords(m.bytes) : m.size})`),
+          h('span', { class: 'cn-starter-words' }, `${typeof m.bytes === 'number' && m.bytes > 0 && m.size !== bytesWords(m.bytes) ? `${m.size} on disk · ` : ''}${m.use}${m.default ? ' · the default' : ''}`)))),
         h('p', { class: 'sh-note' }, c.local.offer.hardware),
         h('p', { class: 'sh-note' }, `Sizes: ${c.local.sizeNote}.`)) : null;
       body.replaceChildren(
         h('div', { class: 'cn-context-card', 'data-cn-context-for': c.id },
-          h('div', { class: 'cn-context-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'),
-          h('h3', { class: 'cn-context-name' }, c.title),
-          h('p', { class: 'cn-context-sub' }, c.subtitle),
-          h('p', { class: 'cn-context-words' }, c.body),
-          h('p', { class: `sh-note cn-context-state` }, h('span', { class: `cn-situation is-${c.situation}` }, c.situationWords || ''), ' · ', c.words),
-          act ? h('button', { type: 'button', class: 'sh-btn-primary cn-context-verb', 'data-cn-context-verb': c.id, onClick: act }, `${verbLabel(c)} →`) : null,
+          h('p', { class: 'cn-context-for' }, h('span', { class: 'cn-context-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'), ' ', h('strong', { class: 'cn-context-name' }, c.title), h('span', { class: 'cn-context-sub' }, ` · ${c.subtitle}`)),
+          h('p', { class: 'cn-context-about' }, c.body),
           h('dl', { class: 'cn-facts' },
-            h('div', null, h('dt', null, 'Cost'), h('dd', null, c.cost || '')),
-            chk ? h('div', null, h('dt', null, 'A check sends'), h('dd', null, chk.sends || '')) : null,
-            chk ? h('div', null, h('dt', null, 'What it asks'), h('dd', null, chk.words || '')) : null,
-            c.key ? h('div', null, h('dt', null, 'Key'), h('dd', null, `${c.key.fingerprint} (from ${c.key.from}; never shown)`)) : null),
+            fact('Next step', c.next || ''),
+            fact('Cost', c.cost || ''),
+            chk ? fact('A check sends', chk.sends || '') : null,
+            chk ? fact('What it asks', chk.words || '') : null,
+            fact('Last observed', c.at ? clock(c.at) : 'not yet — nothing has been asked of this provider'),
+            c.key ? fact('Key', `saved from ${c.key.from}; never shown (its fingerprint is in the records)`) : null,
+            c.local && c.local.installed === false ? fact('On this computer', `${c.local.install || 'Install Ollama'}; then ${c.local.start || 'start it'}`) : null),
+          c.lines && c.lines.length ? h('ul', { class: 'cn-context-lines', 'data-cn-lines': c.id }, ...c.lines.map((l) => h('li', null, l))) : null,
           links.length ? h('div', { class: 'sh-actions cn-context-links' }, ...links) : null),
         offer);
     }
@@ -417,7 +434,8 @@
         h('dl', { class: 'cn-records-list' },
           ...cards.map((c) => h('div', { class: 'cn-record', 'data-cn-record': c.id },
             h('dt', null, c.title),
-            h('dd', null, c.at ? `last observed ${clock(c.at)} · ${c.state}` : `no observation kept · ${c.state}`, c.key ? ` · key ${c.key.fingerprint} from ${c.key.from}` : '', c.cloudflare && c.cloudflare.file ? ` · settings in ${c.cloudflare.file}` : ''))),
+            h('dd', null, c.at ? `last observed ${clock(c.at)} · ${c.state}` : `no observation kept · ${c.state}`, c.key ? ` · key ${c.key.fingerprint} from ${c.key.from}` : '', c.cloudflare && c.cloudflare.file ? ` · settings in ${c.cloudflare.file}` : '', c.words ? ` · ${c.words}` : ''))),
+          h('div', { class: 'cn-record' }, h('dt', null, 'Account'), h('dd', null, (() => { const u = userOf(); return u && (u.id || u.username) ? `signed in · id ${u.id || 'not given'}${u.username ? ` · ${u.username}` : ''}` : 'no session on this page'; })())),
           h('div', { class: 'cn-record' }, h('dt', null, 'Files'), h('dd', null, 'providers.json (keys, 0600) · state/connections.json (observations) · state/cloudflare.json (optional settings), all in your Timmy home')),
           h('div', { class: 'cn-record' }, h('dt', null, 'Read'), h('dd', null, data.readAt ? `${clock(data.readAt)} · GET /api/connections: files only; a check is the one thing that asks a provider` : 'not read'))),
         h('p', { class: 'sh-note cn-records-foot' }, s.footerStrong || '', ' ', s.footer || ''));

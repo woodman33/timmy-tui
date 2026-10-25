@@ -21,7 +21,7 @@
 .tools-where-pages { display: flex; flex-wrap: wrap; gap: 6px; }
 .tools-where-page { font: inherit; font-size: 13px; padding: 3px 9px; border: 1px solid var(--timmy-line-strong); border-radius: 999px; background: transparent; color: var(--timmy-text); cursor: pointer; }
 .tools-where-page:hover { border-color: var(--timmy-text-secondary); }
-.tools-where-page:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+.tools-where-page:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; }
 .tools-where-how { margin: 0; font-size: 12px; color: var(--timmy-text-secondary); }
 .tools-where-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .tools-where-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
@@ -32,7 +32,7 @@
 /* the directory, secondary */
 .tools-directory { margin: 12px 0; border: 1px solid var(--timmy-line); border-radius: 8px; padding: 0 14px; }
 .tools-directory-summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-.tools-directory-summary:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; border-radius: 4px; }
+.tools-directory-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 4px; }
 .tools-directory[open] .tools-directory-summary { border-bottom: 1px solid var(--timmy-line); margin-bottom: 10px; }
 .tools-directory .tools-caps { padding-bottom: 12px; }
 
