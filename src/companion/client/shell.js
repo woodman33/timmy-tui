@@ -135,8 +135,14 @@
   }
   const region = (p, cls) => { const s = sectionOf(p); return s ? s.querySelector(`:scope > .${cls}, :scope > .page-body > .${cls}`) : null; };
 
+  /** A control's words without a trailing arrow (the lead's D8: the shell draws the ONE →; a registration's label carries none). */
+  const plainLabel = (words) => String(words || '').replace(/[\s\u00a0]*[→↗›»⟶]+[\s\u00a0]*$/u, '').trim();
   /** What a page registered, over its defaults. */
-  const spec = (p) => Object.assign({ kicker: `${p.n || ''} / ${p.verb}`.replace(/^ \/ /, ''), title: p.title, intro: p.intro, primary: null, context: p.context, band: [], dock: p.dock || `${p.label} tools` }, registrations[p.id] || {});
+  const spec = (p) => {
+    const r = Object.assign({ kicker: `${p.n || ''} / ${p.verb}`.replace(/^ \/ /, ''), title: p.title, intro: p.intro, primary: null, context: p.context, band: [], dock: p.dock || `${p.label} tools` }, registrations[p.id] || {});
+    if (r.primary && r.primary.label) r.primary = Object.assign({}, r.primary, { label: plainLabel(r.primary.label) });
+    return r;
+  };
 
   /** The frame's actions for a page's tab (companion.js draws them into #ws-actions; the primary one is the page's default next action). */
   const frameActions = (p) => { const f = frame(); return (f && f.actions && f.actions[p.legacy]) || []; };
@@ -164,12 +170,12 @@
     let primary = r.primary;
     if (!primary) {
       const a = frameActions(p).find((x) => x && x.primary);
-      if (a) primary = { label: String(a.label), run: () => { const b = stripButton(String(a.label)); if (b) b.click(); else shell.toast('That action is not on this page yet.'); }, disabled: a.enabled === false, why: a.enabled === false ? String(a.why || a.disabledWhy || '') : '' };
+      if (a) primary = { label: plainLabel(a.label), run: () => { const b = stripButton(String(a.label)); if (b) b.click(); else shell.toast('That action is not on this page yet.'); }, disabled: a.enabled === false, why: a.enabled === false ? String(a.why || a.disabledWhy || '') : '' };
     }
     if (slot) {
       slot.replaceChildren();
       if (primary) {
-        const b = h('button', { type: 'button', class: 'ui-primary page-primary-btn', title: primary.disabled && primary.why ? primary.why : null, 'aria-disabled': primary.disabled ? 'true' : null }, h('span', null, primary.label), h('span', { class: 'ui-arrow', 'aria-hidden': 'true' }, '→'));
+        const b = h('button', { type: 'button', class: 'ui-primary page-primary-btn', title: primary.disabled && primary.why ? primary.why : null, 'aria-disabled': primary.disabled ? 'true' : null }, h('span', null, plainLabel(primary.label)), h('span', { class: 'ui-arrow', 'aria-hidden': 'true' }, '→'));
         if (primary.disabled) b.disabled = true;
         b.addEventListener('click', () => { try { primary.run(); } catch (e) { shell.toast(`The action failed: ${e && e.message ? e.message : e}`); } });
         slot.append(b);
@@ -206,7 +212,7 @@
     const kids = cells.map((c) => h('div', { class: 'band-cell' }, h('span', { class: 'band-k' }, c.k), h('strong', { class: 'band-v' }, c.v)));
     if (state === 'approval') kids.unshift(h('div', { class: 'band-cell is-attn' }, h('span', { class: 'band-k' }, 'Needs you'), h('strong', { class: 'band-v' }, '◆ ', (registrations[p.id] && registrations[p.id].stateWords) || 'An approval waits on you')));
     if (primary) {
-      const b = h('button', { type: 'button', class: 'band-action', 'aria-disabled': primary.disabled ? 'true' : null }, primary.label, ' ', h('span', { 'aria-hidden': 'true' }, '↗'));
+      const b = h('button', { type: 'button', class: 'band-action', 'aria-disabled': primary.disabled ? 'true' : null }, plainLabel(primary.label), ' ', h('span', { 'aria-hidden': 'true' }, '↗'));
       if (primary.disabled) b.disabled = true;
       b.addEventListener('click', () => { try { primary.run(); } catch (e) { shell.toast(`The action failed: ${e && e.message ? e.message : e}`); } });
       kids.push(b);
@@ -358,6 +364,8 @@
     const ctx = p ? region(p, 'page-context') : null;
     const btn = p && sectionOf(p) ? sectionOf(p).querySelector(':scope > .page-head .page-context-btn') : null;
     if (!ctx) return;
+    // (a desk shows the column itself — one column under the work below 1100 px, beside it above: no sheet, no scrim there)
+    if (!phone()) { if (open !== false) { try { ctx.scrollIntoView({ block: 'nearest' }); } catch (e) { /* no scroll */ } } return; }
     const now = ctx.classList.contains('is-open');
     const show = open === undefined ? !now : open;
     if (show === now) return;
@@ -734,8 +742,16 @@
     drawStatus();
   }
 
+  /** The activity band folded by default (D4's quiet records): companion.js's foldActivity keeps the viewer's choice. */
+  function foldRecordsByDefault() {
+    let kept = '';
+    try { kept = localStorage.getItem('timmy.companion.activity') || ''; } catch (e) { kept = ''; }
+    if (kept !== 'open' && typeof foldActivity === 'function') { try { foldActivity(true); } catch (e) { /* the band stays as companion.js left it */ } }
+  }
+
   function boot() {
     restoreTheme();
+    foldRecordsByDefault();
     for (const p of PAGES) { const s = sectionOf(p); if (s) scaffold(s, p); }
     drawRail();
     wireHelp();
