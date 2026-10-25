@@ -483,6 +483,88 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         expect(asking).toEqual({ poses: Array(5).fill('awaiting approval'), label: 'awaiting approval', name: 'awaiting approval' });
         await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('done', { status: 'answered' }, 'FAKE (the test): SSE done'));
         expect(await text(o.page, '#m-console [data-rive-status]')).toBe('idle');
+        // ── LEGIBILITY (the lead's ruling of 22:12; D2's 13-px floor): the one word a production face draws must be READABLE where it
+        // is drawn. The headline's Text node is scaled up to the floor within the artboard's room (a runtime transform, no rebuild);
+        // where the floor cannot be reached, `words: 'spoken'` is not honoured and the HTML word stays beside the face. Read back from
+        // the bindings' measure (inspect().headline), from the runtime's own node (scaleX) and from the PIXELS the face drew: the light
+        // pixels of a production face are the headline's ink alone (the mark is amber or border-grey, the other runs read "") ──
+        type Fit = { words: string; wordsAsked: string; wordsWhy: string; faceWidth: number; faceHeight: number; headline: { floor: number; authored: number; drawn: number; scale: number; px: number; reached: boolean; nodes: number; word: string; room: { width: number; height: number } } | null };
+        const fitOf = (name: string) => o.page.evaluate((n) => { const x = (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((h) => h.component === n) as unknown as Fit; const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; root: Element; rive: { artboard: { node: (k: string) => { scaleX: number; scaleY: number } | null } } | null }>).find((h) => h.component === n)!; const node = hd.rive!.artboard.node('HeadlineIdle'); const status = hd.root.querySelector('.tr-status') as HTMLElement; const r = status.getBoundingClientRect(); return { words: x.words, asked: x.wordsAsked, why: x.wordsWhy, faceWidth: x.faceWidth, faceHeight: x.faceHeight, headline: x.headline, nodeScale: node ? [node.scaleX, node.scaleY] : null, dataWords: hd.root.getAttribute('data-words'), dataAsked: hd.root.getAttribute('data-words-asked'), statusOnScreen: r.width > 1 && r.height > 1 }; }, name);
+        /** The box of the LIGHT pixels the face's canvas holds (r, g, b > 170: the headline's text colour #ECF1F5; never the amber or grey mark), in CSS px. */
+        const inkOf = (sel: string) => o.page.evaluate((s) => { const c = document.querySelector(s) as HTMLCanvasElement; const w = c.width; const h = c.height; const off = document.createElement('canvas'); off.width = w; off.height = h; const ctx = off.getContext('2d')!; ctx.drawImage(c, 0, 0); const d = ctx.getImageData(0, 0, w, h).data; let x0 = w; let y0 = h; let x1 = -1; let y1 = -1; let n = 0; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] > 170 && d[i + 1] > 170 && d[i + 2] > 170 && d[i + 3] > 200) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } } const k = c.clientWidth / w; return { n, left: x0 * k, right: (x1 + 1) * k, top: y0 * k, bottom: (y1 + 1) * k, height: n ? (y1 - y0 + 1) * k : 0, cssW: c.clientWidth, cssH: c.clientHeight }; }, sel);
+        // (a) the 240-px card (test:provider:ollama-local, size 'card': a 238-px face inside its border) REACHES the floor: the authored
+        // 19 px draw at 11.3 px, so the headline is scaled ×1.15 to 13 px; the runtime's node reads that scale; the ink stands inside the
+        // face, left of the mark, about the word's height (the words asked 'beside' here: the HTML word stays as asked)
+        const card240 = await fitOf('test:provider:ollama-local');
+        expect(card240.headline).toMatchObject({ floor: 13, authored: 19, faceWidth: 238, reached: true, nodes: 5, word: 'pending' });
+        expect(card240.headline!.drawn).toBeCloseTo(11.3, 1);
+        expect(card240.headline!.px).toBeGreaterThanOrEqual(13);
+        expect(card240.headline!.scale).toBeGreaterThan(1.1);
+        expect(card240.headline!.scale).toBeLessThan(1.2);
+        expect(card240.nodeScale![0]).toBeCloseTo(card240.headline!.scale, 2);
+        expect(card240.nodeScale![1]).toBeCloseTo(card240.headline!.scale, 2);
+        expect([card240.words, card240.asked, card240.dataWords, card240.dataAsked, card240.statusOnScreen]).toEqual(['beside', 'beside', 'beside', 'beside', true]);
+        await o.page.waitForTimeout(120); // (a frame or two: the scaled headline drawn)
+        const ink240 = await inkOf('#m-provider canvas');
+        expect(ink240.n, "the headline's ink is there").toBeGreaterThan(20);
+        expect(ink240.left).toBeGreaterThanOrEqual(1);
+        expect(ink240.right, 'left of the mark (the ring begins at 76 % of the width)').toBeLessThanOrEqual(ink240.cssW * 0.77);
+        expect(ink240.bottom).toBeLessThanOrEqual(ink240.cssH - 1);
+        expect(ink240.height, `the ink's height (${ink240.height} px) is about the word's size (${card240.headline!.px} px)`).toBeGreaterThanOrEqual(card240.headline!.px * 0.5);
+        expect(ink240.height).toBeLessThanOrEqual(card240.headline!.px * 1.15);
+        // (b) a 152-px card (H170's --cn-face: a 150-px face inside its border), words asked 'spoken': the floor IS reached (×1.82 → 13 px), so
+        // 'spoken' is honoured — the status off the screen, the ink inside the face
+        await o.page.evaluate(() => { const R = (window as unknown as { TimmyRive: R }).TimmyRive; const host = document.createElement('div'); host.id = 'm-152'; host.style.width = '152px'; document.body.append(host); R.mountProviderCard(host, 'cloudflare', { size: 'wide', name: 'test:card152', words: 'spoken' }); });
+        await o.page.waitForFunction(() => { const x = (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((h) => h.component === 'test:card152') as unknown as Fit | undefined; return Boolean(x && x.headline && x.headline.faceWidth > 0); }, null, { timeout: 30_000 });
+        const card152 = await fitOf('test:card152');
+        expect(card152.headline).toMatchObject({ faceWidth: 150, reached: true, nodes: 5, word: 'disconnected' });
+        expect(card152.headline!.drawn).toBeCloseTo(7.1, 1);
+        expect(card152.headline!.px).toBeGreaterThanOrEqual(13);
+        expect(card152.headline!.scale).toBeGreaterThan(1.7);
+        expect(card152.headline!.scale).toBeLessThanOrEqual(card152.headline!.room.width); // (within the room the word leaves before the mark)
+        expect(card152.nodeScale![0]).toBeCloseTo(card152.headline!.scale, 2);
+        expect([card152.words, card152.asked, card152.dataWords, card152.dataAsked, card152.statusOnScreen]).toEqual(['spoken', 'spoken', 'spoken', 'spoken', false]);
+        expect(card152.why).toMatch(/^the face draws the word at 13(\.\d)? px \(the floor is 13 px; the headline scaled ×1\.8\d* within the artboard's room\): the HTML word is spoken, not shown$/);
+        await o.page.waitForTimeout(120);
+        const ink152 = await inkOf('#m-152 canvas');
+        expect(ink152.n, "the headline's ink is there").toBeGreaterThan(20);
+        expect(ink152.left).toBeGreaterThanOrEqual(1);
+        expect(ink152.right).toBeLessThanOrEqual(ink152.cssW * 0.77);
+        expect(ink152.bottom).toBeLessThanOrEqual(ink152.cssH - 1);
+        expect(ink152.height, `the ink's height (${ink152.height} px) is about the word's size (${card152.headline!.px} px)`).toBeGreaterThanOrEqual(card152.headline!.px * 0.5);
+        expect(ink152.height).toBeLessThanOrEqual(card152.headline!.px * 1.15);
+        // (c) the Chat band's folded face — a console 40 px tall (a 68-px host at 640:380): the room allows ×2.69 of 28 px, ≈ 8 px — the
+        // floor CANNOT be reached, so 'spoken' is NOT honoured: the HTML word stays visible beside the face, and the measure says why
+        await o.page.evaluate(() => { const R = (window as unknown as { TimmyRive: R }).TimmyRive; const host = document.createElement('div'); host.id = 'm-40'; host.style.width = '68px'; document.body.append(host); R.mountConsole(host, { size: 'wide', name: 'test:console40', words: 'spoken' }); });
+        await o.page.waitForFunction(() => { const x = (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((h) => h.component === 'test:console40') as unknown as Fit | undefined; return Boolean(x && x.headline && x.headline.faceHeight > 0); }, null, { timeout: 30_000 });
+        const console40 = await fitOf('test:console40');
+        expect(console40.headline!.faceHeight).toBeGreaterThanOrEqual(38);
+        expect(console40.headline!.faceHeight).toBeLessThanOrEqual(42);
+        expect(console40.headline).toMatchObject({ authored: 28, reached: false, nodes: 5, word: 'idle' });
+        expect(console40.headline!.drawn).toBeLessThan(3.2);
+        expect(console40.headline!.scale).toBeCloseTo(2.69, 1); // (the room's height: 94 px over 1.25 lines of 28 px)
+        expect(console40.headline!.px).toBeGreaterThan(7);
+        expect(console40.headline!.px).toBeLessThan(13);
+        expect(console40.nodeScale![0]).toBeCloseTo(console40.headline!.scale, 2);
+        expect([console40.words, console40.asked, console40.dataWords, console40.dataAsked, console40.statusOnScreen]).toEqual(['beside', 'spoken', 'beside', 'spoken', true]);
+        expect(console40.why).toMatch(/^the face draws the word at [78](\.\d)? px — under the 13-px floor \(the artboard's room allows ×2\.6\d+ of the 28-px headline on this \d+×\d+ face\): the HTML word stays beside the face$/);
+        await o.page.waitForTimeout(120);
+        const ink40 = await inkOf('#m-40 canvas');
+        expect(ink40.height, 'what little ink there is stays under the floor: not a carrier').toBeLessThan(13);
+        if (ink40.n) { expect(ink40.left).toBeGreaterThanOrEqual(0); expect(ink40.bottom).toBeLessThanOrEqual(ink40.cssH); }
+        // (d) a RESIZE refits: the 152-px host widened to 320 px → the authored 19 px draw at 15.1 px ≥ the floor, the scale back to 1
+        await o.page.evaluate(() => { (document.getElementById('m-152') as HTMLElement).style.width = '320px'; });
+        await o.page.waitForFunction(() => { const x = (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((h) => h.component === 'test:card152') as unknown as Fit | undefined; return Boolean(x && x.headline && x.headline.faceWidth >= 300); }, null, { timeout: 10_000 });
+        const card320 = await fitOf('test:card152');
+        expect(card320.headline).toMatchObject({ faceWidth: 318, scale: 1, reached: true });
+        expect(card320.headline!.px).toBeCloseTo(15.1, 1);
+        expect(card320.nodeScale).toEqual([1, 1]);
+        expect([card320.words, card320.statusOnScreen]).toEqual(['spoken', false]);
+        // the wide console of this test (600+ px): the floor is passed as authored — nothing scaled
+        const consoleWide = await fitOf('test:console');
+        expect(consoleWide.headline).toMatchObject({ scale: 1, reached: true });
+        expect(consoleWide.headline!.px).toBeGreaterThan(13);
+        expect(consoleWide.nodeScale).toEqual([1, 1]);
       }
       expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local')!.runtime!.inputs.find((i) => i.name === 'State')!.value)).toBe(1);
       // the action: a synthetic click runs nothing; the person's click runs it once; Enter on the focused button runs it again
@@ -734,7 +816,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       else R.mountActionButton(host, { name: 'late:action', label: 'Late action', action: () => undefined });
     }, which);
     /** The card's status word as a viewer and a screen reader meet it: its words, its live region, whether it takes room on the screen. */
-    const spoken = () => o.page.evaluate(() => { const s = document.querySelector('#late-card .tr-status') as HTMLElement; const r = s.getBoundingClientRect(); const cs = getComputedStyle(s); return { words: s.textContent, live: s.getAttribute('aria-live'), display: cs.display, clip: cs.clipPath, onScreen: r.width > 1 && r.height > 1, mode: s.closest('.tr-mount')!.getAttribute('data-words'), face: s.closest('.tr-mount')!.getAttribute('data-rive') }; });
+    const spoken = () => o.page.evaluate(() => { const s = document.querySelector('#late-card .tr-status') as HTMLElement; const r = s.getBoundingClientRect(); const cs = getComputedStyle(s); const m = s.closest('.tr-mount')!; return { words: s.textContent, live: s.getAttribute('aria-live'), display: cs.display, clip: cs.clipPath, onScreen: r.width > 1 && r.height > 1, mode: m.getAttribute('data-words'), asked: m.getAttribute('data-words-asked'), face: m.getAttribute('data-rive') }; });
     const faces = () => o.page.evaluate(() => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:')).map((x) => ({ component: x.component, state: x.state, why: x.why, retryable: x.retryable, again: x.events.filter((e) => /asked again for this face/.test(e.did)).map((e) => e.source) })));
     const drawnAll = (n: number) => o.page.waitForFunction((k) => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:') && x.state === 'drawn').length === k && [...document.querySelectorAll('[id^="late-"] canvas')].every((c) => c.getAttribute('data-loaded') === 'true'), n, { timeout: 30_000 });
     // (1) the mount path: refused before any mount → the console waits in words and says why; the listing is asked again at the
@@ -769,16 +851,24 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect((await faces()).every((x) => x.retryable)).toBe(true);
       expect(await o.page.$$eval('[id^="late-"] canvas[data-loaded]', (els) => els.length)).toBe(0);
       // item 4, `words: 'spoken'`: while the face is NOT drawn the status word is on the screen beside the fallback glyph (the canvas is
-      // never the only carrier of a state — here there is no canvas drawing); its live region stands either way
-      expect(await spoken()).toEqual({ words: 'disconnected', live: 'polite', display: 'block', clip: 'none', onScreen: true, mode: 'spoken', face: 'words' });
+      // never the only carrier of a state — here there is no canvas drawing): the EFFECTIVE mode is 'beside' though 'spoken' was asked;
+      // its live region stands either way
+      expect(await spoken()).toEqual({ words: 'disconnected', live: 'polite', display: 'block', clip: 'none', onScreen: true, mode: 'beside', asked: 'spoken', face: 'words' });
+      expect(await o.page.evaluate(() => ((window as unknown as { TimmyRive: TR }).TimmyRive.inspect().find((x) => x.component === 'late:card') as unknown as { words: string; wordsAsked: string; wordsWhy: string; headline: unknown }))).toMatchObject({ words: 'beside', wordsAsked: 'spoken', wordsWhy: 'the face is not drawn: the HTML word is the state', headline: null });
       // (the shell refuses every later ask on its own after that 401 — the session is what lifts it: the route stays, gated)
       await o.page.evaluate((t) => (window as unknown as { TimmyShell: TS }).TimmyShell.session.set(t, { id: 'FAKE (the test): a user signed in after the page loaded' }), FAKE_SESSION);
       await drawnAll(3);
       const after = await faces();
       expect(after.map((x) => [x.component, x.state, x.retryable])).toEqual([['late:console', 'drawn', false], ['late:card', 'drawn', false], ['late:action', 'drawn', false]]);
-      // drawn: the face carries the word as its headline, so the spoken status leaves the screen — still in the accessibility tree
-      // (not display:none), still the live region with the same word; the face's name is the word and the provider's name
-      expect(await spoken()).toEqual({ words: 'disconnected', live: 'polite', display: 'block', clip: 'inset(50%)', onScreen: false, mode: 'spoken', face: 'drawn' });
+      // drawn: the face carries the word as its headline AT THE FLOOR (a 240-px card: the headline scaled ×1.15 to 13 px), so the spoken
+      // status leaves the screen — still in the accessibility tree (not display:none), still the live region with the same word; the
+      // face's name is the word and the provider's name
+      expect(await spoken()).toEqual({ words: 'disconnected', live: 'polite', display: 'block', clip: 'inset(50%)', onScreen: false, mode: 'spoken', asked: 'spoken', face: 'drawn' });
+      const lateFit = await o.page.evaluate(() => ((window as unknown as { TimmyRive: TR }).TimmyRive.inspect().find((x) => x.component === 'late:card') as unknown as { words: string; wordsWhy: string; headline: { px: number; reached: boolean; scale: number; faceWidth: number } }));
+      expect(lateFit.words).toBe('spoken');
+      expect(lateFit.headline).toMatchObject({ reached: true, faceWidth: 238 });
+      expect(lateFit.headline.px).toBeGreaterThanOrEqual(13);
+      expect(lateFit.wordsWhy).toMatch(/^the face draws the word at 13(\.\d)? px \(the floor is 13 px; the headline scaled ×1\.1\d+ within the artboard's room\): the HTML word is spoken, not shown$/);
       expect(await o.page.getAttribute('#late-card .tr-face', 'aria-label')).toBe('disconnected · OpenRouter');
       if (SERVED_V2) expect(await o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: TR }).TimmyRive as unknown as { handles: () => Array<{ component: string; rive: { getTextRunValue: (k: string) => string | undefined } | null }> }).handles().find((x) => x.component === 'late:card')!; return [hd.rive!.getTextRunValue('HeadlineIdle'), hd.rive!.getTextRunValue('ProviderName'), hd.rive!.getTextRunValue('Caption')]; })).toEqual(['disconnected', '', '']);
       // every face's last ask is the session's; the mounts in between may have asked again too (the listing refused each time —

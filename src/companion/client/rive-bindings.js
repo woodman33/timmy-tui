@@ -10,7 +10,9 @@
 //         operator's item 4 (2026-10-24 19:18) a production console or card carries ONE thing — the state: the HTML state word as
 //         its headline in every pose and the mark the state animates; its other runs read "" at every size; its aria-label is the
 //         state word (+ the provider's name on a card); its status label is the live region (`words: 'spoken'` keeps it off the
-//         screen while the face is drawn). The Inspect view's faces draw the artboards as authored.
+//         screen while the face is drawn AND its headline reaches the 13-px floor — fitHeadline scales the headline up to it
+//         within the artboard's room; where it cannot, the HTML word stays beside the face). The Inspect view's faces draw the
+//         artboards as authored.
 //   TimmyRive.load(canvas, assetPath, { artboard, stateMachine, label? })  → a handle (the lower-level call)
 //   TimmyRive.set(handle, input, value, source)   → records { input, value, at, source } (the Inspect view's binding events) and
 //         moves the runtime's input of that name when the .riv is loaded: a Number input takes the word's number (VOCAB), a
@@ -113,6 +115,26 @@
    */
   const ONE_THING = 'a production face carries one thing — the state: its headline in every pose is the HTML state word (the same string), the mark animates by state; Title / Tag / Caption (a card’s ProviderName / ProviderState / ProviderDetail, the console’s Line) read "" at every size; the Inspect view’s faces keep theirs';
   const isProduction = (handle) => Boolean(handle.mounted);
+  /**
+   * LEGIBILITY (the lead's ruling of 22:12 on item 4; DESIGN.md B11 D2's floor): the one word a production face draws must be
+   * READABLE where it is drawn — 13 CSS px at least. At mount and on every resize the drawn size of the headline is computed
+   * (19 px × faceWidth / 400 on a card; 28 px × faceHeight / 380 on the console) and, where the artboard's room allows, the
+   * headline's Text node is scaled up to the floor (artboard.node('Headline<pose>'), the way v1's pill was scaled: a runtime
+   * transform, no rebuild), capped so the word stays inside the face — to the right of its origin by the word's estimated width,
+   * below it by one line — and never shrunk. Where the floor cannot be reached (the Chat band's 40-px-tall face; a card too narrow
+   * for its word) `words: 'spoken'` is NOT honoured: the HTML status stays visible beside the face (data-words reflects the
+   * EFFECTIVE mode; inspect().wordsWhy says why), so no face ever shows a 3–7-px word as its only carrier.
+   */
+  const WORD_FLOOR = 13;
+  /** The headline Text of each production artboard (create-controls.py): its authored size, its origin (top-left), the room it may grow into — artboard px. */
+  const HEADLINE = Object.freeze({
+    ProviderCard: { px: 19, base: 400, by: 'width', x: 24, y: 150, right: 300, bottom: 250 },   // the mark's ring begins at x 306; the artboard ends at y 260
+    AgentConsole: { px: 28, base: 380, by: 'height', x: 28, y: 92, right: 612, bottom: 186 },  // the mark's ring begins at y 192
+  });
+  /** A conservative average advance per character of Outfit 600 (em) — the real width is narrower, so the cap errs inside the face. */
+  const EM_ADVANCE = 0.6;
+  const LINE_HEIGHT = 1.25;
+  const round1 = (n) => Math.round(n * 10) / 10;
   const CAPTION = Object.freeze({
     preview: 'PREVIEW  /  NOT A LIVE JOB',
     activity: 'LIVE  /  THE TURN’S EVENTS',
@@ -175,7 +197,9 @@
           for (const pose of POSES) poses[pose] = put(`${RUNS.v2.headline}${pose}`, word).reads;
           runs.headline = { name: `${RUNS.v2.headline}{${POSES.join('|')}}`, set: word, reads: poses.Idle, poses, note: 'the HTML state word, in every pose (item 4)' };
           if (!card) { const lines = {}; for (const pose of POSES) lines[pose] = put(`${RUNS.v2.line}${pose}`, '').reads; runs.line = { name: `${RUNS.v2.line}{${POSES.join('|')}}`, set: '', reads: lines.Idle, poses: lines }; }
-          runs.production = { headline: word, hidden: [RUNS.v2.title, RUNS.v2.tag, RUNS.v2.caption, ...(card ? [RUNS.v2.providerName, RUNS.v2.providerState, RUNS.v2.providerDetail] : [RUNS.v2.line])], faceWidth: typeof handle.faceWidth === 'number' ? handle.faceWidth : null, note: ONE_THING };
+          // the word's drawn size: the headline fitted to the floor (the room allowing), the words mode placed by the outcome
+          const fit = fitHeadline(handle);
+          runs.production = { headline: word, hidden: [RUNS.v2.title, RUNS.v2.tag, RUNS.v2.caption, ...(card ? [RUNS.v2.providerName, RUNS.v2.providerState, RUNS.v2.providerDetail] : [RUNS.v2.line])], faceWidth: typeof handle.faceWidth === 'number' ? handle.faceWidth : null, fit: fit ? { ...fit } : null, words: handle.words || null, note: ONE_THING };
         } else {
           // the Inspect view's faces (the preview artboards) and a Canvas shape: the artboard as authored, the page's words in the
           // named runs — a preview artboard keeps its baked PREVIEW caption; another carries the source of its state (AS SAVED, LIVE)
@@ -443,6 +467,58 @@
     const name = faceName(handle);
     if (handle.face.getAttribute('aria-label') !== name) handle.face.setAttribute('aria-label', name);
   }
+  /**
+   * The EFFECTIVE words mode of a mount: 'spoken' (the HTML status off the screen, in the accessibility tree) is honoured only while
+   * the face is drawn AND its headline reaches the floor; else 'beside' — the status visible beside the face. data-words on the root
+   * is the effective mode (rive-components.css keys on it); data-words-asked the screen's ask; handle.wordsWhy says why.
+   */
+  function placeWords(handle) {
+    if (!isProduction(handle)) return;
+    const asked = handle.wordsAsked || 'beside';
+    const hl = handle.headline;
+    let effective = 'beside';
+    let why;
+    if (asked !== 'spoken') why = 'the HTML word beside the face, as the screen asked';
+    else if (handle.state !== 'drawn') why = 'the face is not drawn: the HTML word is the state';
+    else if (!hl) why = 'the face is not measured yet: the HTML word stays beside it';
+    else if (hl.reached) { effective = 'spoken'; why = `the face draws the word at ${hl.px} px (the floor is ${WORD_FLOOR} px${hl.scale > 1 ? `; the headline scaled ×${hl.scale} within the artboard's room` : ''}): the HTML word is spoken, not shown`; }
+    else why = `the face draws the word at ${hl.px} px — under the ${WORD_FLOOR}-px floor (the artboard's room allows ×${hl.scale} of the ${hl.authored}-px headline on this ${hl.faceWidth}×${hl.faceHeight} face): the HTML word stays beside the face`;
+    handle.words = effective;
+    handle.wordsWhy = why;
+    if (handle.root) { handle.root.dataset.words = effective; handle.root.dataset.wordsAsked = asked; }
+  }
+  /**
+   * Fits a production face's headline to the floor (the ruling above): measures the face, scales every pose's Headline node up to
+   * the floor within the artboard's room, records handle.headline { floor, authored, faceWidth, faceHeight, drawn, scale, px,
+   * reached, room, nodes, word } and places the words. Null when there is nothing to fit (not a mount, not drawn, no size yet).
+   */
+  function fitHeadline(handle) {
+    if (!isProduction(handle)) return null;
+    const spec = HEADLINE[handle.artboardBase || handle.artboard || ''];
+    const r = handle.rive;
+    const faceW = handle.face ? handle.face.clientWidth : 0;
+    const faceH = handle.face ? handle.face.clientHeight : 0;
+    if (!spec || !r || !r.artboard || handle.state !== 'drawn' || !(faceW > 0 && faceH > 0)) { placeWords(handle); return null; }
+    const faceScale = (spec.by === 'width' ? faceW : faceH) / spec.base;
+    const drawn = spec.px * faceScale;                                 // the headline's CSS px as authored, at this face's size
+    const word = String(labelWord(handle) || '');
+    const width = Math.max(1, word.length) * EM_ADVANCE * spec.px;     // the word's estimated width at scale 1 (artboard px)
+    const roomW = (spec.right - spec.x) / width;
+    const roomH = (spec.bottom - spec.y) / (spec.px * LINE_HEIGHT);
+    const needed = drawn >= WORD_FLOOR ? 1 : WORD_FLOOR / drawn;
+    const scale = Math.max(1, Math.min(needed, roomW, roomH));
+    const px = drawn * scale;
+    let nodes = 0;
+    for (const pose of POSES) {
+      let n = null;
+      try { n = r.artboard.node(`${RUNS.v2.headline}${pose}`) || null; } catch (e) { n = null; }
+      if (!n) continue;
+      try { if (n.scaleX !== scale) n.scaleX = scale; if (n.scaleY !== scale) n.scaleY = scale; nodes += 1; } catch (e) { /* the pose stands at its authored size */ }
+    }
+    handle.headline = { floor: WORD_FLOOR, authored: spec.px, faceWidth: faceW, faceHeight: faceH, drawn: round1(drawn), scale: Math.round(scale * 1000) / 1000, px: round1(px), reached: nodes > 0 && px >= WORD_FLOOR - 0.01, room: { width: round1(roomW), height: round1(roomH) }, nodes, word };
+    placeWords(handle);
+    return handle.headline;
+  }
   function setLabel(handle, input, value, shown) {
     if (!handle.label) return;
     if (input === 'selected' || input === 'expanded') { handle.label.dataset[input] = String(Boolean(value)); handle.label.textContent = labelWord(handle) + (handle.values.selected ? ' · selected' : '') + (handle.values.expanded ? ' · expanded' : ''); return; }
@@ -512,6 +588,8 @@
     if (canvas) { delete canvas.dataset.loaded; canvas.dataset.riveState = 'words'; }
     if (handle.fallback) handle.fallback.hidden = false;
     if (handle.root) handle.root.dataset.rive = 'words';
+    handle.headline = null;
+    placeWords(handle); // (a mount on the words path shows its HTML word whatever was asked)
     absentWords(handle).then((words) => { if (handle.note) handle.note.textContent = words; });
   }
   /**
@@ -641,10 +719,16 @@
     if (typeof ResizeObserver === 'undefined' || !handle.face) return;
     const ro = new ResizeObserver(() => {
       const w = handle.face.clientWidth;
+      const hgt = handle.face.clientHeight;
       try { if (handle.rive && w > 0) handle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ }
-      // (the face's width in CSS px, for the Inspect view and the tests: since item 4 the runs no longer depend on it — a production
-      // face reads the same at every size)
-      if (w > 0) handle.faceWidth = w;
+      // the face's size in CSS px: since item 4 the runs read the same at every size; the headline's SCALE follows the size (the
+      // legibility floor) — fitted again whenever the face's size changes
+      if (w > 0) {
+        const was = `${handle.faceWidth}×${handle.faceHeight}`;
+        handle.faceWidth = w;
+        handle.faceHeight = hgt;
+        if (handle.rive && handle.state === 'drawn' && was !== `${w}×${hgt}`) fitHeadline(handle);
+      }
     });
     ro.observe(handle.face);
     handle.observer = ro;
@@ -653,16 +737,19 @@
   /**
    * What every mount adds to its handle: it is a PRODUCTION face (handle.mounted: item 4's rule applies to its runs and its name),
    * where it lives, how its HTML words are shown (`words`: 'beside' — the default, the status word beside the face — or 'spoken':
-   * the status stays in the accessibility tree, aria-live, and off the screen while the face is DRAWN and carries the word itself;
-   * while the face is not drawn the word shows beside the fallback glyph either way), unmount(), setLabel().
+   * the status stays in the accessibility tree, aria-live, and off the screen while the face is DRAWN and carries the word itself
+   * LEGIBLY (the floor: fitHeadline); while the face is not drawn, or its headline cannot reach the floor, the word shows beside
+   * the face whatever was asked — handle.wordsAsked is the ask, handle.words the effective mode), unmount(), setLabel().
    */
   function finishMount(handle, o, place) {
     handle.mounted = true;
     handle.place = place;
     handle.size = o.size || 'card';
-    handle.words = o.words === 'spoken' ? 'spoken' : 'beside';
-    if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.dataset.words = handle.words; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
+    handle.wordsAsked = o.words === 'spoken' ? 'spoken' : 'beside';
+    handle.headline = null;
+    if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
     nameFace(handle);
+    placeWords(handle);
     if (handle.rive) applyRuns(handle);
     handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } if (/^ActionButton/.test(handle.artboard || '')) handle.faceLabel = String(words); if (handle.rive) applyRuns(handle); nameFace(handle); };
     handle.unmount = () => {
@@ -936,7 +1023,8 @@
       runs: x.runs ? JSON.parse(JSON.stringify(x.runs)) : null, stateSource: x.stateSource, fedState: x.fedState, restored: x.restored || 0,
       fileContract: x.contract, identity: x.identity ? { ...x.identity } : null, receipt: x.receipt || null, stale: x.stale || 0, retryable: Boolean(x.retryable),
       shown: x.shown || null, faceWidth: typeof x.faceWidth === 'number' ? x.faceWidth : null,
-      mounted: Boolean(x.mounted), words: x.words || null, faceName: x.face ? x.face.getAttribute('aria-label') : null,
+      mounted: Boolean(x.mounted), words: x.words || null, wordsAsked: x.wordsAsked || null, wordsWhy: x.wordsWhy || null, faceName: x.face ? x.face.getAttribute('aria-label') : null,
+      faceHeight: typeof x.faceHeight === 'number' ? x.faceHeight : null, headline: x.headline ? { ...x.headline, room: { ...x.headline.room } } : null,
     }));
   }
 
