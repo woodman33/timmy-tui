@@ -272,8 +272,22 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.cn-pick[aria-pressed="true"]').getAttribute('title')).toBe('Ollama · local');
     // (R87: the context holds the selected card's facts, not the card again — no second title block, state or verb)
     expect(await page.locator('.cn-context-card .cn-state-word, .cn-context-card [data-cn-context-verb], .cn-context-card .cn-situation').count()).toBe(0);
-    expect(await page.locator('.cn-context-card .cn-facts dt').allTextContents()).toEqual(['Next step', 'Cost', 'A check sends', 'What it asks', 'Last observed', 'On this computer']);
+    // (item 5 of the operator's 19:18 order: the facts in view are plain — the mechanics behind Details)
+    expect(await page.locator('.cn-context-card > .cn-facts dt').allTextContents()).toEqual(['Cost']);
+    expect(await page.locator('.cn-context-card .cn-context-details .cn-facts dt').allTextContents()).toEqual(['Next step', 'A check sends', 'What it asks', 'Last observed', 'Observed', 'On this computer']);
+    expect(await page.locator('.cn-context-card .cn-context-details').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
     expect(await page.locator('.cn-context-card .cn-context-about').textContent()).toBe('Run models on this computer. No provider account required.'); // (the description is the context's, not the card's)
+    // the selected card's other controls are the context's (one verb on the card); no card shows an address, a path, a command or an
+    // endpoint — not now, not after an action (the probe's words and the files' names are the Details' and the records')
+    expect(await page.locator('.page-context [data-cn-tools="ollama-local"] button').allTextContents()).toEqual(['Download a local model', 'Check', 'Set up local Ollama ↗']);
+    expect(await page.locator('.cn-card button').count()).toBe(4);
+    const noMechanics = async () => { for (const t of await page.locator('.cn-card').allTextContents()) expect(t).not.toMatch(/https?:|127\.0\.0\.1|\/api\/|\.json|curl |ollama serve|GET |key [0-9a-f]{12}/); };
+    await noMechanics();
+    expect(await page.locator('.cn-card .cn-status-words').allTextContents()).toEqual(['No OpenRouter account yet.', 'Ollama is not installed on this computer.', 'No Ollama key saved yet.', 'Optional; nothing set up yet.']);
+    // a card is title · face · ONE status line · ONE verb: no footer, no second line of words (what an action says is the context's live line)
+    expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => [...e.children].map((k) => k.className.split(' ').find((c) => c.startsWith('cn-')))))).toEqual(Array(4).fill(['cn-card-head', 'cn-status', 'cn-rive', 'cn-verb-row']));
+    expect(await page.locator('.cn-card .cn-say').count()).toBe(0);
+    expect(await page.locator('.page-context .cn-context-card [data-cn-say="ollama-local"]').count()).toBe(1);
     // (R87: the segmented control in one row at 1440)
     expect(new Set(await page.locator('.cn-pick').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))).size).toBe(1);
     expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('ollama-local');
@@ -288,9 +302,10 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.cn-records').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
     expect(await page.locator('.cn-record').count()).toBe(7);
     expect(await page.locator('.cn-record').nth(4).textContent()).toContain('id alice'); // (R95: the session's raw id behind Details, not in the band)
-    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', 'Back', 'Explore without a model', 'Set up a model', 'Download a model']) {
+    for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Save an Ollama key', 'Set up Cloudflare', 'Download a local model', 'Check', 'Set up local Ollama ↗', 'Back', 'Explore without a model', 'Set up a model', 'Download a model']) {
       await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
     }
+    for (const name of ['Sign in to Ollama ↗', 'Open Cloudflare setup ↗']) await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(0); // (another card's tools: shown when it is selected)
     // the picker changes the context, not any connection
     await page.locator('.cn-pick[data-cn-pick="openrouter"]').click();
     expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('openrouter');
@@ -319,22 +334,37 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
       [{ input: 'connection', value: 'not installed', source: 'GET /api/connections: ollama-local', at: expect.any(Number) }],
       [{ input: 'connection', value: 'not set up', source: 'GET /api/connections: ollama-cloud', at: expect.any(Number) }],
       [{ input: 'connection', value: 'not set up', source: 'GET /api/connections: cloudflare', at: expect.any(Number) }]]);
-    // Ollama · cloud: the key pasted into the labelled password field, sent once in the body; the card says saved, not checked
-    const keyField = page.getByLabel('Ollama API key', { exact: true });
+    // Ollama · cloud: its verb selects the card and the context shows its tools — the labelled password field, focused; the key
+    // pasted there is sent once in the body; the card says saved, not checked
+    await page.getByRole('button', { name: 'Save an Ollama key', exact: true }).click();
+    expect(await page.locator('.cn-card.is-chosen').getAttribute('data-provider')).toBe('ollama-cloud');
+    const keyField = page.locator('.page-context').getByLabel('Ollama API key', { exact: true });
+    expect(await keyField.evaluate((e) => document.activeElement === e)).toBe(true);
     await keyField.fill(FAKE_KEY);
     await page.getByRole('button', { name: 'Save the key', exact: true }).click();
     await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: 'saved, not checked' }).waitFor();
-    expect(await page.locator('.cn-card-ollama-cloud .cn-say').textContent()).toMatch(/^Saved, not checked: the Ollama Cloud key \(key [0-9a-f]{12}\) is in providers\.json in the Timmy home \(0600\)\./);
+    // (item 5: the card's one status line is plain; what the save said is the context's live line, plain too — the file's name and
+    // the key's fingerprint are the records')
+    expect(await page.locator('.cn-card-ollama-cloud .cn-status-words').textContent()).toBe('A key is saved; not checked yet.');
+    const saidCloud = page.locator('.page-context .cn-context-card [data-cn-say="ollama-cloud"]');
+    expect(await saidCloud.textContent()).toBe('The key is saved, not checked yet. Check the key asks Ollama Cloud whether it takes it; no model is run.');
+    expect(await saidCloud.getAttribute('aria-live')).toBe('polite');
+    await noMechanics();
     expect(await keyField.inputValue()).toBe('');
     expect(await page.content()).not.toContain(FAKE_KEY);
     expect(requests.some((u) => u.includes(FAKE_KEY))).toBe(false);
     expect(requests.every((u) => u.startsWith(base))).toBe(true);
-    // its check: the FAKE ollama.com takes the key; the state is checked (green); the observed words on the card itself, beside its
-    // one state word — no toast from this screen (R96: the shell's toast painted over the records band)
+    // its check: the FAKE ollama.com takes the key; the state is checked (green) on the card's one status line; the probe's full words
+    // (the fingerprint, the file) are the Details' Observed row; the live line is cleared (the state changed: the status line says it) —
+    // no toast from this screen (R96: the shell's toast painted over the records band)
     await page.getByRole('button', { name: 'Check the key', exact: true }).click();
     await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
-    expect(await page.locator('.cn-card-ollama-cloud .cn-state').getAttribute('class')).toContain('is-live');
-    expect(await page.locator('.cn-card-ollama-cloud .cn-say').textContent()).toMatch(/^Checked just now: Ollama Cloud took the key/);
+    expect(await page.locator('.cn-card-ollama-cloud .cn-state-word').getAttribute('class')).toContain('is-live');
+    expect(await page.locator('.cn-card .cn-state-word.is-live').count()).toBe(1); // (green only for the observed "checked": the cloud card alone)
+    expect(await page.locator('.cn-card-ollama-cloud .cn-status-words').textContent()).toBe('Ollama Cloud took the key.');
+    expect(await saidCloud.textContent()).toBe('');
+    expect(await page.locator('.page-context .cn-context-details .cn-facts div').filter({ has: page.locator('dt', { hasText: /^Observed$/ }) }).locator('dd').textContent()).toMatch(/^Checked just now: Ollama Cloud took the key \(key [0-9a-f]{12}\) from providers\.json/);
+    await noMechanics();
     expect(await page.evaluate(() => (window as unknown as { __toasts: unknown[] }).__toasts.length)).toBe(0);
     // the two refreshes (the key saved, the key checked) fed the cloud card's two changes and nothing else: still four handles
     // (no re-mount: the host moved into each redrawn card), the other three cards unchanged, so unfed
@@ -384,34 +414,60 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     await page.goto(`${base}/`);
     await page.getByRole('heading', { level: 1, name: 'One model is enough to begin.' }).waitFor();
     const card = page.locator('.cn-card-ollama-local');
-    await card.getByRole('button', { name: 'Check', exact: true }).click();
-    await card.locator('.cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
-    expect(await card.locator('.cn-words').textContent()).toMatch(/^Checked just now: Ollama answered at 127\.0\.0\.1:\d+ with local models \(no account, no charge\)\.$/);
-    // (the Check pressed on the card selected it: the context shows its facts, the detail lines the check found among them)
+    // (the case above left this FAKE user a checked cloud key, so the recommended — selected — card is that existing setup; a press
+    // on the local card selects it: a selection, never a connection) — the context then holds its tools: Check is there (the card's
+    // one verb is Install Ollama)
+    await card.locator('.cn-card-title').click();
     expect(await page.locator('.cn-card.is-chosen').getAttribute('data-provider')).toBe('ollama-local');
-    expect((await page.locator('.page-context .cn-context-lines[data-cn-lines="ollama-local"]').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
-    // the download box: a name typed, the size asked (unknown: not a starter, not held), then the confirmation, then progress
-    await card.getByRole('button', { name: 'Download a local model', exact: true }).click();
-    await card.getByLabel('Another model name', { exact: true }).fill('fake-new:3b');
-    await card.getByRole('button', { name: 'Show the size', exact: true }).click();
-    const confirmBtn = card.getByRole('button', { name: 'Confirm the download', exact: true });
+    expect(await card.locator('.cn-state-word').textContent()).toBe('not installed');
+    const ctx = page.locator('.page-context');
+    const tools = ctx.locator('[data-cn-tools="ollama-local"]');
+    await tools.getByRole('button', { name: 'Check', exact: true }).click();
+    await card.locator('.cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+    // the card's one status line is plain; the probe's words with the address are the context's Details (Observed) and the records;
+    // the context's live line is cleared (the state changed: the status line says it)
+    expect(await card.locator('.cn-status-words').textContent()).toBe('Ollama answered with local models.');
+    expect(await card.textContent()).not.toMatch(/127\.0\.0\.1|\/api\/|GET /);
+    expect(await page.locator('.cn-card.is-chosen').getAttribute('data-provider')).toBe('ollama-local');
+    const saidLocal = ctx.locator('.cn-context-card [data-cn-say="ollama-local"]');
+    expect(await saidLocal.textContent()).toBe('');
+    expect(await ctx.locator('.cn-context-details .cn-facts div').filter({ has: page.locator('dt', { hasText: /^Observed$/ }) }).locator('dd').textContent()).toMatch(/^Checked just now: Ollama answered at 127\.0\.0\.1:\d+ with local models \(no account, no charge\)\.$/);
+    expect(await ctx.locator('.cn-context-details').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
+    // what the check FOUND — the models this Ollama holds — is in view in the context (a fact the person chooses by; the journeys read
+    // the model's name from the visible page), not behind the Details with the mechanics
+    const found = ctx.locator('.cn-found[data-cn-found="ollama-local"]');
+    expect(await found.isVisible()).toBe(true);
+    expect((await found.locator('.cn-context-lines[data-cn-lines="ollama-local"]').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
+    expect(await ctx.locator('.cn-context-details .cn-context-lines').count()).toBe(0);
+    expect(await page.evaluate(() => document.body.innerText)).toContain('fake-qwen3:8b');
+    // the card's verb is "Check again" now (an existing setup); pressed, the state stays and the live line says so
+    expect(await card.locator('[data-cn-verb]').textContent()).toBe('Check again');
+    await card.locator('[data-cn-verb]').click();
+    await saidLocal.filter({ hasText: 'Checked again; the state is as it was.' }).waitFor();
+    expect(await card.locator('.cn-status-words').textContent()).toBe('Ollama answered with local models.');
+    // the download box, in the context under the card's tools: a name typed, the size asked (unknown: not a starter, not held),
+    // then the confirmation, then progress
+    await tools.getByRole('button', { name: 'Download a local model', exact: true }).click();
+    await ctx.getByLabel('Another model name', { exact: true }).fill('fake-new:3b');
+    await ctx.getByRole('button', { name: 'Show the size', exact: true }).click();
+    const confirmBtn = ctx.getByRole('button', { name: 'Confirm the download', exact: true });
     await confirmBtn.waitFor();
-    expect(await card.locator('.cn-pull-status').textContent()).toContain('fake-new:3b: size unknown');
+    expect(await ctx.locator('.cn-pull-status').textContent()).toContain('fake-new:3b: size unknown');
     expect(ollama.seen).not.toContain('POST /api/pull');
     await confirmBtn.click();
-    await card.locator('.cn-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
-    expect(await card.locator('.cn-pull-status').textContent()).toMatch(/\d+ MB of 4 MB · pulling FAKE-layer \(\d+%\)/);
-    await card.locator('.cn-pull-status').filter({ hasText: 'Downloaded: Ollama lists fake-new:3b as installed now.' }).waitFor({ timeout: 10_000 });
+    await ctx.locator('.cn-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
+    expect(await ctx.locator('.cn-pull-status').textContent()).toMatch(/\d+ MB of 4 MB · pulling FAKE-layer \(\d+%\)/);
+    await ctx.locator('.cn-pull-status').filter({ hasText: 'Downloaded: Ollama lists fake-new:3b as installed now.' }).waitFor({ timeout: 10_000 });
     expect(ollama.installed.has('fake-new:3b')).toBe(true);
     // the second download, stalled by the FAKE, cancelled from the page: "Cancelled" in the words, nothing installed
     ollama.setStall(true);
-    await card.getByLabel('Another model name', { exact: true }).fill('fake-second:1b');
-    await card.getByRole('button', { name: 'Show the size', exact: true }).click();
-    await card.getByRole('button', { name: 'Confirm the download', exact: true }).click();
-    await card.locator('.cn-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
-    await card.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await card.locator('.cn-pull-status').filter({ hasText: /^Cancelled/ }).waitFor();
-    expect(await card.locator('.cn-pull-status').textContent()).toContain('Ollama keeps what it downloaded of fake-second:1b');
+    await ctx.getByLabel('Another model name', { exact: true }).fill('fake-second:1b');
+    await ctx.getByRole('button', { name: 'Show the size', exact: true }).click();
+    await ctx.getByRole('button', { name: 'Confirm the download', exact: true }).click();
+    await ctx.locator('.cn-pull-status').filter({ hasText: /MB of .* MB/ }).waitFor();
+    await ctx.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await ctx.locator('.cn-pull-status').filter({ hasText: /^Cancelled/ }).waitFor();
+    expect(await ctx.locator('.cn-pull-status').textContent()).toContain('Ollama keeps what it downloaded of fake-second:1b');
     expect(ollama.installed.has('fake-second:1b')).toBe(false);
     expect(mounted.pendingPulls()).toBe(0);
     // R11 round 6: the local card's feed over this case — the first draw (not installed), the Check (checked); the download's
@@ -436,7 +492,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const words = async (p: typeof page) => ({
       titles: await p.locator('.cn-card .cn-card-title').allTextContents(),
       states: await p.locator('.cn-card .cn-state-word').allTextContents(),
-      under: await p.locator('.cn-card .cn-words').allTextContents(),
+      under: await p.locator('.cn-card .cn-status-words').allTextContents(),
       buttons: await p.getByRole('button').allTextContents(),
       head: [await p.locator('.page-kicker').textContent(), await p.locator('h1').textContent(), await p.locator('.page-intro').textContent()],
     });

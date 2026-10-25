@@ -286,6 +286,10 @@ describe('the Connections routes: the four providers under the signed-in user\'s
     expect(text).not.toMatch(/\bconnected\b/i);
     expect(asked).toEqual([]);
     for (const card of Object.values(CARD_WORDS)) expect(card.body.length).toBeGreaterThan(10);
+    // R11 round 7 (the operator's 19:18 order, item 5): each card's ONE status sentence — plain words, no address, path, endpoint or command
+    const list = Object.values(await cards('alice'));
+    expect(list.map((c) => c.status)).toEqual(['No OpenRouter account yet.', 'Ollama is not installed on this computer.', 'No Ollama key saved yet.', 'Optional; nothing set up yet.']);
+    for (const c of list) expect(String(c.status)).not.toMatch(/https?:|127\.0\.0\.1|\/api\/|\.json|curl |ollama serve|GET |\bconnected\b/i);
   });
 
   it('OpenRouter: the S256 PKCE sign-in through the companion\'s own callback: the verifier stays here, the code is exchanged with the FAKE, the key saved and observed, never shown; one state, one answer', async () => {
@@ -361,7 +365,7 @@ describe('the Connections routes: the four providers under the signed-in user\'s
     expect(((await jsonOf(forged)).cards as Array<Record<string, unknown>>)[0].state).toBe('not set up');
   });
 
-  it('users are apart on Ollama · local too: each Check asks the address the user\'s own home records, never the companion\'s OLLAMA_HOST (H172\'s installed run, 18:21)', async () => {
+  it('users are apart on Ollama · local too: each Check asks the address the user\'s own home records, never the companion\'s OLLAMA_HOST; a Check\'s record and its event reach the asking principal only (H172\'s installed run, 18:21; the operator\'s 19:18 order, item 1)', async () => {
     // alice recorded the FAKE Ollama; bob recorded an address where nothing listens (as H172's second user did: 127.0.0.1:9);
     // carol recorded nothing. The companion's shell variable (userEnv's OLLAMA_HOST) names the FAKE for all three.
     const fakePort = new URL(ollamaOrigin).port;
@@ -373,12 +377,30 @@ describe('the Connections routes: the four providers under the signed-in user\'s
     expect(String(a.words)).toContain(`Ollama answered at 127.0.0.1:${fakePort}`);
     const afterAlice = ollama.seen.length;
     expect(afterAlice).toBeGreaterThan(before);
+    // (1a) the CACHED result is alice's home's alone: state/connections.json under her Timmy home, none under bob's; bob's read —
+    // GET /api/connections, what his page draws — carries nothing of alice's: no observation, no "Checked", not her port
+    expect(existsSync(join(root, 'users', 'alice', 'timmy', 'state', 'connections.json'))).toBe(true);
+    expect(existsSync(join(root, 'users', 'bob', 'timmy', 'state', 'connections.json'))).toBe(false);
+    const bobRead = (await cards('bob'))['ollama-local'];
+    expect(bobRead.state).toBe('not installed');
+    expect(bobRead.at).toBeUndefined();
+    expect(String(bobRead.words)).not.toMatch(/Checked|answered/);
+    expect(String(bobRead.words)).not.toContain(`127.0.0.1:${fakePort}`);
+    expect(bobRead.status).toBe('Ollama is not installed on this computer.');
+    // (1b) the EVENT a Check emits — notify(userId, { type: 'connections', … }), which server.ts sends over the companion WebSocket
+    // to the sockets whose verified hello session is that user — named alice alone: bob's queue is empty
+    expect(events.filter((e) => e.provider === 'ollama-local').map((e) => [e.user, e.state])).toEqual([['alice', 'checked']]);
+    expect(events.filter((e) => e.user === 'bob')).toEqual([]);
     // bob: his own address, nothing there — not alice's answer, and nothing asked of the FAKE
     const b = (await jsonOf(await post('/api/connections/ollama-local/check', 'bob', {}))).state as Record<string, unknown>;
     expect(b.state).toBe('not installed');
     expect(String(b.words)).toMatch(/nothing answered at 127\.0\.0\.1:9 when checked just now/);
     expect(String(b.words)).not.toContain(`127.0.0.1:${fakePort}`);
     expect(ollama.seen.length).toBe(afterAlice);
+    // bob's Check wrote bob's record, under bob's home; its event went to bob alone; alice's record and her one event stand
+    expect(existsSync(join(root, 'users', 'bob', 'timmy', 'state', 'connections.json'))).toBe(true);
+    expect(events.filter((e) => e.provider === 'ollama-local').map((e) => [e.user, e.state])).toEqual([['alice', 'checked'], ['bob', 'not installed']]);
+    expect((await cards('alice'))['ollama-local'].state).toBe('checked');
     // carol: no record of her own → Ollama's default address, never the companion's variable; nothing asked of the FAKE
     const c = (await jsonOf(await post('/api/connections/ollama-local/check', 'carol', {}))).state as Record<string, unknown>;
     expect(String(c.words)).toContain('127.0.0.1:11434');
