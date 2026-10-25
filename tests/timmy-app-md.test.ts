@@ -17,6 +17,10 @@ describe('the app reads an answer as markdown blocks (R12)', () => {
   it('an unclosed fence while it streams is code to the end', () => {
     expect(blocksOf('Here:\n```js\nconst a = 1;')).toEqual([{ kind: 'p', text: 'Here:' }, { kind: 'code', lang: 'js', text: 'const a = 1;' }]);
   });
+  it('a fence with an info string (```bash [name:hello], a workflow block) is code, and every line moves the reader on (it hung before)', () => {
+    expect(blocksOf('Run it:\n```bash [name:hello]\necho hi\n```')).toEqual([{ kind: 'p', text: 'Run it:' }, { kind: 'code', lang: 'bash', text: 'echo hi' }]);
+    expect(blocksOf('```{weird}\nx\n```').map((b) => b.kind)).toEqual(['code']);
+  });
   it('empty or absent text has no blocks', () => {
     expect(blocksOf('')).toEqual([]);
     expect(blocksOf(undefined as unknown as string)).toEqual([]);

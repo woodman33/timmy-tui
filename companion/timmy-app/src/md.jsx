@@ -30,13 +30,14 @@ export function blocksOf(src) {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    const fence = /^\s*```\s*([\w+-]*)\s*$/.exec(line);
+    // a fence opens with ``` and any info string (```bash [name:hello]): its first word is the language
+    const fence = /^\s*```(.*)$/.exec(line);
     if (fence) {
       const body = [];
       i += 1;
       while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) { body.push(lines[i]); i += 1; }
       i += 1; // the closing fence (or the end, while it streams)
-      blocks.push({ kind: 'code', lang: fence[1], text: body.join('\n') });
+      blocks.push({ kind: 'code', lang: (/^\s*([\w+-]+)/.exec(fence[1]) || [])[1] || '', text: body.join('\n') });
       continue;
     }
     if (!line.trim()) { i += 1; continue; }
@@ -57,6 +58,8 @@ export function blocksOf(src) {
     }
     const para = [];
     while (i < lines.length && lines[i].trim() && !/^\s*```/.test(lines[i]) && !/^#{1,4}\s/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) && !/^\s*>/.test(lines[i])) { para.push(lines[i]); i += 1; }
+    // (every pass moves on: a line no rule above took is a paragraph of its own)
+    if (!para.length) { para.push(line); i += 1; }
     blocks.push({ kind: 'p', text: para.join('\n') });
   }
   return blocks;

@@ -1,0 +1,28 @@
+/* R12: the Tools & integrations page's own parts (pages/tools.jsx); everything else is the shell's (app.css). */
+.tx-tools-groups { flex-wrap: wrap; }
+.tx-tools-n { margin-left: 4px; font-size: 11px; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-tools-table tbody tr { cursor: pointer; }
+.tx-tools-table tbody tr:hover td { background: #ffffff05; }
+.tx-tools-name { padding: 0; border: 0; background: none; color: var(--timmy-ui-text, #ECF1F5); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+.tx-tools-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+.tx-tools-title { margin: 0; font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
+.tx-tools-inspector { display: grid; gap: 10px; min-width: 0; }
+.tx-tools-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.tx-tools-field { display: grid; gap: 4px; font-size: 12px; color: var(--timmy-ui-text-muted, #9AAFC3); min-width: 0; }
+.tx-tools-field select, .tx-tools-args { font: inherit; font-size: 13px; color: var(--timmy-ui-text, #ECF1F5); padding: 6px 9px; border-radius: 8px; border: 1px solid #536b835c; background: linear-gradient(145deg, #0e151e, #182431); max-width: 100%; }
+.tx-tools-field select { min-width: 260px; }
+.tx-tools-args { width: 100%; box-sizing: border-box; font-family: var(--timmy-ui-font-mono, monospace); font-size: 12.5px; resize: vertical; }
+.tx-tools-args[aria-invalid="true"] { border-color: var(--timmy-ui-focus, #FFB000); }
+.tx-tools-toollist { display: grid; gap: 4px; }
+.tx-tools-tool { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--ta-edge); border-radius: 10px; background: #0C1218; color: var(--timmy-ui-text, #ECF1F5); cursor: pointer; font-size: 13px; }
+.tx-tools-tool strong { font-family: var(--timmy-ui-font-mono, monospace); font-weight: 500; font-size: 12.5px; }
+.tx-tools-tool[aria-selected="true"] { border-color: var(--timmy-ui-focus, #FFB000); }
+.tx-tools-hint { font-size: 11.5px; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-tools-call, .tx-tools-check { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ta-edge); }
+.tx-tools-pre { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--timmy-ui-canvas, #080B0F); border: 1px solid var(--ta-edge); font: 12px/1.45 var(--timmy-ui-font-mono, monospace); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+.tx-tools-cmd { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.tx-tools-answer { display: grid; gap: 6px; }
+.tx-tools-notes { margin: 0; padding-left: 1.2em; font-size: 12px; color: var(--timmy-ui-text-muted, #9AAFC3); display: grid; gap: 3px; }
+@media (max-width: 760px) { .tx-tools-field select { min-width: 0; width: 100%; } .tx-tools-controls > * { flex: 1 1 100%; } .tx-tools-table th:nth-child(3), .tx-tools-table td:nth-child(3) { display: none; } }
+/* the selected capability or call stays in view while the inspector scrolls */
+@media (min-width: 901px) { .ta-page[data-page="tools"] .ta-context { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 160px); } }

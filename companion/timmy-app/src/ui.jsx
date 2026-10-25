@@ -63,7 +63,7 @@ export function Button({ children, kind = 'quiet', onClick, disabled, title, typ
 /** A state word in its color: green only for an observed live connection or a passed check / verified receipt (B11). */
 export function StateWord({ word, live = false }) {
   const w = String(word || 'unknown');
-  const kind = live ? 'live' : /fail|refus|not set up|not installed|unreachable|denied|error/i.test(w) ? 'attention' : /check|wait|pending|asking|working|stopping|downloading/i.test(w) ? 'pending' : 'plain';
+  const kind = live ? 'live' : /fail|refus|unreachable|denied|error|expired|stale/i.test(w) ? 'attention' : /check|wait|pending|asking|working|stopping|downloading/i.test(w) ? 'pending' : 'plain';
   return <span className={`ta-state ta-state-${kind}`} data-state-word={w}>{w}</span>;
 }
 

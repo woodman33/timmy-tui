@@ -1,0 +1,28 @@
+/* R12: the Files page (pages/files.jsx) — the folder's table, the breadcrumb, the open file. Shared classes are app.css's. */
+.tx-files-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 16px; }
+.tx-files-crumb { border: 0; background: none; padding: 1px 4px; border-radius: 6px; color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; font-weight: 500; }
+.tx-files-crumb:hover { background: #ffffff0d; color: var(--timmy-ui-text, #ECF1F5); }
+.tx-files-crumb[aria-current="location"] { color: var(--timmy-ui-text, #ECF1F5); }
+.tx-files-sep { color: var(--timmy-ui-text-muted, #9AAFC3); padding: 0 2px; }
+.tx-files-filter { width: 200px; }
+.tx-files-where { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-files-table td:first-child { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tx-files-table td:nth-child(2), .tx-files-table td:nth-child(3) { white-space: nowrap; }
+.tx-files-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; border: 0; background: none; padding: 2px 0; color: var(--timmy-ui-text, #ECF1F5); cursor: pointer; text-align: left;
+  font-family: var(--timmy-ui-font-mono, monospace); font-size: 12.5px; overflow-wrap: anywhere; }
+.tx-files-name:hover { color: var(--timmy-ui-accent-soft, #EAD0A3); }
+.tx-files-row.is-dir .tx-files-name { color: var(--timmy-ui-accent-soft, #EAD0A3); }
+.tx-files-row.is-heavy .tx-files-name { color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-files-glyph { width: 12px; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-files-tag { font-size: 10px; letter-spacing: .08em; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-ui-border, #44586B); color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-files-open { display: grid; gap: 10px; min-width: 0; }
+.tx-files-open-name { margin: 0; overflow-wrap: anywhere; }
+.tx-files-text { margin: 0; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ta-edge); background: var(--timmy-ui-canvas, #080B0F);
+  font: 12px/1.5 var(--timmy-ui-font-mono, monospace); white-space: pre; }
+.tx-files-md { max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ta-edge); background: #0C1218; }
+.tx-files-img { max-width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--ta-edge); background: #0C1218; }
+@media (max-width: 760px) {
+  .tx-files-table th:nth-child(3), .tx-files-table td:nth-child(3) { display: none; }
+  .tx-files-filter { width: 130px; }
+  .tx-files-text, .tx-files-md { max-height: 50vh; }
+}
