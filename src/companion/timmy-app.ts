@@ -5,7 +5,7 @@
  *
  *   GET /app, /app/                the app's page (companion/timmy-app/index.html), under its own policy (appPolicy)
  *   GET /app/dist/<file>           its bundle (app.js, app.css), tldraw's own fonts, icons and translations, the license texts
- *   GET /api/app/config            { ok, tldrawVersion, licenseKey, built, project: { name, root }, ollama } — the launch token first (the
+ *   GET /api/app/config            { ok, tldrawVersion, licenseKey, built, principal, project: { name, root }, ollama } — the launch token first (the
  *                                  key is the operator's); the project is the one the request's principal works in (the operator's
  *                                  followed project, or a signed-in user's own), its root the one the Chat's turn names
  *
@@ -19,6 +19,7 @@
  * WebSocket; no frames, plugins, <base> or form posts; no page may frame it.
  */
 import express from 'express';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,8 +90,13 @@ export function mountTimmyApp(app: express.Application, deps: TimmyAppDeps): { r
   app.get('/api/app/config', ...guards, (req, res) => {
     const config = studioConfig(deps.env ?? process.env);
     const p = (() => { try { return deps.projectOf ? deps.projectOf(req) : null; } catch { return null; } })();
+    // R12 (the finish brief's private-cache scope): who this page reads as, as a short one-way key (never the id itself): the
+    // page keys what it keeps in its browser (the Canvas desk) by it, so two principals on one browser never share a desk
+    const u = (req as express.Request & { user?: { id?: unknown; operator?: boolean } }).user;
+    const principal = !u || u.operator ? 'operator' : `u-${createHash('sha256').update(`timmy-app:${String(u.id ?? '')}`).digest('hex').slice(0, 16)}`;
     res.set('Cache-Control', 'no-store').json({
       ok: true, tldrawVersion: config.tldrawVersion, licenseKey: config.licenseKey, built: existsSync(join(dist, 'app.js')),
+      principal,
       project: p ? { name: p.name, root: p.root } : null,
       // the local models' starters (what the Models card offers to download, each only after its size and the person's yes)
       // and how Ollama is installed and started on this computer's system (words and the official page; nothing is run)

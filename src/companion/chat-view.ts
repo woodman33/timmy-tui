@@ -95,19 +95,38 @@ function listedOf(load: CatalogLoad): { listed: number; left?: string } {
 
 /** The local Ollama's last answer, kept a moment so the Chat's every-few-seconds read does not list Ollama each time. */
 const LOCAL_KEEP_MS = 15_000;
-let localKept: { at: number; key: string; read: CatalogRead } | null = null;
+/**
+ * R12 (the finish brief: "close the two-user connection-result regression … private cache scope must include the server-verified
+ * principal / project / configuration identity; public catalog caching must be explicit and separate"): the local Ollama's
+ * answers are PRIVATE — kept one per scope (the request's verified principal, its project, and the configuration that decides
+ * what is asked: the Timmy home, the Ollama address as the route resolves it from the env and the recorded setup, the chosen
+ * model). Before, one slot keyed by four env words served one person's answer to another with the same env, across projects,
+ * and kept an answer from an old address when only the recorded setup changed. OpenRouter's catalog is PUBLIC (the file this
+ * computer keeps, the same for everyone; read from disk each time, never kept here).
+ */
+export interface CatalogScope { principal: string; project: string }
+const LOCAL_KEPT_MAX = 64;
+const localKept = new Map<string, { at: number; read: CatalogRead }>();
+/** The private key of a local Ollama answer (exported for its test). */
+export function localCatalogKey(env: Env, scope?: CatalogScope): string {
+  const origin = (() => { try { return ollamaAddress(env); } catch { return `unresolved:${env.OLLAMA_HOST ?? ''}|${env.OLLAMA_BASE_URL ?? ''}`; } })();
+  return JSON.stringify([scope?.principal ?? 'operator', scope?.project ?? '', env.TIMMY_HOME ?? '', origin, env.TIMMY_CHAT_MODEL ?? '']);
+}
+/** Forget every kept local answer (tests; a configuration write may call it too). */
+export function forgetLocalCatalog(): void { localKept.clear(); }
 
 /**
  * One source's rows: OpenRouter's catalog as this computer keeps it (fetched into the Timmy home, else the snapshot shipped
  * with Timmy), the local Ollama's models (its list of models: no model runs, nothing is spent; the one request), or Ollama
  * Cloud's (read only when asked, so none here). Never throws.
  */
-export async function companionCatalog(source: ModelSource, env: Env, o: { now?: () => number; fresh?: boolean } = {}): Promise<CatalogRead> {
+export async function companionCatalog(source: ModelSource, env: Env, o: { now?: () => number; fresh?: boolean; scope?: CatalogScope } = {}): Promise<CatalogRead> {
   const now = (o.now ?? Date.now)();
   if (source === 'ollama-local') {
-    const key = JSON.stringify([env.TIMMY_HOME, env.OLLAMA_HOST, env.OLLAMA_BASE_URL, env.TIMMY_CHAT_MODEL]);
+    const key = localCatalogKey(env, o.scope);
+    const kept = localKept.get(key);
     // `fresh` (the page's Refresh): Ollama is asked again now
-    if (!o.fresh && localKept && localKept.key === key && now - localKept.at < LOCAL_KEEP_MS) return localKept.read;
+    if (!o.fresh && kept && now - kept.at < LOCAL_KEEP_MS) return kept.read;
     const load = await loadCatalog('ollama-local', { env, refresh: 'never', timeoutMs: 2000 });
     const at = load.fetchedAt ?? new Date(now).toISOString();
     const n = load.rows.length;
@@ -116,7 +135,9 @@ export async function companionCatalog(source: ModelSource, env: Env, o: { now?:
       ? { ...load, listed, ...(left ? { left } : {}), words: listed > n ? `Ollama on this computer answered its list of models: it lists ${listed}, ${n} of them ${n === 1 ? 'a local chat model' : 'local chat models'}. No model ran.` : `Ollama on this computer answered its list of models: ${n} installed here. No model ran.`,
         observed: { answered: true, models: n, listed, ...(left ? { left } : {}), at } }
       : { ...load, words: `Ollama on this computer did not answer: ${load.error ?? 'no answer'}.`, observed: { answered: false, models: 0, at, ...(load.error ? { error: load.error } : {}) } };
-    localKept = { at: now, key, read };
+    localKept.delete(key);
+    localKept.set(key, { at: now, read });
+    while (localKept.size > LOCAL_KEPT_MAX) { const first = localKept.keys().next().value; if (first === undefined) break; localKept.delete(first); }
     return read;
   }
   const load = await loadCatalog(source, { env, refresh: 'never' });
@@ -529,7 +550,7 @@ export interface ChatViewContext {
 }
 
 /** What a request reads: whose project, which env for the route and the keys, which for the records, and the route's cwd. */
-interface ChatScope { project: ActiveProject | null; unknown: string; env: Env; records: Env; cwd: string }
+interface ChatScope { project: ActiveProject | null; unknown: string; env: Env; records: Env; cwd: string; principal: string }
 
 const FAILED = 'The companion could not read what the Chat needs, so it answers with nothing. It is still running.';
 
@@ -547,9 +568,10 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     if (isUser && ctx.user) {
       const env = ctx.user.envOf(req);
       const project = ctx.user.projectFor(req);
-      return { project, unknown: ctx.user.projectUnknown, env, records: env, cwd: project ? project.root : process.cwd() };
+      const id = (principal as { id?: unknown } | undefined)?.id;
+      return { project, unknown: ctx.user.projectUnknown, env, records: env, cwd: project ? project.root : process.cwd(), principal: `user:${typeof id === 'string' ? id : 'unknown'}` };
     }
-    return { project: ctx.projectFor(req), unknown: ctx.projectUnknown, env: ctx.chatEnv(), records: ctx.env, cwd: process.cwd() };
+    return { project: ctx.projectFor(req), unknown: ctx.projectUnknown, env: ctx.chatEnv(), records: ctx.env, cwd: process.cwd(), principal: 'operator' };
   };
   app.get(CHAT_VIEW_ROUTES.view, ctx.withToken, scoped, async (req, res) => {
     const sc = scopeOf(req);
@@ -561,7 +583,7 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
       // permissions"): ?local=skip — a page that has not been given that permission yet (the Timmy app) asks Ollama nothing here
       const local: CatalogRead = req.query.local === 'skip'
         ? { rows: [], from: 'none', words: 'Not asked: this page has not been given permission to look for models on this computer yet.' }
-        : await companionCatalog('ollama-local', env, { fresh: req.query.fresh === '1' });
+        : await companionCatalog('ollama-local', env, { fresh: req.query.fresh === '1', scope: { principal: sc.principal, project: project.root } });
       const providers = companionProviders(env, sc.cwd, local.observed);
       const { route, choice } = pageChoice(env, pageRoute(env, sc.cwd), local, providers);
       answer(res, {
@@ -584,7 +606,7 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     if (!sc.project) { answer(res, { ok: false, error: sc.unknown }, 404); return; }
     try {
       const q = catalogQueryOf(req.query as Record<string, unknown>);
-      const read = await companionCatalog(q.source, sc.env, { fresh: req.query.fresh === '1' });
+      const read = await companionCatalog(q.source, sc.env, { fresh: req.query.fresh === '1', scope: { principal: sc.principal, project: sc.project.root } });
       // queryCatalog's total is the source's rows before the search and the filters; matched, the rows they keep
       const out = queryCatalog(read.rows, q);
       answer(res, {
@@ -603,7 +625,7 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     try {
       const r = await chooseModel(sc.env, project.root, req.body);
       // the local Ollama's memo is stale once a choice was made: the next view read asks again
-      if (r.ok) localKept = null;
+      if (r.ok) forgetLocalCatalog();
       answer(res, r, r.ok ? 200 : 409);
     } catch { answer(res, { ok: false, state: 'not kept', words: FAILED }, 500); }
   });

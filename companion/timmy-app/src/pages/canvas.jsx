@@ -48,7 +48,8 @@ export function keyOf(text) {
   for (const ch of String(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
   return h.toString(36);
 }
-export const deskKeyOf = (config) => `timmy-desk-${keyOf(`${config && config.user ? config.user : ''}|${config && config.project ? config.project.root : 'no-project'}`)}`;
+/** The desk's key: the principal the companion verified (config.principal, a one-way key) and the project — never shared between them. */
+export const deskKeyOf = (config) => `timmy-desk-${keyOf(`${config && config.principal ? config.principal : 'operator'}|${config && config.project ? config.project.root : 'no-project'}`)}`;
 
 // ── Timmy's cards on the desk ───────────────────────────────────────────────────────────────────────────────────────────
 
