@@ -71,7 +71,7 @@
   const names = (t) => String(t || '').replace(/(?:[\w.~-]+\/)+([\w.-]+)/g, '$1');
 
   const S = {
-    project: null, root: null, ctx: null, revision: null, listAt: 0, list: null, listSig: '', asking: null,
+    project: null, root: null, host: null, ctx: null, revision: null, listAt: 0, list: null, listSig: '', asking: null,
     sel: '', mesh: null, meshAsk: 0, view: null, drag: null, frame: 0, observer: null, again: 0,
     // R10 (H167): the recording chosen (by an address or Home), the mesh Home asked for, and the tab's notice about what was asked
     rec: HINT_REC, wantMesh: '', notice: '', noticeAsked: false,
@@ -875,14 +875,46 @@
     if (d.recording) { S.rec = d.recording; if (S.list) { drawRecordings(); S.root?.querySelector('.create-rec.is-chosen')?.scrollIntoView({ block: 'nearest' }); } }
   });
 
+  /**
+   * R11 round 7 (H176; the lead's D23 on H168's R106): the frame's "Unfinished · Motion & 3D" words (what works on this page now and
+   * what does not yet — src/contracts/workspace.ts TabDef.unfinished, carried on the frame's tabs[]) are EVIDENCE, so on the scaffold
+   * they live in the page's records, open, never between the head and the band (SHELL CONTRACT: head → band → body). companion.js
+   * draws its own box as the section's first child (its order rule put it under the head); here that box is hidden (its element
+   * stays — companion.js redraws into it on every frame) and the same words, the frame's own, are drawn in .page-records. Without the
+   * shell nothing moves.
+   */
+  function drawUnfinished(frame, h) {
+    const sec = S.host ? S.host.closest('section.page[data-page="motion"], section[data-ws-page="create"]') : null;
+    const sh = shell();
+    if (!sec || !sh) return;
+    const box = sec.querySelector(':scope > .unfinished');
+    if (box && !box.hidden) { box.hidden = true; box.setAttribute('data-create-hidden', 'd23'); }
+    const records = sec.querySelector(':scope > .page-records');
+    if (!records) return;
+    const tab = (frame && Array.isArray(frame.tabs) ? frame.tabs : []).find((t) => t && (t.id === 'create' || t.id === 'motion'));
+    const u = tab && tab.unfinished && typeof tab.unfinished.works === 'string' && typeof tab.unfinished.missing === 'string' ? tab.unfinished : null;
+    const own = records.querySelector('[data-create-records="unfinished"]');
+    if (!u) { if (own) own.remove(); return; }
+    const sig = JSON.stringify([tab.label, u.works, u.missing]);
+    if (own && own.dataset.sig === sig) return;
+    const rec = h('details', { class: 'records create-rec', 'data-create-records': 'unfinished', 'data-sig': sig, open: true, role: 'note' },
+      h('summary', null, `Unfinished · ${tab.label || 'Motion & 3D'} — what works here now, and what does not yet`),
+      h('p', { class: 'create-rec-line', 'data-unfinished-part': 'works' }, h('span', { class: 'create-rec-k' }, 'Works now: '), u.works),
+      h('p', { class: 'create-rec-line', 'data-unfinished-part': 'missing' }, h('span', { class: 'create-rec-k' }, 'Not yet: '), u.missing));
+    if (own) own.replaceWith(rec); else records.prepend(rec);
+  }
+
   TimmyPanels.register('create', {
     draw(host, frame, ctx) {
       S.ctx = ctx;
+      S.host = host;
       if (!ctx.own) {
         S.root = null;
         put(host, ctx.h('p', { class: 'empty' }, 'Not shown: the frame is another project\'s, so its meshes are not read here.'));
         return undefined;
       }
+      // the frame's Unfinished words into the records (D23), on every frame the page is drawn with
+      try { drawUnfinished(frame, ctx.h); } catch (e) { /* the companion's own box then stands where its rule puts it */ }
       if (S.project !== ctx.project || !S.root || !host.contains(S.root)) {
         reset(ctx.project);
         S.root = skeleton(ctx.h);

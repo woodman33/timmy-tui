@@ -236,36 +236,31 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       await settled(page);
       expect(await viewName(page)).toMatch(/^top · seen from \+z: x to the right, y up/);
 
-      // the page's tab 6: the frame's Unfinished words are drawn above the panel (H152's box, prepended to the tab's page):
-      // nothing of the panel is above them, and the panel's view stays in sight under them. Where this branch draws no box,
-      // a FAKE stand-in of its shape is prepended the same way (labelled FAKE), so the panel's side of it is still checked.
+      // the page's tab 6 on the scaffold (R11 round 7, H176; the lead's D23 on H168's R106): the frame's Unfinished words are EVIDENCE
+      // — in the page's records, open, in the frame's own words; the companion's own box (prepended to the section) is hidden, so
+      // nothing sits between the head and the band (head → band → body), and the panel's view stays in sight
       const order = await page.evaluate(() => {
         const page6 = document.getElementById('ws-create')!;
-        const host = page6.querySelector('[data-panel-host="create"]')!;
-        let box = page6.querySelector(':scope > .unfinished, :scope > [data-unfinished]');
-        const real = Boolean(box);
-        if (!box) {
-          box = document.createElement('section');
-          box.className = 'unfinished';
-          box.setAttribute('data-unfinished', 'create');
-          for (const t of ['◌ Unfinished · 3D & Motion (FAKE stand-in: the test drew it)', 'Works now: FAKE words the frame would give', 'Not yet: FAKE words the frame would give']) { const p = document.createElement('p'); p.textContent = t; box.append(p); }
-          page6.prepend(box);
-        }
-        const kids = [...page6.children];
-        const at = (e: Element) => e.getBoundingClientRect();
+        const at = (e: Element | null) => e ? e.getBoundingClientRect() : null;
+        const box = page6.querySelector(':scope > .unfinished') as HTMLElement | null;
+        const rec = page6.querySelector('.page-records [data-create-records="unfinished"]') as HTMLDetailsElement | null;
         const view = page6.querySelector('[data-create="stage"]')!;
-        // (R11 round 7, H176: on the shell's scaffold the host sits inside .page-body > .page-work; the section's children before
-        // the one that holds the host are read, the scaffold's own parts — page-head, page-band — left out: nothing of the PANEL is
-        // above the box)
-        const holder = kids.find((k) => k === host || k.contains(host));
-        return { real, before: kids.slice(0, holder ? kids.indexOf(holder) : kids.length).map((e) => e.className).filter((c) => !/^page-/.test(c)), above: at(box).bottom <= at(host).top + 1, viewInSight: at(view).bottom <= at(page6).bottom + 1 && at(view).height > 150 };
+        const head = at(page6.querySelector(':scope > .page-head'))!;
+        const band = at(page6.querySelector(':scope > .page-band'))!;
+        const between = [...page6.children].filter((k) => { const b = k.getBoundingClientRect(); return b.height > 0 && b.top >= head.bottom - 1 && b.bottom <= band.top + 1 && !k.classList.contains('page-head') && !k.classList.contains('page-band'); }).map((k) => k.className);
+        return { boxDrawn: Boolean(box), boxHidden: Boolean(box && box.hidden && at(box)!.height === 0), rec: rec ? { open: rec.open, text: (rec.textContent ?? '').replace(/\s+/g, ' ').trim() } : null,
+          gap: Math.round(band.top - head.bottom), between, viewInSight: at(view)!.bottom <= at(page6)!.bottom + 1 && at(view)!.height > 150 };
       });
       await settled(page);
-      await shot(page, order.real ? 'h153-09-tab6-under-the-unfinished-box' : 'h153-09-tab6-under-a-FAKE-stand-in-unfinished-box');
-      expect(order.before).toEqual(['unfinished']);
-      expect(order.above).toBe(true);
+      await shot(page, 'h153-09-tab6-unfinished-in-the-records');
+      expect(order.boxDrawn, 'the frame marks this page unfinished (TABS): companion.js draws its box').toBe(true);
+      expect(order.boxHidden).toBe(true);
+      expect(order.between).toEqual([]);
+      expect(order.gap).toBeLessThanOrEqual(18);
+      expect(order.rec).toMatchObject({ open: true });
+      // (textContent joins the summary and the two lines without a space)
+      expect(order.rec!.text).toMatch(/^Unfinished · .* — what works here now, and what does not yet\s*Works now: .+\s*Not yet: .+$/);
       expect(order.viewInSight).toBe(true);
-      if (!order.real) console.warn('companion-create-panel-browser: no Unfinished box is drawn on this branch (H152 draws it), so a FAKE stand-in of its shape was checked');
 
       // another project's mesh, asked from this page with its token, is refused; the list holds only this project's
       const token = /t=([0-9a-f]{64})/.exec(new URL(companion.url).hash)?.[1] ?? '';
@@ -359,6 +354,21 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       expect(await text(page, '[data-create-step-state="02"]')).toMatch(/^Copied \/add <file> for Timmy's terminal: a parameter file is a tray recipe .* Nothing ran on this page\.$/);
       // the lines return to the project's words after a moment
       await page.waitForFunction(() => (document.querySelector('[data-create-step-state="01"]')?.textContent ?? '') === '5 meshes · demo-tray.stl in the view', null, { timeout: 9_000 });
+      // D23 (R106) at 1440 and at 390: nothing between the head and the band (the band's top within the scaffold's 18-px gap of the
+      // head's bottom), the Unfinished words in the records, the companion's box hidden
+      for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+        await page.setViewportSize(size);
+        await settled(page);
+        const m = await page.evaluate(() => {
+          const sec = document.getElementById('ws-create')!;
+          const r = (sel: string) => sec.querySelector(sel)!.getBoundingClientRect();
+          const box = sec.querySelector(':scope > .unfinished') as HTMLElement | null;
+          return { gap: Math.round(r(':scope > .page-band').top - r(':scope > .page-head').bottom), boxHidden: !box || (box.hidden && box.getBoundingClientRect().height === 0), recOpen: (sec.querySelector('.page-records [data-create-records="unfinished"]') as HTMLDetailsElement | null)?.open ?? false };
+        });
+        expect(m.gap, `${size.width}x${size.height}: the band right under the head`).toBeLessThanOrEqual(18);
+        expect(m.boxHidden, `${size.width}x${size.height}`).toBe(true);
+        expect(m.recOpen, `${size.width}x${size.height}: the Unfinished words in the records, open`).toBe(true);
+      }
       // the three verbs whole on the cards at 1376 and at 800 x 600 (the verb stays on the card: nothing cut, nothing past the card's edge)
       for (const size of [{ width: 1376, height: 768 }, { width: 800, height: 600 }]) {
         await page.setViewportSize(size);
