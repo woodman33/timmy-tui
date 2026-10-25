@@ -726,13 +726,13 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         // "Check again"); what was pressed is said
         const localCard = o.page.locator(SEL.card('ollama-local')).first();
         await localCard.click();
-        if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+        const openSheet = async (): Promise<void> => { if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); } };
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
         let pressedCheck: string;
-        if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
-        else if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
-        else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the page read:\n${(await text(o.page)).slice(0, 1500)}`);
+        // (the card's own verb is pressed on the page itself, BEFORE the phone's modal context sheet is opened — the sheet would intercept it)
+        if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+        else { await openSheet(); if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; } else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the page read:\n${(await text(o.page)).slice(0, 1500)}`); }
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' });
         await inputIs(o.page, key, 'State', 0, 15_000);
         // item 4 (H174's 9b6b2449): the face's HTML label and headline read the OBSERVED word the screen fed ("checked"); the binding's

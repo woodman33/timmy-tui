@@ -432,12 +432,15 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         await closeInspect(o.page);
         const localCard = o.page.locator('[data-provider="ollama-local"]').first();
         await localCard.click();
-        if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
-        if (await contextCheck.count()) await contextCheck.first().click();
-        else if (/^Check( again)?$/.test(localVerb)) await localCard.locator('[data-cn-verb="ollama-local"]').first().click();
-        else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}")`);
+        // (the card's own verb is pressed on the page itself, BEFORE the phone's modal context sheet is opened — the sheet would intercept it)
+        if (/^Check( again)?$/.test(localVerb)) await localCard.locator('[data-cn-verb="ollama-local"]').first().click();
+        else {
+          if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+          if (await contextCheck.count()) await contextCheck.first().click();
+          else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}")`);
+        }
         // the card's own state first (H170's data-state: "checked" once the FAKE answered its list), then the binding's word
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' }).catch(async () => {
           const st = await o.page.locator('[data-provider="ollama-local"]').first().getAttribute('data-state').catch(() => null);

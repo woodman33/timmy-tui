@@ -818,8 +818,8 @@ describe('every major page on the shell, from the running companion and Studio: 
       const localVerb = ((await local.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
       const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
       let pressedCheck: string;
-      if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's verb reads "${localVerb}")`; }
-      else if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+      if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+      else if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's verb reads "${localVerb}")`; }
       else throw new Error(`no Check control for Ollama · local: neither the context's tool nor the card's verb (reads "${localVerb}"); the context read: ${((await o.page.locator('[data-cn-context]').first().innerText().catch(() => '')) ?? '').slice(0, 600)}`);
       const details = o.page.locator('[data-cn-details="ollama-local"]').first();
       const openDetails = async (): Promise<void> => { if (await details.count()) await details.evaluate((d) => { (d as HTMLDetailsElement).open = true; }).catch(() => undefined); };
@@ -1044,13 +1044,13 @@ const PROBES: Record<string, Probe> = {
     // observed answer (never "connected" on a refused one).
     const local = o.page.locator('[data-provider="ollama-local"]').first();
     await local.click();
-    await contextOpen();
     const localVerb = ((await local.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
     const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
     let pressedCheck: string;
-    if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
-    else if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}" (the context draws no second Check then)`; }
-    else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the context read: ${(await contextText()).slice(0, 600)}`);
+    // (the card's own verb is pressed on the page itself — BEFORE the phone's modal context sheet is opened, which would intercept it;
+    // a second visit of the same user finds the card checked already and its verb "Check again")
+    if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}" (the context draws no second Check then)`; await contextOpen(); }
+    else { await contextOpen(); if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; } else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the context read: ${(await contextText()).slice(0, 600)}`); }
     await o.page.waitForFunction((m) => (document.querySelector('[data-cn-found="ollama-local"]')?.textContent ?? '').includes(m), MODEL, { timeout: 20_000 }).catch(async () => { throw new Error(`the FAKE Ollama's model "${MODEL}" did not reach the context's "What the check found" within 20 s after ${pressedCheck}; the context read: ${(await contextText()).slice(0, 800)}`); });
     const foundText = ((await o.page.locator('[data-cn-found="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
     expect(foundText, 'the context\'s "What the check found" block names the FAKE model').toMatch(/What the check found/);
