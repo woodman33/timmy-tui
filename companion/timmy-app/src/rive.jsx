@@ -24,7 +24,11 @@ export function ConsoleFace({ size = 'wide', theme }) {
 }
 
 /** A provider's connection (ProviderCard): fed with the provider's state word through TimmyRive.fromProviderState. */
-export function ProviderFace({ provider, name, state, source, size = 'card', theme }) {
+/**
+ * `fed`: the state is this page's own observation (a check it made): the face is fed it and says LIVE. Otherwise the state is
+ * what this computer recorded (the view's providers, maybe days old): the face is not fed, and its caption says so.
+ */
+export function ProviderFace({ provider, name, state, source, size = 'card', theme, fed = false }) {
   const ref = useRef(null);
   const handle = useRef(null);
   useEffect(() => {
@@ -32,14 +36,15 @@ export function ProviderFace({ provider, name, state, source, size = 'card', the
     const host = ref.current;
     if (!rive || !host) return undefined;
     host.replaceChildren();
-    const h = rive.mountProviderCard(host, provider, { providerName: name, size, place: 'app', words: 'spoken', theme });
+    const h = rive.mountProviderCard(host, provider, { providerName: name, size, place: 'app', words: 'spoken', theme,
+      ...(fed ? {} : { caption: 'AS RECORDED  /  NOT CHECKED ON THIS PAGE', word: typeof state === 'string' && state ? `${state} (recorded)` : 'not checked' }) });
     handle.current = h;
     return () => { handle.current = null; try { h.unmount(); } catch { /* gone */ } };
-  }, [provider, size, theme]);
+  }, [provider, size, theme, fed, fed ? '' : state]);
   useEffect(() => {
     const rive = R();
-    if (rive && typeof state === 'string' && state) rive.fromProviderState(provider, state, source);
-  }, [provider, state, source, theme]);
+    if (fed && rive && typeof state === 'string' && state) rive.fromProviderState(provider, state, source);
+  }, [provider, state, source, theme, fed]);
   useEffect(() => { if (handle.current && handle.current.setProvider) handle.current.setProvider({ name }); }, [name]);
   return <div ref={ref} className="ta-face ta-face-provider" data-face="provider" data-provider={provider} />;
 }
@@ -70,5 +75,5 @@ export function ActionFace({ label, onPress, disabled = false, name, size = 'car
 /** The bindings' feeds, for the store (null when the runtime script is absent). */
 export const riveFeed = {
   sse(event, data) { const rive = R(); if (rive) try { rive.fromSse(event, data, `POST /api/chat/turn (SSE ${event})`); } catch { /* the face keeps its word */ } },
-  stopping() { const rive = R(); if (rive) try { rive.stopping('Stop pressed (POST /api/chat/stop)'); } catch { /* the face keeps its word */ } },
+  stopping(source = 'Stop taken (POST /api/chat/stop)') { const rive = R(); if (rive) try { rive.stopping(source); } catch { /* the face keeps its word */ } },
 };

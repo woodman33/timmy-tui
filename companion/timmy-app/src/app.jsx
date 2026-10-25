@@ -34,6 +34,7 @@ function Refused({ words }) {
 function App() {
   const page = useApp((s) => s.page);
   const drawer = useApp((s) => s.drawer);
+  const projectId = useApp((s) => s.projectId);
   const [refused, setRefused] = useState(refusal());
   useEffect(() => onRefused(setRefused), []);
   useEffect(() => { document.title = `${pageOf(page).title} · Timmy`; }, [page]);
@@ -41,7 +42,12 @@ function App() {
     let stopped = false;
     let timer = 0;
     (async () => {
-      const c = await loadConfig();
+      // the companion may still be starting: its config is asked again (1 s, 2 s, 4 s … at most 15 s) until it answers
+      let c = await loadConfig();
+      for (let wait = 1000; !stopped && !refusal() && !c.ok; wait = Math.min(15000, wait * 2)) {
+        await new Promise((r) => { timer = setTimeout(r, wait); });
+        if (!stopped && !refusal()) c = await loadConfig();
+      }
       if (stopped || !c.ok) return;
       await refreshView();
       if (getState().localPermission === 'granted') { loadModels('ollama-local'); loadModels('ollama-cloud'); }
@@ -50,7 +56,7 @@ function App() {
         timer = setTimeout(async () => {
           const t = getState().turn;
           if (document.visibilityState === 'visible' && !(t && ['running', 'stopping'].includes(t.phase))) await refreshView();
-          if (!stopped) tick();
+          if (!stopped && !refusal()) tick();
         }, 6000);
       };
       tick();
@@ -66,7 +72,7 @@ function App() {
       <div className="ta-main">
         <Topbar />
         <main className="ta-pagewrap" id="ta-page">
-          <Suspense fallback={<p className="ta-pad ta-muted">Opening…</p>}><Current key={page} /></Suspense>
+          <Suspense fallback={<p className="ta-pad ta-muted">Opening…</p>}><Current key={`${page}:${projectId || 'followed'}`} /></Suspense>
         </main>
         <Dock />
         <Footer />

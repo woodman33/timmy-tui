@@ -48,6 +48,7 @@ function LiveTurn({ turn, theme, saved }) {
             </div>
           </div>
         ) : null}
+        {turn.stopWords && ['running', 'stopping'].includes(turn.phase) ? <p className="ta-muted" role="status">{turn.stopWords}</p> : null}
         {turn.error ? <p className="ta-result" role="status">{turn.error}</p> : null}
         {turn.done ? <p className="ta-receipt">{turn.done.receipt ? <>receipt <code>{String(turn.done.receipt).slice(0, 15)}</code> · </> : null}{turn.done.status}{turn.done.model ? ` · ${turn.done.model}` : ''}{typeof turn.done.steps === 'number' ? ` · ${turn.done.steps} step${turn.done.steps === 1 ? '' : 's'}` : ''}{turn.done.costMeasured && typeof turn.done.costUsd === 'number' ? ` · $${turn.done.costUsd.toFixed(4)}` : ''}</p> : null}
       </li>
@@ -100,7 +101,7 @@ function Conversation({ theme }) {
   const live = turn && !(turn.phase === 'done' && messageSaved && savedAt('timmy'));
   return (
     <div className="ta-chat" data-card="chat">
-      <ol className="ta-turns" ref={list} aria-label="The conversation" aria-live="polite">
+      <ol className="ta-turns" ref={list} aria-label="The conversation">
         {!shown.length && !turn ? (
           <li className="ta-turn ta-hello">
             <p className="ta-hello-title">{ready ? 'What are we working on?' : 'Choose a model to start'}</p>
@@ -113,7 +114,7 @@ function Conversation({ theme }) {
       </ol>
       {elsewhere.length ? <p className="ta-elsewhere" role="status">A turn of this project is running in {elsewhere.map((r) => `${surfaceWord(r.surface)} (since ${clock(r.since)})`).join(', ')}: Send here waits for it.</p> : null}
       <form className="ta-composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        <textarea ref={input} className="ta-input" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} enterKeyHint="send"
+        <textarea ref={input} className="ta-input" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} enterKeyHint={coarse ? 'enter' : 'send'}
           placeholder={ready ? 'Message Timmy' : 'Send is off until a model is chosen'} aria-label="Message Timmy" disabled={!view} />
         <div className="ta-composer-row">
           <p className="ta-route" title={route ? route.words : ''}>{route ? route.label : 'Reading the route…'}</p>
@@ -197,7 +198,7 @@ export default function ChatPage() {
     <Page id="chat" fill note={note}
       actions={actions}
       band={[
-        ['WORKSPACE', project ? <span title={project.root}>{project.name}</span> : <span className="ta-muted">no project named</span>],
+        ['WORKSPACE', project ? <span title={project.display || project.name}>{project.name}</span> : <span className="ta-muted">no project named</span>],
         ['MODEL', !view ? <span className="ta-muted">{viewError || 'Reading…'}</span> : choice && choice.chosen ? <>{choice.model} <span className="ta-muted">· {whereOf(view.route)}</span></> : <span className="ta-muted">none chosen · Send is off</span>],
         ['AGENT', elsewhere.length && !running ? <><StateWord word="working" /> <span className="ta-muted">in {surfaceWord(elsewhere[0].surface)}</span></> : <StateWord word={activityOf(turn)} />],
         ['RECORDS', last ? <><span className={last.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{last.receipt.verified ? '✓ verified' : '✕ not verified'}</span> <code>{last.receipt.id}</code> <span className="ta-muted">· {sealed.length} sealed</span></> : <span className="ta-muted">no sealed answer yet</span>],

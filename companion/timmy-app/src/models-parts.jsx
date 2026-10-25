@@ -197,8 +197,8 @@ export function ProviderCard({ p, theme, compact = false }) {
   const ready = view && view.route && view.route.ready;
   const canCheck = p.id === 'openrouter' || p.id === 'ollama-local';
   return (
-    <article className={`ta-provider${compact ? ' is-compact' : ''}`} data-provider={p.id}>
-      <ProviderFace provider={p.id} name={providerName(p.id)} state={word} source={source} theme={theme} size="card" />
+    <article className={`ta-provider${compact ? ' is-compact' : ''}`} data-provider={p.id} data-fed={c && c.state && c.state !== 'checking' ? 'true' : 'false'}>
+      <ProviderFace provider={p.id} name={providerName(p.id)} state={word} source={source} theme={theme} size="card" fed={!!(c && c.state && c.state !== 'checking')} />
       <div className="ta-provider-words">
         <h3 className="ta-provider-name">{providerName(p.id)} <StateWord word={word} live={isLive(word)} /></h3>
         <p className="ta-provider-line">{words}</p>
@@ -206,7 +206,7 @@ export function ProviderCard({ p, theme, compact = false }) {
           {p.id === 'openrouter' && p.state === 'not set up' ? <Button kind={ready ? 'quiet' : 'primary'} onClick={async () => setSignIn(await startOpenRouterSignIn())}>Sign in with OpenRouter</Button> : null}
           {canCheck ? <Button onClick={() => checkProvider(p.id)} disabled={word === 'checking'}>{word === 'checking' ? 'Checking…' : 'Check'}</Button> : null}
         </div>
-        {signIn ? <p className="ta-muted" role="status">{signIn.words || signIn.error}</p> : null}
+        {signIn ? <p className="ta-muted" role="status">{signIn.words || signIn.error}{signIn.ok && signIn.url ? <> If no tab opened: <Out href={signIn.url}>OpenRouter’s sign-in page</Out></> : null}</p> : null}
         <details className="ta-details">
           <summary>Details</summary>
           <dl className="ta-facts">

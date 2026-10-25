@@ -171,9 +171,8 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.waitForSelector(`${chat} textarea.ta-input:not([disabled])`, { timeout: 30_000 });
     await page.fill(`${chat} textarea.ta-input`, 'This one will be stopped.');
     await page.keyboard.press('Enter');
-    await page.waitForSelector(`${chat} button:has-text("Stop")`, { timeout: 30_000 });
-    await page.waitForFunction(() => document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') === 'working', null, { timeout: 30_000 });
-    await page.click(`${chat} button:has-text("Stop")`);
+    // Stop pressed at once, before the companion has named the turn: it is asked when the turn's id arrives, not lost
+    await page.click(`${chat} button:has-text("Stop")`, { timeout: 30_000 });
     await page.waitForFunction(() => ['stopping', 'stopped'].includes(document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') ?? ''), null, { timeout: 30_000 });
     await page.waitForSelector(`${chat} button:has-text("Send")`, { timeout: 60_000 });
     await page.waitForFunction(() => document.querySelector('.ta-face-console .tr-component')?.getAttribute('data-state') === 'stopped', null, { timeout: 30_000 });
@@ -219,10 +218,19 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     expect(await page.locator('.ta-rail').evaluate((el) => el.getBoundingClientRect().right <= 0)).toBe(true);
     const box = await page.locator('.ta-composer').boundingBox();
     expect(box && box.y + box.height <= 844).toBe(true);
-    await go(page, 'models');
-    expect(await page.locator('.ta-rail.is-open').count()).toBe(0);
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow).toBeLessThanOrEqual(0);
+    // closed, the drawer is out of the tab order; Escape closes it when it is open
+    expect(await page.locator('.ta-rail').getAttribute('inert')).not.toBeNull();
+    await page.click('.ta-menu');
+    await page.waitForSelector('.ta-rail.is-open');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('.ta-rail.is-open'));
+    // every page: nothing wider than the screen inside the page's own scroller
+    for (const id of ['chat', 'models', 'canvas', 'files', 'workflows', 'runs', 'voxvision', 'motion', 'tools', 'control', 'help', 'settings']) {
+      await go(page, id);
+      await page.waitForTimeout(400);
+      const over = await page.evaluate(() => { const w = document.querySelector('.ta-pagewrap')!; return Math.max(w.scrollWidth - w.clientWidth, document.documentElement.scrollWidth - document.documentElement.clientWidth); });
+      expect(over, `${id} is wider than the screen`).toBeLessThanOrEqual(0);
+    }
     await page.context().close();
   }, 120_000);
 

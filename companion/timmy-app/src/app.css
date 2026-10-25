@@ -202,7 +202,7 @@ button { font: inherit; }
 .ta-face-action .tr-component[data-artboard] .tr-face { width: 180px; height: 54px; }
 .ta-face .tr-words { justify-items: center; text-align: center; font-size: 12px; }
 /* the face draws the state word once it is drawn: the heading's chip is then not said twice (kept while only words show) */
-.ta-provider:has(.tr-component[data-rive="drawn"]) .ta-provider-name .ta-state { display: none; }
+.ta-provider[data-fed="true"]:has(.tr-component[data-rive="drawn"]) .ta-provider-name .ta-state { display: none; }
 /* a provider's name and state are the card's own heading, and an ActionButton draws its label: their words are spoken, not shown twice */
 .ta-provider .ta-face .tr-words, .ta-face-action .tr-component:not([data-disabled="true"]) .tr-words { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -399,8 +399,10 @@ li.ta-turn.ta-tool { align-self: flex-start; opacity: .85; }
 @media (max-width: 760px) {
   :root { --ta-gutter: 16px; }
   .ta-app { grid-template-columns: 1fr; }
-  .ta-rail { position: fixed; z-index: 100; inset: 0 auto 0 0; width: min(300px, 86vw); transform: translateX(-102%); transition: transform var(--timmy-ui-motion-panel, 200ms) var(--timmy-ui-ease, ease); box-shadow: 24px 0 60px var(--timmy-ui-scrim, rgba(2,5,9,.62)); }
-  .ta-rail.is-open { transform: none; }
+  .ta-rail { position: fixed; z-index: 100; inset: 0 auto 0 0; width: min(300px, 86vw); transform: translateX(-102%); transition: transform var(--timmy-ui-motion-panel, 200ms) var(--timmy-ui-ease, ease), visibility 0s linear var(--timmy-ui-motion-panel, 200ms); box-shadow: 24px 0 60px var(--timmy-ui-scrim, rgba(2,5,9,.62)); }
+  .ta-rail:not(.is-open) { visibility: hidden; }
+  .ta-rail.is-open { transform: none; visibility: visible; transition-delay: 0s; }
+  .ta-table { display: block; overflow-x: auto; }
   .ta-rail-close { display: inline-block; }
   .ta-scrim { display: block; position: fixed; z-index: 90; inset: 0; border: 0; background: var(--timmy-ui-scrim, rgba(2,5,9,.62)); }
   .ta-menu { display: inline-grid; place-items: center; }

@@ -33,7 +33,7 @@ function ProjectSwitcher() {
   return (
     <div className="ta-project-switch" ref={box}>
       <button type="button" className="ta-project-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}
-        title={project ? project.root : 'The companion named no project'}>
+        title={project ? project.display || project.name : 'The companion named no project'}>
         <span className="ta-project-k">PROJECT</span>
         <span className="ta-project-name">{project ? project.name : config ? 'none named' : 'reading…'}</span>
         <span className="ta-project-caret" aria-hidden="true">▾</span>
@@ -60,11 +60,30 @@ function ProjectSwitcher() {
   );
 }
 
+const NARROW = '(max-width: 760px)';
+const subscribeNarrow = (fn) => { const m = matchMedia(NARROW); m.addEventListener('change', fn); return () => m.removeEventListener('change', fn); };
+/** Whether the window is a phone's width (the rail is then a drawer). */
+export const useNarrow = () => useSyncExternalStore(subscribeNarrow, () => matchMedia(NARROW).matches);
+
 export function Rail() {
   const page = useApp((s) => s.page);
   const drawer = useApp((s) => s.drawer);
+  const narrow = useNarrow();
+  const nav = useRef(null);
+  // the drawer on a phone: out of the tab order and the reading order while closed; open, it takes the focus, Escape closes it
+  // and the focus goes back to the menu button
+  useEffect(() => {
+    if (!narrow || !drawer) return undefined;
+    const close = nav.current && nav.current.querySelector('.ta-rail-close');
+    if (close) close.focus();
+    const esc = (e) => { if (e.key === 'Escape') setDrawer(false); };
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('keydown', esc); const m = document.querySelector('.ta-menu'); if (m) m.focus(); };
+  }, [narrow, drawer]);
+  const hidden = narrow && !drawer;
   return (
-    <nav className={`ta-rail${drawer ? ' is-open' : ''}`} aria-label="Timmy">
+    <nav ref={nav} className={`ta-rail${drawer ? ' is-open' : ''}`} aria-label="Timmy" inert={hidden} aria-hidden={hidden ? 'true' : undefined}
+      {...(narrow && drawer ? { role: 'dialog', 'aria-modal': 'true' } : {})}>
       <div className="ta-rail-brand">
         <span className="ta-mark" aria-hidden="true">T</span>
         <span className="ta-rail-name">TIMMY</span>
@@ -107,7 +126,7 @@ export function Topbar() {
   const p = pageOf(page);
   return (
     <header className="ta-topbar">
-      <button type="button" className="ta-menu" aria-label="Open the menu" onClick={() => setDrawer(true)}><span aria-hidden="true">☰</span></button>
+      <button type="button" className="ta-menu" aria-label="Open the menu" aria-expanded={useApp((s) => s.drawer)} onClick={() => setDrawer(true)}><span aria-hidden="true">☰</span></button>
       <p className="ta-crumb"><span className="ta-crumb-root">{config && config.project ? config.project.name : 'Workspace'}</span><span className="ta-crumb-sep" aria-hidden="true">/</span><span className="ta-crumb-page">{p.title}</span></p>
       <div className="ta-topbar-tools">
         <ThemeSwitch />

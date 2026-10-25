@@ -156,8 +156,12 @@ export default function MotionPage() {
   }, [config && config.project && config.project.root]); // eslint-disable-line react-hooks/exhaustive-deps
   const openStudio = async () => {
     setOpening({ phase: 'asking' });
-    const r = await postJson(R.open, {});
-    if (r.ok && r.target && r.target.ok && r.target.url) { window.open(r.target.url, '_blank', 'noopener'); setOpening({ phase: 'opened', words: `Timmy Studio opened in a new tab on ${r.project ? r.project.name : 'this project'}’s board.` }); }
+    const r = await postJson(`${R.open}${projectQuery()}`, {});
+    // the grant is the companion's answer; whether a new tab opened, a page cannot know (a browser may block it): the link is said too
+    if (r.ok && r.target && r.target.ok && r.target.url) {
+      window.open(r.target.url, '_blank', 'noopener');
+      setOpening({ phase: 'granted', words: <>Studio gave a one-time grant for {r.project ? r.project.name : 'this project'}’s board; Timmy asked the browser to open it in a new tab. If no tab opened: <a href={r.target.url} target="_blank" rel="noopener noreferrer">open Timmy Studio ↗</a></> });
+    }
     else setOpening({ phase: 'refused', words: r.target ? r.target.why : r.error || 'The companion did not answer.' });
   };
   const meshes = list && list.ok && Array.isArray(list.meshes) ? list.meshes : [];

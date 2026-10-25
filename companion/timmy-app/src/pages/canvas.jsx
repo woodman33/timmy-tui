@@ -283,8 +283,11 @@ function NodesMenu({ editor }) {
   useEffect(() => {
     if (!open) return undefined;
     const off = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') { setOpen(false); const b = box.current && box.current.querySelector('button'); if (b) b.focus(); } };
     document.addEventListener('pointerdown', off);
-    return () => document.removeEventListener('pointerdown', off);
+    document.addEventListener('keydown', esc);
+    requestAnimationFrame(() => { const first = box.current && box.current.querySelector('.ta-popover-item'); if (first) first.focus(); });
+    return () => { document.removeEventListener('pointerdown', off); document.removeEventListener('keydown', esc); };
   }, [open]);
   return (
     <div className="ta-menu-wrap" ref={box}>
@@ -364,7 +367,7 @@ function Selection({ editor }) {
                 {Object.keys(RIVE_COMPONENTS).map((k) => <option key={k} value={k}>{RIVE_COMPONENTS[k].artboard}</option>)}
               </select></label>
               {one.props.component === 'connection' ? (
-                <label>Provider<select value={one.props.provider || ''} onChange={(e) => update({ provider: e.target.value, label: `${providerName(e.target.value)} connection` })}>
+                <label>Provider<select value={one.props.provider || ''} onChange={(e) => update({ provider: e.target.value, label: `${providerName(e.target.value)} connection`, state: riveProps('connection', { provider: e.target.value }).state })}>
                   {PROVIDERS.map((p) => <option key={p} value={p}>{providerName(p)}</option>)}
                 </select></label>
               ) : null}
@@ -387,6 +390,10 @@ function Selection({ editor }) {
           <Button onClick={del}>Delete</Button>
         </div>
       ) : null}
+      <div className="ta-row">
+        <Button onClick={() => exportDesk(editor, config && config.project)}>Export canvas</Button>
+        <Button onClick={() => importDesk(editor)}>Import…</Button>
+      </div>
       <div className="ta-license" data-license={lic ? lic.state : 'unread'}>
         <p className="ta-context-k">CANVAS LICENCE</p>
         <p>{lic ? <><StateWord word={lic.state} live={lic.state === 'licensed'} /> <span className="ta-muted">{lic.words}</span></> : <span className="ta-muted">Reading the SDK’s licence state…</span>}</p>

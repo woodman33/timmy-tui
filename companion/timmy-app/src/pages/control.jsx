@@ -210,7 +210,7 @@ export default function ControlPage() {
           <ul className="tx-ctl-fleet">
             {fleet.map((f) => (
               <li key={f.id} data-fleet={f.id}>
-                <p className="tx-ctl-row"><strong>{f.name}</strong> <span className="ta-muted">{f.group}</span> <StateWord word={f.word} live={f.word === 'exercised'} /></p>
+                <p className="tx-ctl-row"><strong>{f.name}</strong> <span className="ta-muted">{f.group}</span> <StateWord word={f.word} /></p>
                 <details className="ta-details"><summary>The three facts</summary>
                   <ul className="tx-ctl-facts"><li>{f.available}</li><li>{f.configured}</li><li>{f.exercised}</li></ul>
                   {f.next ? <p className="ta-muted">Next: {f.next}</p> : null}

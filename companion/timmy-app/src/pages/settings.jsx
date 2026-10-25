@@ -88,7 +88,7 @@ export default function SettingsPage() {
           <p className="ta-muted">Kept in this browser only.</p>
         </Panel>
         <Panel id="project" kicker="PROJECT" title="The project this page shows">
-          {project ? <Facts rows={[['name', project.name], ['folder', <code key="r" className="tx-set-path">{project.root}</code>]]} /> : <Empty>The companion named no project for this page.</Empty>}
+          {project ? <Facts rows={[['name', project.name], ['folder', <code key="r" className="tx-set-path">{project.display || project.root}</code>]]} /> : <Empty>The companion named no project for this page.</Empty>}
           <p className="ta-muted">Switch with the project button at the top of the rail. Without accounts, this companion follows the folder Timmy was started in.</p>
         </Panel>
         <Panel id="startup" kicker="WHEN TIMMY STARTS" title="Start-up">

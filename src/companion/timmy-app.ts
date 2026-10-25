@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { studioConfig } from '../studio/config.js';
 import { installSteps, SIZE_NOTE, STARTER_MODELS } from '../setup/ollama-local.js';
+import { tildePath } from '../utils/home-scrub.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -97,7 +98,8 @@ export function mountTimmyApp(app: express.Application, deps: TimmyAppDeps): { r
     res.set('Cache-Control', 'no-store').json({
       ok: true, tldrawVersion: config.tldrawVersion, licenseKey: config.licenseKey, built: existsSync(join(dist, 'app.js')),
       principal,
-      project: p ? { name: p.name, root: p.root } : null,
+      // (root: only for the turn's request body; display: what the page shows, the home as ~)
+      project: p ? { name: p.name, root: p.root, display: tildePath(p.root) } : null,
       // the local models' starters (what the Models card offers to download, each only after its size and the person's yes)
       // and how Ollama is installed and started on this computer's system (words and the official page; nothing is run)
       ollama: { starters: STARTER_MODELS.map(({ model, size, use, page, default: d }) => ({ model, size, use, page, default: d })), sizeNote: SIZE_NOTE, install: installSteps(process.platform) },

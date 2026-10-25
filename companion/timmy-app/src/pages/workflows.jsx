@@ -16,7 +16,8 @@ import './workflows.css';
  * ```lang alone, and a longer info string stopped its paragraph reader without moving on (the page hung).
  */
 const fencesOf = (text) => String(text || '').replace(/^([ \t]*```)[ \t]*([\w+-]*)[^`\n]*$/gm, '$1$2');
-const live = (w) => /^(ran|completed|passed|no change)$/i.test(String(w || ''));
+// green only for a passed check (a run that ended is not a verified receipt)
+const live = (w) => /^passed$/i.test(String(w || ''));
 
 async function copy(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
@@ -87,7 +88,7 @@ export default function WorkflowsPage() {
       band={[
         ['DOCUMENTS', a ? (a.ok ? String(docs.length) : <span className="ta-muted">not read</span>) : <span className="ta-muted">reading…</span>],
         ['BLOCKS', a && a.ok ? <>{blocks} <span className="ta-muted">· {notRun} not run yet</span></> : <span className="ta-muted">—</span>],
-        ['RUNNER', a && a.ok ? (a.upmd ? <StateWord word="upmd on this computer" live /> : <StateWord word="upmd not found" />) : <span className="ta-muted">—</span>],
+        ['RUNNER', a && a.ok ? (a.upmd ? <StateWord word="upmd found (installed is not working)" /> : <StateWord word="upmd not found" />) : <span className="ta-muted">—</span>],
         ['RUNNING', a && a.ok ? (running.length ? <StateWord word={`${running.length} under way`} /> : <span className="ta-muted">none</span>) : <span className="ta-muted">—</span>],
       ]}
       context={<Doc doc={doc} />} contextTitle="The selected workflow"

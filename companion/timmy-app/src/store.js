@@ -56,9 +56,13 @@ export function useApp(select = (s) => s) { return useSyncExternalStore(subscrib
 /** The project this page asked for by id (the rail's switcher), or null for the one the companion follows. */
 export const projectQuery = (join = '?') => (state.projectId ? `${join}project=${encodeURIComponent(state.projectId)}` : '');
 
+/** Which project's reads are current: bumped by a switch, so an answer read for the project before is dropped, never shown. */
+let generation = 0;
+
 export async function loadConfig() {
+  const g = generation;
   const c = await getJson(`/api/app/config${projectQuery()}`);
-  set({ config: c });
+  if (g === generation) set({ config: c });
   return c;
 }
 
@@ -66,7 +70,9 @@ export async function loadConfig() {
 export async function refreshView(o = {}) {
   const skip = state.localPermission !== 'granted';
   const q = [skip ? 'local=skip' : o.fresh ? 'fresh=1' : '', projectQuery('').trim()].filter(Boolean).join('&');
+  const g = generation;
   const v = await getJson(`/api/chat/view${q ? `?${q}` : ''}`);
+  if (g !== generation) return v;
   if (v.ok) set({ view: v, viewAt: new Date().toISOString(), viewError: '' });
   else set({ viewError: v.error || 'The companion did not answer the Chat’s view.' });
   return v;
@@ -81,7 +87,10 @@ export async function loadModels(source, o = {}) {
   if (search) q.set('search', search);
   if (o.fresh) q.set('fresh', '1');
   if (source === 'openrouter') q.set('sort', o.sort || 'recent');
+  if (state.projectId) q.set('project', state.projectId);
+  const g = generation;
   const m = await getJson(`/api/chat/models?${q}`);
+  if (g !== generation) return m;
   set((s) => ({ models: { ...s.models, [source]: { ...m, at: new Date().toISOString() } }, modelsAsking: { ...s.modelsAsking, [source]: false } }));
   return m;
 }
@@ -97,7 +106,8 @@ export function setDock(open) { set({ dock: !!open }); write(DOCK, open ? 'open'
 /** The person's projects (GET /api/projects: only a companion with accounts answers it; else the one project the page shows). */
 export async function switchProject(id) {
   if (state.turn && ['running', 'stopping'].includes(state.turn.phase)) { set({ note: 'A turn is running: stop it before switching projects.' }); return; }
-  set({ projectId: id || null, turn: null, view: null });
+  generation += 1;
+  set({ projectId: id || null, turn: null, view: null, viewError: '', chooseResult: null, note: '', models: {}, pull: null });
   await loadConfig();
   await refreshView();
 }
@@ -136,7 +146,7 @@ export async function checkProvider(id) {
 /** POST /api/chat/choose — the model the next turn uses (the setup's own write path). */
 export async function choose(source, model) {
   set({ choosing: { source, model }, chooseResult: null });
-  const r = await postJson('/api/chat/choose', { source, model });
+  const r = await postJson(`/api/chat/choose${projectQuery()}`, { source, model });
   set({ choosing: null, chooseResult: { ...r, source, model, at: new Date().toISOString() } });
   await refreshView();
   return r;
@@ -157,8 +167,14 @@ export async function startPull(model) {
   } catch (e) { set((s) => ({ pull: { ...s.pull, phase: 'error', words: e instanceof Error ? e.message : String(e) } })); }
   if (state.pull && state.pull.phase === 'done') await Promise.all([loadModels('ollama-local', { fresh: true }), refreshView({ fresh: true })]);
 }
-export async function confirmPull() { const p = state.pull; if (p && p.id) await postJson('/api/connections/ollama-local/pull/confirm', { id: p.id }); }
-export async function cancelPull() { const p = state.pull; if (p && p.id) await postJson('/api/connections/ollama-local/pull/cancel', { id: p.id }); set((s) => ({ pull: s.pull && ['done', 'error', 'cancelled'].includes(s.pull.phase) ? null : s.pull })); }
+/** A download's confirmation and cancel: what the companion answered is said, a refusal included (never shown as done). */
+const pullAnswer = (r, what) => { if (!r.ok) set((s) => ({ pull: s.pull ? { ...s.pull, words: `${what} was not taken: ${r.error || r.words || `the companion answered ${r.status}`}.` } : s.pull })); };
+export async function confirmPull() { const p = state.pull; if (p && p.id) pullAnswer(await postJson('/api/connections/ollama-local/pull/confirm', { id: p.id }), 'The confirmation'); }
+export async function cancelPull() {
+  const p = state.pull;
+  if (p && p.id) pullAnswer(await postJson('/api/connections/ollama-local/pull/cancel', { id: p.id }), 'Cancel');
+  set((s) => ({ pull: s.pull && ['done', 'error', 'cancelled'].includes(s.pull.phase) ? null : s.pull }));
+}
 export function clearPull() { set({ pull: null }); }
 
 // ── the chat turn (contract C3: POST /api/chat/turn answers route, turn, delta, tool, needs-you, done | error) ──
@@ -186,11 +202,15 @@ export async function send(message) {
   set({ turn: { phase: 'running', message: text, text: '', tools: [], startedAt: new Date().toISOString(), controller } });
   const patch = (fn) => set((s) => ({ turn: s.turn ? { ...s.turn, ...fn(s.turn) } : s.turn }));
   try {
-    await postSse('/api/chat/turn', { message: text, key: keyOf(), project: { root } }, (name, d) => {
+    await postSse(`/api/chat/turn${projectQuery()}`, { message: text, key: keyOf(), project: { root } }, (name, d) => {
       // the AgentConsole faces move with the turn's own events (rive-bindings.js fromSse), never on their own
       riveFeed.sse(name, d);
       if (name === 'route') patch(() => ({ route: d }));
-      else if (name === 'turn') patch(() => ({ id: d.id, startedAt: d.startedAt }));
+      else if (name === 'turn') {
+        patch(() => ({ id: d.id, startedAt: d.startedAt }));
+        // Stop was pressed before the turn had its id: it is asked now
+        if (state.turn && state.turn.stopWanted) sendStop();
+      }
       else if (name === 'delta') patch((t) => ({ text: d.reset ? String(d.text || '') : t.text + String(d.text || '') }));
       else if (name === 'tool') patch((t) => ({ tools: [...t.tools.filter((x) => x.call !== d.call), d] }));
       else if (name === 'needs-you') patch(() => ({ needsYou: d }));
@@ -201,16 +221,27 @@ export async function send(message) {
   } catch (e) {
     if (!(e && e.name === 'AbortError')) patch(() => ({ phase: 'failed', error: e instanceof Error ? e.message : String(e) }));
   }
-  patch((t) => (['running', 'stopping'].includes(t.phase) ? { phase: t.phase === 'stopping' ? 'stopped' : 'failed', error: t.phase === 'stopping' ? '' : 'The stream ended before the turn said it was done.' } : {}));
+  // a stream that ended with no status: said so (a stop that was asked is not a stop observed)
+  patch((t) => (['running', 'stopping'].includes(t.phase) ? { phase: 'failed', error: t.phase === 'stopping' ? 'The stream ended after Stop was asked, before the turn said how it ended; Runs & receipts has its receipt when one was sealed.' : 'The stream ended before the turn said it was done.' } : {}));
   await refreshView();
 }
 
+/** Stop: asked of the companion by the turn's id (the project this page shows); "stopping" only once the companion took it. */
 export async function stop() {
   const t = state.turn;
-  if (!t || !['running', 'stopping'].includes(t.phase)) return;
-  set({ turn: { ...t, phase: 'stopping' } });
-  riveFeed.stopping();
-  if (t.id) await postJson('/api/chat/stop', { id: t.id });
+  if (!t || t.phase !== 'running') return;
+  if (!t.id) { set({ turn: { ...t, stopWanted: true, stopWords: 'Stop is asked as soon as the companion names this turn…' } }); return; }
+  await sendStop();
+}
+async function sendStop() {
+  const t = state.turn;
+  if (!t || !t.id || t.stopAsked) return;
+  set({ turn: { ...t, stopAsked: true, stopWanted: false, stopWords: 'Asking the companion to stop the turn…' } });
+  const r = await postJson(`/api/chat/stop${projectQuery()}`, { id: t.id });
+  const now = state.turn;
+  if (!now || now.id !== t.id || now.phase !== 'running') return;
+  if (r.ok) { set({ turn: { ...now, phase: 'stopping', stopWords: r.words || 'Stop asked.' } }); riveFeed.stopping('Stop taken by the companion (POST /api/chat/stop)'); }
+  else set({ turn: { ...now, stopAsked: false, stopWords: `Not stopped: ${r.error || r.words || `the companion answered ${r.status}`}. Press Stop again.` } });
 }
 
 export async function answerNeedsYou(choice) {
@@ -218,18 +249,22 @@ export async function answerNeedsYou(choice) {
   if (!t || !t.needsYou) return;
   const ask = t.needsYou;
   set({ turn: { ...t, needsYou: null, answered: [...(t.answered || []), { tool: ask.tool, choice }] } });
-  await postJson('/api/chat/answer', { id: ask.id, choice });
+  const r = await postJson(`/api/chat/answer${projectQuery()}`, { id: ask.id, choice });
+  // a refused answer (the ask timed out and was denied, or the turn ended) is said, and the ask shown again while the turn runs
+  if (!r.ok) set((s) => ({ turn: s.turn ? { ...s.turn, needsYou: s.turn.phase === 'running' ? ask : null, error: `Your answer was not taken: ${r.error || r.words || `the companion answered ${r.status}`}.` } : s.turn }));
 }
 
 export async function newConversation() {
   const root = projectRoot();
   if (!root || (state.turn && ['running', 'stopping'].includes(state.turn.phase))) return;
-  const r = await postJson('/api/chat/new', { project: { root } });
+  const r = await postJson(`/api/chat/new${projectQuery()}`, { project: { root } });
   set({ turn: null, note: r.ok ? 'A new conversation started; the last one stays saved.' : r.error || r.words || 'A new conversation did not start.' });
   await refreshView();
 }
 
 export function say(note) { set({ note }); }
+/** The current project generation (a page keyed by it starts again after a switch). */
+export const projectGeneration = () => generation;
 export function setLicense(license) { set({ license }); }
 export function setCanvasIo(canvasIo) { set({ canvasIo }); }
 export { call };

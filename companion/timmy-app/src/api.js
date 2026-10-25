@@ -39,6 +39,8 @@ export function onRequest(fn) { logSubs.add(fn); return () => logSubs.delete(fn)
 /** Every request to the companion: the token in a header, never in the address. */
 export async function call(path, init = {}) {
   if (!TOKEN) { refuse(`This page has no token, so it reads nothing. ${OPEN_FROM_TIMMY}`); throw new Error('no token'); }
+  // the token goes only to this page's own companion: a path of this origin, never another host
+  if (!/^\/(?!\/)/.test(String(path))) throw new Error(`not a path of this companion: ${String(path).slice(0, 80)}`);
   const o = { ...init, credentials: 'omit', cache: 'no-store', headers: { ...(init.headers || {}), Authorization: `Bearer ${TOKEN}` } };
   const t0 = performance.now();
   let r;
@@ -47,7 +49,8 @@ export async function call(path, init = {}) {
   if (r.status === 401) {
     let body = null;
     try { body = await r.clone().json(); } catch { body = null; }
-    if (body && body.needs === 'session') refuse('This companion has accounts: sign in on the companion\'s own page first (the address `timmy app` prints, without /app), then open the app again.');
+    // (this app carries no account session yet: on a companion with accounts its routes answer needs: session)
+    if (body && body.needs === 'session') refuse('This companion has accounts turned on, and this app does not carry an account\'s session yet: use the companion\'s own page (the address `timmy app` prints, without /app), where you can sign in.');
     else refuse(`The companion did not accept this page's token (Timmy started it again, or the address was copied wrong). ${OPEN_FROM_TIMMY}`);
   }
   return r;
