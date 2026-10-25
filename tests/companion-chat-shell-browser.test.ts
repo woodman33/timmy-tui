@@ -715,12 +715,13 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // end no ActionButton handle remains (this conversation has no welcome starter) — the three of the ask were unmounted when
       // it was answered, and an answered ask never mounted a second set — and the .riv was fetched exactly once per drawn button
       const after = await page.evaluate(() => ({
-        census: (window as unknown as { TimmyRive: { inspect(): Array<{ component: string; state: string }> } }).TimmyRive.inspect().map((x) => `${x.component}:${x.state}`),
+        census: (window as unknown as { TimmyRive: { inspect(): Array<{ component: string; state: string; name?: string; label?: string }> } }).TimmyRive.inspect().map((x) => `${x.component}:${x.state}${x.name ? `:${x.name}` : ''}${x.label ? `:${x.label}` : ''}`),
         rivFetches: performance.getEntriesByType('resource').filter((e) => /timmy-ui\.riv$/.test(new URL(e.name).pathname)).length,
+        rivWhen: performance.getEntriesByType('resource').filter((e) => /timmy-ui\.riv$/.test(new URL(e.name).pathname)).map((e) => `${Math.round(e.startTime)}:${(e as PerformanceResourceTiming).initiatorType}`),
       }));
       expect(after.census.filter((c) => c.startsWith('action:')), `no ActionButton outlives its ask (census: ${after.census.join(', ')})`).toEqual([]);
       expect(after.census.filter((c) => c.startsWith('console:'))).toEqual(['console:drawn']);
-      expect(after.rivFetches - rivBefore, 'the .riv fetched once per drawn button of the ask (three), never for an answered ask').toBe(drawn ? 3 : 0);
+      expect(after.rivFetches - rivBefore, `the .riv fetched once per drawn button of the ask (three), never for an answered ask (census: ${after.census.join(', ')}; fetches at ${after.rivWhen.join(' ')}, ${rivBefore} before the ask)`).toBe(drawn ? 3 : 0);
       // the operator's bar of 07:06 (rapid backend events): a dense burst through THIS PAGE's feed (riveFeed, the one the turn's
       // SSE goes through) leaves the band's word at the LAST event's state, no lag, no intermediate word; a run of deltas is one
       // event (the feed collapses a repeated word), every other event is fed as it comes
