@@ -82,6 +82,23 @@ const amberWords = (page: Page) => page.evaluate(() => {
     .map((el) => `${el.tagName.toLowerCase()}.${(el as HTMLElement).className}: ${(el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)}`);
 });
 
+/**
+ * R11 round 7 (H172, the lead's 18:51; D12 ONE PALETTE): the primary next step is filled with the FAMILY accent — amber #D6AA64 or
+ * glacier #8ABBE3 by html[data-theme] (the shell's primary button's gradient ends on it; the strip's own primary is filled solid) —
+ * never #FFB000, which is the focus / attention token alone. Every visible candidate whose fill is that accent, named.
+ */
+const accentPrimaries = (page: Page): Promise<{ theme: string; accent: string; filled: string[] }> => page.evaluate(() => {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--timmy-ui-accent').trim();
+  const probe = document.createElement('span');
+  probe.style.color = accent;
+  document.body.append(probe);
+  const rgb = getComputedStyle(probe).color;
+  probe.remove();
+  const els = [...document.querySelectorAll('.page-primary .ui-primary, .ui-primary, #ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary, .cx-send, .cx-btn.is-primary, .cx-way-act, .cx-route .cx-change.is-setup')];
+  const filled = [...new Set(els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && (getComputedStyle(e).backgroundColor === rgb || getComputedStyle(e).backgroundImage.includes(rgb))))];
+  return { theme: document.documentElement.getAttribute('data-theme') || 'amber (the default, no attribute)', accent: rgb, filled: filled.map((e) => `${e.tagName.toLowerCase()}.${String((e as HTMLElement).className)} "${(e.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 30)}"`) };
+});
+
 /** What is cut or out of the window: a sideways scroll, a box or tab outside, a label, title or button cut without its words. */
 const fit = (page: Page) => page.evaluate(() => {
   const W = document.documentElement.clientWidth;
@@ -121,7 +138,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
     let p: PageProject | undefined;
     try {
       p = await pageProject(kit, { prefix: 'amber-fit-browser-' });
-      const report: Record<string, { ambers: Amber[]; primaries: number; fit: string[]; words: string[]; current: boolean }> = {};
+      const report: Record<string, { ambers: Amber[]; primaries: number; primaryNames: string; fit: string[]; words: string[]; current: boolean }> = {};
       for (const size of SIZES) {
         const at = `${size.width}x${size.height}`;
         const { context, page, errors } = await openPage(browser, p, size);
@@ -137,8 +154,11 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
             // the keyboard's place: off the page, so focus draws no ring here (focus is read on its own below)
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
             const list = await ambers(page);
-            // R10 CHAT (H171): on Chat the strip is behind the composition, whose one primary is its own (an amber fill too)
-            const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary, .cx-send, .cx-btn.is-primary, .cx-way-act, .cx-route .cx-change.is-setup', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
+            // D12 (R11 round 7): the ONE primary next step per page is filled with the family accent (html[data-theme]), never #FFB000;
+            // the shell's head primary and, where the frame gives one, the strip's own — each visible accent-filled candidate named
+            const pr = await accentPrimaries(page);
+            const primaries = pr.filled.length;
+            const primaryNames = `${pr.theme} · accent ${pr.accent}: ${pr.filled.join(' | ') || '(none filled)'}`;
             const current = await page.evaluate((legacy) => {
               const item = document.querySelector('#rail-menu .rail-item[aria-current="page"]') as HTMLElement | null;
               const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ legacy: string; rail: boolean }> } }).TimmyShell?.PAGES ?? [];
@@ -150,7 +170,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
               const glyph = item.querySelector('.rail-glyph');
               return Boolean(glyph) && getComputedStyle(glyph!).color === rgb;
             }, id);
-            report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page), current };
+            report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, primaryNames, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page), current };
             // with TIMMY_CAPTURE_DIR, each tab as measured (the window's view; at 800x600 the page's top, it scrolls on)
             if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/tab${key}-${id}-${at}.png` });
             if (id === 'chat') {
@@ -160,7 +180,7 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
               await page.click('#btn-streamdown');
               await page.waitForSelector('#tab-streamdown.active #streamdown-root > *', { timeout: 20_000 });
               await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-              report[`${at} tab ${key} ${id} · Ask a model here`] = { ambers: await ambers(page), primaries: 0, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page), current };
+              report[`${at} tab ${key} ${id} · Ask a model here`] = { ambers: await ambers(page), primaries: 0, primaryNames: '(not counted on the older view)', fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page), current };
               await page.click('#btn-chat');
             }
           }
@@ -172,16 +192,17 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
         // each amber element plays a B10 role; no key, command, destructive button or FAKE mark is amber
         expect(v.ambers.filter((a) => !a.role), `${k}: amber with no B10 role`).toEqual([]);
         expect(v.words, `${k}: amber keys, commands, Delete or FAKE`).toEqual([]);
-        // one amber-filled primary next step at most
-        expect(v.primaries, `${k}: amber primaries`).toBeLessThanOrEqual(1);
+        // one family-accent-filled primary next step at most (D12; the GREEN rule and the exact focus/verified reads above unchanged)
+        expect(v.primaries, `${k}: accent-filled primaries — ${v.primaryNames}`).toBeLessThanOrEqual(1);
         // at 800x600: no sideways scroll, nothing outside the window, nothing cut without its words
         expect(v.fit, `${k}: fit`).toEqual([]);
       }
-      // the tabs whose frame gives a primary next step show exactly one, at both sizes; every screen's active tab is amber
+      // the tabs whose frame gives a primary next step show exactly one accent-filled primary, at both sizes (D12: the family accent by
+      // html[data-theme], never #FFB000); the destination shown is marked on the rail
       for (const size of SIZES) {
         for (const id of ['home', 'chat', 'workflows', 'studio', 'voxvision', 'tools']) {
           const k = Object.keys(report).find((x) => x.startsWith(`${size.width}x${size.height} tab `) && x.endsWith(` ${id}`))!;
-          expect(report[k].primaries, k).toBe(1);
+          expect(report[k].primaries, `${k}: exactly one family-accent-filled primary — ${report[k].primaryNames}`).toBe(1);
         }
       }
       // the destination shown is marked: R10's tab row drew its tab in amber; on the round-7 shell (SHELL CONTRACT v1, B11) the rail's
