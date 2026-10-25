@@ -43,6 +43,31 @@
 .sb-rec-muted { color: var(--timmy-ui-text-muted, #9AAFC3); }
 .sb-starter-list { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 
+/* R11 round 7 (H176; the lead's D14 R88): the board's map — the page's work beside the list. The Studio itself is not embedded
+   (the companion's page policy frames only itself, and a Studio page loads only with a one-time grant), so the saved board is
+   drawn: each item a box where it sits on its page, in the registry's materials (a draft dashed amber: it waits in Studio; the
+   chosen one the focus edge); the page tabs when the board has more than one page; a height of its own, so the list has its room */
+.sb-map { display: grid; gap: var(--timmy-ui-space-2, 8px); }
+.sb-map[hidden] { display: none; }
+.sb-map-pages { display: flex; flex-wrap: wrap; gap: 4px; }
+.sb-map-page { font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1.35 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); padding: 3px 10px; border-radius: var(--timmy-ui-radius-pill, 999px);
+  border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); background: var(--timmy-ui-surface, #111A23); color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; }
+.sb-map-page[aria-selected="true"] { background: var(--timmy-ui-raised, #1C2936); border-color: var(--timmy-ui-border, #44586B); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-map-page:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.sb-map-svg { display: block; width: 100%; height: clamp(220px, 42vh, 560px); border-radius: var(--timmy-ui-radius-control, 10px); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); background: var(--timmy-ui-canvas, #080B0F); }
+.sb-map-ground { fill: var(--timmy-ui-canvas, #080B0F); }
+.sb-map-item rect { fill: var(--timmy-ui-raised, #1C2936); stroke: var(--timmy-ui-border, #44586B); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.sb-map-item text { fill: var(--timmy-ui-text, #ECF1F5); font-family: var(--timmy-ui-font, "Outfit", system-ui, sans-serif); pointer-events: none; }
+.sb-map-item.kind-reference rect, .sb-map-item.kind-image rect { fill: var(--timmy-ui-surface, #111A23); }
+.sb-map-item.kind-words rect { fill: transparent; stroke-dasharray: 6 4; }
+.sb-map-item.kind-other-project rect { fill: transparent; stroke: var(--timmy-ui-text-muted, #9AAFC3); stroke-dasharray: 4 4; }
+.sb-map-item.is-draft rect { stroke: var(--timmy-ui-focus, #FFB000); stroke-dasharray: 8 5; }
+.sb-map-item.is-selected rect { stroke: var(--timmy-ui-focus, #FFB000); stroke-width: 3; }
+.sb-map-item:hover rect { stroke: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-map-item:focus-visible { outline: none; }
+.sb-map-item:focus-visible rect { stroke: var(--timmy-ui-focus, #FFB000); stroke-width: 3; }
+.sb-map-foot { margin: 0; font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-muted, #9AAFC3); }
+
 /* the list: each row a raised card; the chosen one carries the amber edge (the page's context shows it) */
 .sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--timmy-ui-space-2, 8px); }
 .sb-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--timmy-ui-space-3, 12px); padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px);

@@ -135,7 +135,7 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
     const w = await watched(target);
     try {
       await w.page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-      await w.page.waitForFunction(() => document.querySelectorAll('#frame-tabs li').length === 10, null, { timeout: 30_000 });
+      await w.page.waitForFunction(() => Boolean(document.getElementById('frame')?.dataset.revision) && document.querySelectorAll('#frame-acts li').length > 0, null, { timeout: 30_000 });
       await w.page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 20_000 });
       // two rounds of each of its readings: the strip's frame, the canvas jobs, the project's cards
       const asked = { workspace: 0, jobs: 0, project: 0 };

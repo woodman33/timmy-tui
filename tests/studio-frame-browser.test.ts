@@ -20,13 +20,14 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
-import { TABS } from '../src/contracts/workspace.js';
 import { CONNECTIONS_SCHEMA, writeConnections } from '../src/ops/workspace-frame.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { grant, nameProject } from './helpers/canvas-auth.js';
 import { makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
+/** A key string the SDK cannot parse (no signature part): FAKE, named so; never a real key. */
+const FAKE_KEY = 'FAKE-key-set-by-studio-frame-browser-H176.not-a-signature';
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
 if (!browserPath) console.warn('studio-frame-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
@@ -60,7 +61,9 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
     // the frame reads Timmy's settings: this file's own folder (tests/isolation-setup.ts), never the account's
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
+    // R11 round 7 (H176; the operator's 19:18 order, item 7): a FAKE key, named so (the SDK rejects it; the real key lives on the
+    // operator's machine only), so the Details line's "FAKE key (this capture)" is pinned here
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR, TLDRAW_LICENSE_KEY: FAKE_KEY }, root: pageRoot });
     port = (server.address() as AddressInfo).port;
     base = `http://127.0.0.1:${port}`;
     await nameProject(port, server.projectToken, { root: p.root, name: 'demo', holder: HX, jobs: p.jobs, receipts: p.store });
@@ -96,7 +99,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     page.on('response', (r) => { if (new URL(r.url()).pathname === '/api/workspace') read += 1; });
     await page.goto(`${base}/#code=${await grant(port, server.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-    await page.waitForFunction(() => document.querySelectorAll('#frame-tabs li').length === 10, null, { timeout: 30_000 });
+    // (R11 round 7, H176 / D14 R75: the strip draws no tabs any more; the frame is drawn once it carries a revision)
+    await page.waitForFunction(() => Boolean(document.getElementById('frame')?.dataset.revision) && document.querySelectorAll('#frame-acts li').length > 0, null, { timeout: 30_000 });
     return { page, context, errors, frames: () => read };
   }
   const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
@@ -123,22 +127,46 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     }
   };
 
-  it('draws TIMMY · the project, the ten tabs with Studio active, Studio\'s actions with the frame\'s one primary in amber and each command to copy, and one activity line; green only where it is earned; two rows on a low window', async () => {
+  it('draws the top strip only — the mark, ← Back to Timmy, TIMMY / the project / Studio, the theme switch — and, in the panel, Studio\'s actions with the frame\'s one primary in amber and each command to copy, and the activity line; green only where it is earned; the strip one row at 1440, 800 and 390', async () => {
     const { page, context, errors, frames } = await open();
     try {
-      expect(await text(page, '#frame-brand')).toBe('TIMMY · demo');
-      const tabs = await page.$$eval('#frame-tabs li', (ls) => ls.map((l) => ({
-        text: (l.textContent ?? '').replace(/\s+/g, ' ').trim(), current: l.getAttribute('aria-current'), title: l.getAttribute('title') ?? '',
-        controls: l.querySelectorAll('a, button, [tabindex]').length, border: `${getComputedStyle(l).borderTopWidth} ${getComputedStyle(l).borderTopStyle} ${getComputedStyle(l).borderTopColor}`,
-      })));
-      // R7 (H151): an unfinished tab carries its mark (◌, never colour alone; its words are the strip's description)
-      expect(tabs.map((t) => t.text)).toEqual(TABS.map((t) => `${t.key} ${t.label}${t.unfinished ? ' ◌' : ''}`));
-      // 4 Studio is this page: a 1px amber border; the others are labels, never links (this page cannot hold the companion's token)
-      expect(tabs.filter((t) => t.current === 'page').map((t) => t.text)).toEqual(['4 Studio']);
-      expect(tabs.find((t) => t.current === 'page')!.border).toBe(`1px solid ${AMBER}`);
-      expect(tabs.every((t) => t.controls === 0)).toBe(true);
-      for (const t of tabs.filter((x) => x.current !== 'page')) expect(t.title).toMatch(/: c in the Workbench shows the companion$/);
-      // the Studio tab's actions, as the frame gives them: nothing observed Studio yet, so its next step is to open it
+      // R11 round 7 (H176; the lead's D14 R75): nothing above the board but the strip's four parts; the ten tabs' row is gone
+      expect(await text(page, '#frame-brand')).toBe('T TIMMY / demo / Studio');
+      expect(await page.$$eval('#frame-tabs, #frame-unf, #frame-unf-toggle', (ls) => ls.length)).toBe(0);
+      const strip = await page.evaluate(() => {
+        const back = document.getElementById('frame-back') as HTMLAnchorElement;
+        const theme = [...document.querySelectorAll('#frame-theme [data-theme]')].map((b) => [b.getAttribute('data-theme'), b.getAttribute('aria-pressed')]);
+        const inside = [...document.querySelectorAll('#frame *')].map((e) => e.id || e.className).filter(Boolean);
+        return { back: { href: back.getAttribute('href'), disabled: back.getAttribute('aria-disabled'), words: (back.textContent ?? '').replace(/\s+/g, ' ').trim(), title: back.title }, theme, inside, html: document.documentElement.dataset.theme };
+      });
+      // the companion is not running in this test, so Back to Timmy is said, not a link (the frame's surfaces say so)
+      expect(strip.back).toEqual({ href: '#', disabled: 'true', words: '← Back to Timmy', title: expect.stringContaining('the companion is not running') });
+      expect(strip.theme).toEqual([['amber', 'true'], ['glacier', 'false']]);
+      expect(strip.html).toBe('amber');
+      expect(strip.inside.some((c) => /fr-tab|fr-act|frame-acts|frame-activity|frame-log/.test(String(c)))).toBe(false);
+      // item 7: the Details line carries the SDK's own verdict AND says the key is a FAKE one (this capture), so a capture of this
+      // page is never read as the product's verdict; the key string itself is nowhere in the page
+      await page.waitForFunction(() => /FAKE key \(this capture\)/.test(document.getElementById('side-about-canvas')?.textContent ?? ''), null, { timeout: 20_000 });
+      const about = await page.$eval('#side-about-canvas', (e) => ({ text: e.textContent ?? '', key: (e as HTMLElement).dataset.key, title: (e as HTMLElement).title }));
+      expect(about.text).toMatch(/^tldraw 5\.5\.2 · (unlicensed|pending|licensed with watermark|unlicensed production|expired) .* · FAKE key \(this capture\)$/);
+      expect(about.key).toBe('fake');
+      expect(about.title).toContain('FAKE key a test set for this capture');
+      expect(about.title).toContain("not the product's");
+      expect(await page.content()).not.toContain(FAKE_KEY);
+      // the theme switch: glacier on the page (html[data-theme]) and kept under the companion's key, so both pages agree
+      await page.click('#frame-theme [data-theme="glacier"]');
+      expect(await page.evaluate(() => [document.documentElement.dataset.theme, localStorage.getItem('timmy.theme'), document.querySelector('#frame-theme [data-theme="glacier"]')?.getAttribute('aria-pressed')])).toEqual(['glacier', 'glacier', 'true']);
+      await page.click('#frame-theme [data-theme="amber"]');
+      expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('amber');
+
+      // the Studio tab's actions, as the frame gives them, in the panel's work section: nothing observed Studio yet, so its next step is to open it.
+      // The next step shows alone at first; "3 more steps" opens the rest (the panel keeps its room on a low window)
+      expect(await page.$eval('#frame-work', (e) => (e.closest('#side') !== null) && !(e as HTMLElement).hidden)).toBe(true);
+      expect(await page.$$eval('#frame-acts li', (ls) => ls.map((l) => getComputedStyle(l).display !== 'none'))).toEqual([true, false, false, false]);
+      expect(await text(page, '#frame-more-toggle')).toBe('▸ 3 more steps');
+      await page.click('#frame-more-toggle');
+      expect(await text(page, '#frame-more-toggle')).toBe('▾ 3 more steps');
+      expect(await page.$$eval('#frame-acts li', (ls) => ls.every((l) => getComputedStyle(l).display !== 'none'))).toBe(true);
       const acts = () => page.$$eval('#frame-acts li', (ls) => ls.map((l) => ({
         primary: l.classList.contains('is-primary'), label: l.querySelector('.fr-label')?.textContent ?? '', command: l.querySelector('code.fr-cmd')?.textContent ?? '',
         copy: l.querySelector('button.fr-copy')?.getAttribute('data-copy') ?? '', border: getComputedStyle(l).borderTopColor, color: getComputedStyle(l.querySelector('.fr-label')!).color,
@@ -150,29 +178,29 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(shown.filter((a) => !a.primary).every((a) => a.border !== AMBER && a.color !== AMBER)).toBe(true);
       expect(await text(page, '#frame-activity')).toMatch(/^0 running · 0 waiting on you · Stop current: idle · newest: /);
 
-      // redrawn only for a new revision: the same records give the same revision, and the strip is left as it was
+      // redrawn only for a new revision: the same records give the same revision, and the parts are left as they were
       const revision = await page.getAttribute('#frame', 'data-revision');
-      await page.evaluate(() => { (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept = true; });
-      // two more readings came (the first is drawn, or not, before the second is asked: the strip reads one at a time)
+      await page.evaluate(() => { (document.querySelector('#frame-acts li') as HTMLElement & { kept?: boolean }).kept = true; });
+      // two more readings came (the first is drawn, or not, before the second is asked: the frame reads one at a time)
       const before = frames();
       await expect.poll(frames, { timeout: 20_000 }).toBeGreaterThanOrEqual(before + 2);
       expect(await page.getAttribute('#frame', 'data-revision')).toBe(revision);
-      expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBe(true);
+      expect(await page.evaluate(() => (document.querySelector('#frame-acts li') as HTMLElement & { kept?: boolean }).kept)).toBe(true);
 
-      // Studio observed live (the FAKE check record): the frame's next step is now to have Timmy draw on it, and the strip follows
+      // Studio observed live (the FAKE check record): the frame's next step is now to have Timmy draw on it, and the work follows
       writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'accepted', at: new Date().toISOString(), detail: 'FAKE: written by the test' } } }, { TIMMY_HOME: home });
       await page.waitForFunction((r) => document.getElementById('frame')?.dataset.revision !== r, revision, { timeout: 20_000 });
       shown = await acts();
       expect(shown.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open the canvas for Timmy (then ask it to draw)', command: '/canvas open', border: AMBER })]);
-      expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBeUndefined();
-      // a new revision that changes nothing the strip shows is read, and nothing is redrawn: a focused Copy button stays where
-      // it is. R5 lead: the frame's time words change at most once a minute now (58ee2d5), so the check's age no longer makes a
-      // new revision within the wait; the check's own words do (they are in the frame's connections, not in the strip)
+      expect(await page.evaluate(() => (document.querySelector('#frame-acts li') as HTMLElement & { kept?: boolean }).kept)).toBeUndefined();
+      // a new revision that changes nothing shown is read, and nothing is redrawn: a focused Copy button stays where it is.
+      // R5 lead: the frame's time words change at most once a minute now (58ee2d5), so the check's age no longer makes a new
+      // revision within the wait; the check's own words do (they are in the frame's connections, not drawn here)
       const live = await page.getAttribute('#frame', 'data-revision');
-      await page.evaluate(() => { (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept = true; });
+      await page.evaluate(() => { (document.querySelector('#frame-acts li') as HTMLElement & { kept?: boolean }).kept = true; });
       writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'accepted', at: new Date().toISOString(), detail: 'FAKE: written by the test, a second time' } } }, { TIMMY_HOME: home });
       await page.waitForFunction((r) => document.getElementById('frame')?.dataset.revision !== r, live, { timeout: 20_000 });
-      expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBe(true);
+      expect(await page.evaluate(() => (document.querySelector('#frame-acts li') as HTMLElement & { kept?: boolean }).kept)).toBe(true);
       expect(await page.getAttribute('#frame', 'data-stale')).toBe('false');
 
       // each command is there to copy: Copy puts it on the clipboard
@@ -182,24 +210,23 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/canvas open');
       await shoot(page, 'frame-strip-1400x900.png');
 
-      // green is earned: in the strip, only what the frame says is live (.is-live) or verified (.is-verified) may be green
-      const green = await page.evaluate((greens) => [...document.querySelectorAll('#frame, #frame *')].flatMap((e) => {
+      // green is earned: in the strip and the work, only what the frame says is live (.is-live) or verified (.is-verified) may be green
+      const green = await page.evaluate((greens) => [...document.querySelectorAll('#frame, #frame *, #frame-work, #frame-work *')].flatMap((e) => {
         const s = getComputedStyle(e);
         const used = [s.color, s.backgroundColor, s.borderTopColor, s.borderRightColor, s.borderBottomColor, s.borderLeftColor, s.outlineColor].filter((c) => greens.includes(c));
         return used.length && !e.closest('.is-live, .is-verified') ? [`${e.tagName}.${(e as HTMLElement).className}: ${used.join(', ')}`] : [];
       }), GREENS);
       expect(green).toEqual([]);
 
-      // the strip ends where tldraw's box begins: it covers none of tldraw's menus, panels or toolbar
+      // the strip ends where tldraw's box begins: it covers none of tldraw's menus, panels or toolbar; one row tall
       const at = await page.evaluate(() => ({
-        strip: document.getElementById('frame')!.getBoundingClientRect().bottom, root: document.getElementById('root')!.getBoundingClientRect().top,
+        strip: document.getElementById('frame')!.getBoundingClientRect().bottom, height: document.getElementById('frame')!.getBoundingClientRect().height, root: document.getElementById('root')!.getBoundingClientRect().top,
         menu: document.querySelector('[data-testid="main-menu.button"]')!.getBoundingClientRect().top, side: document.getElementById('side')!.getBoundingClientRect().top,
       }));
       expect(Math.abs(at.root - at.strip)).toBeLessThanOrEqual(1);
       expect(at.menu).toBeGreaterThanOrEqual(at.strip);
       expect(at.side).toBeGreaterThanOrEqual(at.strip);
-      // compact: rows of 20px (R5 H137: the actions take a second row at 1400 px rather than run past the edge)
-      expect(at.strip).toBeLessThanOrEqual(100);
+      expect(at.height).toBeLessThanOrEqual(48);
       // tldraw's toolbar and main menu still take a click (Playwright clicks only what nothing covers)
       await page.click('[data-testid="tools.draw"]');
       expect(await page.evaluate(() => (window as never as Win).timmyCanvas.editor.getCurrentToolId())).toBe('draw');
@@ -211,46 +238,45 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       await page.hover('[data-testid="main-menu-sub.preferences-button"]', { timeout: 5_000 });
       await page.keyboard.press('Escape');
       await page.keyboard.press('Escape');
-      // no number key is the strip's: tldraw keeps its keys, and Studio stays the tab this page is
+      // no number key is the frame's: tldraw keeps its keys, and Studio stays the page this is
       await page.mouse.click(900, 500);
       await page.keyboard.press('1');
-      expect(await page.$eval('#frame-tabs li[aria-current="page"]', (l) => (l.textContent ?? '').replace(/\s+/g, ' ').trim())).toBe('4 Studio');
+      expect(await text(page, '#frame .fr-here')).toBe('Studio');
 
-      // a low window (800 x 600): R5 (H137) the actions wrap onto more rows (never past the edge), the commands shortened where two
-      // can then share a row, so the strip stays short and the panel keeps room for its lists; the ten tabs are all there (R7 H151:
-      // whole, wrapped between tabs), the next step is first, and the canvas still starts under the strip
-      await page.setViewportSize({ width: 800, height: 600 });
-      // R5 lead (CI at ca2ebfc and aa247e5: "expected 23 to be less than or equal to 1"): the strip settles over a few frames (its
-      // actions wrap, then shorten), and the canvas follows each height a frame later (a ResizeObserver sets --frame-h). The
-      // layout is measured once three frames in a row show the strip under 130 px, at one height, with the canvas starting under
-      // it: what a person sees, never a frame in between. A canvas that never follows the strip still fails, by the timeout.
-      const low = (await (await page.waitForFunction(() => {
-        const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
-        const acts = document.getElementById('frame-acts')!;
-        const m = { strip: r('#frame').bottom, height: r('#frame').height, root: r('#root').top, tabs: document.querySelectorAll('#frame-tabs li').length, sideways: acts.scrollWidth - acts.clientWidth,
-          primary: r('#frame-acts li.is-primary').left, first: acts.firstElementChild === acts.querySelector('li.is-primary'), menu: r('[data-testid="main-menu.button"]').top, side: r('#side').top };
-        const w = window as unknown as { lowSettle?: { n: number; height: number } };
-        // R7 (H151; H147's R6 finding 3): every tab whole, so the tabs take a second row at 800 px (they had scrolled sideways, cut at
-        // "7 Contro"): the strip settles under 150 px, and the board keeps most of the window (tests/studio-small-window-browser.test.ts)
-        const settled = m.height < 150 && Math.abs(m.root - m.strip) <= 1;
-        const was = w.lowSettle;
-        w.lowSettle = { n: !settled ? 0 : was && was.n > 0 && was.height === m.height ? was.n + 1 : 1, height: m.height };
-        return w.lowSettle.n >= 3 ? m : null;
-      }, undefined, { timeout: 10_000 })).jsonValue())!;
-      expect(low.tabs).toBe(10);
-      expect(low.sideways).toBeLessThanOrEqual(0);
-      expect(low.first).toBe(true);
-      expect(low.primary).toBeGreaterThanOrEqual(0);
-      expect(low.primary).toBeLessThan(40);
-      expect(Math.abs(low.root - low.strip)).toBeLessThanOrEqual(1);
-      expect(low.menu).toBeGreaterThanOrEqual(low.strip);
-      expect(low.side).toBeGreaterThanOrEqual(low.strip);
-      await shoot(page, 'frame-strip-800x600.png');
+      // a low window (800 x 600) and a phone (390 x 844): the strip stays one row; the actions, in the panel, wrap onto more rows
+      // (never past the edge, never scrolled sideways), the next step first; the canvas starts under the strip
+      const heights: Record<string, number> = { '1440x900': at.height };
+      for (const [width, height] of [[800, 600], [390, 844]] as const) {
+        await page.setViewportSize({ width, height });
+        const low = (await (await page.waitForFunction(() => {
+          const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+          const acts = document.getElementById('frame-acts')!;
+          const primary = acts.querySelector('li.is-primary');
+          if (!primary) return null;
+          const m = { strip: r('#frame').bottom, height: r('#frame').height, root: r('#root').top, sideways: acts.scrollWidth - acts.clientWidth, right: primary.getBoundingClientRect().right,
+            first: acts.firstElementChild === primary, menu: r('[data-testid="main-menu.button"]').top, side: r('#side').top, inner: innerWidth };
+          const w = window as unknown as { lowSettle?: { n: number; height: number } };
+          const settled = m.height <= 48 && Math.abs(m.root - m.strip) <= 1;
+          const was = w.lowSettle;
+          w.lowSettle = { n: !settled ? 0 : was && was.n > 0 && was.height === m.height ? was.n + 1 : 1, height: m.height };
+          return w.lowSettle.n >= 3 ? m : null;
+        }, undefined, { timeout: 10_000 })).jsonValue())!;
+        heights[`${width}x${height}`] = low.height;
+        expect(low.sideways, `${width}x${height}`).toBeLessThanOrEqual(0);
+        expect(low.first, `${width}x${height}`).toBe(true);
+        expect(low.right, `${width}x${height}: the primary whole on screen`).toBeLessThanOrEqual(low.inner);
+        expect(Math.abs(low.root - low.strip), `${width}x${height}`).toBeLessThanOrEqual(1);
+        expect(low.menu, `${width}x${height}`).toBeGreaterThanOrEqual(low.strip);
+        expect(low.side, `${width}x${height}`).toBeGreaterThanOrEqual(low.strip);
+        await shoot(page, `frame-strip-${width}x${height}.png`);
+      }
+      // the strip's height, for the record (the lead's D14 R75: said in the handoff at 390 and 1440)
+      console.log(`STRIP-HEIGHT ${JSON.stringify(heights)}`);
       expect(errors).toEqual([]);
     } finally {
       await context.close();
     }
-  }, 120_000);
+  }, 150_000);
 
   it('a canvas reopened by /canvas open shows what it holds: every shape inside the area beside the panel and under the strip, at 100 % or farther', async () => {
     const first = await open();
@@ -332,7 +358,9 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
         // R10 (H167; the round's rule: raw commands in a secondary inspector): on the strip's face each step is its number, its
         // label and its Copy, and no command shows; the strip's Commands shows them (the checks below are of that view)
         await page.waitForSelector('#frame-acts li');
-        expect(await page.locator('#frame code.fr-cmd:visible').count(), where).toBe(0);
+        // (R11 round 7, H176: the next step shows alone at first; the other steps are opened for this reading of every one)
+        await page.click('#frame-more-toggle');
+        expect(await page.locator('#frame-work code.fr-cmd:visible').count(), where).toBe(0);
         expect(await page.locator('#frame-acts li button.fr-copy:visible').allTextContents(), where).toEqual(['Copy command', 'Copy command', 'Copy command', 'Copy command']);
         await page.click('#frame-cmds-toggle');
         expect(await page.getAttribute('#frame-cmds-toggle', 'aria-expanded'), where).toBe('true');
@@ -385,14 +413,14 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
         await context.close();
       }
     }
-    // shortened only where the window is narrow (1000 px and less), the longest command first
-    expect(shortened).toMatchObject({ '1440x900': [], '1376x768': [], '1280x720': [] });
-    expect(shortened['800x600']).toEqual(['/project new <name> --from <starter>']);
-    expect(shortened['390x844']).toContain('/project new <name> --from <starter>');
+    // R11 round 7 (H176; D14 R75): the steps live in Timmy's panel (280 px wide at every window width), so the longest command is
+    // shown shortened at every size, and only it (Copy copies it whole, below)
+    for (const where of Object.keys(shortened)) expect(shortened[where], where).toEqual(['/project new <name> --from <starter>']);
     // Copy copies the whole command where it is shown shortened
     const { page, context } = await open({ width: 390, height: 844 });
     try {
       await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+      await page.click('#frame-more-toggle');
       const copy = '#frame-acts li:has(code.fr-cmd[title="/project new <name> --from <starter>"]) button.fr-copy';
       await page.click(copy);
       await page.waitForFunction((s) => document.querySelector(s)?.textContent === 'Copied', copy);
@@ -429,7 +457,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       const closed = await page.evaluate(() => ({ strip: document.getElementById('frame')!.getBoundingClientRect().bottom, side: document.getElementById('side')!.getBoundingClientRect() }));
       // the keyboard: Tab reaches its button, Enter opens it
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-      for (let i = 0; i < 30 && (await page.evaluate(() => document.activeElement?.id)) !== 'frame-activity-toggle'; i++) await page.keyboard.press('Tab');
+      // (the work section sits in the panel's scrolling region, after the save line's and the Details' stops and the steps' Copy buttons)
+      for (let i = 0; i < 60 && (await page.evaluate(() => document.activeElement?.id)) !== 'frame-activity-toggle'; i++) await page.keyboard.press('Tab');
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('frame-activity-toggle');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#frame-log', { state: 'visible' });
@@ -441,15 +470,16 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(entries.map((e) => e.tag)).toEqual(['✕ [chat]', '[job]', '[chat]', '✕ [job]', '[chat]', '[job]', '[chat]', '[job]']);
       expect(entries.every((e) => /^\d\d:\d\d:\d\d$/.test(e.time))).toBe(true);
       expect(entries[4].op).toBe('o1234abcd');
-      // open, the strip is taller: the canvas and the panel start under it, and the panel's foot stays where it was. R6 lead (CI
-      // at 90e4820 and once before: the canvas 157 px above the strip's foot): the canvas follows the strip through a
-      // ResizeObserver (--frame-h), which runs at the page's next rendering step, so it is read once that step has run
-      await page.waitForFunction(() => Math.abs(document.getElementById('root')!.getBoundingClientRect().top - document.getElementById('frame')!.getBoundingClientRect().bottom) <= 1, null, { timeout: 5_000 }).catch(() => {});
-      const opened = await page.evaluate(() => ({ strip: document.getElementById('frame')!.getBoundingClientRect().bottom, root: document.getElementById('root')!.getBoundingClientRect().top, side: document.getElementById('side')!.getBoundingClientRect() }));
-      expect(opened.strip).toBeGreaterThan(closed.strip);
+      // R11 round 7 (H176; D14 R75): the activity lives in the panel's work section, so opening it changes nothing above the board:
+      // the strip, the canvas and the panel's top stay where they were; the entries take room inside the panel (its lists give way)
+      const opened = await page.evaluate(() => ({ strip: document.getElementById('frame')!.getBoundingClientRect().bottom, root: document.getElementById('root')!.getBoundingClientRect().top, side: document.getElementById('side')!.getBoundingClientRect(),
+        log: document.getElementById('frame-log')!.getBoundingClientRect(), work: document.getElementById('frame-work')!.getBoundingClientRect() }));
+      expect(opened.strip).toBe(closed.strip);
       expect(Math.abs(opened.root - opened.strip)).toBeLessThanOrEqual(1);
-      expect(Math.abs((opened.side.top - closed.side.top) - (opened.strip - closed.strip))).toBeLessThanOrEqual(1);
-      expect(Math.abs(opened.side.bottom - closed.side.bottom)).toBeLessThanOrEqual(1);
+      expect(opened.side.top).toBe(closed.side.top);
+      expect(opened.log.height).toBeGreaterThan(40);
+      expect(opened.log.left).toBeGreaterThanOrEqual(opened.work.left);
+      expect(opened.log.right).toBeLessThanOrEqual(opened.work.right + 0.5);
       await shoot(page, 'studio-1440x900-activity-open.png');
       // Escape closes it while the focus is in the strip, the focus back on its button
       await page.keyboard.press('Escape');
@@ -586,9 +616,9 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       await page.waitForFunction(() => document.getElementById('frame')?.dataset.stale === 'true', null, { timeout: 20_000 });
       expect(await text(page, '#frame-note')).toMatch(/^· Workspace not read now: Refused: this canvas page's session was given for another project than the one the canvas shows now\. .* Shown as last read at \d\d:\d\d:\d\d\.$/);
       // the last frame stays drawn: demo's, and nothing of the project named now
-      expect(await text(page, '#frame-brand')).toBe('TIMMY · demo');
-      expect(await page.$$eval('#frame-tabs li', (ls) => ls.length)).toBe(10);
-      const strip = await page.$eval('#frame', (e) => e.outerHTML);
+      expect(await text(page, '#frame-brand')).toBe('T TIMMY / demo / Studio');
+      expect(await page.$$eval('#frame-acts li', (ls) => ls.length)).toBe(4);
+      const strip = await page.evaluate(() => `${document.getElementById('frame')!.outerHTML}${document.getElementById('frame-work')!.outerHTML}`);
       expect(strip).not.toContain('beta');
       expect(strip).not.toContain(other);
       // R5 (H137): the page's own readings of a session paused this way are answered with a plain 200 that says why (it had been a

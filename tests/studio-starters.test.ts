@@ -5,6 +5,7 @@ import { getIndices } from '@tldraw/utils';
 import { describe, expect, it } from 'vitest';
 import { asStarter, checkStarterBindings, guidedTemplates, STARTER_SEEDS, STARTER_WORKBENCH, starterProblems, starterTemplates, type StarterTemplate } from '../src/studio/templates.js';
 import { checkBindings, COLORS, defaultProps, emptySlot, richTextOf, SLOT_SHAPES, slotFit, slotPosition, starterRecords, STARTER_WORKBENCH as PAGE_WORKBENCH } from '../companion/studio-canvas/src/starters.js';
+import { ADD_COMMAND, ADD_WORDS, HOUDINI_LINE, HYTHON_COMMAND, stepPlan, stepsOn, VERBS } from '../companion/studio-canvas/src/steps.js';
 
 // R11 round 7 (H176): TEMPLATE SCHEMA v1. The three guided blank public starters (src/studio/templates/H*.json: the Houdini
 // handoff from P67's structure, the cookbook from T22's, the pipeline atlas from T24's typed-port pipeline) are read by
@@ -227,5 +228,64 @@ describe('the slots: where a drawn card lands on a starter', () => {
     expect(slotFit({ ...frame, props: { w: 400, h: 536 } }, [card])).toBeNull();
     expect(slotFit({ ...frame, props: { w: 600, h: 800 } }, [card])).toBeNull();
     expect(slotFit(frame, [{ ...card, parentId: 'shape:other' }])).toBeNull();
+  });
+});
+
+// R11 round 7 (H176; the operator's 19:18 order, item 6: "make Houdini starter nodes actionable"): each step's ONE verb and its state
+// line, from the project's own reading (the Nodes palette), by the rules companion/studio-canvas/src/steps.js draws in the page
+describe('the starter steps\' verbs (companion/studio-canvas/src/steps.js)', () => {
+  const page = (built: ReturnType<typeof starterRecords>) => built.shapes.map((s) => ({ ...s, parentId: s.parentId ?? 'page:p' }));
+  const palette = {
+    project: { id: 'p1', name: 'tray' },
+    groups: [
+      { kind: 'params', title: 'Parameter nodes', one: 'parameter node', items: [{ id: 'params:recipes/tray.params.json', kind: 'params', title: 'recipes/tray.params.json', state: 'saved · 6 values' }] },
+      { kind: 'workflow', title: 'Workflow nodes', one: 'workflow node', items: [{ id: 'workflow:BUILD.md', kind: 'workflow', title: 'BUILD.md', state: 'not run yet' }] },
+      { kind: 'result', title: 'Result nodes', one: 'result node', items: [{ id: 'flow:f1a2b3c4d', kind: 'flow', title: 'flow f1a2b3c4d: a tray, wider', state: 'ended · 2 steps' }] },
+      { kind: 'operation', title: 'Operation nodes', one: 'operation node', items: [] },
+    ],
+  };
+  const empty = { project: { id: 'p1', name: 'tray' }, groups: palette.groups.map((g) => ({ ...g, items: [] })) };
+  it('finds the three step frames of a starter in order, each with its slot and what the slot holds', () => {
+    const shapes = page(starterRecords(starterTemplates()[0], ids));
+    const steps = stepsOn(shapes);
+    expect(steps.map((s) => [s.n, s.verb, s.slot, s.card])).toEqual([['01', 'Define the geometry', 'result', null], ['02', 'Set the parameters', 'params', null], ['03', 'Cook in Houdini', 'workflow', null]]);
+    const card = { id: 'shape:card', type: 'timmy-params', parentId: steps[1].id, x: 20, y: 96, props: { w: 360, h: 420, card: 'params:recipes/tray.params.json', title: 'recipes/tray.params.json' } };
+    expect(stepsOn([...shapes, card])[1].card).toEqual(card);
+    // a card of another type in the frame is not the slot's card; a frame of a guided board (no starter meta) is no step
+    expect(stepsOn([...shapes, { ...card, type: 'timmy-result' }])[1].card).toBeNull();
+    expect(stepsOn([{ id: 'shape:f', type: 'frame', meta: { role: 'step' }, props: { name: '01 · x' } }])).toEqual([]);
+  });
+  it('01: Add a mesh places the first result node, else copies /add with its words; a mesh in the slot → Show the mesh selects it', () => {
+    const steps = stepsOn(page(starterRecords(starterTemplates()[0], ids)));
+    expect(stepPlan(steps[0], palette)).toEqual({ n: '01', verb: 'Add a mesh', state: '1 result node in the project · the flow: a tray, wider · ended · 2 steps', action: { kind: 'place', nodeKind: 'result', id: 'flow:f1a2b3c4d' } });
+    expect(stepPlan(steps[0], empty)).toEqual({ n: '01', verb: VERBS['01'], state: 'no mesh in this project yet', action: { kind: 'copy', command: ADD_COMMAND, words: ADD_WORDS.mesh } });
+    expect(stepPlan(steps[0], null).state).toBe('reading the project…');
+    const inSlot = { ...steps[0], card: { id: 'shape:r', type: 'timmy-result', parentId: steps[0].id, props: { card: 'flow:f1a2b3c4d', title: 'flow f1a2b3c4d: a tray, wider' } } };
+    expect(stepPlan(inSlot, palette)).toEqual({ n: '01', verb: 'Show the mesh', state: 'the flow: a tray, wider · ended · 2 steps', action: { kind: 'select', shape: 'shape:r' } });
+    // the words never claim a run: the copied command is said as copied, for Timmy's terminal
+    expect(ADD_WORDS.mesh).toMatch(/^Copied \/add <file> for Timmy's terminal/);
+    expect(ADD_WORDS.mesh).toMatch(/Nothing ran on this board\.$/);
+  });
+  it('02: Edit the parameters places the parameter node (or selects the one in the slot); without a parameter file the verb is Add a parameter file and copies /add', () => {
+    const steps = stepsOn(page(starterRecords(starterTemplates()[1], ids)));
+    expect(stepPlan(steps[1], palette)).toEqual({ n: '02', verb: 'Edit the parameters', state: '1 parameter node in the project · tray.params.json · saved · 6 values', action: { kind: 'place', nodeKind: 'params', id: 'params:recipes/tray.params.json' } });
+    const inSlot = { ...steps[1], card: { id: 'shape:p', type: 'timmy-params', parentId: steps[1].id, props: { card: 'params:recipes/tray.params.json', title: 'recipes/tray.params.json' } } };
+    expect(stepPlan(inSlot, palette)).toEqual({ n: '02', verb: 'Edit the parameters', state: 'tray.params.json · saved · 6 values', action: { kind: 'select', shape: 'shape:p' } });
+    expect(stepPlan(steps[1], empty)).toEqual({ n: '02', verb: 'Add a parameter file', state: 'no parameter file in this project yet', action: { kind: 'copy', command: ADD_COMMAND, words: ADD_WORDS.params } });
+  });
+  it('03: Copy the hython command copies the engine shelf\'s own invocation with the honest line, never a run; the state is the workflow node\'s own word', () => {
+    const steps = stepsOn(page(starterRecords(starterTemplates()[2], ids)));
+    const plan = stepPlan(steps[2], palette);
+    expect(plan.verb).toBe('Copy the hython command');
+    expect(plan.state).toBe('1 workflow node in the project · BUILD.md · not run yet · no native Houdini operation');
+    expect(plan.action).toEqual({ kind: 'copy', command: HYTHON_COMMAND, words: `Copied the hython command for a terminal on a computer with Houdini: ${HYTHON_COMMAND}. ${HOUDINI_LINE}` });
+    expect(HYTHON_COMMAND).toBe('hython lanes/engines/houdini/templates/procedural-asset/script.py <mesh file> <out dir> <stem>');
+    // the script the command names is in the repo, and its own first line says that invocation
+    expect(readFileSync(`${repo}lanes/engines/houdini/templates/procedural-asset/script.py`, 'utf8').split('\n')[0]).toContain('hython script.py <drop file> <out dir> <stem>');
+    expect(HOUDINI_LINE).toBe('Nothing on this board calls Houdini, and Houdini is not connected to this Studio: this copies the command, nothing runs.');
+    expect(stepPlan(steps[2], empty).state).toBe('no workflow document in this project yet · no native Houdini operation');
+    const inSlot = { ...steps[2], card: { id: 'shape:w', type: 'timmy-workflow', parentId: steps[2].id, props: { card: 'workflow:BUILD.md', title: 'BUILD.md' } } };
+    expect(stepPlan(inSlot, palette).state).toBe('BUILD.md · not run yet');
+    for (const n of ['01', '02', '03'] as const) expect(JSON.stringify(stepPlan(steps[Number(n) - 1], palette))).not.toMatch(/\b(ran|running|cooked|done)\b/);
   });
 });

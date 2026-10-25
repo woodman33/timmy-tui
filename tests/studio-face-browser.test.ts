@@ -69,7 +69,7 @@ describe.skipIf(!browserPath)("Timmy Studio's face in words, its ids, places and
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}/#code=${await grant(port, server.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-    await page.waitForFunction(() => document.querySelectorAll('#frame-tabs li').length === 10 && document.querySelectorAll('#frame-acts li').length > 0, null, { timeout: 30_000 });
+    await page.waitForFunction(() => Boolean(document.getElementById('frame')?.dataset.revision) && document.querySelectorAll('#frame-acts li').length > 0, null, { timeout: 30_000 });
     return { page, context, errors };
   }
   const shoot = async (page: Page, name: string): Promise<void> => {
@@ -96,7 +96,8 @@ describe.skipIf(!browserPath)("Timmy Studio's face in words, its ids, places and
     const { page, context, errors } = await open({ width: 1376, height: 768 });
     try {
       // the person's own shape, then the agent's draft over it (scripted, FAKE), its job linked to a receipt as the REPL links one
-      await page.evaluate(() => (window as never as { timmyCanvas: { editor: { createShape: (s: unknown) => void } } }).timmyCanvas.editor.createShape({ type: 'geo', x: 500, y: 240, props: { w: 260, h: 140 } }));
+      // (the call returns nothing to the test: createShape returns the Editor, whose reactive graph Playwright would otherwise serialize whole)
+      await page.evaluate(() => { (window as never as { timmyCanvas: { editor: { createShape: (s: unknown) => void } } }).timmyCanvas.editor.createShape({ type: 'geo', x: 500, y: 240, props: { w: 260, h: 140 } }); });
       const drawn = await agent('canvas_exec', { code: DRAFT, jobId: JOB });
       expect(drawn).toMatchObject({ ok: true, jobId: JOB, draft: { shapes: 2 } });
       const linked = await fetch(`${base}/api/canvas/jobs/${JOB}/receipt`, { method: 'POST', headers: { ...bearer(server.projectToken), 'Content-Type': 'application/json' }, body: JSON.stringify({ receipt: RECEIPT }) });
@@ -138,14 +139,20 @@ describe.skipIf(!browserPath)("Timmy Studio's face in words, its ids, places and
       const about = await page.$eval('#side-about', (d) => (d as HTMLElement).innerText);
       expect(about).toMatch(/^Details\n+tldraw 5\.5\.2 · .+\n+Saved in /);
       expect(about).toContain(join(home, 'canvas', 'projects'));
+      // item 7 (H176): no key at all here (development mode), so the line names no FAKE key — that word is for a key a test SET
+      expect(about).not.toContain('FAKE key');
+      expect(await page.$eval('#side-about-canvas', (e) => (e as HTMLElement).dataset.key)).toBe('none');
       const build = page.locator('#project-groups li.pcard[data-card="workflow:BUILD.md"]');
       await build.locator('.pcard-more > summary').click();
       const more = await build.locator('.pcard-more').innerText();
       expect(more).toContain('record BUILD.md');
       expect(more).toContain('no operation: not run yet');
       expect(more).toContain('/run BUILD.md render');
-      // the strip's Commands shows each step's command beside its Copy
-      expect(await page.locator('#frame code.fr-cmd:visible').count()).toBe(0);
+      // the work's Commands (the steps live in the panel, D14 R75) shows each step's command beside its Copy. The next step shows
+      // alone at first, and here it is the draft step (Go to the draft, no command of its own): the other steps are opened first
+      expect(await page.locator('#frame-work code.fr-cmd:visible').count()).toBe(0);
+      await page.click('#frame-more-toggle');
+      expect(await page.locator('#frame-work code.fr-cmd:visible').count()).toBe(0);
       await page.click('#frame-cmds-toggle');
       const commands = await page.locator('#frame-acts code.fr-cmd:visible').allTextContents();
       expect(commands.length).toBeGreaterThan(0);
