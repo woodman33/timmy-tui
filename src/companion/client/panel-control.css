@@ -16,6 +16,13 @@
 #ws-control .page-work { container-type: inline-size; }
 #ws-control .page-work .cols-control { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto; }
 #ws-control .page-work .cols-control > .control-host { grid-column: 1 / -1; grid-row: 1; }
+/* each box keeps its room on the scrolling page (R5's defect 5: none drawn over another, a cut list shaded at its edge): B10 bound
+   the whole page to the window, which made the stack's 60 % box and the panes' rows definite; the scaffold's pages scroll
+   (SHELL CONTRACT v1 §4: the dock sticks at the bottom of the page's scroll), so the stack and the "Where work happens" card
+   are bound to a window's worth of height here and scroll inside themselves — the same bound as the panes host above */
+#ws-control .page-work .cols-control > .col-stack { height: 62vh; }
+#ws-control .page-work .cols-control > #tab-workspace { max-height: 62vh; }
+#ws-control #tab-workspace > .box { min-height: 0; }
 @container (min-width: 1100px) {
   #ws-control .page-work .cols-control { grid-template-columns: minmax(0, 24fr) minmax(0, 52fr) minmax(0, 24fr); grid-template-rows: none; }
   #ws-control .page-work .cols-control > .control-host { grid-column: auto; grid-row: auto; }
@@ -96,6 +103,8 @@
 /* ── the phone (D5: ≤ 720 px) ── */
 @media (max-width: 720px) {
   #ws-control .cols-control > .control-host { max-height: none; }
+  #ws-control .page-work .cols-control > .col-stack { height: auto; }
+  #ws-control .page-work .cols-control > #tab-workspace { max-height: none; }
   #ws-control .room-counts { font-size: var(--timmy-ui-size-body, 14px); }
   #ws-control .fleet-row { grid-template-columns: minmax(0, 1fr); }
   #ws-control .fleet-word { white-space: normal; }

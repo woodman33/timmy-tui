@@ -691,11 +691,20 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       expect(boxes).toHaveLength(2);
       for (const b of boxes) expect(b.height).toBeGreaterThan(80);
       expect(boxes[1].top).toBeGreaterThanOrEqual(boxes[0].bottom);
-      // R11 round 7 (SHELL CONTRACT v1): the records band lives in the page's records region, drawn after the work region, which
-      // scrolls inside itself — so the band sits below the WORK REGION's edge (the boxes may run on inside it), never over a box
+      // R11 round 7 (SHELL CONTRACT v1 §4; H169 on the lead's 00:15 item, measured on c72a265a): every page but Chat is
+      // min-height 100% of #ws-main and SCROLLS inside it (the dock sticks at the bottom of the page's scroll), so a Control
+      // Room with many turns runs on below the first screen (its work's bottom at y ≈ 2600 at 1376×768 — on 2e6266ff too, before
+      // D23); the records band is the SHELL's own bottom band (.shell-body > .ws-activity), drawn after #ws-main's scroll region —
+      // so it sits after that region's edge and is never over a box: a box that runs on is clipped by #ws-main's scroll, not
+      // drawn under the band. Each of the Control Room's boxes is bounded by panel-control.css and scrolls inside itself (below).
       const strip = await page.$eval('.ws-activity', (e) => e.getBoundingClientRect().top);
-      const workBottom = await page.$eval('#ws-control .page-work, #ws-control .page-body', (e) => e.getBoundingClientRect().bottom).catch(() => boxes[1].bottom);
-      expect(strip, 'the records band below the work region').toBeGreaterThanOrEqual(Math.min(workBottom, boxes[1].bottom) - 0.5);
+      const mainBottom = await page.$eval('#ws-main', (e) => e.getBoundingClientRect().bottom);
+      expect(strip, 'the records band after the pages\' scroll region').toBeGreaterThanOrEqual(mainBottom - 0.5);
+      expect(await page.$eval('#ws-main', (e) => getComputedStyle(e).overflowY), 'the pages scroll inside #ws-main').toBe('auto');
+      // each box of the stack is bounded (a window's worth of height, panel-control.css), so none runs on past the work's grid
+      const stack = await page.$eval('#ws-control .col-stack', (e) => e.getBoundingClientRect());
+      for (const b of boxes) { expect(b.bottom).toBeLessThanOrEqual(stack.bottom + 0.5); expect(b.top).toBeGreaterThanOrEqual(stack.top - 0.5); }
+      expect(stack.height).toBeLessThanOrEqual(768);
       // the turns go on below the first box's edge: it scrolls inside, and its bottom border says so until the end is in view
       const fit = '#ws-control .col-stack > .box.box-fit';
       expect(await page.$eval(`${fit} > .box-body`, (e) => e.scrollHeight > e.clientHeight + 1)).toBe(true);
