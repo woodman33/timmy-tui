@@ -52,7 +52,10 @@
     // the board page the map draws (chosen by its tab; else the selected item's page, else the fullest)
     mapPage: '',
     // why the last Open Timmy Studio opened the plain address (no grant could be made), said in the records
-    openWhy: '' };
+    openWhy: '',
+    // R11 round 7 (H176; the lead's D20): the canvas's own facts (GET /api/canvas: the board's revision, source revision, save time and
+    // canvas jobs) for the page's records — the legacy "Timmy Canvas · revision and jobs" card's facts, without its opener link
+    canvas: null, canvasSig: '' };
   /** The shell, when it is on the page (SHELL CONTRACT v1); null before it lands: the panel then draws its own head, dock, context and records. */
   const shell = () => (typeof window.TimmyShell === 'object' && window.TimmyShell && typeof window.TimmyShell.page === 'function' ? window.TimmyShell : null);
   /** The page's section on the scaffold (its dock, context and records), or null. */
@@ -94,7 +97,7 @@
   }
 
   function reset(project) {
-    S.project = project; S.ticket += 1; S.answer = null; S.sig = ''; S.at = 0; S.root = null; S.selected = ''; S.pageSig = ''; S.mapPage = ''; S.openWhy = '';
+    S.project = project; S.ticket += 1; S.answer = null; S.sig = ''; S.at = 0; S.root = null; S.selected = ''; S.pageSig = ''; S.mapPage = ''; S.openWhy = ''; S.canvas = null; S.canvasSig = '';
     S.thumbs.clear();
   }
 
@@ -107,15 +110,24 @@
         h('h2', { class: 'sb-page-title' }, 'A workspace you can think in.'),
         h('p', { class: 'sb-page-intro' }, 'Arrange references, parameters and results on a persistent project canvas.')),
       h('div', { class: 'sb-body' },
-        h('section', { class: 'box sb-box', 'aria-labelledby': 'studio-board-title', 'data-studio': 'root' },
-          h('h2', { class: 'box-title', id: 'studio-board-title', 'data-studio': 'title' }, 'On the board'),
-          h('div', { class: 'box-body' },
+        // R11 round 7 (H176; the lead's D20): on the scaffold the board is the page's WORK itself — the map and the list, with one
+        // fact line above them when the board holds something — not a titled card: the empty-board note is the shell's state note,
+        // said once. Without the shell (a page before it lands) the panel keeps its own titled box.
+        shell()
+          ? h('div', { class: 'sb-board', 'data-studio': 'root', 'aria-label': 'The board' },
             h('p', { class: 'sb-summary', 'data-studio': 'summary', role: 'status' }, 'Reading the board…'),
-            // R11 round 7 (H176; the lead's D14 R88): the board's map — each item where it sits on its page, drawn from the saved
-            // board (the preview, since the Studio itself cannot be embedded here: the companion's page policy frames only itself)
             h('div', { class: 'sb-map', 'data-studio': 'map', hidden: true }),
             h('ol', { class: 'sb-list', 'data-studio': 'list' }),
-            h('p', { class: 'sb-foot', 'data-studio': 'foot' }))),
+            h('p', { class: 'sb-foot', 'data-studio': 'foot' }))
+          : h('section', { class: 'box sb-box', 'aria-labelledby': 'studio-board-title', 'data-studio': 'root' },
+            h('h2', { class: 'box-title', id: 'studio-board-title', 'data-studio': 'title' }, 'On the board'),
+            h('div', { class: 'box-body' },
+              h('p', { class: 'sb-summary', 'data-studio': 'summary', role: 'status' }, 'Reading the board…'),
+              // R11 round 7 (H176; the lead's D14 R88): the board's map — each item where it sits on its page, drawn from the saved
+              // board (the preview, since the Studio itself cannot be embedded here: the companion's page policy frames only itself)
+              h('div', { class: 'sb-map', 'data-studio': 'map', hidden: true }),
+              h('ol', { class: 'sb-list', 'data-studio': 'list' }),
+              h('p', { class: 'sb-foot', 'data-studio': 'foot' }))),
         // the selected item's context, drawn here while the shell's context column is not on the page
         shell() ? null : h('aside', { class: 'box sb-context', 'data-studio': 'context-own', 'aria-label': 'The selected item' },
           h('h2', { class: 'box-title' }, 'Selected'), h('div', { class: 'box-body', 'data-studio': 'context' }, h('p', { class: 'empty' }, 'Choose an item on the board: its links and words show here.')))),
@@ -150,7 +162,8 @@
       });
       if (!a) sh.state('canvas', 'content');
       else if (a.board.unreadable) sh.state('canvas', 'error', { words: `${name}'s saved board could not be read, so nothing of it is listed. Studio keeps such a file aside when it opens the board; nothing was changed here.`, next: { label: 'Read the board again', run: () => { S.sig = ''; void read(); } } });
-      else if (!a.items.length) sh.state('canvas', 'empty', { words: `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts, reference images and nodes on it, and New board opens a guided starter.`, next: HERE && studio ? { label: 'Open Timmy Studio', run: () => openStudio() } : undefined });
+      // (the lead's D20: the work says Open Timmy Studio ONCE — the page primary; the empty note carries no second button)
+      else if (!a.items.length) sh.state('canvas', 'empty', { words: `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts, reference images and nodes on it, and New board opens a guided starter.` });
       else sh.state('canvas', 'content');
     } catch (e) { /* the shell's registration is a courtesy: the panel's own work is drawn either way */ }
   }
@@ -196,7 +209,62 @@
     if (own) own.replaceWith(tools); else dock.append(tools);
   }
 
-  /** The page's records: the board's revision and where it is saved, Studio's address, the starters New board offers (quiet, expandable). */
+  /**
+   * R11 round 7 (H176; the lead's D20): the canvas's facts as GET /api/canvas gives them (S.canvas), in words: whose board, its
+   * revision and source revision (or not saved yet) and when it was saved, then each canvas job with its outcome and receipt (the
+   * receipt's page in Studio linked on this computer; nothing else is a link here). Reading them is said while it is on its way.
+   */
+  function canvasFacts(h, a) {
+    const c = S.canvas;
+    const name = a.project.name;
+    if (!c) return [h('p', { class: 'sb-rec-line sb-rec-muted', 'data-studio': 'canvas-facts' }, `The board of ${name} (each project has its own): its revision and canvas jobs are being read…`)];
+    if (c.error) return [h('p', { class: 'sb-rec-line sb-rec-muted', 'data-studio': 'canvas-facts' }, `The board of ${name} (each project has its own): its revision and canvas jobs could not be read (${c.error}).`)];
+    const studio = String(a.studio || c.open || '').replace(/\/+$/, '');
+    const jobs = Array.isArray(c.jobs) ? c.jobs : [];
+    const head = c.unreadable
+      ? `The board of ${name} (each project has its own) · the saved canvas could not be read: Studio keeps the file aside when it opens the board and starts blank.`
+      : `The board of ${name} (each project has its own) · Revision ${c.revision ?? 0}${c.sourceRevision ? ` · source ${String(c.sourceRevision).slice(0, 12)}` : ' · not saved yet'}${c.savedAt ? ` · saved ${when(c.savedAt)}` : ''} · ${jobs.length ? plural(jobs.length, 'canvas job', 'canvas jobs') : 'No canvas jobs yet'}.`;
+    return [
+      h('p', { class: 'sb-rec-line', 'data-studio': 'canvas-facts' }, head),
+      jobs.length ? h('ol', { class: 'sb-rec-jobs', 'data-studio': 'canvas-jobs' }, jobs.map((j) => h('li', null,
+        j.ok ? '✓ done' : '✖ failed', ` ${j.id} · revision ${j.revision} · `,
+        j.receipt ? (HERE && studio ? h('a', { class: 'sb-link', href: `${studio}/receipts/${encodeURIComponent(j.receipt)}`, target: '_blank', rel: 'noopener noreferrer' }, `receipt ${j.receipt}`) : `receipt ${j.receipt}`) : 'no receipt yet'))) : null,
+    ];
+  }
+  /** Reads the canvas's facts (GET /api/canvas for the shown project) and draws the records again when they changed. */
+  async function readCanvas() {
+    const ctx = S.ctx;
+    const mine = S.ticket;
+    let body = null;
+    try {
+      const r = await ctx.fetch(`/api/canvas${S.project ? `?project=${encodeURIComponent(S.project)}` : ''}`);
+      body = r.ok ? await r.json().catch(() => null) : { error: `the companion answered HTTP ${r.status}` };
+    } catch (e) { body = { error: 'the companion did not answer' }; }
+    if (mine !== S.ticket || !S.answer) return;
+    const next = body && typeof body === 'object' ? body : { error: 'no answer' };
+    const sig = JSON.stringify([next.revision, next.sourceRevision, next.savedAt, next.unreadable, next.error, next.jobs]);
+    if (sig === S.canvasSig) return;
+    S.canvasSig = sig;
+    S.canvas = next;
+    drawRecords(ctx.h);
+  }
+
+  /**
+   * R11 round 7 (H176; the lead's D20): on the scaffold the page's work is the board alone — the legacy cards of the section
+   * ("Timmy Studio" with its own Open Studio, "Timmy Canvas · revision and jobs" with its Open Timmy Canvas link) are hidden, their
+   * facts in the records above; the elements stay in the page (companion.js keeps filling #canvas-summary, which the page's other
+   * readers wait on), hidden, never shown. Without the shell nothing is hidden.
+   */
+  function hideLegacyCards() {
+    const sec = section();
+    if (!sec || !shell()) return;
+    for (const sel of ['section[aria-labelledby="studio-state-title"]', '#tab-canvas']) {
+      const el = sec.querySelector(sel);
+      if (el && !el.hidden) { el.hidden = true; el.setAttribute('data-studio-hidden', 'd20'); }
+    }
+  }
+
+  /** The page's records: the board's revision and where it is saved, the canvas's facts, Studio's address, the starters New board offers (quiet, expandable). */
   function drawRecords(h) {
     const a = S.answer;
     const host = region('page-records') || (S.root && S.root.querySelector('[data-studio="records-own"]'));
@@ -206,6 +274,9 @@
     const rec = h('details', { class: 'records sb-rec', 'data-studio-records': 'canvas' },
       h('summary', null, `Records · revision ${a.board.revision ?? 'none'}${a.board.savedAt ? `, saved ${when(a.board.savedAt)}` : ''}`),
       h('p', { class: 'sb-rec-line' }, a.board.unreadable ? 'The saved board could not be read.' : `${a.project.name}'s board, as Studio last saved it: ${countWords(a.counts) || 'nothing on it'}${a.drafts.length ? ` · ${plural(a.drafts.length, 'draft', 'drafts')} waiting for Accept or Discard in Studio` : ''}.`),
+      // R11 round 7 (H176; the lead's D20): the canvas's own facts (the legacy "Timmy Canvas · revision and jobs" card's), here in the
+      // records, without an opener of their own — the page primary is the one opener
+      ...canvasFacts(h, a),
       a.oldLayout ? h('p', { class: 'sb-rec-line' }, a.oldLayout) : null,
       h('p', { class: 'sb-rec-line' }, 'Studio: ', h('code', { class: 'sb-addr' }, `${studio}/`), HERE ? ' (Open Timmy Studio, above, opens it with a one-time grant when the Studio\'s token file is in this Timmy home)' : ' on the computer that runs Timmy'),
       S.openWhy ? h('p', { class: 'sb-rec-line sb-rec-muted', 'data-studio': 'open-why' }, S.openWhy) : null,
@@ -464,15 +535,24 @@
       ? { shape: f.closest('[data-shape]').dataset.shape, cls: ['sb-thumb', 'sb-open', 'sb-link'].find((c) => f.classList.contains(c)) || '', attr: f.getAttribute('data-open-vox') ?? f.getAttribute('data-open-run') ?? '' }
       : null;
     put(q('title'), `On ${name}'s board`);
+    hideLegacyCards();
     const summary = q('summary');
     summary?.classList.remove('tone-failed');
+    // (the lead's D20: with the shell on the page the empty board and an unreadable board are the shell's state note, said ONCE — the
+    // panel's own line is for a board that holds something; without the shell the line says each case itself)
+    const onShell = Boolean(shell());
+    if (summary) summary.hidden = false;
+    // (hidden, the line is emptied too: nothing of a board before stays in the page under this project's name)
+    const quiet = () => { if (summary) { summary.hidden = true; put(summary); } };
     if (a.board.unreadable) {
-      put(summary, `${name}'s saved board could not be read, so nothing of it is listed here. Studio keeps such a file aside when it opens the board; nothing was changed here.`);
-      summary?.classList.add('tone-failed');
+      if (onShell) quiet();
+      else { put(summary, `${name}'s saved board could not be read, so nothing of it is listed here. Studio keeps such a file aside when it opens the board; nothing was changed here.`); summary?.classList.add('tone-failed'); }
     } else if (!a.board.revision && !a.items.length) {
-      put(summary, `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts and reference images on it (each project has its own board).`);
+      if (onShell) quiet();
+      else put(summary, `Nothing on ${name}'s board yet. In Studio, its side panel places the project's artifacts and reference images on it (each project has its own board).`);
     } else if (!a.items.length) {
-      put(summary, `${name}'s own board, as Studio last saved it (revision ${a.board.revision}${a.board.savedAt ? `, ${when(a.board.savedAt)}` : ''}): nothing on it.`);
+      if (onShell) quiet();
+      else put(summary, `${name}'s own board, as Studio last saved it (revision ${a.board.revision}${a.board.savedAt ? `, ${when(a.board.savedAt)}` : ''}): nothing on it.`);
     } else {
       const waiting = a.drafts.length ? ` ${plural(a.drafts.length, 'draft', 'drafts')} of Timmy's waiting for Accept or Discard in Studio.` : '';
       put(summary, `${name}'s own board, as Studio last saved it (revision ${a.board.revision}${a.board.savedAt ? `, ${when(a.board.savedAt)}` : ''}): ${countWords(a.counts)}.${waiting}`);
@@ -494,6 +574,8 @@
     drawDock(h);
     drawRecords(h);
     drawContext(h);
+    // the canvas's facts for the records (its own route; drawn again when they arrive or change)
+    void readCanvas();
   }
 
   /** Read again every few seconds while the tab is on screen and the page is visible (the frame alone may not change). */

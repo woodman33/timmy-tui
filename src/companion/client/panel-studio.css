@@ -8,13 +8,13 @@
    companion.css's `#ws-studio > .cols-two` no longer reaches): the board list — the page's work — takes the wide right column,
    whole height; Timmy Studio's state, the canvas's revision and jobs, and the tab's actions stack on the left (companion.css
    1500–1503 place them). A narrow screen keeps the page's order. */
+/* (R11 round 7, H176; the lead's D20: the state and canvas cards are hidden by the panel on the scaffold — their facts are the page's
+   records — so the left column holds the tab's actions alone, at the top; the board keeps the wide right column, whole height) */
 @media (min-width: 861px) {
-  #ws-studio .page-work > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
+  #ws-studio .page-work > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: minmax(0, 1fr); }
   #ws-studio .page-work > .cols-two > .col-stack { display: contents; }
-  #ws-studio .page-work > .cols-two section[aria-labelledby="studio-state-title"] { grid-column: 1; grid-row: 1; max-height: none; }
-  #ws-studio .page-work > .cols-two #tab-canvas { grid-column: 1; grid-row: 2; }
-  #ws-studio .page-work > .cols-two section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 3; }
-  #ws-studio .page-work > .cols-two .studio-host { grid-column: 2; grid-row: 1 / span 3; }
+  #ws-studio .page-work > .cols-two section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 1; align-self: start; }
+  #ws-studio .page-work > .cols-two .studio-host { grid-column: 2; grid-row: 1; }
 }
 
 /* the chain companion.css gives the host's direct box (#ws-studio .studio-host > .box.sb-box: flex 1 1 auto, min-height 0), carried
@@ -101,3 +101,12 @@
   .sb-item { grid-template-columns: minmax(0, 1fr); }
   .sb-thumb { width: 100%; height: 120px; }
 }
+
+/* R11 round 7 (H176; the lead's D20): on the scaffold the board is the page's work itself — the map and the list with one fact line —
+   not a titled card; the empty note is the shell's state note, said once (the panel's own line hides then); the section's legacy
+   cards ("Timmy Studio" with its own Open Studio, "Timmy Canvas · revision and jobs" with its Open Timmy Canvas link) are hidden by
+   the panel (their facts are in the records; the elements stay for the page's other readers, never shown) */
+.sb-board { display: grid; gap: var(--timmy-ui-space-2, 8px); min-width: 0; min-height: 0; }
+.sb-summary[hidden] { display: none; }
+#ws-studio [data-studio-hidden="d20"] { display: none !important; }
+.sb-rec-jobs { margin: 2px 0 0; padding-left: 18px; display: grid; gap: 2px; }
