@@ -292,7 +292,11 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await o.page.waitForTimeout(500);
         const after = await text(o.page);
         expect(after).toMatch(/Create your Timmy account|Welcome back to Timmy|Sign-in is not set up on this companion/);
-        expect(after).not.toMatch(/Signed in|Sign out/i);
+        // (nothing is signed in: no "Signed in · <name>" status and no Sign out control — the account page's own sentence "Nothing is signed
+        // in and no account is pretended." says the same and is not a sign-in: GATE 06's read)
+        expect(after).not.toMatch(/Signed in · |Signed in as\b/i);
+        expect(await o.page.getByRole('button', { name: /^Sign out/ }).count(), 'no Sign out control (nothing is signed in)').toBe(0);
+        expect(await o.page.locator('#rail-account').first().getAttribute('data-signed').catch(() => null), 'the rail\'s account block is not signed').not.toBe('yes');
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not').toEqual([]);
@@ -327,19 +331,18 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const phone = size.width <= 720;
         const contextOpen = async (): Promise<void> => {
           if (!phone || await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) return;
-          await o.page.locator('.page-context-btn').first().click();
+          await o.page.locator('.page-context-btn').filter({ visible: true }).first().click();
           await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 });
         };
         const contextClose = async (): Promise<void> => { if (phone && await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape'); };
         const localCard = o.page.locator('[data-provider="ollama-local"]').first();
         await localCard.click();
-        await contextOpen();
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
         let pressedCheck: string;
-        if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
-        else if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
-        else throw new Error(`${at}: no Check control for Ollama · local — neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); ${facts(o)()}; the page read:\n${(await text(o.page)).slice(0, 1500)}`);
+        // (the card's own verb is pressed on the page itself, BEFORE the phone's modal context sheet is opened — the sheet would intercept it)
+        if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; await contextOpen(); }
+        else { await contextOpen(); if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; } else throw new Error(`${at}: no Check control for Ollama · local — neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); ${facts(o)()}; the page read:\n${(await text(o.page)).slice(0, 1500)}`); }
         await o.page.waitForFunction((m) => (document.querySelector('[data-cn-found="ollama-local"]')?.textContent ?? '').includes(m), MODEL, { timeout: 20_000 }).catch(async () => { throw new Error(`${at}: the FAKE Ollama's model "${MODEL}" did not reach the context's "What the check found" within 20 s after ${pressedCheck}; ${facts(o)()}; the page read:\n${(await text(o.page)).slice(0, 1500)}`); });
         const found = ((await o.page.locator('[data-cn-found="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         await caps.cap(o.page, size, 'connections-after-check', [`Ollama · local after Check — pressed: ${pressedCheck}; the FAKE Ollama on 127.0.0.1 answered its model list (one FAKE model, no model ran); the context's "What the check found": "${found.slice(0, 200)}"${phone ? '; the context open as a sheet in this picture' : ''}.`]);
@@ -401,7 +404,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await (hasContinue ? continueBtn.first() : o.page.getByRole('button', { name: /Explore without a model/ }).first()).click();
         const toChat = await o.page.waitForFunction(() => (document.body.getAttribute('data-screen') || document.body.getAttribute('data-page')) === 'chat', null, { timeout: 5_000 }).then(() => true, () => false);
         const took = Date.now() - pressedAt;
-        expect(toChat, `${at}: after ${pressed} the page is the Chat (body[data-page]) within 5 s — it reads "${await screenOf(o.page)}" after ${took} ms; ${facts(o)()}`).toBe(true);
+        expect(toChat, `${at}: after ${pressed} the page is the Chat (body[data-page]) within 5 s — it reads "${await screenOf(o.page)}" after ${took} ms${hasContinue ? ' (Continue runs shell.js land(), which decides on GET /api/chat/route — server.ts :685: the COMPANION\'s own route behind withToken, pageRoute(chatEnv(), cwd), never the signed-in user\'s; a ready user route with an unready companion route sends the page back to Models & accounts)' : ''}; ${facts(o)()}`).toBe(true);
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
         // the route mirror in the Chat's records (#mirror-route; the lead's 2e6266ff after H171's 16:48 finding): the companion's 401 for
@@ -578,18 +581,25 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       // were it not ready here, the same choice is made through the page's own route (POST /api/chat/choose) and SAID, so this read
       // is about Continue, not a cascade of case 3.
       const session = identity.token(USER);
-      let route = await api(configured!, 'GET', '/api/chat/route', { session });
-      expect(route.status, `GET /api/chat/route as the user: ${route.text.slice(0, 200)}`).toBe(200);
+      // (the USER's route is the Chat's own — GET /api/chat/view's `route` for the user's project under the user's env; GET /api/chat/route
+      // is server.ts's legacy operator route: withToken only, pageRoute(chatEnv(), process.cwd()) — the COMPANION's own env, never the
+      // user's — read beside it here and SAID, since shell.js land() decides Continue on that one: GATE 06's finding, 2026-10-24 23:0x)
+      const userRoute = async (): Promise<{ status: number; json: any; text: string }> => api(configured!, 'GET', '/api/chat/view', { session });
+      let view = await userRoute();
+      expect(view.status, `GET /api/chat/view as the user: ${view.text.slice(0, 200)}`).toBe(200);
       let readyBy = 'case 3\'s choice of the FAKE model in the Models context';
-      if (!route.json?.ready) {
+      if (!view.json?.route?.ready) {
         const list = await api(configured!, 'GET', '/api/projects', { session });
         const rows: Array<{ id?: string }> = Array.isArray(list.json) ? list.json : list.json?.projects ?? [];
         const chosen = await api(configured!, 'POST', '/api/chat/choose', { session, query: rows[0]?.id ? { project: String(rows[0].id) } : {}, body: { source: 'ollama-local', model: MODEL } });
-        readyBy = `POST /api/chat/choose made by this case (the route was not ready before it: "${String(route.json?.label ?? route.text.slice(0, 80))}"; the choice answered ${chosen.status})`;
+        readyBy = `POST /api/chat/choose made by this case (the user's route was not ready before it: "${String(view.json?.route?.label ?? view.text.slice(0, 80))}"; the choice answered ${chosen.status})`;
         console.warn(`390x844 case 4: ${readyBy}`);
-        route = await api(configured!, 'GET', '/api/chat/route', { session });
+        view = await userRoute();
       }
-      expect(route.json?.ready, `a usable route for the Continue read (${readyBy}): ${route.text.slice(0, 200)}`).toBe(true);
+      expect(view.json?.route?.ready, `a usable route for the Continue read (${readyBy}): ${JSON.stringify(view.json?.route ?? view.text.slice(0, 200))}`).toBe(true);
+      const legacyRoute = await api(configured!, 'GET', '/api/chat/route', { session });
+      const legacyReady = Boolean(legacyRoute.json?.ready);
+      console.warn(`390x844 case 4: the USER's route (GET /api/chat/view → route) is READY ("${String(view.json?.route?.label ?? '')}"); GET /api/chat/route (the legacy operator route shell.js land() reads) says ready=${legacyReady} ("${String(legacyRoute.json?.label ?? legacyRoute.text.slice(0, 80))}")`);
       // Models & accounts reached as a person reaches it on a phone: the rail sheet's item
       await o.page.locator('#shell-menu').or(o.page.getByRole('button', { name: 'Menu' })).first().click();
       await o.page.waitForTimeout(300);
@@ -606,7 +616,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       await primary.first().click();
       const toChat = await o.page.waitForFunction(() => (document.body.getAttribute('data-screen') || document.body.getAttribute('data-page')) === 'chat', null, { timeout: 5_000 }).then(() => true, () => false);
       const took = Date.now() - pressedAt;
-      expect(toChat, `390x844: "Continue to the workspace" pressed on Models & accounts with a usable route (${readyBy}) → the page is the Chat (body[data-page]) within 5 s (H175's land('continue')) — it reads "${await screenOf(o.page)}" after ${took} ms; ${facts(o)()}`).toBe(true);
+      expect(toChat, `390x844: "Continue to the workspace" pressed on Models & accounts with the USER's route ready (${readyBy}) → the page is the Chat (body[data-page]) within 5 s (H175's land('continue')) — it reads "${await screenOf(o.page)}" after ${took} ms; GET /api/chat/route (the companion's own route, which shell.js land() :695 reads to decide) says ready=${legacyReady} — when it is false while the user's route is ready, land() sends the page back to Models & accounts: the cause is in the code (server.ts :685 answers pageRoute(chatEnv(), cwd) behind withToken; the user's route is /api/chat/view's); ${facts(o)()}`).toBe(true);
       await until(o.page, 'the chat screen after Continue', (s) => /Message Timmy/i.test(s), 10_000, undefined, facts(o));
       await caps.cap(o.page, { width: 390, height: 844 }, 'mobile-continue-chat', [`The Chat ${took} ms after "Continue to the workspace" was pressed on Models & accounts at 390 (the bound: 5 s; the route ready by ${readyBy}; H175's land('continue') on this head).`]);
       expect(o.errors, 'page errors').toEqual([]);

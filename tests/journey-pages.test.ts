@@ -98,6 +98,7 @@ const SHELL = {
   /** §4 a phone (≤ 720 px): #shell-menu opens the rail sheet (.nav-rail.is-open, role=dialog aria-modal); the context is a sheet (.page-context.is-open) opened by .page-context-btn */
   menuButton: '#shell-menu',
   railSheet: '.nav-rail.is-open, #shell-rail[role="dialog"]',
+  /** (every page keeps its own button in the DOM, the hidden pages' too: a read takes the VISIBLE one — `.filter({ visible: true })` — the shown page's) */
   contextButton: '.page-context-btn',
   contextSheet: '.page-context.is-open',
   /** §5 Help & find: the rail's button #shell-help, the <dialog> #shell-help-dialog (⌘K / ?); Settings is reached from it or the account block (D3 amended) */
@@ -290,7 +291,7 @@ const landed = (page: Page): Promise<string> => until(page, 'the landing (a page
 /** The Chat with the FAKE model chosen for the next turn (H171's Models context; on a phone the context opens from its button). */
 async function chooseModel(o: Opened): Promise<Locator> {
   const phone = o.size.width <= 720;
-  if (phone) { await o.page.locator(SHELL.contextButton).first().click(); await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }); }
+  if (phone) { await o.page.locator(SHELL.contextButton).filter({ visible: true }).first().click(); await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }); }
   await o.page.getByRole('tab', { name: 'Ollama local' }).first().click();
   await until(o.page, 'the FAKE model in the list', (s) => s.includes(MODEL), 20_000);
   await o.page.locator('#cm-list').getByText(MODEL, { exact: false }).first().click();
@@ -314,6 +315,21 @@ async function toGlacier(page: Page): Promise<string> {
 }
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
+/**
+ * THE TRUTH LINE of every drawn production face (H174's 22:28 FOR H172; D18, 9bc54381): read from the runtime's own report — TimmyRive.inspect()
+ * — never guessed from the picture: headline { px, scale, reached } (the word the face draws, scaled to the 13-px floor where its room
+ * allows), words = the EFFECTIVE mode ('spoken': the face carries the word at ≥ 13 px and the HTML status is off the screen; 'beside': the
+ * HTML status is the visible word) with wordsWhy as the sentence, the ask (wordsAsked), the face's size and accessible name, the word.
+ * One line per mounted, drawn face; '' when none is drawn.
+ */
+const faceTruth = (page: Page): Promise<string[]> => page.evaluate(() => {
+  type H = { id: string; component: string; artboard: string | null; state: string; mounted: boolean; shown: string | null; word: string; words: string | null; wordsAsked: string | null; wordsWhy: string | null; faceName: string | null; faceWidth: number | null; faceHeight: number | null; headline: { px: number; scale: number; reached: boolean; floor: number; authored?: number; nodes?: number } | null };
+  const R = (window as unknown as { TimmyRive?: { inspect?: () => H[] } }).TimmyRive;
+  return (R?.inspect?.() ?? []).filter((h) => h.mounted && h.state === 'drawn').map((h) => {
+    const hl = h.headline;
+    return `${h.component} (${h.artboard ?? '?'}, ${h.faceWidth ?? '?'}×${h.faceHeight ?? '?'} px): headline ${hl ? `${hl.px} px (scale ×${hl.scale}, floor ${hl.floor} px, reached ${hl.reached})` : 'not fitted (no headline report)'} · words "${h.words ?? '(none)'}" (asked "${h.wordsAsked ?? '(none)'}") — ${h.wordsWhy ?? 'no wordsWhy'} · the word "${h.shown ?? h.word}" · aria-label "${h.faceName ?? '(none)'}"`;
+  });
+});
 async function until(page: Page, what: string, test: (t: string) => boolean, ms = 20_000): Promise<string> {
   const end = Date.now() + ms;
   let last = '';
@@ -683,7 +699,7 @@ describe('every major page on the shell, from the running companion and Studio: 
       expect(await composer.isVisible().catch(() => false), 'the composer is visible on the phone').toBe(true);
       const box = await composer.boundingBox();
       expect(box && box.y + box.height <= size.height + 1, `the composer is inside the viewport (${JSON.stringify(box)})`).toBe(true);
-      const ctx = o.page.locator(SHELL.contextButton).first();
+      const ctx = o.page.locator(SHELL.contextButton).filter({ visible: true }).first();
       expect(await ctx.isVisible().catch(() => false), 'the context opens from .page-context-btn in the head on the phone (§4: "Models" / "Details")').toBe(true);
       await ctx.focus();
       await ctx.click();
@@ -802,8 +818,8 @@ describe('every major page on the shell, from the running companion and Studio: 
       const localVerb = ((await local.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
       const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
       let pressedCheck: string;
-      if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's verb reads "${localVerb}")`; }
-      else if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+      if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+      else if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's verb reads "${localVerb}")`; }
       else throw new Error(`no Check control for Ollama · local: neither the context's tool nor the card's verb (reads "${localVerb}"); the context read: ${((await o.page.locator('[data-cn-context]').first().innerText().catch(() => '')) ?? '').slice(0, 600)}`);
       const details = o.page.locator('[data-cn-details="ollama-local"]').first();
       const openDetails = async (): Promise<void> => { if (await details.count()) await details.evaluate((d) => { (d as HTMLDetailsElement).open = true; }).catch(() => undefined); };
@@ -911,7 +927,7 @@ const PROBES: Record<string, Probe> = {
     if (firstUse) await caps.cap(o.page, size, 'chat-first-use', { line: line('Chat', 'first use (empty): the welcome and its starters'), facts: ['The empty state: the welcome with its verb-led starters (the project\'s first visit, or New conversation on a project with a saved one); no turn in this conversation yet.'], full: true });
     else facts.push('Not first use at this capture: the conversation as it stands (turns of this run\'s earlier cases; New conversation did not draw the welcome within 15 s — said).');
     // the context at the right (a sheet on a phone): the models, with the catalog's words (H169's CATALOG METADATA; H171's panel)
-    if (phone) await o.page.locator(SHELL.contextButton).first().click().catch(() => undefined);
+    if (phone) await o.page.locator(SHELL.contextButton).filter({ visible: true }).first().click().catch(() => undefined);
     const models = await until(o.page, 'the Models context', (s) => /All makers|All capabilities|Newest first|Choose your model/.test(s), 10_000).catch(() => '');
     facts.push(models ? 'The context at the right (aside.page-context, context: models): the Models panel, its controls read.' : 'The Models context was not read within 10 s (said).');
     if (phone) await o.page.keyboard.press('Escape');
@@ -982,7 +998,11 @@ const PROBES: Record<string, Probe> = {
       const newEvents = h1!.events.length - h0.events.length;
       facts.push(`SSE → the right instance: the console handle ${h0.id} is the same instance after the REAL turn (${consoleHandles0}→${consoleHandles1} console handle); the .riv fetched ${rivFetchesInTurn} times during the turn; ${newEvents} binding event(s) over the turn (the last: ${h1!.events.slice(-3).map((e) => `${e.word ?? '?'} ← ${(e.source ?? '').slice(0, 40)}`).join(' · ')}); the word "${h1!.word}" (State ${String(stateEnd)}) at the end; "working" seen on the label during the turn: ${sawWorking ? 'yes' : 'no (the FAKE answers within a second)'}.`);
     } else if (consoleKey) facts.push('The console handle could not be read before the turn (TimmyRive.inspect()): the instance identity not asserted (said).');
-    await caps.cap(o.page, size, 'chat-content-turn', { line: line('Chat', 'a content turn answered (REAL agent, FAKE model)'), facts: ['A REAL turn through the agent, answered by the FAKE model (one tool call get_current_time, then its fixed answer), its receipt sealed on the USER\'s project chain; the evidence line under the answer.'], reveal: { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last(), what: 'the answered turn' }, full: true });
+    // THE TRUTH LINE of the drawn faces (H174's 22:28; D18): the runtime's own report of the headline's size and the effective words mode
+    const facesAfterTurn = await faceTruth(o.page);
+    const truthLines = facesAfterTurn.length ? facesAfterTurn.map((l) => `Drawn face (the runtime's inspect(), not the picture): ${l}.`) : ['No drawn production face on this page at this capture (the words only).'];
+    facts.push(...truthLines);
+    await caps.cap(o.page, size, 'chat-content-turn', { line: line('Chat', 'a content turn answered (REAL agent, FAKE model)'), facts: ['A REAL turn through the agent, answered by the FAKE model (one tool call get_current_time, then its fixed answer), its receipt sealed on the USER\'s project chain; the evidence line under the answer.', ...truthLines], reveal: { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: FAKE_ANSWER }).last(), what: 'the answered turn' }, full: true });
     facts.push('A content turn: sent, answered by the FAKE model through the REAL agent, its receipt read back.');
     // a failed turn (H168's §13: the FAKE's error script): the FAKE answers 500 → the turn fails → the page says so with a verb-led way on (its words read)
     await input.fill('FAKE: fail this turn please');
@@ -1012,7 +1032,7 @@ const PROBES: Record<string, Probe> = {
     const contextOpen = async (): Promise<void> => {
       if (!phone) return;
       if (await o.page.locator(SHELL.contextSheet).first().isVisible().catch(() => false)) return;
-      await o.page.locator(SHELL.contextButton).first().click();
+      await o.page.locator(SHELL.contextButton).filter({ visible: true }).first().click();
       await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 });
     };
     const contextClose = async (): Promise<void> => { if (phone && await o.page.locator(SHELL.contextSheet).first().isVisible().catch(() => false)) await o.page.keyboard.press('Escape'); };
@@ -1024,19 +1044,25 @@ const PROBES: Record<string, Probe> = {
     // observed answer (never "connected" on a refused one).
     const local = o.page.locator('[data-provider="ollama-local"]').first();
     await local.click();
-    await contextOpen();
     const localVerb = ((await local.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
     const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
     let pressedCheck: string;
-    if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
-    else if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}" (the context draws no second Check then)`; }
-    else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the context read: ${(await contextText()).slice(0, 600)}`);
+    // (the card's own verb is pressed on the page itself — BEFORE the phone's modal context sheet is opened, which would intercept it;
+    // a second visit of the same user finds the card checked already and its verb "Check again")
+    if (/^Check( again)?$/.test(localVerb)) { await local.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}" (the context draws no second Check then)`; await contextOpen(); }
+    else { await contextOpen(); if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; } else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the context read: ${(await contextText()).slice(0, 600)}`); }
     await o.page.waitForFunction((m) => (document.querySelector('[data-cn-found="ollama-local"]')?.textContent ?? '').includes(m), MODEL, { timeout: 20_000 }).catch(async () => { throw new Error(`the FAKE Ollama's model "${MODEL}" did not reach the context's "What the check found" within 20 s after ${pressedCheck}; the context read: ${(await contextText()).slice(0, 800)}`); });
     const foundText = ((await o.page.locator('[data-cn-found="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
     expect(foundText, 'the context\'s "What the check found" block names the FAKE model').toMatch(/What the check found/);
     const state = await local.getAttribute('data-state');
     expect(state, 'the local card\'s state word after an observed answer').toBe('checked');
-    await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1 — pressed: ${pressedCheck}; the context's "What the check found": "${foundText.slice(0, 200)}"; the card's state "${state ?? '(none)'}" (an observed answer; no model ran)${phone ? '; the context open as a sheet in this picture' : ''}.`], reveal: { to: o.page.locator('[data-cn-found="ollama-local"]').first(), what: 'the context\'s "What the check found"' }, full: true });
+    // THE TRUTH LINE of the drawn faces (H174's 22:28; D18): each card's face from the runtime's inspect() — the headline's px/scale/reached,
+    // the EFFECTIVE words mode ('spoken' at ≥ 13 px, else 'beside' with the HTML word visible) and why — never read off the picture
+    await o.page.waitForTimeout(400); // (the fit runs after the draw and the redraw)
+    const cardFaces = await faceTruth(o.page);
+    const cardTruth = cardFaces.length ? cardFaces.map((l) => `Drawn face (the runtime's inspect(), not the picture): ${l}.`) : ['No drawn production face in the cards at this capture (the words only).'];
+    facts.push(...cardTruth);
+    await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1 — pressed: ${pressedCheck}; the context's "What the check found": "${foundText.slice(0, 200)}"; the card's state "${state ?? '(none)'}" (an observed answer; no model ran)${phone ? '; the context open as a sheet in this picture' : ''}.`, ...cardTruth], reveal: { to: o.page.locator('[data-cn-found="ollama-local"]').first(), what: 'the context\'s "What the check found"' }, full: true });
     facts.push(`Ollama · local after Check (pressed: ${pressedCheck}): ${MODEL} in the context's "What the check found"; state "${state ?? '(no data-state)'}".`, 'The other cards in their unconfigured words — nothing invented, nothing "free".');
     await contextClose();
     // a key saved, not checked (H168's §13; D15): the key field #cn-ollama-cloud-key is drawn in the CONTEXT once the cloud card is selected —
@@ -1072,7 +1098,7 @@ const PROBES: Record<string, Probe> = {
     facts.push(faces ? `${faces} native ProviderCard face(s) mounted in the cards (drawn: ${await o.page.locator('[data-provider] canvas[data-timmy-rive][data-loaded]').count()}).` : 'No native ProviderCard face mounted in the cards on this head (said).');
     if (size.width <= 720) {
       // the phone: the page's context as a sheet (H168's §13: "390 with the sheet"), when the page has one
-      const ctx = o.page.locator(SHELL.contextButton).first();
+      const ctx = o.page.locator(SHELL.contextButton).filter({ visible: true }).first();
       if (await ctx.isVisible().catch(() => false)) {
         await ctx.click();
         await o.page.locator(SHELL.contextSheet).first().waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
