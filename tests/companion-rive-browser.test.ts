@@ -693,7 +693,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await drawnAll(2);
       const after = await faces();
       expect(after.map((x) => [x.component, x.state, x.retryable])).toEqual([['late:console', 'drawn', false], ['late:card', 'drawn', false]]);
-      expect(after[0].again).toEqual(['a new mount: the listing asked again']);
+      // (asked again at every later mount — one here; the Chat's own console at load asked before this one existed)
+      expect(after[0].again.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(after[0].again)).toEqual(new Set(['a new mount: the listing asked again']));
       expect(o.errors).toEqual([]);
     } finally { await o.context.close(); }
     // (2) the session path: refused before the mounts → three faces wait; TimmyShell's 'session' event (a user signed in after
@@ -709,7 +711,12 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await drawnAll(3);
       const after = await faces();
       expect(after.map((x) => [x.component, x.state, x.retryable])).toEqual([['late:console', 'drawn', false], ['late:card', 'drawn', false], ['late:action', 'drawn', false]]);
-      expect(after.map((x) => x.again)).toEqual([['the session arrived: the listing asked again'], ['the session arrived: the listing asked again'], ['the session arrived: the listing asked again']]);
+      // every face's last ask is the session's; the mounts in between may have asked again too (the listing refused each time —
+      // whether they did depends on whether the earlier ask had answered before the next mount: a timing, not a rule)
+      for (const x of after) {
+        expect(x.again[x.again.length - 1], x.component).toBe('the session arrived: the listing asked again');
+        expect(x.again.filter((w) => w !== 'the session arrived: the listing asked again').every((w) => w === 'a new mount: the listing asked again'), x.component).toBe(true);
+      }
       expect(o.errors).toEqual([]);
     } finally { await o.context.close(); }
   }, LONG);
