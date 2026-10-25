@@ -1023,6 +1023,24 @@ const PROBES: Record<string, Probe> = {
       // the starters listed (GET /api/canvas/templates: guided, blank first; a Houdini starter when H176 ships one — said which);
       // below 1100 px the Studio's lists start folded behind #side-fold (R7, H151): shown first so New board's controls can be used
       if ((await first.page.locator('#side').first().getAttribute('data-folded').catch(() => null)) === 'true') await first.page.locator('#side-fold').first().click({ timeout: 3_000 }).catch(() => undefined);
+      // THE DETAILS LINE (the operator's 19:18 order, item 7; H176): the Studio's own facts sit behind Details (#side-about, R10 H167) —
+      // tldraw's version and the SDK's own license verdict in its words. Opened here and brought into view so the capture SHOWS the line;
+      // with the test's FAKE key the line must say so ("FAKE key (this capture)" — H176's item 7), so a capture never looks like the
+      // product's verdict; the REAL verdict is read on the Mac run of the frozen candidate. The line's words go into the sidecar.
+      const about = first.page.locator('#side-about').first();
+      let aboutLine = '(no #side-about on this Studio)';
+      if (await about.count()) {
+        await about.evaluate((d) => { (d as HTMLDetailsElement).open = true; }).catch(() => undefined);
+        await first.page.waitForFunction(() => !/read once the canvas starts/.test(document.getElementById('side-about-canvas')?.textContent ?? ''), null, { timeout: 10_000 }).catch(() => undefined);
+        aboutLine = ((await first.page.locator('#side-about-canvas').first().textContent().catch(() => null)) ?? (await about.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+        // (the SDK's state word in the line — license-state.js LICENSE_WORDS: "unlicensed: …", "licensed with watermark …"; 'unknown' reads "not checked")
+        expect(aboutLine, `the Details line carries the SDK's own verdict ("${license}"), not a word of the key's presence`).toMatch(license === 'unknown' ? /not checked|unknown/i : new RegExp(license.replace(/-/g, '[- ]'), 'i'));
+        if (!realKey) expect(aboutLine, 'with the test\'s FAKE key the Studio\'s Details line says so (H176, the operator\'s 19:18 item 7: "FAKE key (this capture)"), so the capture never looks like the product\'s verdict').toMatch(/FAKE key/i);
+        expect(aboutLine).not.toContain('FAKE-license-key');
+        await caps.cap(first.page, size, 'canvas-studio-details', { line: line('Canvas (the Studio)', `Details open: the SDK's license verdict "${license}"${realKey ? '' : ' on a FAKE key'}`), facts: [`The Studio's Details (#side-about) opened: "${aboutLine}". The verdict is the SDK's own (editor.licenseManager.state = "${license}"); the key is ${realKey ? 'the environment\'s TLDRAW_LICENSE_KEY (its value nowhere in the page)' : 'the test\'s FAKE key, which the SDK rejects — this is NOT the product\'s verdict; the real one is read on the Mac run of the frozen candidate'}.`], reveal: { to: first.page.locator('#side-about-canvas').first(), what: 'the Details line with the license verdict' }, full: true });
+      } else {
+        facts.push('The Studio has no #side-about Details on this head: the license verdict was read from the editor alone (said).');
+      }
       // (the picker's first entry "Blank board" has no value and opens nothing to read: the starters are the options WITH a value)
       const options = await first.page.locator('#board-pick option').evaluateAll((els) => els.filter((e) => (e as HTMLOptionElement).value).map((e) => (e.textContent || '').trim())).catch(() => [] as string[]);
       const houdini = options.find((x) => /houdini/i.test(x));

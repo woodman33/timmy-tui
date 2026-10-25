@@ -17,7 +17,9 @@
  *      message → delta, the tool line, the evidence line with a receipt that verifies in the project's chain; Stop on a second,
  *      slow turn ends it with its stage; the page reopened → the same project, the chosen model, the draft typed before, the
  *      conversation;
- *   4. 390x844: the rail folds; Connections and Models as buttons; nothing cut; no page errors.
+ *   4. 390x844: the rail folds; Connections and Models as buttons; nothing cut; no page errors; R11 round 7 (the operator's 19:18
+ *      order, item 2 — the mobile Continue): with a usable route, "Continue to the workspace" pressed on Models & accounts makes
+ *      the page the Chat within 5 s (H175's land('continue')); case 2 bounds its own Continue (the control pressed said) the same.
  * The FAKE key's value is in no screen and no DOM, asserted.
  *
  * The screens' words are the preview's (R11-R4-COMMON); the page's seams (the screen ids, the session seam) are H171's and
@@ -359,8 +361,20 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         }).catch(() => null);
         if (railN) expect(cancelled, `the kicker's number is the rail's order from TimmyShell.PAGES (${railN})`).toMatch(new RegExp(`${railN}\\s*\\/\\s*CONNECT A PROVIDER`, 'i'));
         else console.warn(`${at}: TimmyShell.PAGES has no numbered entry for connections (an older shell, or the page outside the rail): the kicker's number not asserted`);
-        // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
-        await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
+        // Continue → the chat. The head's primary reads "Continue to the workspace" ONLY when the route is ready (a model chosen:
+        // screen-connections.js register(); none is chosen in this case yet, so the primary is "Set up a model") — the control a person
+        // has here is then the dock's "Explore without a model" (goChat). The one pressed is said in the sidecar, never assumed.
+        // The operator's 19:18 order, item 2 (the mobile Continue): the page IS the Chat (body[data-page] / data-screen) within 5 s of
+        // the press, at every size (H175's land(why) on the head: never back to Models & accounts). The ready-route Continue — the
+        // head's primary pressed on Models & accounts at 390 after a model was chosen — is read in case 4.
+        const continueBtn = o.page.getByRole('button', { name: /^Continue to the workspace/ });
+        const hasContinue = (await continueBtn.count()) > 0;
+        const pressed = hasContinue ? '"Continue to the workspace" (the head\'s primary: the route is ready)' : '"Explore without a model" (the dock: no model is chosen yet, so the head\'s primary is "Set up a model", not Continue)';
+        const pressedAt = Date.now();
+        await (hasContinue ? continueBtn.first() : o.page.getByRole('button', { name: /Explore without a model/ }).first()).click();
+        const toChat = await o.page.waitForFunction(() => (document.body.getAttribute('data-screen') || document.body.getAttribute('data-page')) === 'chat', null, { timeout: 5_000 }).then(() => true, () => false);
+        const took = Date.now() - pressedAt;
+        expect(toChat, `${at}: after ${pressed} the page is the Chat (body[data-page]) within 5 s — it reads "${await screenOf(o.page)}" after ${took} ms; ${facts(o)()}`).toBe(true);
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
         // the route mirror in the Chat's records (#mirror-route; the lead's 2e6266ff after H171's 16:48 finding): the companion's 401 for
@@ -372,7 +386,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const route = ((await mirror.textContent()) ?? '').replace(/\s+/g, ' ').trim();
         if (!settled) console.warn(`${at}: #mirror-route still asking after 15 s ("${route.slice(0, 120)}"); the stale-refusal read below still holds`);
         expect(route, 'the route mirror after the FAKE sign-in (#mirror-route) keeps no pre-session refusal').not.toMatch(/none was sent/i);
-        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.', `The route mirror in the Chat's records (#mirror-route): "${route.slice(0, 160)}" (never the pre-session "none was sent").`]);
+        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.', `The control pressed on Models & accounts: ${pressed}; the page was the Chat (body[data-page]) ${took} ms after the press (the bound: 5 s).`, `The route mirror in the Chat's records (#mirror-route): "${route.slice(0, 160)}" (never the pre-session "none was sent").`]);
         if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
@@ -509,7 +523,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
     });
   }
 
-  it('4. at 390x844 the rail folds, Connections and Models are buttons, nothing is cut, no page errors', async () => {
+  it('4. at 390x844 the rail folds, Connections and Models are buttons, nothing is cut, no page errors; the MOBILE CONTINUE: with a usable route, "Continue to the workspace" on Models & accounts → the Chat within 5 s (the operator\'s 19:18 item 2)', async () => {
     const o = await open(configured!, { width: 390, height: 844 }, { session: identity.token(USER), tab: 'chat' });
     try {
       await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s), 20_000, undefined, facts(o));
@@ -529,6 +543,45 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
       // nothing cut: no element wider than the viewport
       const overflow = await o.page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth);
       expect(overflow, 'horizontal overflow in CSS pixels').toBeLessThanOrEqual(0);
+      // THE MOBILE CONTINUE (the operator's 19:18 order, item 2; H172's holds B2–B4 on c027b2fe: "Continue to the workspace" pressed on
+      // Models & accounts at 390 left the page where it was, thrice): with a usable route the head's primary on Models & accounts reads
+      // "Continue to the workspace" (screen-connections.js register(): the route ready) and pressing it makes the page the Chat within
+      // 5 s — H175's land('continue') (ce4846d0): the remembered WORKSPACE page, never Models & accounts or Account. The route's
+      // readiness is the server's word first (GET /api/chat/route as the user): case 3 chose the FAKE model in this user's project;
+      // were it not ready here, the same choice is made through the page's own route (POST /api/chat/choose) and SAID, so this read
+      // is about Continue, not a cascade of case 3.
+      const session = identity.token(USER);
+      let route = await api(configured!, 'GET', '/api/chat/route', { session });
+      expect(route.status, `GET /api/chat/route as the user: ${route.text.slice(0, 200)}`).toBe(200);
+      let readyBy = 'case 3\'s choice of the FAKE model in the Models context';
+      if (!route.json?.ready) {
+        const list = await api(configured!, 'GET', '/api/projects', { session });
+        const rows: Array<{ id?: string }> = Array.isArray(list.json) ? list.json : list.json?.projects ?? [];
+        const chosen = await api(configured!, 'POST', '/api/chat/choose', { session, query: rows[0]?.id ? { project: String(rows[0].id) } : {}, body: { source: 'ollama-local', model: MODEL } });
+        readyBy = `POST /api/chat/choose made by this case (the route was not ready before it: "${String(route.json?.label ?? route.text.slice(0, 80))}"; the choice answered ${chosen.status})`;
+        console.warn(`390x844 case 4: ${readyBy}`);
+        route = await api(configured!, 'GET', '/api/chat/route', { session });
+      }
+      expect(route.json?.ready, `a usable route for the Continue read (${readyBy}): ${route.text.slice(0, 200)}`).toBe(true);
+      // Models & accounts reached as a person reaches it on a phone: the rail sheet's item
+      await o.page.locator('#shell-menu').or(o.page.getByRole('button', { name: 'Menu' })).first().click();
+      await o.page.waitForTimeout(300);
+      const railItem = o.page.locator('.rail-item[data-page="connections"]').or(o.page.getByRole('button', { name: /Models & accounts|Connections/ })).or(o.page.getByRole('link', { name: /Models & accounts|Connections/ })).filter({ visible: true });
+      expect(await railItem.count(), 'Models & accounts in the opened rail sheet').toBeGreaterThan(0);
+      await railItem.first().click();
+      const onModels = await until(o.page, 'Models & accounts with its primary "Continue to the workspace" (the route is ready)', (s) => /Continue to the workspace/.test(s) && /Ollama · local/.test(s), 20_000, noConnections, facts(o));
+      expect(await screenOf(o.page), 'body[data-page] on Models & accounts').toBe('connections');
+      expect(onModels, 'with a usable route the primary is Continue, not "Set up a model"').toMatch(/Continue to the workspace/);
+      await caps.cap(o.page, { width: 390, height: 844 }, 'mobile-continue-models-accounts', [`Models & accounts at 390 with a usable route (${readyBy}): the head's primary reads "Continue to the workspace" — pressed next.`]);
+      const primary = o.page.getByRole('button', { name: /^Continue to the workspace/ }).filter({ visible: true });
+      expect(await primary.count(), 'a visible "Continue to the workspace" button (the head\'s primary or the band\'s action; both run land())').toBeGreaterThan(0);
+      const pressedAt = Date.now();
+      await primary.first().click();
+      const toChat = await o.page.waitForFunction(() => (document.body.getAttribute('data-screen') || document.body.getAttribute('data-page')) === 'chat', null, { timeout: 5_000 }).then(() => true, () => false);
+      const took = Date.now() - pressedAt;
+      expect(toChat, `390x844: "Continue to the workspace" pressed on Models & accounts with a usable route (${readyBy}) → the page is the Chat (body[data-page]) within 5 s (H175's land('continue')) — it reads "${await screenOf(o.page)}" after ${took} ms; ${facts(o)()}`).toBe(true);
+      await until(o.page, 'the chat screen after Continue', (s) => /Message Timmy/i.test(s), 10_000, undefined, facts(o));
+      await caps.cap(o.page, { width: 390, height: 844 }, 'mobile-continue-chat', [`The Chat ${took} ms after "Continue to the workspace" was pressed on Models & accounts at 390 (the bound: 5 s; the route ready by ${readyBy}; H175's land('continue') on this head).`]);
       expect(o.errors, 'page errors').toEqual([]);
       expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);
     } finally { await o.close(); }
