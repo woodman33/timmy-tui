@@ -35,6 +35,14 @@
 .tools-directory-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 4px; }
 .tools-directory[open] .tools-directory-summary { border-bottom: 1px solid var(--timmy-line); margin-bottom: 10px; }
 .tools-directory .tools-caps { padding-bottom: 12px; }
+/* a card's exact step (the inventory's sentence: a command, an env name, an address) behind Details — the body copy keeps the plain step (H168's R108) */
+.tl-next-details { margin: 4px 0 0; }
+.tl-next-summary { cursor: pointer; margin: 0; padding: 2px 0; list-style: none; display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--timmy-text-secondary); }
+.tl-next-summary::-webkit-details-marker { display: none; }
+.tl-next-summary::before { content: '▸'; }
+.tl-next-details[open] .tl-next-summary::before { content: '▾'; }
+.tl-next-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 4px; }
+.tl-next-details .tl-next-detail { margin: 4px 0 0; font-family: var(--timmy-font-mono, monospace); }
 
 @media (max-width: 720px) {
   .tools-where { grid-template-columns: minmax(0, 1fr); }

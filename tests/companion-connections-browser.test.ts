@@ -81,6 +81,17 @@ function fakeOllamaCom() {
 
 const listen = (s: Server): Promise<string> => new Promise((r) => s.listen(0, '127.0.0.1', () => r(`http://127.0.0.1:${(s.address() as AddressInfo).port}`)));
 const close = (s: Server): Promise<void> => new Promise((r) => { s.close(() => r()); s.closeAllConnections(); });
+/**
+ * H168's R102 (the lead's D22): the word "null" stood under the context sheet — replaceChildren writes a null argument as text. Every
+ * text node of the page whose trimmed words are exactly "null" or "undefined", with its parent's class: the pin is an empty list.
+ */
+const strayWords = (page: import('playwright').Page): Promise<string[]> => page.evaluate(() => {
+  const out: string[] = [];
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let n: Node | null;
+  while ((n = walk.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? '(no parent)'}: ${t}`); }
+  return out;
+});
 
 /**
  * FAKE TimmyRive (this test's; R11 round 6): H174's 06:37 contract surface only — mountProviderCard(host, providerId, opts) →
@@ -306,11 +317,16 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
       await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
     }
     for (const name of ['Sign in to Ollama ↗', 'Open Cloudflare setup ↗']) await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(0); // (another card's tools: shown when it is selected)
+    // (R102: no text node reading "null" or "undefined" on the page — with the local card's context, which carries the offer)
+    expect(await strayWords(page)).toEqual([]);
     // the picker changes the context, not any connection
     await page.locator('.cn-pick[data-cn-pick="openrouter"]').click();
     expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('openrouter');
     expect(await page.locator('.cn-card.is-chosen').getAttribute('data-provider')).toBe('openrouter');
     expect(await page.locator('.cn-card .cn-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
+    // (R102's repro: a card WITHOUT the download offer selected — the context's second child was a null, written as the word "null")
+    expect(await strayWords(page)).toEqual([]);
+    expect(await page.locator('.cn-context-body').evaluate((b) => [...b.childNodes].map((n) => n.nodeType))).toEqual([1]); // (one element, no text node)
     // no card is "connected" and nothing is "free": a selection is never a connection
     const text = (await page.locator('#screen-connections').textContent()) ?? '';
     expect(text).not.toMatch(/\bconnected\b/i);
@@ -366,6 +382,7 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await saidCloud.textContent()).toBe('');
     expect(await page.locator('.page-context .cn-context-details .cn-facts div').filter({ has: page.locator('dt', { hasText: /^Observed$/ }) }).locator('dd').textContent()).toMatch(/^Checked just now: Ollama Cloud took the key \(key [0-9a-f]{12}\) from providers\.json/);
     await noMechanics();
+    expect(await strayWords(page)).toEqual([]); // (R102: the cloud card's context after the key was saved and checked — H168's second picture)
     expect(await page.evaluate(() => (window as unknown as { __toasts: unknown[] }).__toasts.length)).toBe(0);
     // the two refreshes (the key saved, the key checked) fed the cloud card's two changes and nothing else: still four handles
     // (no re-mount: the host moved into each redrawn card), the other three cards unchanged, so unfed
@@ -406,6 +423,26 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(again.length).toBe(4);
     expect(again.map((x) => x.id).some((id) => first.some((x) => x.id === id))).toBe(false);
     expect(again[2].events.map((e) => [e.value, e.source])).toEqual([['checked', 'GET /api/connections: ollama-cloud']]);
+    // R103 (the lead's D22): the band's Account cell says the TIMMY account's truth — "Signed in · <name>" with the session's name,
+    // "Signed in" when the session carries an id but no name (H168's page: the cell read "Not signed in" while signed in), "This
+    // computer's operator" with no identity provider configured, "Not signed in" otherwise; the provider accounts are the cards'
+    const accountCell = async (user: Record<string, string> | null, token: string, identity: Record<string, unknown> | null) => {
+      await page.evaluate(([u, t, i]) => {
+        const sh = (window as unknown as { TimmyShell: Record<string, any> }).TimmyShell;
+        sh.session = { user: () => u, get: () => t };
+        if (i) sh.identity = () => i; else delete sh.identity;
+        sh.draws.connections(document.getElementById('screen-connections')!, sh);
+      }, [user, token, identity] as const);
+      await page.getByRole('heading', { level: 1, name: 'One model is enough to begin.' }).waitFor();
+      await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
+      return page.evaluate(() => (window as unknown as { __pages: Array<{ reg: { band: Array<{ k: string; v: string }> } }> }).__pages.at(-1)!.reg.band);
+    };
+    expect(await accountCell({ id: 'user_FAKE0000', username: '' }, 'FAKE-session-token', { configured: true })).toEqual([{ k: 'Account', v: 'Signed in' }]); // (no raw id in the band)
+    expect(await accountCell({ id: 'user_FAKE0000', username: '', name: 'Alice Example' }, 'FAKE-session-token', { configured: true })).toEqual([{ k: 'Account', v: 'Signed in · Alice Example' }]);
+    expect(await accountCell(null, 'FAKE-session-token', { configured: true })).toEqual([{ k: 'Account', v: 'Signed in' }]); // (a token the shell restored, its user record not yet read)
+    expect(await accountCell(null, '', { configured: false })).toEqual([{ k: 'Account', v: 'This computer’s operator' }]);
+    expect(await accountCell(null, '', { configured: true })).toEqual([{ k: 'Account', v: 'Not signed in' }]);
+    expect(await strayWords(page)).toEqual([]);
     await page.close();
   }, 60_000);
 
@@ -531,6 +568,13 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     const order = await page.locator('#screen-connections > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
     expect(order.every((t, i) => i === 0 || t >= order[i - 1])).toBe(true);
     expect(await page.locator('.cn-picker').evaluate((e) => e.scrollWidth <= e.clientWidth + 1 || getComputedStyle(e).overflowX === 'auto')).toBe(true);
+    // R102 at 390 (H168's pictures): the context for a card without the download offer — Ollama · cloud pressed — carries no stray word
+    await page.locator('.cn-card-ollama-cloud .cn-card-title').click();
+    expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('ollama-cloud');
+    expect(await strayWords(page)).toEqual([]);
+    await page.locator('.cn-card-ollama-local .cn-card-title').click();
+    expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('ollama-local');
+    expect(await strayWords(page)).toEqual([]);
     await page.close();
   }, 60_000);
 });

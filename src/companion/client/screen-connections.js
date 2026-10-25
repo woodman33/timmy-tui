@@ -107,8 +107,21 @@
     };
     /** The session's user, when the shell has one. */
     const userOf = () => (sh.session && typeof sh.session.user === 'function' ? sh.session.user() : null) || null;
-    /** The band's words for the person: a name, never a raw id (R95: ids stay behind the records' Details). */
-    const userWords = () => { const u = userOf(); return u && u.username ? String(u.username) : ''; };
+    /** Whether this page is signed in to a Timmy account: the shell holds a session (its user object, or at least its token). */
+    const signedIn = () => { const u = userOf(); if (u && (u.id || u.username || u.email)) return true; try { return Boolean(sh.session && typeof sh.session.get === 'function' && sh.session.get()); } catch { return false; } };
+    /** The band's words for the person: a name, never a raw id or an address (R95: ids stay behind the records' Details). */
+    const userWords = () => { const u = userOf(); return u ? String(u.username || u.name || '').trim() : ''; };
+    /**
+     * The band's Account cell says the TIMMY account's truth (H168's R103: it read "Not signed in" on a signed-in page because it
+     * looked for a username the session did not carry): "Signed in · <name>" with the name the session carries, "Signed in" with
+     * none (the id stays in the records), "This computer's operator" when no identity provider is configured (the rail's words),
+     * else "Not signed in". The provider accounts are the cards', never this cell's.
+     */
+    const accountWords = () => {
+      if (signedIn()) { const who = userWords(); return who ? `Signed in · ${who}` : 'Signed in'; }
+      try { const i = typeof sh.identity === 'function' ? sh.identity() : null; if (i && i.configured === false) return 'This computer’s operator'; } catch { /* the words below */ }
+      return 'Not signed in';
+    };
 
     /**
      * The native ProviderCard's host in a card (R11 round 6): one host per provider for the screen's life, mounted once through
@@ -437,7 +450,9 @@
         found ? null : lines);
       // the live line for what an action on this card said (say): the remembered words, when any
       const said = live.saidFor[c.id] || { words: '', kind: '' };
-      body.replaceChildren(
+      // (H168's R102: replaceChildren writes a null argument as the text "null" — the offer is null for every card but the local
+      // one, and the word stood under the context sheet; only nodes go in)
+      const kids = [
         h('div', { class: 'cn-context-card', 'data-cn-context-for': c.id },
           h('p', { class: 'cn-context-for' }, h('span', { class: 'cn-context-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'), ' ', h('strong', { class: 'cn-context-name' }, c.title), h('span', { class: 'cn-context-sub' }, ` · ${c.subtitle}`)),
           h('p', { class: 'cn-context-about' }, c.body),
@@ -449,7 +464,9 @@
           h('p', { class: 'sh-note cn-say', 'data-cn-say': c.id, 'data-kind': said.kind, 'aria-live': 'polite' }, said.words),
           details,
           links.length ? h('div', { class: 'sh-actions cn-context-links' }, ...links) : null),
-        offer);
+        offer,
+      ];
+      body.replaceChildren(...kids.filter((k) => k instanceof Node));
       // the download box outlives a redraw of the context (its progress goes on): back under the local card's tools
       if (live.pullBox && c.id === 'ollama-local') { const tools = body.querySelector('[data-cn-tools="ollama-local"]'); if (tools) tools.after(live.pullBox); }
     }
@@ -477,7 +494,7 @@
           ...cards.map((c) => h('div', { class: 'cn-record', 'data-cn-record': c.id },
             h('dt', null, c.title),
             h('dd', null, c.at ? `last observed ${clock(c.at)} · ${c.state}` : `no observation kept · ${c.state}`, c.key ? ` · key ${c.key.fingerprint} from ${c.key.from}` : '', c.cloudflare && c.cloudflare.file ? ` · settings in ${c.cloudflare.file}` : '', c.words ? ` · ${c.words}` : ''))),
-          h('div', { class: 'cn-record' }, h('dt', null, 'Account'), h('dd', null, (() => { const u = userOf(); return u && (u.id || u.username) ? `signed in · id ${u.id || 'not given'}${u.username ? ` · ${u.username}` : ''}` : 'no session on this page'; })())),
+          h('div', { class: 'cn-record' }, h('dt', null, 'Account'), h('dd', null, (() => { const u = userOf(); return u && (u.id || u.username) ? `signed in · id ${u.id || 'not given'}${u.username ? ` · ${u.username}` : ''}` : signedIn() ? 'signed in · the session carries no user record on this page' : 'no session on this page'; })())),
           h('div', { class: 'cn-record' }, h('dt', null, 'Files'), h('dd', null, 'providers.json (keys, 0600) · state/connections.json (observations) · state/cloudflare.json (optional settings), all in your Timmy home')),
           h('div', { class: 'cn-record' }, h('dt', null, 'Read'), h('dd', null, data.readAt ? `${clock(data.readAt)} · GET /api/connections: files only; a check is the one thing that asks a provider` : 'not read'))),
         h('p', { class: 'sh-note cn-records-foot' }, s.footerStrong || '', ' ', s.footer || ''));
@@ -489,7 +506,6 @@
     function register(s, sum, cards, primaryId) {
       if (typeof sh.page !== 'function') return;
       const ready = Boolean(sum.route && sum.route.ready);
-      const who = userWords();
       try {
         sh.page('connections', {
           kicker: `${kickerNumber() ? `${kickerNumber()} / ` : ''}${s.kicker || 'CONNECT A PROVIDER'}`,
@@ -500,7 +516,7 @@
             ? { label: s.continue || 'Continue to the workspace', run: land }
             : { label: s.setUp || 'Set up a model', run: () => { live.sel = primaryId; drawContext(); markChosen(); focusVerb(primaryId); } },
           context: 'selection',
-          band: [{ k: 'Account', v: who ? `Signed in · ${who}` : 'Not signed in' }],
+          band: [{ k: 'Account', v: accountWords() }],
           dock: 'MODELS & ACCOUNTS TOOLS',
         });
       } catch { /* the shell says what it could not take */ }

@@ -88,14 +88,26 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
       }
       // the key step: named, said to be set in the terminal, nothing to type
       const key = '[data-inventory-row="fake:model:openrouter"]';
-      // the step in the terminal's words (inventoryNext: the step and where it is set), the inventory's sentence whole as the detail, then the note
-      expect(await text(page, `${key} .tl-next`)).toBe('Next sign in with OpenRouter, or paste a key: Models & accounts Sign in with OpenRouter, or paste a key from openrouter.ai/keys Set in Models & accounts, the environment or the .env file: nothing is set from this card.');
+      // the step in the terminal's words (inventoryNext: the step and where it is set) in plain words, then the note; the inventory's
+      // sentence whole — an address, a command, an env name — behind the card's Details (H168's R108, the lead's D22)
+      expect(await text(page, `${key} .tl-next`)).toBe('Next sign in with OpenRouter, or paste a key: Models & accounts Set in Models & accounts, the environment or the .env file: nothing is set from this card.');
       expect(await page.getAttribute(`${key} .tl-next`, 'data-tl-next')).toBe('terminal');
+      expect(await text(page, `${key} .tl-next-details .tl-next-summary`)).toBe('Details · the exact step');
+      expect(await page.$eval(`${key} .tl-next-details`, (d) => (d as HTMLDetailsElement).open)).toBe(false);
+      expect(await text(page, `${key} .tl-next-details .tl-next-detail`)).toBe('Sign in with OpenRouter, or paste a key from openrouter.ai/keys');
       // a plain step says only the step
-      expect(await text(page, '[data-inventory-row="fake:model:ollama-local"] .tl-next')).toBe('Next send a message in the chat; each answered turn seals a receipt Send a message in the chat (each answered turn seals a receipt)');
+      expect(await text(page, '[data-inventory-row="fake:model:ollama-local"] .tl-next')).toBe('Next send a message in the chat; each answered turn seals a receipt');
       expect(await page.getAttribute('[data-inventory-row="fake:model:ollama-local"] .tl-next', 'data-tl-next')).toBe('step');
-      // the exercised row: nothing next
+      // the exercised row: nothing next, no Details
       expect(await text(page, '[data-inventory-row="fake:vox:measure"] .tl-next')).toBe('Next nothing: it is exercised here.');
+      expect(await page.$$eval('[data-inventory-row="fake:vox:measure"] .tl-next-details', (els) => els.length)).toBe(0);
+      // the receipts row's sentence names commands (/observe, /mcp call): the body copy carries the plain step, the Details the sentence
+      expect(await text(page, '[data-inventory-row="fake:receipts:chain"] .tl-next')).toBe('Next run it once (it asks first); its receipt seals the run');
+      expect(await text(page, '[data-inventory-row="fake:receipts:chain"] .tl-next-details .tl-next-detail')).toContain('/mcp call');
+      // no raw command, env name or address in any card's body copy (outside the Details); none in the WHERE rows' next lines
+      for (const t of await texts(page, '[data-tools-caps] .tl-next')) expect(t).not.toMatch(/\/mcp|\/observe|openrouter\.ai|\b[A-Z][A-Z0-9]+_[A-Z0-9_]+\b/);
+      for (const t of await texts(page, '[data-tools-where] .tools-where-next')) expect(t).not.toMatch(/\/mcp|\/observe|openrouter\.ai|\b[A-Z][A-Z0-9]+_[A-Z0-9_]+\b/);
+      expect(await texts(page, '[data-tools-where-row="fake:receipts:chain"] .tools-where-next')).toEqual(['· next: run it once (it asks first); its receipt seals the run']);
       // green (the page's --timmy-live) only on the exercised chip and the exercised fact's mark
       const green = await page.evaluate(() => {
         const live = getComputedStyle(document.documentElement).getPropertyValue('--timmy-live').trim();
@@ -135,7 +147,11 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
       expect(await text(page, '#ws-tools .page-head .page-kicker')).toMatch(/^\d+ \/ FIND THE RIGHT TOOL$/);
       expect(await text(page, '#ws-tools .page-head .page-title')).toBe('Find the right tool for the task.');
       expect(await text(page, '#ws-tools .page-head .page-intro')).toBe('Discover capabilities here, and use them in the workflow where they belong.');
-      expect(await text(page, '#ws-tools .page-head .page-primary')).toMatch(/^List the tools/);
+      // (H168's R108, the lead's D22: the primary names what pressing it does on this page — a tools/list on the picked server, the FAKE
+      // fixture here, named FAKE — not "List the tools" while the inventory's list is already in view)
+      expect(await text(page, '#ws-tools .page-head .page-primary')).toMatch(/^List the FAKE fixture’s tools/);
+      // (R102's pin on this page: no text node reading "null" or "undefined")
+      expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-tools') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
       expect(await page.$$eval('#ws-tools .page-dock .dock-tools [data-tools-dock]', (els) => els.map((e) => e.getAttribute('data-tools-dock')))).toEqual(['check', 'directory', 'records']);
       // the order of the page: where tools work, the inspector's steps, the grid, then the directory, then the calls
       expect(await page.$$eval('[data-tools-panel] > *', (els) => els.map((e) => e.className.split(' ')[0]))).toEqual(['box', 'tools-steps', 'tools-grid', 'tools-directory', 'box']);
@@ -204,6 +220,8 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
           const tops = await page.$$eval('[data-tl-group="Models"] .tl-card', (els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
           expect(new Set(tops).size).toBe(tops.length);
         }
+        // (R102's pin at both sizes on this page: no text node reading "null" or "undefined")
+        expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-tools') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
         expect(errors).toEqual([]);
       } finally { await page.close(); }
     }
