@@ -23,13 +23,12 @@
 // situations the order names — an existing setup, no account, an unreachable service, no downloaded model — with a verb-led
 // action); the context (Choose your model: the chosen provider's words, what a check sends, what it costs, the suitable-model
 // download offer with its size, hardware and cost words — never installed silently); the task dock; the records, quiet and
-// expandable (what this computer kept, the technical syntax behind Details). The shell (H175's SHELL CONTRACT v1, 14:23)
-// gives the rail and the chrome. TWO WAYS THE REGIONS ARE PLACED, one code path for their content: when the host holds the
-// shell's scaffold (section.page with .page-work / .page-context / .page-dock / .page-records), this screen registers the
-// page (TimmyShell.page: the kicker "06 / CONNECT A PROVIDER", the title, the intro, the ONE primary next action; the band's
-// Model and Records cells through TimmyShell.band; the state through TimmyShell.state) and fills the shell's regions; until
-// the shell's scaffold lands (and on a page without it: a test's FAKE shell), it draws the regions itself with the
-// contract's class names, in the contract's order. Nothing is drawn twice.
+// expandable (what this computer kept, the technical syntax behind Details). The shell (H175's SHELL CONTRACT v1 and his
+// commit 2, 15:06) gives the rail, the chrome and the scaffold: this screen's draw host is the page's .page-mount inside
+// .page-work; the head, the band and the dock's frame are the shell's, drawn from what this screen REGISTERS (TimmyShell.page:
+// the kicker "<the rail's number> / CONNECT A PROVIDER", the title, the intro, the ONE primary next action, the Account cell;
+// TimmyShell.band: the Model and Records cells; TimmyShell.state: running while a download runs). The screen fills the work
+// (the host), the context (.page-context), its own buttons in the dock (.dock-tools) and the records (.page-records).
 (function () {
   'use strict';
   const PROVIDERS = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];
@@ -71,19 +70,24 @@
       return { status: r.status, ok: r.ok && !!j && j.ok !== false, body: j || {} };
     };
 
+    // the shell's scaffold around the host (SHELL CONTRACT v1 §2.2 as shell.js draws it: the host is the page's .page-mount
+    // inside .page-work); the regions this screen fills besides the host
+    const section = host.closest('section.page') || host.closest('.page');
+    const region = (cls) => (section ? section.querySelector(`:scope > .${cls}, :scope > .page-body > .${cls}`) : null);
+    // a caller that hands the section itself (the shell hands the mount): the work goes into the mount, never over the scaffold
+    if (section === host) { const work = region('page-work'); if (work) { host = work.querySelector(':scope > .page-mount') || work.appendChild(h('div', { class: 'page-mount' })); } }
     // one screen state per draw: a draw after the shell shows the screen again starts afresh (the previous poll stops)
     if (host._cxScreen && typeof host._cxScreen.destroy === 'function') host._cxScreen.destroy();
     const live = { data: null, pull: null, pullBox: null, said: null, destroyed: false, poll: null, rive: {}, fed: {}, sel: '', recordsOpen: false };
     const rive = () => (window.TimmyRive && typeof window.TimmyRive === 'object' ? window.TimmyRive : null);
-    // the shell's scaffold, when the host holds one (SHELL CONTRACT v1 §2.2); else this screen draws the regions itself
-    const scaffold = (() => {
-      const work = host.querySelector('.page-work');
-      if (!work) return null;
-      return { work, context: host.querySelector('.page-context'), dock: host.querySelector('.page-dock'), records: host.querySelector('.page-records') };
-    })();
-    const main = scaffold ? scaffold.work : h('div', { class: 'sh-main cn-main cn-page', 'data-page': 'connections' });
-    if (!scaffold) { host.replaceChildren(); host.append(main); }
-    const KICKER_NUMBER = '06';
+    const regions = { context: region('page-context'), dock: region('page-dock'), records: region('page-records') };
+    /** Where this screen's elements are looked up: the page's section (the context, the dock and the records live outside the host). */
+    const scope = section || host;
+    const main = host;
+    main.classList.add('cn-page');
+    main.dataset.page = 'connections';
+    /** The rail's number for this page (the shell's), before the kicker's verb phrase. */
+    const kickerNumber = () => { const p = sh.PAGES && sh.PAGES.find ? sh.PAGES.find((x) => x.id === 'connections') : null; return p && p.n ? String(p.n) : ''; };
 
     const cardOf = (id) => main.querySelector(`[data-provider="${id}"]`);
     const say = (card, words, kind) => {
@@ -343,37 +347,6 @@
     const land = () => { if (typeof sh.land === 'function') sh.land(); else goChat(); };
     const focusVerb = (id) => { const b = main.querySelector(`[data-cn-verb="${id}"]`); if (b && typeof b.focus === 'function') { b.focus(); b.scrollIntoView({ block: 'center' }); } };
 
-    function pageHead(s, sum, cards, primaryId) {
-      const ready = Boolean(sum.route && sum.route.ready);
-      const primary = ready
-        ? h('button', { type: 'button', class: 'sh-btn-primary cn-primary', 'data-cn-primary': 'continue', onClick: land }, `${s.continue || 'Continue to the workspace'} →`)
-        : h('button', { type: 'button', class: 'sh-btn-primary cn-primary', 'data-cn-primary': 'set-up', onClick: () => { live.sel = primaryId; drawContext(); markChosen(); focusVerb(primaryId); } }, s.setUp || 'Set up a model');
-      return h('header', { class: 'cn-head page-head' },
-        h('div', { class: 'cn-head-words' },
-          h('p', { class: 'sh-label cn-kicker page-kicker', 'data-kicker': '' }, `${KICKER_NUMBER} / ${s.kicker || ''}`),
-          h('h1', { id: 'cn-title', class: 'cn-title page-title', tabindex: '-1' }, s.title || ''),
-          h('p', { class: 'cn-lead page-intro' }, s.lead || '')),
-        h('div', { class: 'cn-head-actions' },
-          h('button', { type: 'button', class: 'sh-btn-text', onClick: goChat }, s.explore || 'Explore without a model'),
-          primary));
-    }
-
-    function band(s, sum, cards, primaryId) {
-      const r = sum.route || { ready: false, label: '', note: '' };
-      const rec = sum.records || { words: 'Local by default', line: s.records || '' };
-      const who = userWords();
-      const next = cards.find((c) => c.id === primaryId);
-      const action = r.ready
-        ? h('button', { type: 'button', class: 'sh-btn is-small cn-band-action', 'data-cn-band-action': 'check', onClick: () => { const c = cards.find((x) => x.id === (r.kind === 'local' ? 'ollama-local' : 'openrouter')); if (c) check(c, c.id); } }, 'Check the route’s provider')
-        : (next ? h('button', { type: 'button', class: 'sh-btn is-small cn-band-action', 'data-cn-band-action': next.id, onClick: () => { live.sel = next.id; drawContext(); markChosen(); focusVerb(next.id); } }, `${next.verb} · ${next.title}`) : null);
-      const cell = (k, v, note) => h('div', { class: 'cn-cell' }, h('span', { class: 'sh-label cn-cell-k' }, k), h('strong', { class: 'cn-cell-v' }, v), note ? h('span', { class: 'sh-note cn-cell-n' }, note) : null);
-      return h('div', { class: 'cn-band page-band', role: 'group', 'aria-label': 'Summary' },
-        cell('Account', who ? `Signed in · ${who}` : 'Not signed in', who ? 'Connections are kept under your account, not a project.' : 'Nothing is kept until an account is signed in.'),
-        cell('Model', r.ready ? (r.model || r.label) : 'Choose a provider', r.ready ? r.label : r.note),
-        cell('Records', rec.words, rec.line),
-        action ? h('div', { class: 'cn-cell cn-cell-action' }, action) : null);
-    }
-
     function work(cards, primaryId) {
       return h('section', { class: 'cn-work', 'aria-label': 'Your providers', 'data-cn-work': '' },
         h('div', { class: 'cn-work-head' }, h('span', { class: 'sh-label' }, 'Your providers'), h('span', { class: 'sh-note', 'data-cn-read-at': '' }, live.data && live.data.readAt ? `read ${clock(live.data.readAt)} · files only, nothing asked of a provider` : '')),
@@ -389,12 +362,12 @@
       return aside;
     }
     function drawContext() {
-      const body = host.querySelector('[data-cn-context]');
+      const body = scope.querySelector('[data-cn-context]');
       if (!body || !live.data) return;
       const cards = live.data.cards || [];
       const c = cards.find((x) => x.id === live.sel) || cards[0];
       if (!c) { body.replaceChildren(); return; }
-      for (const b of host.querySelectorAll('[data-cn-pick]')) b.setAttribute('aria-pressed', b.dataset.cnPick === c.id ? 'true' : 'false');
+      for (const b of scope.querySelectorAll('[data-cn-pick]')) b.setAttribute('aria-pressed', b.dataset.cnPick === c.id ? 'true' : 'false');
       const chk = live.data.checks && live.data.checks[c.id];
       const act = verbAction(c);
       const links = (c.links || []).map((l) => h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(l.url) }, `${l.label} ↗`));
@@ -432,9 +405,10 @@
         h('span', { class: 'sh-label cn-dock-label' }, 'Models & accounts tools'),
         h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'check-all', disabled: checkable.length ? null : true, title: checkable.length ? `Checks ${checkable.map((c) => c.title).join(', ')}: each asks its provider once and runs no model` : 'Nothing to check yet: no provider holds a setup', onClick: async () => { for (const c of checkable) await check(c, c.id); } }, `⟳ Check ${checkable.length ? checkable.length : ''} configured`.replace('  ', ' ')),
         local ? h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'download', onClick: () => showPull(local) }, '⇩ Download a model') : null,
+        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'explore', onClick: goChat }, `→ ${s.explore || 'Explore without a model'}`),
         h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'back', onClick: () => { if (typeof sh.go === 'function') sh.go('account'); } }, `← ${s.back || 'Back'}`),
         h('span', { class: 'cn-dock-spacer' }),
-        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'records', 'aria-expanded': live.recordsOpen ? 'true' : 'false', onClick: () => { const d = host.querySelector('.cn-records'); if (d) { d.open = !d.open; live.recordsOpen = d.open; } } }, '▤ Records'));
+        h('button', { type: 'button', class: 'sh-btn-text cn-dock-btn', 'data-cn-dock': 'records', 'aria-expanded': live.recordsOpen ? 'true' : 'false', onClick: () => { const d = scope.querySelector('.cn-records'); if (d) { d.open = !d.open; live.recordsOpen = d.open; } } }, '▤ Records'));
     }
 
     function records(s, data, cards) {
@@ -447,7 +421,7 @@
           h('div', { class: 'cn-record' }, h('dt', null, 'Files'), h('dd', null, 'providers.json (keys, 0600) · state/connections.json (observations) · state/cloudflare.json (optional settings), all in your Timmy home')),
           h('div', { class: 'cn-record' }, h('dt', null, 'Read'), h('dd', null, data.readAt ? `${clock(data.readAt)} · GET /api/connections: files only; a check is the one thing that asks a provider` : 'not read'))),
         h('p', { class: 'sh-note cn-records-foot' }, s.footerStrong || '', ' ', s.footer || ''));
-      d.addEventListener('toggle', () => { live.recordsOpen = d.open; const b = host.querySelector('[data-cn-dock="records"]'); if (b) b.setAttribute('aria-expanded', d.open ? 'true' : 'false'); });
+      d.addEventListener('toggle', () => { live.recordsOpen = d.open; const b = scope.querySelector('[data-cn-dock="records"]'); if (b) b.setAttribute('aria-expanded', d.open ? 'true' : 'false'); });
       return d;
     }
 
@@ -458,7 +432,7 @@
       const who = userWords();
       try {
         sh.page('connections', {
-          kicker: `${KICKER_NUMBER} / ${s.kicker || 'CONNECT A PROVIDER'}`,
+          kicker: `${kickerNumber() ? `${kickerNumber()} / ` : ''}${s.kicker || 'CONNECT A PROVIDER'}`,
           title: s.title || '',
           intro: s.lead || '',
           primary: ready
@@ -483,23 +457,18 @@
       const primaryId = recommended(cards, sum);
       if (!live.sel || !cards.some((c) => c.id === live.sel)) live.sel = primaryId;
       const note = h('p', { class: 'sh-note cn-note' }, h('span', { class: 'cn-note-mark', 'aria-hidden': 'true' }, '↳ '), s.note || '');
-      if (scaffold) {
-        // the shell's regions: the head and the band are the shell's (register), the work, the context, the dock's own
-        // buttons and the records are this screen's
-        register(s, sum, cards, primaryId);
-        main.replaceChildren(work(cards, primaryId), note);
-        if (scaffold.context) scaffold.context.replaceChildren(...context(s, sum, cards).childNodes);
-        if (scaffold.dock) { for (const old of scaffold.dock.querySelectorAll('[data-cn-dock]')) old.remove(); for (const b of dock(s, cards).querySelectorAll('[data-cn-dock]')) { b.classList.add('dock-btn'); scaffold.dock.append(b); } }
-        if (scaffold.records) scaffold.records.replaceChildren(records(s, data, cards));
-      } else {
-        main.replaceChildren(
-          pageHead(s, sum, cards, primaryId),
-          band(s, sum, cards, primaryId),
-          h('div', { class: 'cn-grid page-body' }, work(cards, primaryId), context(s, sum, cards)),
-          dock(s, cards),
-          records(s, data, cards),
-          note);
+      // the head and the band are the shell's, from the registration; the work (this host), the context, this screen's
+      // buttons in the dock and the records are drawn here — each into the shell's region when the page has it
+      main.replaceChildren(work(cards, primaryId), note);
+      if (regions.context) regions.context.replaceChildren(...context(s, sum, cards).childNodes);
+      if (regions.dock) {
+        let tools = regions.dock.querySelector(':scope > .dock-tools');
+        if (!tools) { tools = h('div', { class: 'dock-tools' }); regions.dock.append(tools); }
+        for (const old of tools.querySelectorAll('[data-cn-dock]')) old.remove();
+        for (const b of dock(s, cards).querySelectorAll('[data-cn-dock]')) { b.classList.add('dock-btn'); b.classList.remove('sh-btn-text'); tools.append(b); }
       }
+      if (regions.records) regions.records.replaceChildren(records(s, data, cards));
+      register(s, sum, cards, primaryId);
       drawContext();
       // every path that applies a provider's state ends here (the first draw, Check, a download, a key, a delete, the socket's
       // connections event through update()): the feed says each change once, with the backend's event as its source
@@ -516,12 +485,13 @@
       if (live.destroyed) return;
       let r;
       try { r = await api('/api/connections'); } catch { r = null; }
-      if (!r || !r.ok) {
-        main.replaceChildren(h('p', { class: 'sh-note sh-error cn-failed', role: 'alert' }, r && r.status === 401 ? 'Sign in to Timmy first: the connections are kept under your account.' : 'The connections could not be read from the companion.'));
-        return;
-      }
+      const failed = (words) => {
+        main.replaceChildren(h('p', { class: 'sh-note sh-error cn-failed', role: 'alert' }, words));
+        if (typeof sh.state === 'function') { try { sh.state('connections', 'error', { words, next: { label: 'Read again', run: () => void refresh() } }); } catch { /* the words above stand */ } }
+      };
+      if (!r || !r.ok) { failed(r && r.status === 401 ? 'Sign in to Timmy first: the connections are kept under your account.' : 'The connections could not be read from the companion.'); return; }
       let data; try { data = await r.json(); } catch { data = null; }
-      if (!data || !data.ok) { main.replaceChildren(h('p', { class: 'sh-note sh-error cn-failed', role: 'alert' }, 'The connections could not be read from the companion.')); return; }
+      if (!data || !data.ok) { failed('The connections could not be read from the companion.'); return; }
       if (live.destroyed) return;
       render(data);
     }

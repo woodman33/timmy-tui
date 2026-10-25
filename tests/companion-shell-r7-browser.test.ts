@@ -155,7 +155,9 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await expectPage('files', 'files', 'files', 'ws-files', '02');
       // the mounted connections screen draws inside the page's work region (its own cards), the rail beside it
       await go(page, 'connections');
-      expect(await page.isVisible('#screen-connections .page-work .cn-main')).toBe(true); // (its cards come when GET /api/connections answers: H170's own test)
+      // (H170's draw writes into the scaffold's work region and registers the page: the PRIMARY is drawn by the shell — GATE 04)
+      await page.waitForSelector('#screen-connections .page-primary .ui-primary', { timeout: 15_000 });
+      expect(await page.$eval('#screen-connections .page-work', (e) => e.childElementCount)).toBeGreaterThan(0);
       expect(await page.isVisible('#shell-rail')).toBe(true);
       // the frame's primary action is the page's default primary next action (the head's button and the band's text action, the same words)
       await go(page, 'workflows');
@@ -171,36 +173,37 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.keyboard.press('2');
       await page.waitForFunction(() => document.body.dataset.page === 'chat', null, { timeout: 5_000 });
       // a page's registration: title, primary (run on click), state words with a verb-led next action; the band's own cells
+      // (on a page no owner's script registers at show — Fleet & Clef, legacy — so the test's own registration is what is drawn)
       await page.evaluate(() => {
         const w = window as unknown as { TimmyShell: { page(id: string, r: object): void; state(id: string, s: string, o?: object): void; band(id: string, c: object): void; go(id: string): void } };
         (window as unknown as { __ran: string[] }).__ran = [];
-        w.TimmyShell.page('files', { kicker: '02 / KEEP EVERY SOURCE', title: 'A test title for Files.', intro: 'A test intro.', primary: { label: 'Open a test source', run: () => (window as unknown as { __ran: string[] }).__ran.push('primary') }, context: 'selection', band: [{ k: 'Sources', v: '0 files' }] });
-        w.TimmyShell.state('files', 'empty', { words: 'Nothing in this project yet.', next: { label: 'Add a source', run: () => (window as unknown as { __ran: string[] }).__ran.push('next') } });
-        w.TimmyShell.band('files', { records: 'Test records' });
-        w.TimmyShell.go('files');
+        w.TimmyShell.page('fleet', { kicker: '08 / A TEST KICKER', title: 'A test title for the fleet page.', intro: 'A test intro.', primary: { label: 'Open a test source', run: () => (window as unknown as { __ran: string[] }).__ran.push('primary') }, context: 'selection', band: [{ k: 'Sources', v: '0 files' }] });
+        w.TimmyShell.state('fleet', 'empty', { words: 'Nothing in this project yet.', next: { label: 'Add a source', run: () => (window as unknown as { __ran: string[] }).__ran.push('next') } });
+        w.TimmyShell.band('fleet', { records: 'Test records' });
+        w.TimmyShell.go('fleet');
       });
       s = await shown(page);
-      expect(s.title).toBe('A test title for Files.');
-      expect(s.kicker).toBe('02 / KEEP EVERY SOURCE');
-      expect(await page.getAttribute('#ws-files', 'data-state')).toBe('empty');
-      expect(await text(page, '#ws-files .page-state')).toContain('Nothing in this project yet.');
-      await page.click('#ws-files .page-state-next');
-      await page.click('#ws-files .page-primary .ui-primary');
+      expect(s.title).toBe('A test title for the fleet page.');
+      expect(s.kicker).toBe('08 / A TEST KICKER'); // (a page outside the rail keeps the number it registered)
+      expect(await page.getAttribute('#ws-fleet', 'data-state')).toBe('empty');
+      expect(await text(page, '#ws-fleet .page-state')).toContain('Nothing in this project yet.');
+      await page.click('#ws-fleet .page-state-next');
+      await page.click('#ws-fleet .page-primary .ui-primary');
       expect(await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)).toEqual(['next', 'primary']);
-      const cells = await page.$$eval('#ws-files .page-band .band-cell', (els) => els.map((e) => [(e.querySelector('.band-k')?.textContent ?? '').trim(), (e.querySelector('.band-v')?.textContent ?? '').trim()]));
+      const cells = await page.$$eval('#ws-fleet .page-band .band-cell', (els) => els.map((e) => [(e.querySelector('.band-k')?.textContent ?? '').trim(), (e.querySelector('.band-v')?.textContent ?? '').trim()]));
       expect(cells.map((c) => c[0])).toEqual(['Workspace', 'Model', 'Records', 'Sources']);
       expect(cells[2][1]).toBe('Test records');
       expect(cells[3][1]).toBe('0 files');
       // approval: NEEDS YOU first in the band, amber by its class (its word says it; its colour is the focus amber, not green)
-      await page.evaluate(() => (window as unknown as { TimmyShell: { state(id: string, s: string, o?: object): void } }).TimmyShell.state('files', 'approval', { words: 'A test approval waits' }));
-      expect(await text(page, '#ws-files .page-band .band-cell.is-attn')).toContain('Needs you');
-      expect(await page.$eval('#ws-files .page-band .band-cell.is-attn .band-v', (e) => getComputedStyle(e).color)).toBe('rgb(255, 176, 0)');
+      await page.evaluate(() => (window as unknown as { TimmyShell: { state(id: string, s: string, o?: object): void } }).TimmyShell.state('fleet', 'approval', { words: 'A test approval waits' }));
+      expect(await text(page, '#ws-fleet .page-band .band-cell.is-attn')).toContain('Needs you');
+      expect(await page.$eval('#ws-fleet .page-band .band-cell.is-attn .band-v', (e) => getComputedStyle(e).color)).toBe('rgb(255, 176, 0)');
       // the type: the UI face for the title and the rail, the mono face for a key
       expect(await page.$eval('.page:not([hidden]) .page-title', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
       expect(await page.$eval('#rail-menu .rail-item', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
       expect(await page.$eval('#shell-help kbd', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Monaspace Argon"?/);
       // no shell text under 13 px, on the pages seen
-      for (const id of ['chat', 'workflows', 'connections', 'files']) { await go(page, id); expect(await smallText(page), id).toEqual([]); }
+      for (const id of ['chat', 'workflows', 'connections', 'files', 'settings']) { await go(page, id); expect(await smallText(page), id).toEqual([]); }
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, LONG);

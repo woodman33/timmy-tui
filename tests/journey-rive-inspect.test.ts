@@ -168,7 +168,27 @@ async function open(size: { width: number; height: number }, o: { reducedMotion?
     return 'ok';
   }, identity.token(USER)).catch((e: unknown) => `threw: ${e instanceof Error ? e.message : String(e)}`);
   expect(ok, 'the page\'s session seam (window.timmyAccount.useSession)').toBe('ok');
+  await landThenConnections(page);
   return { page, errors, missing, markAsks, left, close: () => context.close() };
+}
+
+/**
+ * Where the page went after the session (its own landing), then Models & accounts for the leg. THE LANDING RULE (shell.js land():
+ * signed in, no route → connections) is bypassed on the round-7 head when account.js's return path (its "page" listener remembers
+ * the page before Account — the boot default Chat counts) sends the person back to Chat after the sign-in; it depends on the order of
+ * the boot's and the landing's page events (GATE 05: Chat four times, Models & accounts once). Observed and said, never asserted
+ * here: this leg is about the faces, not the landing. Returns the page id the landing chose.
+ */
+async function landThenConnections(page: Page): Promise<string> {
+  await page.waitForFunction(() => Boolean(document.body.getAttribute('data-page') || document.body.getAttribute('data-screen')), null, { timeout: 15_000 }).catch(() => undefined);
+  // (the account page's continueOn() goes on asynchronously after useSession resolves: give its go() its tick)
+  await page.waitForTimeout(400);
+  const landed = await page.evaluate(() => (window as unknown as { TimmyShell?: { current?: () => string } }).TimmyShell?.current?.() ?? document.body.getAttribute('data-page') ?? '');
+  if (landed !== 'connections') {
+    console.warn(`the page landed on "${landed}" after the FAKE session (account.js's return path, not land()'s connections): Models & accounts opened by TimmyShell.go for this leg`);
+    await page.evaluate(() => (window as unknown as { TimmyShell?: { go?: (id: string, why?: string) => unknown } }).TimmyShell?.go?.('connections', 'journey'));
+  }
+  return landed;
 }
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
@@ -269,7 +289,9 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
     // the operator's native asset: its source committed beside it (the generator, the font's license), the file itself gitignored —
     // here when the checkout carries it; the path this leg takes follows, and is said
     const ui = rows.find((c) => c.component === 'timmy-ui')!;
-    expect(ui.sources).toEqual(expect.arrayContaining(['scene.rml', 'rive.yaml', 'README.md', 'create-controls.py', 'OFL.txt']));
+    expect(ui.sources).toEqual(expect.arrayContaining(['scene.rml', 'rive.yaml', 'README.md', 'create-controls.py']));
+    // the font's licence beside the source: Montserrat's OFL.txt (v1), Outfit-OFL.txt since H174's 7e9083b3 (v2) — one OFL file, by name
+    expect(ui.sources.some((f: string) => /OFL/.test(f)), `a font licence (OFL) among the sources: ${ui.sources.join(', ')}`).toBe(true);
     expect(ui.meta.stateMachine).toBe(NATIVE.stateMachine);
     expect(ui.meta.artboards, 'the three production artboards (a later build may add more)').toEqual(expect.arrayContaining(NATIVE.artboards));
     expect(ui.meta.inputs, 'the four inputs').toEqual(expect.arrayContaining(NATIVE.inputs));

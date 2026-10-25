@@ -243,6 +243,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
     // the page opens on it
     if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
+    // R11 round 7 (the lead, D4; H171's d5a6f005): the Chat's turn mirror and the Streamdown island live in the page's records,
+    // a details CLOSED by default — opened here before its switch is reached (the product's own control is "Show the turn mirror")
+    await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
     // R11 round 7 (the lead, SHELL CONTRACT v1 §2.1): the old tab row stays in the DOM hidden (companion.js's one switcher), so
     // only a VISIBLE control is clicked — the rail item opened the page above; a panel's own switch is the visible [data-tab]
     if (await page.locator(`.view-switch [data-tab="${name}"]:visible`).count()) await page.click(`.view-switch [data-tab="${name}"]:visible`);

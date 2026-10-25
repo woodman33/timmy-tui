@@ -262,12 +262,16 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         await caps.cap(o.page, size, 'account-block-unconfigured', ['UNCONFIGURED companion (no CLERK_* set): the operator\'s chat with the rail\'s account block naming the dependency.']);
         // the account block opens the account screen (H171): the dependency named again, in the screen's own words
         await o.page.getByText(/no identity provider configured/i).first().click();
-        const t = await until(o.page, 'the account screen (opened from the rail\'s account block)', (s) => /Create your Timmy account|Welcome back to Timmy/.test(s), 10_000);
+        // round 4's words ("Create your Timmy account" / "Welcome back to Timmy"), or round 7's (H173's f82aadf7: an UNCONFIGURED companion
+        // says "Sign-in is not set up on this companion." and offers "Continue as the operator"; no account is pretended)
+        const t = await until(o.page, 'the account screen (opened from the rail\'s account block)', (s) => /Create your Timmy account|Welcome back to Timmy|Sign-in is not set up on this companion/.test(s), 10_000);
         expect(await screenOf(o.page), 'body[data-screen]').toBe('account');
         expect(t).toMatch(/CLERK_PUBLISHABLE_KEY/);
         expect(t).toMatch(/CLERK_JWT_KEY|CLERK_SECRET_KEY/);
-        await caps.cap(o.page, size, 'account-screen-unconfigured', ['The account screen of an UNCONFIGURED companion: the env names it needs; the social buttons say what they need; nothing signs in.']);
-        for (const name of [/Continue with Google/, /Continue with GitHub/]) {
+        const socialDrawn = await o.page.getByRole('button', { name: /Continue with (Google|GitHub)/ }).count();
+        await caps.cap(o.page, size, 'account-screen-unconfigured', [`The account screen of an UNCONFIGURED companion: the env names it needs; ${socialDrawn ? 'the social buttons say what they need' : 'no social button is drawn (none declared: nothing pretended; "Continue as the operator" instead)'}; nothing signs in.`]);
+        if (!socialDrawn) expect(t, 'with no provider configured the page offers the operator path and pretends no account').toMatch(/Continue as (the|this computer.s) operator|nothing is pretended|no account to make or restore/i);
+        for (const name of socialDrawn ? [/Continue with Google/, /Continue with GitHub/] : []) {
           const button = o.page.getByRole('button', { name });
           expect(await button.count(), `the ${name} button`).toBeGreaterThan(0);
           const first = button.first();
@@ -279,7 +283,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         }
         await o.page.waitForTimeout(500);
         const after = await text(o.page);
-        expect(after).toMatch(/Create your Timmy account|Welcome back to Timmy/);
+        expect(after).toMatch(/Create your Timmy account|Welcome back to Timmy|Sign-in is not set up on this companion/);
         expect(after).not.toMatch(/Signed in|Sign out/i);
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
@@ -308,7 +312,7 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         expect(t).toMatch(/not set up|Not connected|No key|not installed|Install Ollama|not asked/i);
         // Ollama · local against the FAKE Ollama: Check asks it (the card's first state is this computer's PATH: "not installed" with
         // no ollama program here); its model is then listed
-        await o.page.getByRole('button', { name: /^Check$/ }).first().click();
+        await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click();
         await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000, undefined, facts(o));
         await caps.cap(o.page, size, 'connections-after-check', ['Ollama · local after Check: the FAKE Ollama on 127.0.0.1 answered its model list (one FAKE model, no model ran).']);
         // Download a local model (H170's words, 19:47): the box, the model's name, "Show the size" → the confirmation sentence
@@ -317,7 +321,9 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         // /api/pull sees the abort
         const pullsBefore = ollama.pulls().length; // (the FAKE keeps every pull across the sizes)
         await o.page.getByRole('button', { name: /Download a local model/ }).first().click();
-        const nameField = o.page.getByRole('textbox', { name: /model|name/i }).or(o.page.getByPlaceholder(/model|name/i));
+        // (the pull box's own name field — #cn-pull-other "Another model name" — not the first textbox named like a model on the page: on the
+        // round-7 shell the rail's New-project field and the Models context's search come first in the DOM, hidden)
+        const nameField = o.page.locator('#cn-pull-other').or(o.page.getByRole('textbox', { name: /Another model name/i }));
         if (await nameField.count()) await nameField.first().fill(PULL.name);
         await o.page.getByRole('button', { name: /Show the size/ }).first().click();
         // (H170's words: "Download <model> (<size>; <free>). Ollama downloads it from its library; nothing else is installed." for a starter;
@@ -340,14 +346,33 @@ describe.skipIf(!browserPath)('the account → connections → chat journey in C
         const cancelled = await until(o.page, 'the download cancelled, said', (s) => /Cancelled/.test(s), 10_000);
         expect(cancelled).not.toContain(FAKE_CLOUD_KEY);
         // the screen's own heading (SCREEN_WORDS: the kicker, the title, the lead) is on the page — round 7 (H170, 14:37): the order's
-        // words "One model is enough to begin." under the kicker "06 / CONNECT A PROVIDER"; round 6: "Choose how you want to run."
+        // words "One model is enough to begin." under the kicker "NN / CONNECT A PROVIDER"; round 6: "Choose how you want to run."
         expect(cancelled, 'the connections screen\'s title (H170\'s SCREEN_WORDS.title)').toMatch(/One model is enough to begin\.|Choose how you want to run\./i);
-        expect(cancelled).toMatch(/06 \/ CONNECT A PROVIDER|CONNECT YOUR MODELS & TOOLS/i);
+        // the kicker's NUMBER is the rail's order (SHELL CONTRACT v1.1: TimmyShell.PAGES[].n — 08 on the shell as merged; H170 wrote 06
+        // in his registration, which the shell replaces): read from the shell when it is there, never copied into this test
+        // (the kicker's three spans — the number, " / ", the verb — are read as separate lines by innerText: whitespace-tolerant)
+        expect(cancelled).toMatch(/\d\d\s*\/\s*CONNECT A PROVIDER|CONNECT YOUR MODELS & TOOLS/i);
+        const railN = await o.page.evaluate(() => {
+          const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ id: string; n?: string | number }> } }).TimmyShell?.PAGES;
+          const p = Array.isArray(pages) ? pages.find((x) => x.id === 'connections') : undefined;
+          return p && p.n !== undefined && p.n !== null && p.n !== '' ? String(p.n).padStart(2, '0') : null;
+        }).catch(() => null);
+        if (railN) expect(cancelled, `the kicker's number is the rail's order from TimmyShell.PAGES (${railN})`).toMatch(new RegExp(`${railN}\\s*\\/\\s*CONNECT A PROVIDER`, 'i'));
+        else console.warn(`${at}: TimmyShell.PAGES has no numbered entry for connections (an older shell, or the page outside the rail): the kicker's number not asserted`);
         // Continue → the chat (the footer's "Continue to the workspace →", or "Explore without a model")
         await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
         const chat = await until(o.page, 'the chat screen', (s) => /Message Timmy/i.test(s));
         expect(await screenOf(o.page), 'body[data-screen]').toBe('chat');
-        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.']);
+        // the route mirror in the Chat's records (#mirror-route; the lead's 2e6266ff after H171's 16:48 finding): the companion's 401 for
+        // a read before the session was set ("…none was sent") is never kept as the route's state — once the FAKE session is here the
+        // mirror says the route the project's next turn takes (none chosen yet: "has no route now"), or that the page had no session yet
+        const mirror = o.page.locator('#mirror-route');
+        await mirror.waitFor({ state: 'attached', timeout: 15_000 });
+        const settled = await o.page.waitForFunction(() => !/^Asking the companion/.test(document.getElementById('mirror-route')?.textContent ?? ''), null, { timeout: 15_000 }).then(() => true, () => false);
+        const route = ((await mirror.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+        if (!settled) console.warn(`${at}: #mirror-route still asking after 15 s ("${route.slice(0, 120)}"); the stale-refusal read below still holds`);
+        expect(route, 'the route mirror after the FAKE sign-in (#mirror-route) keeps no pre-session refusal').not.toMatch(/none was sent/i);
+        await caps.cap(o.page, size, 'chat-welcome', ['The chat screen after Continue: the USER\'s project ("Untitled project"), the welcome, the composer; no model chosen yet.', `The route mirror in the Chat's records (#mirror-route): "${route.slice(0, 160)}" (never the pre-session "none was sent").`]);
         if (size.width >= 600) expect(chat).toMatch(/Local logs · cloud sync off|Local logs/); // (the state words fold on a phone)
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not (a signed-in page: the panels\' reads for the user\'s project — H171)').toEqual([]);

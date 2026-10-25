@@ -10,7 +10,10 @@
  *    opens the run once the page has its token; ?run=<op> beside the token opens that run on Workflows;
  *  - the unfinished tabs (the operator's order of 2026-10-16, 22:08 PT): 6, 7, 8 and 0 are marked in the tab strip by a dashed
  *    border and ◌ (not by a colour alone), and each opens with an "Unfinished" box above its content in the frame's own words
- *    (src/contracts/workspace.ts TabDef.unfinished), in structure and text colours; the other tabs have neither.
+ *    (src/contracts/workspace.ts TabDef.unfinished), in structure and text colours; the other tabs have neither. R11 round 7
+ *    (H172's re-aim to H175's SHELL CONTRACT v1 and the lead's B11 ruling): the tab row is the hidden switcher (its marks read
+ *    attached), the box is drawn between the page's head and its band, and its colours are read as token ROLES (B10 legacy or
+ *    B11 --timmy-ui-*), never literals; focus amber and green never on it. Unrun until the lead's hold.
  *
  * Real: the server, its token, the page's code, the frame, the runs (a /run in the REPL's own Workspace; upmd is the TEST
  * DOUBLE of tests/helpers/ops-sandbox.ts, labelled FAKE there). FAKE, labelled: the VoxVision records and their images
@@ -148,7 +151,7 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
     } finally { await closeProject(p); }
   }, 180_000);
 
-  it('tabs 6, 7, 8 and 0: marked unfinished in the strip without a colour alone, and opening with the frame\'s Unfinished box above their content, at 1376×768 and 800×600', async () => {
+  it('tabs 6, 7, 8 and 0 (Motion & 3D, Control Room, Fleet & Clef, Runs & receipts): marked unfinished on the hidden switcher without a colour alone, and opening with the frame\'s Unfinished box between the page\'s head and its band, in structure and text ROLES (never amber or green), at 1376×768 and 800×600', async () => {
     let p: PageProject | undefined;
     try {
       p = await pageProject(kit, { prefix: 'unfinished-browser-', records: false });
@@ -157,7 +160,36 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
         const { context, page, errors } = await openPage(browser, p, size);
         try {
           await page.goto(`${p.origin}/?tab=home#t=${p.token}`);
-          await page.waitForSelector('#ws-tabs [data-ws-tab="logs"][data-unfinished="true"]', { timeout: 30_000 });
+          // R11 round 7 (H175's SHELL CONTRACT v1; H172's re-aim): the tab row is the one switcher, HIDDEN — the grouped rail is the
+          // navigation (D3) and carries no unfinished mark; the frame's marks are still written on the row's buttons (companion.js
+          // drawTabs), read here attached rather than visible, and the Unfinished box on the page is what says it to a person
+          await page.waitForSelector('#ws-tabs [data-ws-tab="logs"][data-unfinished="true"]', { state: 'attached', timeout: 30_000 });
+          expect(await page.isVisible('#ws-tabs'), `${at}: the tab row is hidden (the rail is the navigation)`).toBe(false);
+          // the colour ROLES the box may use, as the sheet computes them now (B10's legacy names keep their values; B11's --timmy-ui-*
+          // registry): the lead's ruling of 15:29 PT — pins are roles, never colour literals; focus amber and green stay exact and
+          // belong to states, never to this box
+          const roles = await page.evaluate(() => {
+            const probe = document.createElement('span');
+            document.body.append(probe);
+            const rgb = (name: string): string | null => {
+              const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+              if (!v) return null;
+              probe.style.color = '';
+              probe.style.color = v;
+              return probe.style.color ? getComputedStyle(probe).color : null;
+            };
+            const list = (names: string[]): string[] => [...new Set(names.map(rgb).filter((c): c is string => Boolean(c)))];
+            const out = {
+              ground: ['rgba(0, 0, 0, 0)', ...list(['--timmy-ui-canvas', '--timmy-ui-surface', '--timmy-ui-raised', '--timmy-ground', '--timmy-surface'])],
+              border: list(['--timmy-ui-border', '--timmy-ui-border-quiet', '--timmy-line-strong', '--timmy-line']),
+              text: list(['--timmy-ui-text', '--timmy-text']),
+              key: list(['--timmy-ui-text-secondary', '--timmy-ui-text-muted', '--timmy-text-secondary']),
+              never: ['rgb(255, 176, 0)', 'rgb(40, 254, 20)', 'rgb(0, 215, 0)'],
+            };
+            probe.remove();
+            return out;
+          });
+          expect(roles.border.length + roles.text.length + roles.key.length, `${at}: the sheet's token roles are readable`).toBeGreaterThan(2);
           for (const t of TABS) {
             const tab = await page.$eval(`#ws-tabs [data-ws-tab="${t.id}"]`, (b) => ({
               marked: b.getAttribute('data-unfinished'), border: getComputedStyle(b).borderTopStyle,
@@ -170,14 +202,19 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
             }
             await showTab(page, t.key, t.id);
             const box = await page.evaluate((id) => {
-              const page = document.querySelector(`[data-ws-page="${id}"]`)!;
-              const b = page.querySelector(':scope > .unfinished') as HTMLElement | null;
+              const sec = document.querySelector(`[data-ws-page="${id}"]`)!;
+              const b = sec.querySelector(':scope > .unfinished') as HTMLElement | null;
               if (!b) return null;
-              const next = b.nextElementSibling as HTMLElement | null;
+              const r = (el: Element | null): DOMRect | null => (el ? el.getBoundingClientRect() : null);
+              const rb = r(b)!;
+              const head = r(sec.querySelector(':scope > .page-head'));
+              const band = r(sec.querySelector(':scope > .page-band'));
               const c = (sel: string): string => getComputedStyle(b.querySelector(sel)!).color;
               return {
-                first: page.firstElementChild === b,
-                above: next ? b.getBoundingClientRect().bottom <= next.getBoundingClientRect().top + 0.5 : true,
+                // SHELL CONTRACT v1.1: companion.js prepends the box to the section; the shell orders it between the head and the band
+                // (never above the kicker) — read where it is DRAWN, not where it sits in the DOM
+                inSection: b.parentElement === sec, drawn: rb.width > 0 && rb.height > 0,
+                belowHead: head ? rb.top >= head.bottom - 0.5 : 'no head', aboveBand: band ? rb.bottom <= band.top + 0.5 : 'no band',
                 title: (b.querySelector('.unfinished-title')?.textContent ?? '').trim(),
                 works: (b.querySelector('[data-unfinished-part="works"]')?.textContent ?? '').trim(),
                 missing: (b.querySelector('[data-unfinished-part="missing"]')?.textContent ?? '').trim(),
@@ -185,11 +222,19 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
               };
             }, t.id);
             if (!t.unfinished) { expect(box, `${at} tab ${t.key}: no Unfinished box`).toBeNull(); continue; }
-            expect(box, `${at} tab ${t.key}`).toEqual({
-              first: true, above: true, title: `◌ Unfinished · ${t.label}`, works: `Works now: ${t.unfinished.works}`, missing: `Not yet: ${t.unfinished.missing}`,
-              // structure and text colours (B10): #444444, #F2EFE9, #8E8E93 on the canvas; never amber or green
-              colours: { border: 'rgb(68, 68, 68)', style: 'dashed', title: 'rgb(242, 239, 233)', line: 'rgb(242, 239, 233)', key: 'rgb(142, 142, 147)', ground: 'rgb(0, 0, 0)' },
+            expect(box, `${at} tab ${t.key}`).toMatchObject({
+              inSection: true, drawn: true, belowHead: true, aboveBand: true,
+              title: `◌ Unfinished · ${t.label}`, works: `Works now: ${t.unfinished.works}`, missing: `Not yet: ${t.unfinished.missing}`,
             });
+            // structure and text roles: a dashed border in a structure role on a surface role; the words in the text roles; never a state's colour
+            const col = box!.colours;
+            expect(col.style, `${at} tab ${t.key}: the box's border is dashed`).toBe('dashed');
+            expect(roles.ground, `${at} tab ${t.key}: the box's ground is a surface role (${col.ground})`).toContain(col.ground);
+            expect(roles.border, `${at} tab ${t.key}: the box's border is a structure role (${col.border})`).toContain(col.border);
+            expect(roles.text, `${at} tab ${t.key}: the title is a text role (${col.title})`).toContain(col.title);
+            expect(roles.text, `${at} tab ${t.key}: the lines are a text role (${col.line})`).toContain(col.line);
+            expect(roles.key, `${at} tab ${t.key}: the "Works now" / "Not yet" keys are a secondary text role (${col.key})`).toContain(col.key);
+            for (const [k, v] of Object.entries(col)) if (k !== 'style') expect(roles.never, `${at} tab ${t.key}: ${k} is never the focus amber or a green (${v})`).not.toContain(v);
             if (process.env.TIMMY_CAPTURE_DIR && t.id === 'control') await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/unfinished-tab7-${at}.png` });
           }
           expect(errors, at).toEqual([]);

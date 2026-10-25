@@ -2238,12 +2238,32 @@ document.addEventListener('keydown', (e) => {
 // the Workbench (2 Chat) or the REPL as well, and the mirror says the route its next turn takes there, as their top lines say it
 // (H164's routeNow for the Workbench), FAKE where its model's name says so. Asked when the Chat tab is shown, at most every
 // HOME_WORK_EVERY_MS.
-const projectRoute = { at: 0, asking: false, route: null, why: '' };
+const projectRoute = { at: 0, asking: false, route: null, why: '', hooked: false };
+// R11 round 7 (the lead, H171's 16:48 finding): the mirror never keeps a refusal that only says the page had no session yet —
+// the companion's 401 for a user-data read before the session is set (its words "…none was sent") is not the route's state.
+// It is said as what it is, and the route is asked again the moment the shell's session arrives (TimmyShell 'session').
+const ROUTE_NO_SESSION_YET = 'the page has no signed-in session yet';
+function hookProjectRoute() {
+  if (projectRoute.hooked || typeof TimmyShell === 'undefined' || !TimmyShell || typeof TimmyShell.on !== 'function') return;
+  projectRoute.hooked = true;
+  TimmyShell.on('session', (e) => {
+    if (!e || !e.user) return;
+    projectRoute.at = 0; projectRoute.route = null; projectRoute.why = '';
+    if (workspace.tab === 'chat') readProjectRoute(); else drawProjectRoute();
+  });
+}
+// shell.js loads after this file: the hook is taken at the first read that finds TimmyShell, and once the document is parsed
+// (a session that arrives while the Chat is the landing page re-asks even when nothing has re-shown the tab)
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', hookProjectRoute);
 function readProjectRoute() {
+  hookProjectRoute();
   if (!companion.token || companion.refused || projectRoute.asking || Date.now() - projectRoute.at < HOME_WORK_EVERY_MS) return;
   projectRoute.asking = true;
   homeJson('/api/journey/route?surface=workbench')
-    .then((b) => { projectRoute.route = b.route || null; projectRoute.why = ''; }, (e) => { projectRoute.why = e && e.message ? e.message : String(e); })
+    .then((b) => { projectRoute.route = b.route || null; projectRoute.why = ''; }, (e) => {
+      const words = e && e.message ? e.message : String(e);
+      projectRoute.why = /none was sent|needs a signed-in|Sign in to continue/i.test(words) ? ROUTE_NO_SESSION_YET : words;
+    })
     .finally(() => { projectRoute.asking = false; projectRoute.at = Date.now(); drawProjectRoute(); });
 }
 function drawProjectRoute() {
