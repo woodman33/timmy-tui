@@ -973,6 +973,35 @@ document.addEventListener('click', (event) => {
   document.addEventListener('timmy:open-receipt', (e) => { const id = e && e.detail ? e.detail.id : null; if (typeof id === 'string' && id) rlSelectReceipt(id); });
   window.addEventListener('hashchange', () => { const id = rlWantFromHash(); if (id) rlSelectReceipt(id); });
 
+  /**
+   * The frame's "Unfinished · <page> · Works now / Not yet" box (companion.js drawUnfinished prepends it to the section on every
+   * frame; the shell's sheet orders it between the head and the band) is EVIDENCE, not a region: it moves into the page's
+   * records, in a details open by default (what does not work here yet is this page's truth, so it stays readable), and the
+   * scaffold reads head → band → body (the lead's D23 on H168's R106). A frame that no longer marks the tab takes the box away.
+   */
+  function foldUnfinished(section, frame, legacy) {
+    if (!section) return;
+    const rec = section.querySelector(':scope > .page-records');
+    if (!rec) return;
+    const marked = !frame || !Array.isArray(frame.tabs) ? null : frame.tabs.some((t) => t && String(t.id) === legacy && t.unfinished && typeof t.unfinished.works === 'string');
+    let home = rec.querySelector(':scope > details.records[data-h169-records="unfinished"]');
+    const top = section.querySelector(':scope > .unfinished');
+    if (marked === false) { if (top) top.remove(); if (home) home.remove(); return; }
+    if (!top) return;
+    if (!home) {
+      home = document.createElement('details');
+      home.className = 'records h169-records';
+      home.dataset.h169Records = 'unfinished';
+      home.open = true;
+      const sum = document.createElement('summary');
+      sum.textContent = 'Unfinished · what works on this page now, and what does not yet';
+      home.append(sum);
+      rec.prepend(home);
+    }
+    for (const old of home.querySelectorAll(':scope > .unfinished')) old.remove();
+    home.append(top);
+  }
+
   /** The page's older boxes (the socket log, the events, the latest receipt) find their place at load: the page's records. */
   function rlArrange() {
     const section = document.getElementById(RL_SECTION);
@@ -1105,6 +1134,7 @@ document.addEventListener('click', (event) => {
   TimmyPanels.register('logs', {
     draw(host, frame, ctx) {
       rlArrange();
+      foldUnfinished(document.getElementById(RL_SECTION), frame, 'logs');
       if (!ctx.own) { put(host, ctx.h('p', { class: 'empty' }, 'Not shown: the frame is another project\'s, so its runs are not read here.')); return; }
       RL.host = host; RL.ctx = ctx;
       if (RL.project !== ctx.project) { RL.project = ctx.project; RL.answer = null; RL.selected = null; put(host, ctx.h('p', { class: 'empty' }, 'Reading this project\'s runs and receipts…')); }

@@ -102,17 +102,26 @@ const FAKE_SHELL = `(() => {
     sheet() {},
     session: { get: () => '', user: () => null },
   };
-  // as companion.js does when a tab is shown: the panel drawn with the shown project (the REAL TimmyPanels of panels.js)
+  // the frame's words for the two tabs the frame marks unfinished (src/contracts/workspace.ts TabDef.unfinished; FAKE copies here)
+  const UNF = { logs: ['FAKE: the receipt chain, checked in the Workbench', 'FAKE: replaying a run from here'], control: ['FAKE: this project’s jobs, chat turns and runs', 'FAKE: adding or removing harnesses'] };
+  const FRAME = { revision: 7, tabs: Object.keys(UNF).map((id) => ({ id, unfinished: { works: UNF[id][0], missing: UNF[id][1] } })) };
+  // as companion.js does on every frame (drawUnfinished): the Unfinished box PREPENDED to the section (the shell's sheet orders it
+  // between the head and the band); then, as when a tab is shown, the panel drawn with the shown project (the REAL TimmyPanels)
   // (panels.js declares TimmyPanels as a top-level const: a global lexical binding, not a window property)
-  window.__show = (tab, project) => { window.TimmyShell.go(tab, 'test'); return TimmyPanels.draw(tab, { revision: 7 }, { project, fetch: window.TimmyShell.fetch, own: true, h }); };
+  window.__show = (tab, project) => {
+    const sec = document.querySelector('section.page[data-ws-page="' + tab + '"]');
+    if (sec && UNF[tab] && !sec.querySelector(':scope > .unfinished')) sec.prepend(h('section', { class: 'unfinished', 'data-unfinished': tab, role: 'note' }, h('h2', { class: 'unfinished-title' }, '◌ Unfinished · ' + tab), h('p', { class: 'unfinished-line' }, 'Works now: ' + UNF[tab][0]), h('p', { class: 'unfinished-line' }, 'Not yet: ' + UNF[tab][1])));
+    window.TimmyShell.go(tab, 'test');
+    return TimmyPanels.draw(tab, FRAME, { project, fetch: window.TimmyShell.fetch, own: true, h });
+  };
 })();
 `;
 
 /** The page: §2.2's scaffold for the three pages, the regions in order; the Workflows and Runs hosts NOT given (the scripts make them); no inline script. */
 const PAGE = `<!doctype html><html lang="en" data-theme="amber"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FAKE shell · H169's pages</title>
 <style>:root{--timmy-ui-canvas:#080B0F;--timmy-ui-surface:#111A23;--timmy-ui-raised:#1C2936;--timmy-ui-paper:#E8EFF5;--timmy-ui-border:#44586B;--timmy-ui-border-quiet:#1E2A36;--timmy-ui-text:#ECF1F5;--timmy-ui-text-secondary:#BDCADA;--timmy-ui-text-muted:#9AAFC3;--timmy-ui-ink:#1C3043;--timmy-ui-ink-soft:#3B5168;--timmy-ui-focus:#FFB000;--timmy-ui-focus-halo:#080B0F;--timmy-ui-verified:#28FE14;--timmy-ui-verified-dim:#00D700;--timmy-ui-diff-remove:#FF5F56;--timmy-ui-accent:#D6AA64;--timmy-ui-accent-soft:#EAD0A3;--timmy-ui-accent-ink:#402E14;--timmy-ui-accent-start:#F0E5D4;--timmy-ui-accent-wash:rgba(214,170,100,.08);--timmy-ui-font:system-ui,sans-serif;--timmy-ui-font-mono:monospace;--timmy-ui-size-page:30px;--timmy-ui-size-section:18px;--timmy-ui-size-body:14px;--timmy-ui-size-label:13px;--timmy-ui-radius-control:10px;--timmy-ui-radius-panel:16px;--timmy-ui-elev-surface:#111A23;--timmy-ui-elev-raised:#1C2936;--timmy-ui-elev-primary:linear-gradient(120deg,#F0E5D4,#D6AA64)}
-body{margin:0;background:var(--timmy-ui-canvas);color:var(--timmy-ui-text);font:14px/1.55 var(--timmy-ui-font)}main{max-width:1240px;margin:0 auto;padding:24px 32px;box-sizing:border-box}.page-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.page-kicker{font-size:13px;letter-spacing:.14em;color:var(--timmy-ui-accent);margin:0 0 6px}.page-title{margin:0 0 6px;font-size:30px}.page-intro{margin:0;color:var(--timmy-ui-text-secondary)}.page-band{display:flex;gap:24px;align-items:center;margin:16px 0;padding:14px 18px;border:1px solid var(--timmy-ui-border);border-radius:16px;background:var(--timmy-ui-surface)}.band-k{display:block;font-size:13px;color:var(--timmy-ui-text-secondary)}.band-action{margin-left:auto;font:inherit;background:transparent;border:0;color:var(--timmy-ui-text);text-decoration:underline;cursor:pointer}.page-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}.page-work{min-width:0}.page-context{min-width:0}.page-dock{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0}.dock-label{font-size:13px;letter-spacing:.12em;color:var(--timmy-ui-text-secondary)}.ui-primary{font:inherit;cursor:pointer;border:1px solid var(--timmy-ui-accent);background:var(--timmy-ui-elev-primary);color:var(--timmy-ui-accent-ink);padding:10px 16px;border-radius:10px}.box{border:1px solid var(--timmy-ui-border-quiet);border-radius:16px;padding:12px;margin-top:12px}.empty{color:var(--timmy-ui-text-muted)}
-@media (max-width:720px){main{padding:16px}.page-head{flex-direction:column}.page-band{flex-wrap:wrap}.page-body{grid-template-columns:1fr}}</style>
+body{margin:0;background:var(--timmy-ui-canvas);color:var(--timmy-ui-text);font:14px/1.55 var(--timmy-ui-font)}main{max-width:1240px;margin:0 auto;padding:24px 32px;box-sizing:border-box}.page{display:flex;flex-direction:column;gap:18px}.page>.page-head{order:0}.page>.unfinished{order:1;border:1px dashed var(--timmy-ui-border);border-radius:10px;padding:6px 12px}.page>.page-band{order:2}.page>.page-body{order:3}.page>.page-dock{order:4}.page>.page-records{order:5}.page-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.page-kicker{font-size:13px;letter-spacing:.14em;color:var(--timmy-ui-accent);margin:0 0 6px}.page-title{margin:0 0 6px;font-size:30px}.page-intro{margin:0;color:var(--timmy-ui-text-secondary)}.page-band{display:flex;gap:24px;align-items:center;margin:0;padding:14px 18px;border:1px solid var(--timmy-ui-border);border-radius:16px;background:var(--timmy-ui-surface)}.band-k{display:block;font-size:13px;color:var(--timmy-ui-text-secondary)}.band-action{margin-left:auto;font:inherit;background:transparent;border:0;color:var(--timmy-ui-text);text-decoration:underline;cursor:pointer}.page-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}.page-work{min-width:0}.page-context{min-width:0}.page-dock{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}.dock-label{font-size:13px;letter-spacing:.12em;color:var(--timmy-ui-text-secondary)}.ui-primary{font:inherit;cursor:pointer;border:1px solid var(--timmy-ui-accent);background:var(--timmy-ui-elev-primary);color:var(--timmy-ui-accent-ink);padding:10px 16px;border-radius:10px}.box{border:1px solid var(--timmy-ui-border-quiet);border-radius:16px;padding:12px;margin-top:12px}.empty{color:var(--timmy-ui-text-muted)}
+@media (max-width:1320px){.page{gap:14px}}@media (max-width:720px){main{padding:16px}.page-head{flex-direction:column}.page-band{flex-wrap:wrap}.page-body{grid-template-columns:1fr}}</style>
 <link rel="stylesheet" href="/panel-run.css"><link rel="stylesheet" href="/panel-control.css"></head><body>
 <div id="project" data-project="__PROJECT__" hidden></div>
 <main id="ws-main">
@@ -398,6 +407,36 @@ describe('H169\'s three pages in Chromium on the scaffold (FAKE shell and frame,
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 60_000);
+
+  it('D23 (H168 R106): nothing between the head and the band on Runs & receipts and the Control Room — the frame\'s Unfinished box moves into the records (a details open by default), the band sits within the scaffold\'s gap of the head at 1440 and 390', async () => {
+    if (!browser) return;
+    for (const [width, height, gap] of [[1440, 900, 18], [390, 844, 14]] as const) {
+      const { context, page, errors } = await open(width, height);
+      try {
+        for (const [tab, section, wait] of [['logs', '#ws-logs', '#ws-logs .rl-row'], ['control', '#ws-control', '#ws-control [data-room-count="running"]']] as const) {
+          await show(page, tab);
+          await page.waitForSelector(wait, { timeout: 15_000 });
+          // the box left the section's top level; it is in the records, open, whole
+          expect(await page.locator(`${section} > .unfinished`).count(), `${tab} ${width}: no box between the head and the band`).toBe(0);
+          const folded = page.locator(`${section} > .page-records > details.records[data-h169-records="unfinished"], ${section} > .page-records > details.records[data-records-owner="unfinished"]`);
+          expect(await folded.count(), `${tab} ${width}: the box in the records`).toBe(1);
+          expect(await folded.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
+          expect(await folded.locator('.unfinished .unfinished-line').allTextContents()).toEqual([`Works now: FAKE: ${tab === 'logs' ? 'the receipt chain, checked in the Workbench' : 'this project’s jobs, chat turns and runs'}`, `Not yet: FAKE: ${tab === 'logs' ? 'replaying a run from here' : 'adding or removing harnesses'}`]);
+          expect(await folded.locator('.unfinished').count()).toBe(1); // one box, however many frames prepended one
+          // head → band → body: the band's top within the page's gap of the head's bottom, the body under the band
+          const y = await page.evaluate((sel) => { const r = (q: string) => document.querySelector(`${sel} > ${q}`)!.getBoundingClientRect(); const head = r('.page-head'); const band = r('.page-band'); const body = r('.page-body'); return { headBottom: head.bottom, bandTop: band.top, bandBottom: band.bottom, bodyTop: body.top }; }, section);
+          expect(y.bandTop, `${tab} ${width}: the band right under the head`).toBeLessThanOrEqual(y.headBottom + gap + 1);
+          expect(y.bandTop).toBeGreaterThanOrEqual(y.headBottom - 1);
+          expect(y.bodyTop).toBeGreaterThanOrEqual(y.bandBottom - 1);
+          // a second frame (companion.js prepends the box again): still one box, in the records
+          await show(page, tab);
+          expect(await page.locator(`${section} > .unfinished`).count()).toBe(0);
+          expect(await folded.locator('.unfinished').count()).toBe(1);
+        }
+        expect(errors).toEqual([]);
+      } finally { await context.close(); }
+    }
+  }, 90_000);
 
   it('every request the pages made was answered without a 4xx or 5xx, and nothing left 127.0.0.1', () => {
     expect(bad).toEqual([]);

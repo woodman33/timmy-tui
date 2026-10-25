@@ -65,10 +65,13 @@ describe.skipIf(!browserPath)('the run detail inspected, in a real browser (R6 H
   const cut = (page: Page): Promise<string[]> => page.$$eval(
     '#run-detail .rv-card, #run-detail .rv-block, #run-detail .rv-chain > li, #run-detail .rv-v-head, #run-detail .rv-acts-row, #run-detail .rv-pipe, #run-detail .rv-head, #run-detail [data-rv-scroll]',
     (els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => `${e.className}${(e as HTMLElement).dataset.rvCard ? ` [${(e as HTMLElement).dataset.rvCard}]` : ''}: ${e.scrollWidth} > ${e.clientWidth}`));
-  /** The run detail's buttons drawn amber (border, words or fill): B10 keeps amber for focus, the selection and the strip's one primary. */
-  const amberButtons = (page: Page): Promise<string[]> => page.$$eval('#run-detail button', (els, amber) => els
-    .filter((e) => { const c = getComputedStyle(e); return c.borderTopColor === amber || c.color === amber || c.backgroundColor === amber; })
-    .map((e) => e.getAttribute('data-rv-sel') ?? e.getAttribute('data-rv-act') ?? e.className), AMBER);
+  /** The run detail's buttons drawn in `colour` (border, words or fill). */
+  const colouredButtons = (page: Page, colour: string): Promise<string[]> => page.$$eval('#run-detail button', (els, c0) => els
+    .filter((e) => { const c = getComputedStyle(e); return c.borderTopColor === c0 || c.color === c0 || c.backgroundColor === c0; })
+    .map((e) => e.getAttribute('data-rv-sel') ?? e.getAttribute('data-rv-act') ?? e.className), colour);
+  /** B10 kept #FFB000 for focus, the selection and the strip's one primary; R11 round 7 (B11, H175's tokens.ts remap): the exact amber is the FOCUS ring's and NEEDS YOU's alone, the selection reads the family's accent (--timmy-ui-accent). */
+  const amberButtons = (page: Page): Promise<string[]> => colouredButtons(page, AMBER);
+  const familyAccent = (page: Page): Promise<string> => page.evaluate(() => { const p = document.createElement('span'); p.style.color = 'var(--timmy-ui-accent)'; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; });
   /** The Operation id box, opened as a person opens it (R10 H167: it is behind its Details control). */
   const byId = async (page: Page, op: string): Promise<void> => {
     if (!(await page.$eval('#run-by-id', (d) => (d as HTMLDetailsElement).open))) await page.click('#run-by-id > summary');
@@ -229,7 +232,10 @@ describe.skipIf(!browserPath)('the run detail inspected, in a real browser (R6 H
       // border brighter than the others'); in the run detail only the selection (the file the viewer shows) is amber
       expect(await colour(page, '#run-detail .rv-act.is-primary', 'borderTopColor')).not.toBe(AMBER);
       expect(await colour(page, '#run-detail .rv-act.is-primary', 'borderTopColor')).not.toBe(await colour(page, '#run-detail .rv-act[data-rv-act="review"]', 'borderTopColor'));
-      expect(await amberButtons(page)).toEqual([await page.getAttribute('#run-detail [data-rv-viewer]', 'data-rv-viewer')]);
+      // (R11 round 7, B11: the selection — the file the viewer shows — is the one button in the family's accent; no button carries
+      // the exact focus amber, which is the focus ring's and NEEDS YOU's)
+      expect(await colouredButtons(page, await familyAccent(page))).toEqual([await page.getAttribute('#run-detail [data-rv-viewer]', 'data-rv-viewer')]);
+      expect(await amberButtons(page)).toEqual([]);
       // the line under the actions: the primary's command and what it does, then the one pointed at
       // (R10 H167, H168's pattern 1 and F3: the action by its label and what it does, in words; its command is its tip and what
       // a press copies, and the kept version's place is in the viewer's Details)
