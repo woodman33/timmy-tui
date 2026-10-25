@@ -398,7 +398,7 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         const localState = await o.page.locator('[data-provider="ollama-local"]').first().getAttribute('data-state');
         // (item 4, H174's 9b6b2449: the label reads the OBSERVED word "checked" where the bindings carry it beside the vocabulary's "connected")
         if (localState === 'checked') expect(['connected', 'checked'], 'a card already checked when the Inspect view opens must read connected / checked (H174: the first look() runs before the view\'s handles exist, so a state seen then is never applied to them)').toContain(await labelIs(o.page, 'connection-ollama-local', /^(connected|checked)$/, 5_000).catch((e: Error) => e.message));
-        else expect(await label(o.page, 'connection-ollama-local')).toBe('disconnected');
+        else expect([...(localState ? [localState] : []), 'disconnected'], `connection-ollama-local: the label reads the card's observed word ("${localState}", item 4) or the vocabulary's "disconnected"`).toContain(await label(o.page, 'connection-ollama-local'));
         // the PREVIEW label on every operational card; the welcome has none (a user trigger); the mark has no preview
         for (const key of ['connection-openrouter', 'connection-ollama-local', 'connection-ollama-cloud', 'connection-cloudflare', 'activity']) {
           expect(await o.page.locator(`[data-preview-words="${key}"]`).first().innerText(), `${key}'s preview label`).toBe(PREVIEW_LABEL);
