@@ -21,7 +21,8 @@ const initial = {
   view: null, // GET /api/chat/view
   viewAt: null,
   viewError: '',
-  page: isPage(read(PAGE, '')) ? read(PAGE, '') : 'chat',
+  // (a link may name the page: /app?page=canvas#t=…, as Timmy opens a page directly; else the page this browser was on)
+  page: (() => { try { const q = new URLSearchParams(location.search).get('page'); if (isPage(q)) return q; } catch { /* no address */ } return isPage(read(PAGE, '')) ? read(PAGE, '') : 'chat'; })(),
   /** the rail on a phone (a drawer) and the records dock (folded by default) */
   drawer: false,
   dock: read(DOCK, '') === 'open',
