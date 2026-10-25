@@ -216,7 +216,7 @@ afterAll(async () => {
 
 // ── the companion page ────────────────────────────────────────────────────────
 
-interface Opened { page: Page; context: BrowserContext; errors: string[]; missing: string[]; left: string[]; rivFetches: string[]; close: () => Promise<void> }
+interface Opened { page: Page; context: BrowserContext; errors: string[]; missing: string[]; left: string[]; rivFetches: string[]; landedOn: string; close: () => Promise<void> }
 
 /** What the page did on the network and in its console: errors, misses, requests that left 127.0.0.1, every fetch of the .riv. */
 function watch(page: Page, o: { errors: string[]; missing: string[]; left: string[]; rivFetches: string[] }): void {
@@ -270,7 +270,27 @@ async function open(size: { width: number; height: number }, o: { reducedMotion?
     return 'ok';
   }, identity.token(USER)).catch((e: unknown) => `threw: ${e instanceof Error ? e.message : String(e)}`);
   expect(ok, 'the page\'s session seam (window.timmyAccount.useSession)').toBe('ok');
-  return { page, context, errors, missing, left, rivFetches, close: async () => { await context.close(); } };
+  const landedOn = await landThenConnections(page);
+  return { page, context, errors, missing, left, rivFetches, landedOn, close: async () => { await context.close(); } };
+}
+
+/**
+ * Where the page went after the session (its own landing), then Models & accounts for the leg. THE LANDING RULE (shell.js land():
+ * signed in, no route → connections) is bypassed on the round-7 head when account.js's return path (its "page" listener remembers
+ * the page before Account — the boot default Chat counts) sends the person back to Chat after the sign-in; it depends on the order of
+ * the boot's and the landing's page events (GATE 05: Chat four times, Models & accounts once). Observed and said, never asserted
+ * here: this leg is about the faces, not the landing. Returns the page id the landing chose.
+ */
+async function landThenConnections(page: Page): Promise<string> {
+  await page.waitForFunction(() => Boolean(document.body.getAttribute('data-page') || document.body.getAttribute('data-screen')), null, { timeout: 15_000 }).catch(() => undefined);
+  // (the account page's continueOn() goes on asynchronously after useSession resolves: give its go() its tick)
+  await page.waitForTimeout(400);
+  const landed = await page.evaluate(() => (window as unknown as { TimmyShell?: { current?: () => string } }).TimmyShell?.current?.() ?? document.body.getAttribute('data-page') ?? '');
+  if (landed !== 'connections') {
+    console.warn(`the page landed on "${landed}" after the FAKE session (account.js's return path, not land()'s connections): Models & accounts opened by TimmyShell.go for this leg`);
+    await page.evaluate(() => (window as unknown as { TimmyShell?: { go?: (id: string, why?: string) => unknown } }).TimmyShell?.go?.('connections', 'journey'));
+  }
+  return landed;
 }
 
 const text = (page: Page): Promise<string> => page.evaluate(() => document.body.innerText);
@@ -356,7 +376,8 @@ async function toChat(o: Opened, size: { width: number; height: number }, capPre
   await until(o.page, 'the chat', (s) => /Message Timmy/i.test(s));
   const landing = await text(o.page);
   const welcome = /What would you like to make\?/.test(landing);
-  await caps.cap(o.page, size, `${capPrefix}chat-welcome-console`, [welcome ? 'The chat screen on landing: the welcome (no turn in this project yet), the composer, the AgentConsole band mounted above the composer\'s route line (idle, State 0) — REAL runtime, the operator\'s artboard.' : 'The chat screen on landing: the project\'s conversation as it stands (turns of an earlier case of this run, this being the USER\'s one project), the composer, the AgentConsole band above the composer\'s route line — REAL runtime, the operator\'s artboard.']);
+  const landedWords = o.landedOn === 'connections' ? 'The page landed on Models & accounts after the FAKE session (THE LANDING RULE).' : `The page landed on "${o.landedOn}" after the FAKE session (account.js's return path took the boot default), not on Models & accounts as the landing rule says; Models & accounts was then opened for this leg (said, not asserted).`;
+  await caps.cap(o.page, size, `${capPrefix}chat-welcome-console`, [welcome ? 'The chat screen on landing: the welcome (no turn in this project yet), the composer, the AgentConsole band mounted above the composer\'s route line (idle, State 0) — REAL runtime, the operator\'s artboard.' : 'The chat screen on landing: the project\'s conversation as it stands (turns of an earlier case of this run, this being the USER\'s one project), the composer, the AgentConsole band above the composer\'s route line — REAL runtime, the operator\'s artboard.', landedWords]);
   if (size.width < 600) await o.page.getByRole('button', { name: /Models/ }).first().click(); // (a phone keeps the Models panel behind its button)
   await o.page.getByRole('tab', { name: 'Ollama local' }).first().click();
   await until(o.page, 'the FAKE model in the list', (s) => s.includes(MODEL), 20_000);
@@ -628,7 +649,7 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await caps.cap(o.page, size, 'connections-cards', ['The connections screen: a ProviderCard drawn in each of the four cards; the cards\' buttons stay HTML buttons.', `Each card as it stands in this picture — ${cardWords.join(' · ')}.`, `The faces\' captions, read back from the runtime\'s text runs: ${cardCaptions.join(' · ')}.`]);
         const local = o.page.locator(SEL.cardComponent('ollama-local')).first();
         const key = (await local.getAttribute('data-rive-component'))!;
-        await o.page.getByRole('button', { name: /^Check$/ }).first().click();
+        await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click();
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' });
         await inputIs(o.page, key, 'State', 0, 15_000);
         expect(await label(o.page, key)).toBe('connected');

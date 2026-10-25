@@ -336,7 +336,7 @@ const activeOf = (page: Page): Promise<string> => page.evaluate(() => { const a 
 
 // ── the scaffold (D4) ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface Scaffold { page: string; kicker: string; title: string; description: string; primary: string; summary: string; regions: Record<string, boolean>; states: string[] }
+interface Scaffold { page: string; kicker: string; title: string; description: string; primary: string; summary: string; regions: Record<string, boolean>; states: string[]; railN: string | null }
 /** The scaffold's selectors alone (strings: what page.evaluate can carry). */
 const SCAFFOLD_SEL = { shown: SHELL.shown, head: SHELL.head, kicker: SHELL.kicker, title: SHELL.title, description: SHELL.description, primary: SHELL.primary, summary: SHELL.summary, work: SHELL.work, context: SHELL.context, dock: SHELL.dock, records: SHELL.records };
 /** What the shown page carries of the scaffold, read in the page (every piece named so a missing one is said by name). */
@@ -348,7 +348,13 @@ const scaffoldOf = (page: Page): Promise<Scaffold> => page.evaluate((S) => {
   for (const [k, sel] of Object.entries({ head: S.head, summary: S.summary, work: S.work, context: S.context, dock: S.dock, records: S.records })) regions[k] = Boolean(q(sel));
   // the page's states, as the shell marks them (data-state on the page: empty | content | running | approval | error) — read, not assumed
   const states = shown ? [shown.getAttribute('data-state') || '', ...[...shown.querySelectorAll<HTMLElement>('[data-state]')].map((e) => e.getAttribute('data-state') || '')].filter(Boolean) : [];
-  return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states };
+  // the kicker's NUMBER is the rail's order (SHELL CONTRACT v1.1: TimmyShell.PAGES[].n, '' for a page outside the rail) — read from
+  // the shell when it is there, so the number asserted is the shell's own, never one copied into this test
+  const pageId = shown?.getAttribute('data-page') || '';
+  const pages = (window as unknown as { TimmyShell?: { PAGES?: Array<{ id: string; n?: string | number; rail?: boolean }> } }).TimmyShell?.PAGES;
+  const entry = Array.isArray(pages) ? pages.find((p) => p.id === pageId) : undefined;
+  const railN = entry ? (entry.n === '' || entry.n === undefined || entry.n === null ? '' : String(entry.n).padStart(2, '0')) : null;
+  return { page: shown ? (shown.getAttribute('data-page') || shown.id || shown.className) : '', kicker: t(q(S.kicker)), title: t(q(S.title)), description: t(q(S.description)), primary: t(q(S.primary)), summary: t(q(S.summary)), regions, states, railN };
 }, SCAFFOLD_SEL);
 
 /** The scaffold asserted on the shown page, each missing piece named as H175's contract piece. */
@@ -356,7 +362,13 @@ async function expectScaffold(page: Page, name: string): Promise<Scaffold> {
   const s = await scaffoldOf(page);
   const piece = (what: string): string => `${name}: ${what} (H175's SHELL CONTRACT v1 — the page scaffold; adjust SHELL in this test to the posted line if the names differ); the page read: ${JSON.stringify({ page: s.page, kicker: s.kicker, title: s.title, primary: s.primary, regions: s.regions }).slice(0, 600)}`;
   expect(s.page, piece('a shown page (section.page)')).not.toBe('');
-  expect(s.kicker, piece('the kicker "NN / VERB PHRASE"')).toMatch(/^\d{2}\s*\/\s*\S+/);
+  // the kicker: "NN / VERB PHRASE" (the number is the rail's order, §2.3); a page outside the rail carries its name instead of a number
+  // (H173's Settings: "SETTINGS / SET HOW TIMMY RUNS")
+  expect(s.kicker, piece('the kicker "NN / VERB PHRASE" (a page outside the rail: "NAME / VERB PHRASE")')).toMatch(/^(\d{2}|[A-Z][A-Z &]*)\s*\/\s*\S+/);
+  // the number is the shell's own (TimmyShell.PAGES[].n: the rail's order, v1.1 — Models & accounts 08, VoxVision 06, Control Room 10);
+  // a page the shell lists outside the rail (n '') carries no number; a shell without PAGES (null) is not asserted on
+  if (s.railN) expect(s.kicker, piece(`the kicker's number is the rail's order from TimmyShell.PAGES (${s.railN})`)).toMatch(new RegExp(`^${s.railN}\\s*\\/`));
+  else if (s.railN === '') expect(s.kicker, piece('a page outside the rail carries its name, not a number (TimmyShell.PAGES n = "")')).not.toMatch(/^\d{2}\s*\//);
   expect(s.title.length, piece('the title')).toBeGreaterThan(0);
   expect(s.description.length, piece('the one-line description')).toBeGreaterThan(0);
   expect(s.primary.length, piece('the PRIMARY NEXT ACTION at the right')).toBeGreaterThan(0);
@@ -494,7 +506,8 @@ describe('every major page on the shell, from the running companion and Studio: 
         const crumb = await top.locator('.crumb').first().innerText().catch(() => '');
         const status = await top.locator('#shell-status').first().innerText().catch(() => '');
         if (!phone) {
-          expect(crumb, 'the crumb reads "Workspace / <page name>"').toMatch(/Workspace/i);
+          // (§3.2: "Workspace / <page name>" where the first crumb reads #project-name's words — the project's name on a signed-in page)
+          expect(crumb.replace(/\s+/g, ' '), 'the crumb reads "<workspace / project> / <page name>"').toMatch(/\S.* \/ .*\S/);
           expect(status.length, 'the status word in the topbar (#shell-status)').toBeGreaterThan(0);
         } // (§4: the phone's top strip is the mark, the project's name and the menu button; the crumb and the status may fold — read, said)
         const sheet = phone ? await openRailSheet(o) : null;
@@ -521,9 +534,11 @@ describe('every major page on the shell, from the running companion and Studio: 
         // ONE rail: the old workspace tab row is never visible again (§2.1: it stays in the DOM hidden for the keys)
         expect(await o.page.locator('#ws-tabs').first().isVisible().catch(() => false), 'the old ws-tabs row is not visible (D3: ONE rail)').toBe(false);
         if (phone && sheet) {
-          // §4: the rail sheet is a modal dialog; Escape closes it and the focus returns to #shell-menu
-          expect(await sheet.getAttribute('role'), 'the rail sheet is role=dialog').toBe('dialog');
-          expect(await sheet.getAttribute('aria-modal'), 'the rail sheet is aria-modal').toBe('true');
+          // §4: the rail sheet is a modal dialog (H175's shell.js: the role and aria-modal sit on #rail-sheet inside the opened rail); Escape
+          // closes it and the focus returns to #shell-menu
+          const dialog = sheet.locator('#rail-sheet, [role="dialog"]').first();
+          expect(await dialog.getAttribute('role'), 'the rail sheet is role=dialog').toBe('dialog');
+          expect(await dialog.getAttribute('aria-modal'), 'the rail sheet is aria-modal').toBe('true');
           await caps.cap(o.page, size, 'shell-rail-sheet', { line: line('the shell', 'the rail sheet open on the phone'), facts: ['The phone\'s rail sheet opened from #shell-menu (§4): the same grouped destinations as the rail, a modal dialog over the page.'], full: true });
           await o.page.keyboard.press('Escape');
           await o.page.waitForTimeout(200);
@@ -542,6 +557,8 @@ describe('every major page on the shell, from the running companion and Studio: 
         await o.page.keyboard.press('Escape');
         await o.page.waitForTimeout(200);
         expect(await dialog.isVisible().catch(() => false), 'Escape closes Help & find').toBe(false);
+        // (on a phone Help & find was opened from inside the rail sheet, which stays open after the dialog closes: closed before the landing's picture)
+        if (phone && await o.page.locator(SHELL.railSheet).first().isVisible().catch(() => false)) { await o.page.keyboard.press('Escape'); await o.page.waitForTimeout(200); }
         await caps.cap(o.page, size, 'shell-landing', { line: line('the shell', 'the landing of the signed-in product'), facts: [`The landing at ${at}: ${phone ? 'the rail as a top strip (§4)' : 'the ONE grouped rail (§3.1)'}, the topbar (crumb "${crumb.replace(/\s+/g, ' ').trim()}", status "${status.replace(/\s+/g, ' ').trim()}"), theme ${theme}.`], full: true });
         await clean(o, 'the shell');
       } finally { await o.close(); }
@@ -553,10 +570,16 @@ describe('every major page on the shell, from the running companion and Studio: 
         try {
           await landed(o.page);
           await goTo(o, p.name);
-          const s = await expectScaffold(o.page, p.name);
-          const facts = [`${p.name} on the scaffold: kicker "${s.kicker}" · title "${s.title}" · primary next action "${s.primary}" · states marked: ${s.states.join(', ') || '(none marked)'}.`, `The summary band: "${s.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}".`];
+          // the page's picture FIRST (a reviewer needs it whether or not a scaffold piece is missing), then the scaffold asserted
+          const read = await scaffoldOf(o.page);
+          const facts = [`${p.name} on the scaffold: kicker "${read.kicker}" · title "${read.title}" · primary next action "${read.primary || '(NONE drawn)'}" · states marked: ${read.states.join(', ') || '(none marked)'}.`, `The summary band: "${read.summary.slice(0, 160) || '(none read: H175\'s contract piece)'}".`];
           await caps.cap(o.page, size, `${slug(p.name)}-page`, { line: line(p.name, 'as reached by the navigation'), facts, full: true });
+          await expectScaffold(o.page, p.name);
           await PROBES[p.name]?.(o, size, facts);
+          // the probes' facts (a face drawn or not, the states read, the key saved…) were gathered AFTER the page's first picture: they go
+          // into one more capture of the page as the probes left it, and into the log (GATE 05 lost them: said once, fixed here)
+          await caps.cap(o.page, size, `${slug(p.name)}-end-state`, { line: line(p.name, 'as the probes left it (their facts below)'), facts: facts.slice(1) });
+          console.log(`${at} ${p.name} — the probes' facts:\n  ${facts.join('\n  ')}`);
           await clean(o, p.name);
         } finally { await o.close(); }
       });
@@ -576,7 +599,7 @@ describe('every major page on the shell, from the running companion and Studio: 
           await o.page.keyboard.press('Tab');
           const a = await activeOf(o.page);
           seenFocus.push(a);
-          if (primary < 0 && s.primary && a.includes(s.primary.slice(0, 20))) { primary = i; await caps.cap(o.page, size, 'chat-focus-primary', { line: line('Chat', 'the keyboard focus on the primary next action'), facts: [`Tab ${i + 1} from the start: the focus on the primary next action "${s.primary}" (its focus ring is the picture's point).`] }); }
+          if (primary < 0 && s.primary && a.replace(/\s+/g, '').includes(s.primary.replace(/\s+/g, '').slice(0, 16))) { primary = i; await caps.cap(o.page, size, 'chat-focus-primary', { line: line('Chat', 'the keyboard focus on the primary next action'), facts: [`Tab ${i + 1} from the start: the focus on the primary next action "${s.primary}" (its focus ring is the picture's point).`] }); }
           if (composer < 0 && COMPOSER.test(a)) { composer = i; await caps.cap(o.page, size, 'chat-focus-composer', { line: line('Chat', 'the keyboard focus on the composer'), facts: [`Tab ${i + 1} from the start: the focus on the composer.`] }); }
           if (canvas < 0 && /^canvas/.test(a)) canvas = i;
         }
@@ -716,12 +739,18 @@ describe('every major page on the shell, from the running companion and Studio: 
       await goTo(o, 'Models & accounts');
       await expectScaffold(o.page, 'Models & accounts (unreachable)');
       const local = o.page.locator('[data-provider="ollama-local"]').first();
-      await local.getByRole('button', { name: /^Check$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check$/ }).first().click(); });
-      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer/i.test(s), 20_000);
+      await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
+      const t = await until(o.page, 'the local card\'s word after Check against a closed port', (s) => /unreachable|refused|could not be reached|not reachable|no answer|nothing answered/i.test(s), 20_000);
       const state = await local.getAttribute('data-state');
-      expect(state ?? '', 'the card\'s state after a refused connection').toMatch(/unreachable|refused|not set up|failed/i);
+      // the card's state word is this computer's Ollama (H170 on chat-view's readOllamaLocal: "not installed" when no ollama program is on
+      // this computer — true in this sandbox —, "installed, stopped" when it is, "unreachable" for a remote address); the refusal is in
+      // its words ("nothing answered at 127.0.0.1:9 just now (…ECONNREFUSED…)"); never "checked" or "connected"
+      expect(state ?? '', 'the card\'s state after a refused connection').toMatch(/unreachable|refused|not set up|failed|not installed|installed, stopped/i);
+      expect(state ?? '', 'never "checked" after a refused connection').not.toMatch(/checked|connected/i);
+      const localWords = await local.innerText();
+      expect(localWords, 'the local card says nothing answered at the address').toMatch(/nothing answered|unreachable|refused|could not be reached|not reachable|no answer/i);
       expect(t, 'never "connected" on a refused connection').not.toMatch(/\bconnected\b/i);
-      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local unreachable after Check (a closed port)'), facts: [`Ollama · local for a user whose address is ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card says it in its own words; state "${state ?? '(none)'}"; nothing green.`], full: true });
+      await caps.cap(o.page, size, 'models-accounts-unreachable', { line: line('Models & accounts', 'Ollama · local unreachable after Check (a closed port)'), facts: [`Ollama · local for a user whose address is ${UNREACHABLE_OLLAMA} (nothing listens there): after Check the card says it in its own words; state "${state ?? '(none)'}" (this computer's install state: no ollama program in this sandbox, so "not installed" is true here; the refusal is in the words); nothing green.`], full: true });
       await clean(o, 'unreachable');
     } finally { await o.close(); }
   });
@@ -848,7 +877,7 @@ const PROBES: Record<string, Probe> = {
     await caps.cap(o.page, size, 'models-accounts-first-use', { line: line('Models & accounts', 'first use: the four cards unconfigured'), facts: [`The four provider cards on first use, in their state words: ${await states()}; nothing set up, nothing "free", nothing green.`], full: true });
     // Check on Ollama · local against the FAKE Ollama: its model listed (the state word "connected" only after an observed answer)
     const local = o.page.locator('[data-provider="ollama-local"]').first();
-    await local.getByRole('button', { name: /^Check$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check$/ }).first().click(); });
+    await local.getByRole('button', { name: /^Check( again)?$/ }).first().click({ timeout: 5_000 }).catch(async () => { await o.page.getByRole('button', { name: /^Check( again)?$/ }).first().click(); });
     await until(o.page, 'the FAKE Ollama\'s model on the local card (after Check)', (s) => s.includes(MODEL), 20_000);
     const state = await local.getAttribute('data-state');
     await caps.cap(o.page, size, 'models-accounts-after-check', { line: line('Models & accounts', 'Ollama · local after Check (the FAKE answered)'), facts: [`Ollama · local after Check against the FAKE Ollama on 127.0.0.1: its model ${MODEL} listed; the card's state "${state ?? '(none)'}" (an observed answer; no model ran).`], full: true });
@@ -857,7 +886,10 @@ const PROBES: Record<string, Probe> = {
     const keyField = o.page.getByRole('textbox', { name: /Ollama API key/i }).or(o.page.locator('#cn-ollama-cloud-key')).first();
     if (await keyField.count()) {
       await keyField.fill(FAKE_CLOUD_KEY);
-      await o.page.getByRole('button', { name: /Save (the|an Ollama) key/ }).first().click();
+      // the form's submit "Save the key" (H170's card: its verb "Save an Ollama key" focuses the field and says the next step; it does not submit)
+      const cloudCard = o.page.locator('[data-provider="ollama-cloud"]').first();
+      const submit = cloudCard.getByRole('button', { name: /^Save the key$/ }).or(o.page.getByRole('button', { name: /^Save the key$/ })).first();
+      if (await submit.count()) await submit.click(); else await keyField.press('Enter');
       // (the card offers "Check the key" / "Forget the key" only once a key is held: the saved state, not a word that may already be on the page)
       const savedWords = await until(o.page, 'the key saved, said (Check the key / Forget the key offered)', (s) => /Check the key|Forget the key/.test(s), 15_000);
       expect(savedWords, 'the key\'s value reaches no screen').not.toContain(FAKE_CLOUD_KEY);
@@ -897,7 +929,8 @@ const PROBES: Record<string, Probe> = {
       // the starters listed (GET /api/canvas/templates: guided, blank first; a Houdini starter when H176 ships one — said which);
       // below 1100 px the Studio's lists start folded behind #side-fold (R7, H151): shown first so New board's controls can be used
       if ((await first.page.locator('#side').first().getAttribute('data-folded').catch(() => null)) === 'true') await first.page.locator('#side-fold').first().click({ timeout: 3_000 }).catch(() => undefined);
-      const options = await first.page.locator('#board-pick option').allTextContents().catch(() => [] as string[]);
+      // (the picker's first entry "Blank board" has no value and opens nothing to read: the starters are the options WITH a value)
+      const options = await first.page.locator('#board-pick option').evaluateAll((els) => els.filter((e) => (e as HTMLOptionElement).value).map((e) => (e.textContent || '').trim())).catch(() => [] as string[]);
       const houdini = options.find((x) => /houdini/i.test(x));
       const pick = houdini ?? options[0];
       facts.push(`The Studio's starters (#board-pick): ${options.length} listed${houdini ? `, a Houdini starter among them ("${houdini}")` : ', no Houdini starter on this head (H176\'s templates)'}; opened: "${pick ?? '(none listed)'}".`);
@@ -959,7 +992,7 @@ const PROBES: Record<string, Probe> = {
   async 'Workflows'(o, _size, facts) { facts.push(await stateWords(o, 'Workflows', /workflow|run|step/i)); },
   async 'Runs & receipts'(o, _size, facts) { facts.push(await stateWords(o, 'Runs & receipts', /run|receipt|record/i)); },
   async 'VoxVision'(o, _size, facts) { facts.push(await stateWords(o, 'VoxVision', /vision|scan|observ|image|source/i)); },
-  async 'Motion & 3D'(o, _size, facts) { facts.push(await stateWords(o, 'Motion & 3D', /motion|3D|clip|render|scene/i)); },
+  async 'Motion & 3D'(o, _size, facts) { facts.push(await stateWords(o, 'Motion & 3D', /motion|3D|clip|render|scene|mesh|houdini|template|native application/i)); },
   async 'Tools & integrations'(o, _size, facts) { facts.push(await stateWords(o, 'Tools & integrations', /tool|MCP|integration/i)); },
   async 'Control Room'(o, _size, facts) { facts.push(await stateWords(o, 'Control Room', /control|fleet|clef|workspace|agent/i)); },
   async 'Settings'(o, _size, facts) { facts.push(await stateWords(o, 'Settings', /setting|theme|preference|account/i)); },
@@ -969,7 +1002,9 @@ const PROBES: Record<string, Probe> = {
 async function stateWords(o: Opened, name: string, purpose: RegExp): Promise<string> {
   const s = await scaffoldOf(o.page);
   const work = await o.page.locator(SHELL.work).first().innerText().catch(() => '');
-  expect(`${s.title} ${s.description} ${work}`, `${name}: the page's purpose in its words`).toMatch(purpose);
+  // the kicker's verb phrase names the purpose by design (D4: "NN / VERB PHRASE" — "CREATE IN 3D", "SET HOW TIMMY RUNS"), with the title,
+  // the description and the work's words
+  expect(`${s.kicker} ${s.title} ${s.description} ${work}`, `${name}: the page's purpose in its words`).toMatch(purpose);
   // a state marked by the shell (data-state) or read from the words; an empty state carries a verb-led action (a button or a link in the work)
   const actions = await o.page.locator(SHELL.work).first().getByRole('button').or(o.page.locator(SHELL.work).first().getByRole('link')).allInnerTexts().catch(() => [] as string[]);
   const state = s.states[0] || (/nothing yet|no .* yet|empty|none yet/i.test(work) ? 'empty (read from the words)' : 'content (read from the words)');

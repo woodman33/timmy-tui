@@ -3,6 +3,11 @@
  * strip, Home's connections and the two start-up settings; in a real headless Chromium against the real companion server on
  * 127.0.0.1, drawing what the real frame producer (src/ops/workspace-frame.ts) makes of records in this test's own folders.
  *
+ * R11 round 7 (H172, re-aimed to H175's SHELL CONTRACT v1 and the lead's B11 ruling of 15:29 PT): the frame's ten keyed tabs
+ * remain the one switcher but the row is HIDDEN (D3: the grouped rail is the navigation, its items keyed by aria-keyshortcuts
+ * and marked aria-current); the strip lives in the shown page's dock; colours are read as token ROLES (B10's legacy names, B11's
+ * --timmy-ui-*), with only focus #FFB000 / verified #28FE14 exact and GREEN only on an observed state. Unrun until the lead's hold.
+ *
  * FAKE pieces, labelled: the connection observations (a record written by Timmy's own writeConnections, its answers made up,
  * no service asked), the frame's clock (the producer is given a fixed `now`, so its "answered 12 s ago" words, and with them
  * its revision, do not move by themselves), and a settings saver that fails. Real: the server and its token, the producer, the
@@ -275,11 +280,15 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const token = /#t=([0-9a-f]{64})$/.exec(s.url)![1];
     return await (await fetch(`http://127.0.0.1:${s.port}/api/workspace`, { headers: { Authorization: `Bearer ${token}` } })).json() as WorkspaceFrame;
   };
-  const shown = (page: Page): Promise<{ selected: string[]; visible: string[]; focused: string | null }> => page.evaluate(() => ({
+  const shown = (page: Page): Promise<{ selected: string[]; visible: string[]; focused: string | null; current: string[]; page: string }> => page.evaluate(() => ({
+    // the one switcher (SHELL CONTRACT v1, R11 round 7): companion.js's tab row, hidden, still records the selection
     selected: [...document.querySelectorAll('#ws-tabs [aria-selected="true"]')].map((b) => (b as HTMLElement).dataset.wsTab ?? ''),
     visible: [...document.querySelectorAll('.ws-page')].filter((p) => !(p as HTMLElement).hidden).map((p) => (p as HTMLElement).dataset.wsPage ?? ''),
     // R10 CHAT (H171): on Chat the old tab row is not drawn: focus goes to the menu's Chat (its data-dest)
     focused: (document.activeElement as HTMLElement | null)?.dataset?.wsTab ?? (document.activeElement as HTMLElement | null)?.dataset?.dest ?? null,
+    // the rail (D3): the shown page's item is aria-current="page" (by its legacy tab id, data-dest); a page outside the rail marks none
+    current: [...document.querySelectorAll('#rail-menu .rail-item[aria-current="page"]')].map((b) => (b as HTMLElement).dataset.dest ?? ''),
+    page: document.body.dataset.page ?? '',
   }));
   /** A tab opened by its button, its fade ended. R10 CHAT (H171): the control drawn for it (the tab row, or on Chat the menu). */
   const openTab = async (page: Page, id: string): Promise<void> => {
@@ -287,57 +296,142 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     await page.waitForFunction((t) => !(document.getElementById(`ws-${t}`) as HTMLElement).hidden && document.getAnimations().every((a) => a.playState !== 'running'), id, { timeout: 10_000 });
   };
 
-  it('the ten tabs: a tablist in the frame\'s order, labels and keys, each naming its panel; keys 1 to 9 then 0 open them (not while typing), arrows move along them, the focus ring is amber', async () => {
+  /**
+   * The colour ROLES a surface may use, as the sheet computes them now: B10's legacy names (kept byte-identical by tokens.ts) and
+   * B11's `--timmy-ui-*` registry (SHELL CONTRACT v1). The lead's ruling (R11 round 7, 15:29 PT): the browser surfaces carry B11's
+   * hue — a test pins roles, never colour literals; what stays exact is focus #FFB000 and verified #28FE14 (and GREEN only on an
+   * observed live / passed / sealed element). Each role is a list of computed rgb() strings (a token missing from the sheet is left out).
+   */
+  const roles = (page: Page): Promise<{ ground: string[]; border: string[]; text: string[]; secondary: string[]; primaryFill: string[]; primaryInk: string[]; never: string[] }> => page.evaluate(() => {
+    const probe = document.createElement('span');
+    document.body.append(probe);
+    const rgb = (name: string): string | null => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      if (!v) return null;
+      probe.style.color = '';
+      probe.style.color = v;
+      return probe.style.color ? getComputedStyle(probe).color : null;
+    };
+    const list = (names: string[]): string[] => [...new Set(names.map(rgb).filter((c): c is string => Boolean(c)))];
+    const out = {
+      ground: ['rgba(0, 0, 0, 0)', ...list(['--timmy-ui-canvas', '--timmy-ui-surface', '--timmy-ui-raised', '--timmy-ground', '--timmy-surface'])],
+      border: list(['--timmy-ui-border', '--timmy-ui-border-quiet', '--timmy-line-strong', '--timmy-line']),
+      text: list(['--timmy-ui-text', '--timmy-text']),
+      secondary: list(['--timmy-ui-text-secondary', '--timmy-ui-text-muted', '--timmy-text-secondary']),
+      // the primary next step's fill: B10's amber (the strip's own rule) or B11's family accent / focus
+      primaryFill: list(['--timmy-accent', '--timmy-ui-accent', '--timmy-ui-focus']),
+      primaryInk: list(['--timmy-accent-ink', '--timmy-ui-accent-ink']),
+      // never on structure or text: the exact focus amber and the two greens (B10/B11: a state's colours, with their words)
+      never: ['rgb(255, 176, 0)', 'rgb(40, 254, 20)', 'rgb(0, 215, 0)'],
+    };
+    probe.remove();
+    return out;
+  });
+
+  it('the navigation (D3, SHELL CONTRACT v1): the frame\'s ten keyed tabs stay the one switcher, hidden (a tablist, each tab naming its panel); the rail lists the pages in the kicker\'s order, the frame\'s keys as aria-keyshortcuts, the shown page aria-current; keys 1 to 9 then 0 open the pages (not while typing); Tab walks the rail with the amber ring; a key from inside a page keeps the focus', async () => {
     const f = await frameNow();
     const { page, context, errors } = await open();
     try {
+      // the one switcher: companion.js's tab row keeps the frame's ten keyed tabs in its order (then, keyless, the pages the frame
+      // does not list: files, connections, settings, account), each naming its panel — HIDDEN: the rail is the navigation (D3)
       expect(await page.getAttribute('#ws-tabs', 'role')).toBe('tablist');
+      expect(await page.isVisible('#ws-tabs'), 'the tab row is hidden (D3: the rail is the navigation)').toBe(false);
       const tabs = await page.$$eval('#ws-tabs [role="tab"]', (els) => els.map((b) => ({
         id: (b as HTMLElement).dataset.wsTab ?? '', key: b.querySelector('.tab-key')?.textContent ?? '', label: b.querySelector('.tab-label')?.textContent ?? '',
-        shortcut: b.getAttribute('aria-keyshortcuts'), controls: b.getAttribute('aria-controls') ?? '', selected: b.getAttribute('aria-selected'), border: getComputedStyle(b).borderTopColor,
+        shortcut: b.getAttribute('aria-keyshortcuts'), controls: b.getAttribute('aria-controls') ?? '', selected: b.getAttribute('aria-selected'),
       })));
-      expect(tabs.map((t) => [t.id, t.key, t.label, t.shortcut])).toEqual(f.tabs.map((t) => [t.id, t.key, t.label, t.key]));
-      // the selected tab is the one with the 1px amber border
-      expect(tabs.map((t) => [t.id, t.selected, t.border === 'rgb(255, 176, 0)'])).toEqual(f.tabs.map((t) => [t.id, t.id === 'home' ? 'true' : 'false', t.id === 'home']));
+      expect(tabs.filter((t) => t.key).map((t) => [t.id, t.key, t.label, t.shortcut])).toEqual(f.tabs.map((t) => [t.id, t.key, t.label, t.key]));
+      expect(tabs.filter((t) => t.selected === 'true').map((t) => t.id), 'the page opened on Home').toEqual(['home']);
       for (const t of tabs) {
-        expect(await page.getAttribute(`#${t.controls}`, 'role')).toBe('tabpanel');
-        expect(await page.getAttribute(`#${t.controls}`, 'aria-labelledby')).toBe(`ws-tab-${t.id}`);
+        // a keyed tab's section is its tabpanel, labelled by the tab or (once the shell drew its head) by its own title; a keyless
+        // page's section is a named region
+        const panel = await page.$eval(`#${t.controls}`, (el) => ({ role: el.getAttribute('role'), by: el.getAttribute('aria-labelledby'), labelled: Boolean(el.getAttribute('aria-label')) || Boolean(el.getAttribute('aria-labelledby') && document.getElementById(el.getAttribute('aria-labelledby')!)) }));
+        if (t.key) expect(panel, `${t.id}: its panel`).toMatchObject({ role: 'tabpanel', labelled: true });
+        else expect(['region', 'tabpanel'].includes(panel.role ?? '') && panel.labelled, `${t.id}: a named region (${JSON.stringify(panel)})`).toBe(true);
       }
+      // the rail (D3): TimmyShell.PAGES is the source — its rail pages in the kicker's order (n = 01…), one item each with the legacy
+      // tab id as data-dest and the frame's key as aria-keyshortcuts where the frame lists the tab; Home is outside the rail (no item)
+      const pages = await page.evaluate(() => ((window as unknown as { TimmyShell?: { PAGES?: Array<{ id: string; legacy: string; label: string; group: string; rail: boolean; n: string }> } }).TimmyShell?.PAGES ?? []));
+      expect(pages.length, 'TimmyShell.PAGES (SHELL CONTRACT v1.1)').toBeGreaterThan(0);
+      const railPages = pages.filter((p) => p.rail);
+      expect(railPages.map((p) => p.n), 'the kicker numbers are the rail\'s order').toEqual(railPages.map((_, i) => String(i + 1).padStart(2, '0')));
+      const rail = await page.$$eval('#rail-menu .rail-item[data-page]', (els) => els.map((b) => ({
+        page: (b as HTMLElement).dataset.page ?? '', dest: (b as HTMLElement).dataset.dest ?? '', label: (b.querySelector('.rail-label')?.textContent ?? '').trim(),
+        key: b.getAttribute('aria-keyshortcuts'), current: b.getAttribute('aria-current'), visible: b.getClientRects().length > 0,
+      })));
+      expect(rail.map((r) => [r.page, r.dest, r.label])).toEqual(railPages.map((p) => [p.id, p.legacy, p.label]));
+      for (const r of rail) {
+        expect(r.visible, `${r.page}: on the rail at 1376`).toBe(true);
+        expect(r.key, `${r.page}: aria-keyshortcuts is the frame's key for ${r.dest}`).toBe(f.tabs.find((t) => t.id === r.dest)?.key ?? null);
+      }
+      expect(rail.filter((r) => r.current === 'page').map((r) => r.page), 'Home is outside the rail: no item is current').toEqual([]);
+      expect(pages.find((p) => p.id === 'home')?.rail, 'Home outside the rail').toBe(false);
+      // the frame's keys open the pages: the switcher selects, the page shows, the rail marks the item (none for a page outside it)
+      const pageOfTab = (tab: string): string => pages.find((p) => p.legacy === tab)?.id ?? '';
       for (const t of f.tabs) {
         await page.keyboard.press(t.key);
-        expect(await shown(page), `key ${t.key}`).toMatchObject({ selected: [t.id], visible: [t.id] });
+        await page.waitForFunction((tab) => document.body.dataset.dest === tab, t.id, { timeout: 10_000 });
+        const s = await shown(page);
+        expect(s, `key ${t.key}`).toMatchObject({ selected: [t.id], visible: [t.id], page: pageOfTab(t.id), current: railPages.some((p) => p.legacy === t.id) ? [t.id] : [] });
       }
-      // typing in a text field: the digits are the field's
+      // typing in a text field: the digits are the field's (the Operation id box behind its Details control on Workflows — R10 H167;
+      // where that box is not shown on this head, the Chat's composer)
       await page.keyboard.press('3');
-      // (R10 H167: the Operation id box is behind its Details control)
-      await page.click('#run-by-id > summary');
-      await page.focus('#run-op');
-      await page.keyboard.type('12');
-      expect(await shown(page)).toMatchObject({ selected: ['workflows'], visible: ['workflows'] });
-      expect(await page.inputValue('#run-op')).toBe('12');
-      // from a focused tab: Right, Left, End, Home move along the ten and open the tab reached
-      await page.focus('#ws-tab-workflows');
-      await page.keyboard.press('ArrowRight');
-      expect(await shown(page)).toEqual({ selected: ['studio'], visible: ['studio'], focused: 'studio' });
-      expect(await page.evaluate(() => { const cs = getComputedStyle(document.activeElement!); return [cs.outlineStyle, cs.outlineColor, cs.outlineWidth]; })).toEqual(['solid', 'rgb(255, 176, 0)', '2px']);
-      await page.keyboard.press('ArrowLeft');
-      expect(await shown(page)).toEqual({ selected: ['workflows'], visible: ['workflows'], focused: 'workflows' });
-      await page.keyboard.press('End');
-      expect(await shown(page)).toEqual({ selected: ['logs'], visible: ['logs'], focused: 'logs' });
-      await page.keyboard.press('Home');
-      expect(await shown(page)).toEqual({ selected: ['home'], visible: ['home'], focused: 'home' });
-      // a key pressed from inside the page left: focus goes to the tab opened, not lost with the page
+      await page.waitForFunction(() => document.body.dataset.dest === 'workflows', null, { timeout: 10_000 });
+      if (await page.isVisible('#run-by-id > summary')) {
+        await page.click('#run-by-id > summary');
+        await page.focus('#run-op');
+        await page.keyboard.type('12');
+        expect(await shown(page)).toMatchObject({ selected: ['workflows'], visible: ['workflows'] });
+        expect(await page.inputValue('#run-op')).toBe('12');
+      } else {
+        await page.keyboard.press('2');
+        await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
+        await page.focus('#cx-input');
+        await page.keyboard.type('12');
+        expect(await shown(page)).toMatchObject({ selected: ['chat'], visible: ['chat'] });
+        expect(await page.inputValue('#cx-input')).toBe('12');
+      }
+      // the rail by keyboard: Tab from an item reaches the next item in the kicker's order, the ring the focus token (amber, 2 px, solid —
+      // the one exact value the B11 ruling keeps); Enter opens it. (R10's arrow keys walked the tab row; the row is hidden now, and a
+      // hidden tab cannot take focus, so that walk is not read any more.)
+      const after = railPages[railPages.findIndex((p) => p.id === 'workflows') + 1];
+      expect(after, 'a rail page after Workflows').toBeTruthy();
+      await page.focus('#rail-menu .rail-item[data-page="workflows"]');
+      await page.keyboard.press('Tab');
+      const focused = await page.evaluate(() => { const a = document.activeElement as HTMLElement | null; const cs = a ? getComputedStyle(a) : null; return { page: a?.dataset.page ?? null, ring: cs ? [cs.outlineStyle, cs.outlineColor, cs.outlineWidth] : null }; });
+      expect(focused.page, 'Tab from Workflows reaches the next rail item').toBe(after.id);
+      expect(focused.ring, 'the focus ring is the focus token: 2 px solid #FFB000').toEqual(['solid', 'rgb(255, 176, 0)', '2px']);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction((id) => document.body.dataset.page === id, after.id, { timeout: 10_000 });
+      expect(await shown(page)).toMatchObject({ selected: [after.legacy], visible: [after.legacy], current: [after.legacy] });
+      // a key pressed from inside a page: focus is not lost with the page that hides — it is on the opened page (its title, as go()
+      // focuses it) or on the page's rail item (R10 CHAT: Chat's). Read for 2 (Chat) as before, then for 3 (Workflows)
+      await page.keyboard.press('1');
+      await page.waitForFunction(() => document.body.dataset.dest === 'home', null, { timeout: 10_000 });
       await page.focus('#home-connections [data-connection="ollama"]');
       await page.keyboard.press('2');
-      expect(await shown(page)).toEqual({ selected: ['chat'], visible: ['chat'], focused: 'chat' });
+      await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
+      expect(await shown(page)).toMatchObject({ selected: ['chat'], visible: ['chat'], focused: 'chat' });
+      await page.keyboard.press('1');
+      await page.waitForFunction(() => document.body.dataset.dest === 'home', null, { timeout: 10_000 });
+      await page.focus('#home-connections [data-connection="ollama"]');
+      await page.keyboard.press('3');
+      await page.waitForFunction(() => document.body.dataset.dest === 'workflows', null, { timeout: 10_000 });
+      const kept = await page.evaluate(() => {
+        const a = document.activeElement as HTMLElement | null;
+        return { tag: a ? a.tagName.toLowerCase() : null, id: a?.id ?? null, inPage: Boolean(a?.closest('#ws-workflows')), railDest: a?.closest('#rail-menu .rail-item') ? (a.closest('#rail-menu .rail-item') as HTMLElement).dataset.dest ?? null : null };
+      });
+      expect(kept.inPage || kept.railDest === 'workflows', `key 3 from inside Home: focus stays with the page opened (its title or its rail item), not lost to <${kept.tag}${kept.id ? `#${kept.id}` : ''}> (the switcher's hidden tab cannot take it; SHELL CONTRACT v1 §2.3: the title is focused on go())`).toBe(true);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('the Workflow actions strip is the frame\'s actions of the tab shown: at most one primary, filled amber with black words; the rest on the ground with a grey line; one not available now is aria-disabled and says why', async () => {
+  it('the Workflow actions strip (in the page\'s dock now) is the frame\'s actions of the tab shown: at most one primary, filled with the accent and its ink; the rest unfilled with a border in a structure role and words in a text role; one not available now is aria-disabled and says why', async () => {
     const f = await frameNow();
     const { page, context } = await open();
     try {
+      const role = await roles(page);
       let primaries = 0;
       for (const t of f.tabs) {
         await openTab(page, t.id);
@@ -347,7 +441,7 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
           return {
             label: b.querySelector('.act-label')?.textContent ?? '', command: (b as HTMLElement).dataset.act ?? '', primary: b.classList.contains('is-primary'),
             disabled: b.getAttribute('aria-disabled') === 'true', why: why ? document.getElementById(why)?.textContent ?? null : null,
-            look: [cs.backgroundColor, cs.color, cs.borderTopColor],
+            look: [cs.backgroundColor, cs.color, cs.borderTopColor], inDock: Boolean(b.closest('.page-dock')),
           };
         }));
         const want = f.actions[t.id];
@@ -355,7 +449,21 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
         expect(drawn.filter((d) => d.primary).length, t.id).toBeLessThanOrEqual(1);
         for (const [i, d] of drawn.entries()) {
           if (d.primary) primaries += 1;
-          expect(d.look, `${t.id}: ${d.label}`).toEqual(d.primary ? ['rgb(255, 176, 0)', 'rgb(0, 0, 0)', 'rgb(255, 176, 0)'] : ['rgb(0, 0, 0)', d.disabled ? 'rgb(142, 142, 147)' : 'rgb(242, 239, 233)', 'rgb(68, 68, 68)']);
+          // SHELL CONTRACT v1: the strip lives in the shown page's dock; its colours are roles (the lead's 15:29 ruling), not literals:
+          // the primary is filled (the accent) with its ink; the rest carry no fill, a structure border and text-role words
+          expect(d.inDock, `${t.id}: ${d.label} in the page's dock`).toBe(true);
+          const [fill, ink, line] = d.look;
+          if (d.primary) {
+            expect(role.primaryFill, `${t.id}: ${d.label} (primary) is filled with the accent: ${fill}`).toContain(fill);
+            expect(role.primaryInk, `${t.id}: ${d.label} (primary) words in the accent's ink: ${ink}`).toContain(ink);
+          } else {
+            expect(role.ground, `${t.id}: ${d.label} has no fill: ${fill}`).toContain(fill);
+            expect(role.border, `${t.id}: ${d.label} border in a structure role: ${line}`).toContain(line);
+            expect([...role.text, ...role.secondary], `${t.id}: ${d.label} words in a text role: ${ink}`).toContain(ink);
+          }
+          // green is an observed state's, never a control's; the focus amber is the primary next step's alone (B10: its fill and edge)
+          for (const c of d.look) expect(['rgb(40, 254, 20)', 'rgb(0, 215, 0)'], `${t.id}: ${d.label}: green on a control (${c})`).not.toContain(c);
+          if (!d.primary) for (const c of d.look) expect(c, `${t.id}: ${d.label}: the focus amber on a control that is not the primary`).not.toBe('rgb(255, 176, 0)');
           expect(d.why, `${t.id}: ${d.label}`).toBe(want[i].enabled ? null : `not now: ${want[i].why}`);
         }
       }
@@ -364,9 +472,10 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
   });
 
   /**
-   * The page as drawn now, each element shown (outside a model's answers and any frame): each colour that is blue, purple,
-   * cyan or mint; each green outside what .is-live or .is-verified marks (and how many greens are inside); each text below
-   * 4.5:1 against what is behind it (its opacity and its ancestors' counted).
+   * The page as drawn now, each element shown (outside a model's answers and any frame): each colour with a cool hue (blue,
+   * purple, cyan or mint — COUNTED only since B11: the shell's surfaces carry hue by design); each green outside what .is-live or
+   * .is-verified marks (and how many greens are inside: the GREEN rule, kept); each text below 4.5:1 against what is behind it
+   * (its opacity and its ancestors' counted).
    */
   const looks = (page: Page): Promise<{ hue: string[]; green: string[]; greens: number; contrast: string[]; texts: number }> => page.evaluate(() => {
     const parse = (v: string): number[] | null => {
@@ -427,20 +536,16 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     return out;
   });
 
-  it('every tab\'s chrome is the palette\'s: no blue, purple, cyan or mint; green only where .is-live (or .is-verified) marks it; every text at least 4.5:1; at 1376 Home\'s columns side by side', async () => {
+  it('every page\'s chrome keeps the GREEN rule and the contrast floor (B11: the surfaces carry hue; the lead\'s 15:29 ruling): green only where .is-live (or .is-verified) marks an observed state; every text at least 4.5:1; at 1376 Home\'s columns side by side', async () => {
     const f = await frameNow();
     const { page, context } = await open();
     try {
-      // the first box of each column (R10 H167: both columns are stacks of boxes: recent work over the connections; the
-      // selected item's preview over the newest images and the start-up settings)
-      const cols = await page.$$eval('#ws-home .cols-home > .col-stack > .box:first-child', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; }));
-      expect(cols).toHaveLength(2);
-      expect(cols[1][0]).toBeGreaterThan(cols[0][0]);
-      expect(cols[1][1]).toBe(cols[0][1]);
       let greens = 0;
+      const hued: string[] = [];
       for (const t of f.tabs) {
         await openTab(page, t.id);
-        const views = t.id === 'chat' ? ['chat', 'streamdown'] : [null];
+        // the Chat's two legacy views, where their switch is still shown on this head (H171's composition keeps it in the records otherwise)
+        const views = t.id === 'chat' && (await page.isVisible('.view-switch [data-tab="streamdown"]')) ? ['chat', 'streamdown'] : [null];
         for (const view of views) {
           if (view) {
             // (R11 round 7, H171: the older views are the Chat page's records, closed by default — opened for this read)
@@ -450,22 +555,30 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
           }
           const seen = await looks(page);
           const where = view ? `${t.id} (${view})` : t.id;
-          expect(seen.hue, where).toEqual([]);
-          expect(seen.green, where).toEqual([]);
-          expect(seen.contrast, where).toEqual([]);
+          // B10's "no other hue" pin is superseded by B11 on the browser surfaces (DESIGN.md §10 B11: the blue-black surfaces and the
+          // Glacier/Amber families carry hue) — the hues are counted and said, never asserted empty
+          hued.push(`${where}: ${seen.hue.length}`);
+          expect(seen.green, `${where}: green outside an observed live / verified element`).toEqual([]);
+          expect(seen.contrast, `${where}: text under 4.5:1`).toEqual([]);
           expect(seen.texts, where).toBeGreaterThan(5);
           greens += seen.greens;
         }
       }
-      // the check saw green where it belongs (the FAKE live connections), so the rule above is not empty
+      console.warn(`companion-workspace-browser: hued chrome colours per page (B11 surfaces; counted, not a rule): ${hued.join(' · ')}`);
+      // the check saw green where it belongs (the FAKE live connections on Home, the live socket word), so the rule above is not empty
       expect(greens).toBeGreaterThan(0);
-      // and it finds what it looks for: a blue word, a green line and a faint word, planted here (FAKE), are each found
+      // and it finds what it looks for: a green line and a faint word, planted here (FAKE), are each found
       await openTab(page, 'home');
-      await page.addStyleTag({ content: '.brand { color: #3b82f6 !important } #home-conn-title { border-bottom: 1px solid #28fe14 } #prefs-title { color: #333333 !important }' });
+      await page.addStyleTag({ content: '#home-conn-title { border-bottom: 1px solid #28fe14 } #prefs-title { color: #333333 !important }' });
       const planted = await looks(page);
-      expect(planted.hue.filter((s) => s.startsWith('h1.brand color'))).toHaveLength(1);
       expect(planted.green.filter((s) => s.startsWith('h2#home-conn-title.box-title border-bottom-color'))).toHaveLength(1);
       expect(planted.contrast.filter((s) => s.startsWith('h2#prefs-title.box-title'))).toHaveLength(1);
+      // the first box of each of Home's columns side by side at 1376 (R10 H167: recent work over the connections; the preview over
+      // the newest images and the start-up settings) — inside the shell's work region now
+      const cols = await page.$$eval('#ws-home .cols-home > .col-stack > .box:first-child', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; }));
+      expect(cols).toHaveLength(2);
+      expect(cols[1][0], 'Home\'s second column to the right of the first').toBeGreaterThan(cols[0][0]);
+      expect(cols[1][1], 'Home\'s two columns start on one line').toBe(cols[0][1]);
     } finally { await context.close(); }
   });
 
