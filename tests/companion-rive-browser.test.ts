@@ -18,6 +18,10 @@
  *     404 handler — the lead's server.ts mount line stands in for this once merged) and GET /vendor/rive/rive.js is served.
  * FAKE here: the injected events (named FAKE in their source strings). REAL: the companion, its token, the page's code, the
  * runtime file served, the connections read.
+ * R11 round 7, the operator's item 4 (2026-10-24 19:18): a PRODUCTION face (a mount) carries one thing — the state: its headline in
+ * every pose is the HTML state word (the same string), its Title / Tag / Caption (a card's provider runs, the console's lines) read
+ * "" at every size, its aria-label is the state word (+ the provider's name on a card), its status is the live region; the Inspect
+ * view's faces keep the artboard as authored. Pinned in the mounts case and the PREVIEW case below.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -311,9 +315,12 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         W.TimmyRive.mountActionButton(a, { name: 'test:action', label: 'Answer: once', action: (ev: Event) => { W.__acted.push(`${ev.type}:${ev.isTrusted}`); } });
       });
       await o.page.waitForFunction(() => [...document.querySelectorAll('#h174-mounts canvas')].length === 3 && [...document.querySelectorAll('#h174-mounts canvas')].every((c) => c.getAttribute('data-loaded') === 'true'), null, { timeout: 30_000 });
-      // what they are: a role=img console at the host's width, a role=img card, a real <button aria-label>
+      // what they are: a role=img console at the host's width, a role=img card, a real <button aria-label>. Item 4: a production
+      // img face's name is its STATE WORD (the card's with the provider's name after it); the button's name stays its action
       const faces = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [e.tagName, e.getAttribute('role'), e.getAttribute('aria-label'), e.closest('[data-artboard]')!.getAttribute('data-artboard'), e.closest('[data-size]')?.getAttribute('data-size') ?? null]));
-      expect(faces).toEqual([['DIV', 'img', 'Agent activity', 'AgentConsole', 'wide'], ['DIV', 'img', 'Connection to ollama-local', 'ProviderCard', 'card'], ['BUTTON', null, 'Answer: once', 'ActionButton', 'card']]);
+      expect(faces).toEqual([['DIV', 'img', 'idle', 'AgentConsole', 'wide'], ['DIV', 'img', 'disconnected · Ollama · local', 'ProviderCard', 'card'], ['BUTTON', null, 'Answer: once', 'ActionButton', 'card']]);
+      expect(await o.page.$$eval('#h174-mounts .tr-mount', (els) => els.map((e) => [e.getAttribute('data-words'), e.getAttribute('data-rive')]))).toEqual([['beside', 'drawn'], ['beside', 'drawn'], ['beside', 'drawn']]);
+      expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().filter((x) => x.component.startsWith('test:')).map((x) => [x.component, (x as unknown as { mounted: boolean; words: string; faceName: string }).mounted, (x as unknown as { words: string }).words, (x as unknown as { faceName: string }).faceName]))).toEqual([['test:console', true, 'beside', 'idle'], ['test:provider:ollama-local', true, 'beside', 'disconnected · Ollama · local'], ['test:action', true, 'beside', 'Answer: once']]);
       const widths = await o.page.$$eval('#h174-mounts .tr-face', (els) => els.map((e) => [(e as HTMLElement).offsetWidth, (e as HTMLElement).offsetHeight]));
       expect(widths[0][0]).toBeGreaterThan(600); // wide: the host's width (the body's), at 640:380
       expect(Math.abs(widths[0][0] / widths[0][1] - 640 / 380)).toBeLessThan(0.05);
@@ -414,12 +421,18 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect((identity.afterReconcile as { applied: number }).applied).toBeGreaterThanOrEqual(1);
       expect(await text(o.page, '[data-inspect-identity="activity"]').catch(() => '')).toMatch(/turn turn-FAKE-1|^$/);
       if (SERVED_V2) {
-        // the v2 file: the named runs carry the page's words (read back from the runtime) and the preview variants stay in the view
-        const v2 = await o.page.evaluate(() => { const g = (n: string) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === n)!; return (k: string) => hd.rive!.getTextRunValue(k); }; const c = g('test:console'); const p = g('test:provider:ollama-local'); const a = g('test:action'); return { console: { caption: c('Caption'), tag: c('Tag') }, card: { caption: p('Caption'), name: p('ProviderName'), state: p('ProviderState') }, action: { caption: a('Caption') }, artboards: (window as unknown as { TimmyRive: R }).TimmyRive.inspect().filter((x) => /^(test:|activity$|connection-)/.test(x.component)).map((x) => [x.component, (x as unknown as { artboard: string }).artboard]) }; });
-        expect(v2.console).toEqual({ caption: 'LIVE  /  THE TURN’S EVENTS', tag: 'turn turn-FAKE-1' });
-        // (the card mount is 240 px wide: under 320 px its small runs — title, tag, caption — are hidden, R97; the HTML words carry them)
-        expect(v2.card).toEqual({ caption: '', name: 'Ollama · local', state: 'disconnected' }); // (fed 'pending' below)
-        expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local')!.runs!.small)).toMatchObject({ below: 320, hidden: true });
+        // the v2 file, item 4: a PRODUCTION face (a mount) carries ONE thing — the state. Read back from the runtime: the console's and
+        // the card's Title / Tag / Caption read "" (the console is 600+ px wide here: the rule holds at EVERY size, not under a
+        // threshold), the card's ProviderName / ProviderState / ProviderDetail read "", the console's lines read ""; every pose's
+        // headline reads the HTML state word — the same string the status label reads; the ActionButton's Caption is its own label
+        const POSES = ['Idle', 'Working', 'Approval', 'Stopped', 'Failed'];
+        const v2 = await o.page.evaluate((poses) => { const g = (n: string) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === n)!; return (k: string) => hd.rive!.getTextRunValue(k); }; const c = g('test:console'); const p = g('test:provider:ollama-local'); const a = g('test:action'); const heads = (f: (k: string) => string | undefined) => poses.map((s) => f(`Headline${s}`)); return { console: { title: c('Title'), caption: c('Caption'), tag: c('Tag'), headlines: heads(c), lines: poses.map((s) => c(`Line${s}`)), label: document.querySelector('#m-console [data-rive-status]')!.textContent }, card: { title: p('Title'), caption: p('Caption'), tag: p('Tag'), name: p('ProviderName'), state: p('ProviderState'), detail: p('ProviderDetail'), headlines: heads(p), label: document.querySelector('#m-provider [data-rive-status]')!.textContent }, action: { caption: a('Caption') }, artboards: (window as unknown as { TimmyRive: R }).TimmyRive.inspect().filter((x) => /^(test:|activity$|connection-)/.test(x.component)).map((x) => [x.component, (x as unknown as { artboard: string }).artboard]) }; }, POSES);
+        expect(v2.console).toEqual({ title: '', caption: '', tag: '', headlines: Array(5).fill('idle'), lines: Array(5).fill(''), label: 'idle' }); // (the turn turn-FAKE-1 ended with 'done' above: idle; its identity is kept on the handle, not drawn)
+        expect(v2.card).toEqual({ title: '', caption: '', tag: '', name: '', state: '', detail: '', headlines: Array(5).fill('disconnected'), label: 'disconnected' }); // (fed 'pending' below)
+        const production = await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local')!.runs!.production);
+        expect(production).toMatchObject({ headline: 'disconnected', hidden: ['Title', 'Tag', 'Caption', 'ProviderName', 'ProviderState', 'ProviderDetail'] });
+        expect(await o.page.evaluate(() => ((window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local') as unknown as { faceWidth: number }).faceWidth)).toBe(238); // (the mount's measured face — its clientWidth: the 240-px face inside its 1-px border; the rule no longer depends on it)
+        expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:console')!.runs!.production)).toMatchObject({ headline: 'idle', hidden: ['Title', 'Tag', 'Caption', 'Line'] });
         expect(v2.action).toEqual({ caption: 'Answer: once' });
         expect(Object.fromEntries(v2.artboards as Array<[string, string]>)).toMatchObject({ 'test:console': 'AgentConsole', 'test:provider:ollama-local': 'ProviderCard', 'test:action': 'ActionButton' }); // (the view's preview variants: the PREVIEW case)
       }
@@ -430,35 +443,46 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('disconnected');
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'pending', 'FAKE (the test): pending'));
       expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('pending'); // R86: the observed word, one word per card
-      const cardRuns = () => o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === 'test:provider:ollama-local')!; return { state: hd.rive!.getTextRunValue('ProviderState'), headline: hd.rive!.getTextRunValue('HeadlineIdle') }; });
-      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: 'pending', headline: 'Choose your connection' }); // the v2 face's own state word; the Idle headline baked while not connected
-      // R86: a CONNECTED card is the Idle pose (no success pose is authored) — its headline gives way to the observed state
+      // item 4: the face's headline IS the HTML state word — the same string, in every pose (the Working pose shows now: State 1) — and
+      // the face's name follows it; the card's own state run stays "" (the word is drawn once on the face, as the headline)
+      const cardRuns = () => o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; face: Element; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === 'test:provider:ollama-local')!; const g = (k: string) => hd.rive!.getTextRunValue(k); const label = document.querySelector('#m-provider [data-rive-status]')!.textContent; return { state: g('ProviderState'), headline: g('HeadlineIdle'), poses: ['Idle', 'Working', 'Approval', 'Stopped', 'Failed'].map((s) => g(`Headline${s}`)), sameString: ['Idle', 'Working', 'Approval', 'Stopped', 'Failed'].every((s) => g(`Headline${s}`) === label), label, name: hd.face.getAttribute('aria-label') }; });
+      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: '', headline: 'pending', poses: Array(5).fill('pending'), sameString: true, label: 'pending', name: 'pending · Ollama · local' });
+      // a CONNECTED card is the Idle pose (no success pose is authored): its headline is the observed word, as in every pose — the baked
+      // "Choose your connection" never stands on a production card
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'checked', 'FAKE (the test): checked'));
       expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('checked');
-      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: 'checked', headline: 'Checked' });
+      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: '', headline: 'checked', poses: Array(5).fill('checked'), sameString: true, label: 'checked', name: 'checked · Ollama · local' });
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'not set up', 'FAKE (the test): not set up'));
       expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('not set up');
-      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: 'not set up', headline: 'Choose your connection' });
+      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: '', headline: 'not set up', poses: Array(5).fill('not set up'), sameString: true, label: 'not set up', name: 'not set up · Ollama · local' });
+      // setProvider({ name }) renames the card in the face's accessible name; the face still draws no name (ProviderName "")
+      await o.page.evaluate(() => { const W = window as unknown as { TimmyRive: R }; const hd = (W.TimmyRive.handles() as Array<{ component: string; setProvider: (w: { name?: string; detail?: string }) => void }>).find((x) => x.component === 'test:provider:ollama-local')!; hd.setProvider({ name: 'Ollama (this computer)', detail: 'FAKE detail line of the test' }); });
+      expect(await o.page.getAttribute('#m-provider .tr-face', 'aria-label')).toBe('not set up · Ollama (this computer)');
+      if (SERVED_V2) expect(await o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === 'test:provider:ollama-local')!; return [hd.rive!.getTextRunValue('ProviderName'), hd.rive!.getTextRunValue('ProviderDetail')]; })).toEqual(['', '']);
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'pending', 'FAKE (the test): pending again'));
       expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('pending');
       if (SERVED_V2) {
-        // R97: under 320 px of face the console's small runs (title, tag, caption: 5–6 px of type at the band's 300 px) are hidden — a
-        // runtime decision by the face's measured width, taken back when the face is wide again; the HTML words beside it carry them
-        const smallRuns = (name: string) => o.page.evaluate((n) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; faceWidth: number; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === n)!; return { faceWidth: hd.faceWidth, title: hd.rive!.getTextRunValue('Title'), tag: hd.rive!.getTextRunValue('Tag'), caption: hd.rive!.getTextRunValue('Caption') }; }, name);
+        // item 4 supersedes R97's 320-px threshold: a production console reads "" in its small runs at EVERY size — a 300-px face and
+        // the same face at 420 px alike; the headline reads the state word at both; the Inspect view's faces keep theirs (the PREVIEW case)
+        const smallRuns = (name: string) => o.page.evaluate((n) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; faceWidth: number; face: Element; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === n)!; const g = (k: string) => hd.rive!.getTextRunValue(k); return { faceWidth: hd.faceWidth, title: g('Title'), tag: g('Tag'), caption: g('Caption'), headline: g('HeadlineIdle'), line: g('LineIdle'), name: hd.face.getAttribute('aria-label') }; }, name);
         await o.page.evaluate(() => { const R = (window as unknown as { TimmyRive: R }).TimmyRive; const host = document.createElement('div'); host.id = 'm-narrow'; host.style.width = '300px'; document.body.append(host); R.mountConsole(host, { size: 'wide', name: 'test:narrow' }); });
         await o.page.waitForFunction(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().some((x) => x.component === 'test:narrow' && x.state === 'drawn'), null, { timeout: 30_000 });
-        await o.page.waitForFunction(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === 'test:narrow')!; return hd.rive!.getTextRunValue('Title') === ''; }, null, { timeout: 10_000 });
+        await o.page.waitForFunction(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; faceWidth?: number }>).find((x) => x.component === 'test:narrow')!; return typeof hd.faceWidth === 'number' && hd.faceWidth > 0; }, null, { timeout: 10_000 });
         const narrow = await smallRuns('test:narrow');
         expect(narrow.faceWidth).toBeLessThan(320);
-        expect(narrow).toMatchObject({ title: '', tag: '', caption: '' });
-        expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:narrow')!.runs!.small)).toMatchObject({ below: 320, hidden: true });
+        expect(narrow).toMatchObject({ title: '', tag: '', caption: '', headline: 'idle', line: '', name: 'idle' });
         await o.page.evaluate(() => { (document.getElementById('m-narrow') as HTMLElement).style.width = '420px'; });
-        await o.page.waitForFunction(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === 'test:narrow')!; return hd.rive!.getTextRunValue('Title') === 'TIMMY  /  AGENT CONSOLE'; }, null, { timeout: 10_000 });
+        await o.page.waitForFunction(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; faceWidth?: number }>).find((x) => x.component === 'test:narrow')!; return typeof hd.faceWidth === 'number' && hd.faceWidth >= 320; }, null, { timeout: 10_000 });
         const wide = await smallRuns('test:narrow');
         expect(wide.faceWidth).toBeGreaterThanOrEqual(320);
-        expect(wide).toMatchObject({ title: 'TIMMY  /  AGENT CONSOLE', caption: 'LIVE  /  THE TURN’S EVENTS' });
-        // the wide console of this test (600+ px) kept its runs all along
-        expect((await smallRuns('test:console')).title).toBe('TIMMY  /  AGENT CONSOLE');
+        expect(wide).toMatchObject({ title: '', tag: '', caption: '', headline: 'idle', line: '', name: 'idle' });
+        // the wide console of this test (600+ px) read "" all along; its headline follows the feed's word, in every pose
+        expect(await smallRuns('test:console')).toMatchObject({ title: '', tag: '', caption: '', headline: 'idle', line: '' });
+        await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('needs-you', { id: 'ask-FAKE-2' }, 'FAKE (the test): SSE needs-you'));
+        const asking = await o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; face: Element; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === 'test:console')!; return { poses: ['Idle', 'Working', 'Approval', 'Stopped', 'Failed'].map((s) => hd.rive!.getTextRunValue(`Headline${s}`)), label: document.querySelector('#m-console [data-rive-status]')!.textContent, name: hd.face.getAttribute('aria-label') }; });
+        expect(asking).toEqual({ poses: Array(5).fill('awaiting approval'), label: 'awaiting approval', name: 'awaiting approval' });
+        await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromSse('done', { status: 'answered' }, 'FAKE (the test): SSE done'));
+        expect(await text(o.page, '#m-console [data-rive-status]')).toBe('idle');
       }
       expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local')!.runtime!.inputs.find((i) => i.name === 'State')!.value)).toBe(1);
       // the action: a synthetic click runs nothing; the person's click runs it once; Enter on the focused button runs it again
@@ -706,9 +730,11 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       const R = (window as unknown as { TimmyRive: TR }).TimmyRive;
       const host = document.createElement('div'); host.id = `late-${w}`; document.body.append(host);
       if (w === 'console') R.mountConsole(host, { size: 'card', name: 'late:console' });
-      else if (w === 'card') R.mountProviderCard(host, 'openrouter', { name: 'late:card' });
+      else if (w === 'card') R.mountProviderCard(host, 'openrouter', { name: 'late:card', words: 'spoken' }); // (item 4: the status spoken, not shown, once the face draws)
       else R.mountActionButton(host, { name: 'late:action', label: 'Late action', action: () => undefined });
     }, which);
+    /** The card's status word as a viewer and a screen reader meet it: its words, its live region, whether it takes room on the screen. */
+    const spoken = () => o.page.evaluate(() => { const s = document.querySelector('#late-card .tr-status') as HTMLElement; const r = s.getBoundingClientRect(); const cs = getComputedStyle(s); return { words: s.textContent, live: s.getAttribute('aria-live'), display: cs.display, clip: cs.clipPath, onScreen: r.width > 1 && r.height > 1, mode: s.closest('.tr-mount')!.getAttribute('data-words'), face: s.closest('.tr-mount')!.getAttribute('data-rive') }; });
     const faces = () => o.page.evaluate(() => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:')).map((x) => ({ component: x.component, state: x.state, why: x.why, retryable: x.retryable, again: x.events.filter((e) => /asked again for this face/.test(e.did)).map((e) => e.source) })));
     const drawnAll = (n: number) => o.page.waitForFunction((k) => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:') && x.state === 'drawn').length === k && [...document.querySelectorAll('[id^="late-"] canvas')].every((c) => c.getAttribute('data-loaded') === 'true'), n, { timeout: 30_000 });
     // (1) the mount path: refused before any mount → the console waits in words and says why; the listing is asked again at the
@@ -742,11 +768,19 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await o.page.waitForFunction(() => (window as unknown as { TimmyRive: TR }).TimmyRive.inspect().filter((x) => x.component.startsWith('late:') && x.state === 'words').length === 3, null, { timeout: 20_000 });
       expect((await faces()).every((x) => x.retryable)).toBe(true);
       expect(await o.page.$$eval('[id^="late-"] canvas[data-loaded]', (els) => els.length)).toBe(0);
+      // item 4, `words: 'spoken'`: while the face is NOT drawn the status word is on the screen beside the fallback glyph (the canvas is
+      // never the only carrier of a state — here there is no canvas drawing); its live region stands either way
+      expect(await spoken()).toEqual({ words: 'disconnected', live: 'polite', display: 'block', clip: 'none', onScreen: true, mode: 'spoken', face: 'words' });
       // (the shell refuses every later ask on its own after that 401 — the session is what lifts it: the route stays, gated)
       await o.page.evaluate((t) => (window as unknown as { TimmyShell: TS }).TimmyShell.session.set(t, { id: 'FAKE (the test): a user signed in after the page loaded' }), FAKE_SESSION);
       await drawnAll(3);
       const after = await faces();
       expect(after.map((x) => [x.component, x.state, x.retryable])).toEqual([['late:console', 'drawn', false], ['late:card', 'drawn', false], ['late:action', 'drawn', false]]);
+      // drawn: the face carries the word as its headline, so the spoken status leaves the screen — still in the accessibility tree
+      // (not display:none), still the live region with the same word; the face's name is the word and the provider's name
+      expect(await spoken()).toEqual({ words: 'disconnected', live: 'polite', display: 'block', clip: 'inset(50%)', onScreen: false, mode: 'spoken', face: 'drawn' });
+      expect(await o.page.getAttribute('#late-card .tr-face', 'aria-label')).toBe('disconnected · OpenRouter');
+      if (SERVED_V2) expect(await o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: TR }).TimmyRive as unknown as { handles: () => Array<{ component: string; rive: { getTextRunValue: (k: string) => string | undefined } | null }> }).handles().find((x) => x.component === 'late:card')!; return [hd.rive!.getTextRunValue('HeadlineIdle'), hd.rive!.getTextRunValue('ProviderName'), hd.rive!.getTextRunValue('Caption')]; })).toEqual(['disconnected', '', '']);
       // every face's last ask is the session's; the mounts in between may have asked again too (the listing refused each time —
       // whether they did depends on whether the earlier ask had answered before the next mount: a timing, not a rule)
       for (const x of after) {
@@ -791,6 +825,13 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         // events row says which source did, but the face's caption never says LIVE here: the Inspect view stays PREVIEW
         expect(await captionOf('activity')).toBe('PREVIEW  /  NOT A LIVE JOB');
         expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: { inspect: () => Array<{ component: string; artboard: string }> } }).TimmyRive.inspect().find((x) => x.component === 'activity')!.artboard)).toBe('AgentConsolePreview');
+        // item 4 reaches the PRODUCTION mounts only: this view's faces are not mounts and keep the artboard as authored — the title, the
+        // baked headline and line of the pose, the card's provider runs — with their own names (not the state word)
+        const authored = await o.page.evaluate(() => { const hs = (window as unknown as { TimmyRive: { handles: () => Array<{ component: string; mounted?: boolean; face: Element; rive: { getTextRunValue: (k: string) => string | undefined } | null }> } }).TimmyRive.handles(); const a = hs.find((x) => x.component === 'activity')!; const c = hs.find((x) => x.component === 'connection-cloudflare')!; const g = (hd: typeof a) => (k: string) => hd.rive!.getTextRunValue(k); const ga = g(a); const gc = g(c); return { mounted: [Boolean(a.mounted), Boolean(c.mounted)], console: { title: ga('Title'), tag: ga('Tag'), headlineIdle: ga('HeadlineIdle'), headlineWorking: ga('HeadlineWorking'), lineIdle: ga('LineIdle'), name: a.face.getAttribute('aria-label') }, card: { title: gc('Title'), name: gc('ProviderName'), state: gc('ProviderState'), headlineIdle: gc('HeadlineIdle'), label: c.face.getAttribute('aria-label') }, production: (window as unknown as { TimmyRive: { inspect: () => Array<{ component: string; runs: Record<string, unknown> | null }> } }).TimmyRive.inspect().filter((x) => /^(activity|connection-)/.test(x.component)).map((x) => x.runs && 'production' in x.runs) }; });
+        expect(authored.mounted).toEqual([false, false]);
+        expect(authored.console).toEqual({ title: 'TIMMY  /  AGENT CONSOLE', tag: 'NATIVE RIVE UI', headlineIdle: 'Ready when you are', headlineWorking: 'Working on your idea', lineIdle: 'Make room for the next thing you want to make.', name: 'Agent / tool activity' }); // (the 'turn' above named no id: no identity words on the Tag)
+        expect(authored.card).toEqual({ title: 'TIMMY  /  PROVIDERS', name: 'Cloudflare', state: 'disconnected', headlineIdle: 'Choose your connection', label: 'Connection to cloudflare' }); // (its own state word on the face; previewed to connected further down)
+        expect(authored.production).toEqual([false, false, false, false, false]);
       } else {
         expect(await captionOf('activity')).toBe('LIVE  /  THE TURN’S EVENTS'); // the v1 file: the overwritten run follows the source
       }

@@ -6,6 +6,11 @@
 //       → a handle: a real <button> (role 'button': the user-triggered welcome) or <div role="img" aria-label> holding the
 //         <canvas> and the text fallback, with an HTML status label BESIDE it (aria-live="polite", the exact state word): the
 //         canvas is never the only carrier of a state.
+//   TimmyRive.mountConsole / mountProviderCard / mountActionButton (R11 round 6) → the PRODUCTION faces the screens mount. Since the
+//         operator's item 4 (2026-10-24 19:18) a production console or card carries ONE thing — the state: the HTML state word as
+//         its headline in every pose and the mark the state animates; its other runs read "" at every size; its aria-label is the
+//         state word (+ the provider's name on a card); its status label is the live region (`words: 'spoken'` keeps it off the
+//         screen while the face is drawn). The Inspect view's faces draw the artboards as authored.
 //   TimmyRive.load(canvas, assetPath, { artboard, stateMachine, label? })  → a handle (the lower-level call)
 //   TimmyRive.set(handle, input, value, source)   → records { input, value, at, source } (the Inspect view's binding events) and
 //         moves the runtime's input of that name when the .riv is loaded: a Number input takes the word's number (VOCAB), a
@@ -91,13 +96,23 @@
     actionIdle: 'Connect provider',           // ActionButton: its Idle label → the button's own label
     provider: 'OpenRouter  ·  Ollama  ·  Cloudflare', // ProviderCard ×5 under one name: not addressable (left as baked)
     pill: 'Primary action',                   // AgentConsole, ProviderCard: the amber pill under "Inspect interaction" (a Shape; the listener's hit area)
-    // v2 (RIVE CONTRACT v2, CONTRACT.json): one name each, the page's words
-    v2: Object.freeze({ caption: 'Caption', tag: 'Tag', title: 'Title', providerName: 'ProviderName', providerState: 'ProviderState', providerDetail: 'ProviderDetail', headlineIdle: 'HeadlineIdle', headlineIdleDefault: 'Choose your connection' }),
+    // v2 (RIVE CONTRACT v2, CONTRACT.json): one name each, the page's words; the per-pose runs are Headline<pose> / Line<pose>
+    v2: Object.freeze({ caption: 'Caption', tag: 'Tag', title: 'Title', providerName: 'ProviderName', providerState: 'ProviderState', providerDetail: 'ProviderDetail', headline: 'Headline', line: 'Line' }),
   });
-  /** Under this many CSS px of face the small runs are hidden (R97: 5–6 px of type at the band's 300 px). */
-  const SMALL_FACE = 320;
-  /** A headline from the observed state word ("checked" → "Checked"). */
-  const headlineOf = (w) => { const t = String(w || '').trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; };
+  /** The state poses, as the artboards name their per-pose runs (create-controls.py STATES: Headline{pose}, the console's Line{pose}). */
+  const POSES = Object.freeze(['Idle', 'Working', 'Approval', 'Stopped', 'Failed']);
+  /**
+   * What a PRODUCTION face carries (the operator's order of 2026-10-24 19:18, item 4; the lead's ruling of 19:24): ONE thing — the
+   * state. A face a screen mounts through the mount API (mountConsole / mountProviderCard: handle.mounted) draws the HTML state word
+   * as its headline in EVERY pose (the identical string: "checked", "awaiting approval" — never a second vocabulary, never a
+   * capitalised twin) and the mark the state animates; its small runs — Title, Tag, Caption, and on a card ProviderName /
+   * ProviderState / ProviderDetail, on the console the Line — read "" at every size, so no word is drawn twice (the HTML beside the
+   * face keeps the accessible semantics: role=img, aria-label = the state word (+ the provider's name on a card), the live region).
+   * The Inspect view's faces and the Studio's shape are not mounts: they draw the artboard as authored (the place to read a face;
+   * the shape's AS SAVED caption is a truth marker). The ActionButton is untouched: its Caption is its own label.
+   */
+  const ONE_THING = 'a production face carries one thing — the state: its headline in every pose is the HTML state word (the same string), the mark animates by state; Title / Tag / Caption (a card’s ProviderName / ProviderState / ProviderDetail, the console’s Line) read "" at every size; the Inspect view’s faces keep theirs';
+  const isProduction = (handle) => Boolean(handle.mounted);
   const CAPTION = Object.freeze({
     preview: 'PREVIEW  /  NOT A LIVE JOB',
     activity: 'LIVE  /  THE TURN’S EVENTS',
@@ -147,26 +162,33 @@
     const art = handle.artboard || '';
     if (v2) {
       if (/^(AgentConsole|ProviderCard)/.test(art)) {
-        // a preview artboard keeps its baked PREVIEW caption; a production one carries the source of its state
-        runs.caption = put(RUNS.v2.caption, /Preview$/.test(art) ? null : captionOf(handle));
-        const tag = tagOf(handle);
-        runs.tag = put(RUNS.v2.tag, tag);
-        if (/^ProviderCard/.test(art)) {
-          const isBound = handle.binds.some((b) => b.startsWith('connection'));
-          runs.providerName = put(RUNS.v2.providerName, typeof handle.providerName === 'string' ? handle.providerName : providerNameOf(handle.providerId));
-          runs.providerState = put(RUNS.v2.providerState, isBound ? labelWord(handle) : null);
-          runs.providerDetail = put(RUNS.v2.providerDetail, typeof handle.providerDetail === 'string' ? handle.providerDetail : null);
-          // R86: no success pose is authored (connected = the Idle pose), so the Idle pose's baked headline "Choose your connection"
-          // would stand on a connected card — the headline gives way to the provider's observed state while it is connected
-          const connected = isBound && handle.word === 'connected';
-          runs.headlineIdle = put(RUNS.v2.headlineIdle, connected ? headlineOf(labelWord(handle)) : RUNS.v2.headlineIdleDefault);
+        const card = /^ProviderCard/.test(art);
+        if (isProduction(handle)) {
+          // item 4 (2026-10-24 19:18): ONE thing — the state. The HTML state word is the headline of every pose (the same string the
+          // label beside the face reads, so the one word is never drawn in two spellings); every other run reads "" at every size
+          const word = labelWord(handle);
+          runs.title = put(RUNS.v2.title, '');
+          runs.tag = put(RUNS.v2.tag, '');
+          runs.caption = put(RUNS.v2.caption, '');
+          if (card) { runs.providerName = put(RUNS.v2.providerName, ''); runs.providerState = put(RUNS.v2.providerState, ''); runs.providerDetail = put(RUNS.v2.providerDetail, ''); }
+          const poses = {};
+          for (const pose of POSES) poses[pose] = put(`${RUNS.v2.headline}${pose}`, word).reads;
+          runs.headline = { name: `${RUNS.v2.headline}{${POSES.join('|')}}`, set: word, reads: poses.Idle, poses, note: 'the HTML state word, in every pose (item 4)' };
+          if (!card) { const lines = {}; for (const pose of POSES) lines[pose] = put(`${RUNS.v2.line}${pose}`, '').reads; runs.line = { name: `${RUNS.v2.line}{${POSES.join('|')}}`, set: '', reads: lines.Idle, poses: lines }; }
+          runs.production = { headline: word, hidden: [RUNS.v2.title, RUNS.v2.tag, RUNS.v2.caption, ...(card ? [RUNS.v2.providerName, RUNS.v2.providerState, RUNS.v2.providerDetail] : [RUNS.v2.line])], faceWidth: typeof handle.faceWidth === 'number' ? handle.faceWidth : null, note: ONE_THING };
+        } else {
+          // the Inspect view's faces (the preview artboards) and a Canvas shape: the artboard as authored, the page's words in the
+          // named runs — a preview artboard keeps its baked PREVIEW caption; another carries the source of its state (AS SAVED, LIVE)
+          runs.caption = put(RUNS.v2.caption, /Preview$/.test(art) ? null : captionOf(handle));
+          runs.tag = put(RUNS.v2.tag, tagOf(handle));
+          runs.title = put(RUNS.v2.title, card ? 'TIMMY  /  PROVIDERS' : 'TIMMY  /  AGENT CONSOLE');
+          if (card) {
+            const isBound = handle.binds.some((b) => b.startsWith('connection'));
+            runs.providerName = put(RUNS.v2.providerName, cardName(handle));
+            runs.providerState = put(RUNS.v2.providerState, isBound ? labelWord(handle) : null);
+            runs.providerDetail = put(RUNS.v2.providerDetail, typeof handle.providerDetail === 'string' ? handle.providerDetail : null);
+          }
         }
-        // R97: under 320 px of face the small runs (the title, the tag, the caption) are 5–6 px — hidden there (the HTML words beside
-        // the face carry them); the Inspect view's faces keep theirs (the place to read a face)
-        const small = handle.place !== 'inspect' && typeof handle.faceWidth === 'number' && handle.faceWidth > 0 && handle.faceWidth < SMALL_FACE;
-        runs.small = { below: SMALL_FACE, faceWidth: handle.faceWidth || null, hidden: Boolean(small) };
-        if (small) { runs.title = put(RUNS.v2.title, ''); runs.tag = put(RUNS.v2.tag, ''); runs.caption = put(RUNS.v2.caption, ''); }
-        else { runs.title = put(RUNS.v2.title, /^ProviderCard/.test(art) ? 'TIMMY  /  PROVIDERS' : 'TIMMY  /  AGENT CONSOLE'); }
       } else if (/^ActionButton/.test(art)) {
         runs.caption = put(RUNS.v2.caption, /Preview$/.test(art) ? null : (typeof handle.faceLabel === 'string' ? handle.faceLabel : (handle.word || '')));
       }
@@ -402,6 +424,25 @@
   /** The word the label shows: the OBSERVED word the feed gave (H170's "checked", the probe's own word — R86: one word per card, never
    * the vocabulary's beside it), else the vocabulary word. */
   const labelWord = (handle) => (typeof handle.shown === 'string' && handle.shown ? handle.shown : handle.word);
+  /** A card's provider id: the mount's, else the one its bind names ('connection:<id>' — the Inspect view's and a shape's cards). */
+  const providerIdOf = (handle) => handle.providerId || (handle.binds.find((b) => b.startsWith('connection:')) || '').slice('connection:'.length) || null;
+  /** The provider's name on a card: the screen's (mountProviderCard's providerName / setProvider), else the id's own words. */
+  const cardName = (handle) => (typeof handle.providerName === 'string' && handle.providerName ? handle.providerName : providerNameOf(providerIdOf(handle)));
+  /**
+   * The accessible name of a production face (role=img; item 4): the state word — the one word the face draws as its headline —
+   * and, on a card, the provider's name after it (the face draws no other words; the card's name is what tells the cards apart).
+   */
+  function faceName(handle) {
+    const word = labelWord(handle);
+    if (/^ProviderCard/.test(handle.artboardBase || handle.artboard || '')) { const name = cardName(handle); return name ? `${word} · ${name}` : word; }
+    return word;
+  }
+  /** Writes that name on a mounted role=img face (a mounted ActionButton keeps its own: a button's name is its action). */
+  function nameFace(handle) {
+    if (!isProduction(handle) || !handle.face || handle.face.getAttribute('role') !== 'img') return;
+    const name = faceName(handle);
+    if (handle.face.getAttribute('aria-label') !== name) handle.face.setAttribute('aria-label', name);
+  }
   function setLabel(handle, input, value, shown) {
     if (!handle.label) return;
     if (input === 'selected' || input === 'expanded') { handle.label.dataset[input] = String(Boolean(value)); handle.label.textContent = labelWord(handle) + (handle.values.selected ? ' · selected' : '') + (handle.values.expanded ? ' · expanded' : ''); return; }
@@ -412,6 +453,7 @@
     handle.label.dataset.state = String(value);
     if (handle.shown && handle.shown !== handle.word) handle.label.dataset.observed = handle.shown; else delete handle.label.dataset.observed;
     if (handle.root) handle.root.dataset.state = String(value);
+    nameFace(handle);
   }
 
   /** One binding event: recorded for the Inspect view, the label written, the runtime moved. */
@@ -594,25 +636,35 @@
     ActionButton: { w: 240, h: 72, component: 'welcome', text: '→' },
   });
 
-  /** The canvas drawn again at the element's size (a mount in a host shown later draws when it is shown). */
+  /** The canvas drawn again at the element's size (a mount in a host shown later draws when it is shown); the face's width recorded. */
   function fitWhenShown(handle) {
     if (typeof ResizeObserver === 'undefined' || !handle.face) return;
     const ro = new ResizeObserver(() => {
       const w = handle.face.clientWidth;
       try { if (handle.rive && w > 0) handle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ }
-      // the face's width in CSS px decides the small runs (R97): re-applied only when the side of 320 changes
-      if (w > 0) { const was = handle.faceWidth; handle.faceWidth = w; if (handle.rive && (was === undefined || (was < SMALL_FACE) !== (w < SMALL_FACE))) applyRuns(handle); }
+      // (the face's width in CSS px, for the Inspect view and the tests: since item 4 the runs no longer depend on it — a production
+      // face reads the same at every size)
+      if (w > 0) handle.faceWidth = w;
     });
     ro.observe(handle.face);
     handle.observer = ro;
   }
 
-  /** What every mount adds to its handle: where it lives, unmount(), setLabel(). */
+  /**
+   * What every mount adds to its handle: it is a PRODUCTION face (handle.mounted: item 4's rule applies to its runs and its name),
+   * where it lives, how its HTML words are shown (`words`: 'beside' — the default, the status word beside the face — or 'spoken':
+   * the status stays in the accessibility tree, aria-live, and off the screen while the face is DRAWN and carries the word itself;
+   * while the face is not drawn the word shows beside the fallback glyph either way), unmount(), setLabel().
+   */
   function finishMount(handle, o, place) {
+    handle.mounted = true;
     handle.place = place;
     handle.size = o.size || 'card';
-    if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
-    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } if (/^ActionButton/.test(handle.artboard || '')) { handle.faceLabel = String(words); if (handle.rive) applyRuns(handle); } };
+    handle.words = o.words === 'spoken' ? 'spoken' : 'beside';
+    if (handle.root) { handle.root.dataset.place = place; handle.root.dataset.size = handle.size; handle.root.dataset.words = handle.words; handle.root.classList.add('tr-mount', `tr-mount-${place}`); }
+    nameFace(handle);
+    if (handle.rive) applyRuns(handle);
+    handle.setLabel = (words) => { if (handle.label) { handle.word = String(words); handle.label.textContent = handle.word; } if (/^ActionButton/.test(handle.artboard || '')) handle.faceLabel = String(words); if (handle.rive) applyRuns(handle); nameFace(handle); };
     handle.unmount = () => {
       try { if (handle.observer) handle.observer.disconnect(); } catch (e) { /* gone */ }
       try { if (handle.rive) { handle.rive.cleanup(); handle.rive = null; } } catch (e) { /* gone */ }
@@ -629,7 +681,10 @@
   /**
    * AgentConsole in a screen (the Chat: H171's call): FED by the activity feed (fromSse / stopping; the derivation stays the
    * fallback), scaled to the host's width at the artboard's 640:380 ('wide' = 100% of the host; 'card' = 320 px); the HTML
-   * status label beside it. Returns the handle (handle.root the element, handle.unmount()).
+   * status label beside it. Returns the handle (handle.root the element, handle.unmount()). A production face (item 4): its
+   * headline is the state word the label reads ("idle", "working", "awaiting approval"…), its Title / Tag / Caption / Line runs
+   * read "" (`caption` and `identity` are kept on the handle for the Inspect view, not drawn), its aria-label is the state word
+   * (`label` is accepted and not used for the name).
    */
   function mountConsole(host, o = {}) {
     const handle = component({
@@ -646,7 +701,10 @@
   /**
    * ProviderCard on a provider's card (the Connections screen: H170's call): bound 'connection:<providerId>', its State from
    * fromProviderState(providerId, stateWord) (and, until that line, from the card's drawn data-state); connected = State 0 +
-   * the label (no success pose is authored).
+   * the label (no success pose is authored). A production face (item 4): its headline in every pose is the OBSERVED word the label
+   * reads ("checked", "pending", "not set up"…), its Title / Tag / Caption / ProviderName / ProviderState / ProviderDetail runs read
+   * "", its aria-label is "<the word> · <the provider's name>" (`providerName` names it; `label` is accepted and not used for the
+   * name; `detail` is kept on the handle, not drawn).
    */
   function mountProviderCard(host, providerId, o = {}) {
     const id = String(providerId || '');
@@ -657,8 +715,11 @@
     });
     handle.provider = id;
     finishMount(handle, o, o.place || 'connections');
-    /** The card's own words on its face (v2: the ProviderName / ProviderDetail runs): the screen's title and one line. */
-    handle.setProvider = (w) => { if (w && typeof w.name === 'string') handle.providerName = w.name; if (w && typeof w.detail === 'string') handle.providerDetail = w.detail; if (handle.rive) applyRuns(handle); };
+    /**
+     * The card's provider words (the screen's title and one line): since item 4 a production face draws neither (its runs read "");
+     * the name is the second half of the face's accessible name ("checked · OpenRouter"), the detail is the screen's own line.
+     */
+    handle.setProvider = (w) => { if (w && typeof w.name === 'string') handle.providerName = w.name; if (w && typeof w.detail === 'string') handle.providerDetail = w.detail; if (handle.rive) applyRuns(handle); nameFace(handle); };
     return handle;
   }
 
@@ -875,6 +936,7 @@
       runs: x.runs ? JSON.parse(JSON.stringify(x.runs)) : null, stateSource: x.stateSource, fedState: x.fedState, restored: x.restored || 0,
       fileContract: x.contract, identity: x.identity ? { ...x.identity } : null, receipt: x.receipt || null, stale: x.stale || 0, retryable: Boolean(x.retryable),
       shown: x.shown || null, faceWidth: typeof x.faceWidth === 'number' ? x.faceWidth : null,
+      mounted: Boolean(x.mounted), words: x.words || null, faceName: x.face ? x.face.getAttribute('aria-label') : null,
     }));
   }
 
