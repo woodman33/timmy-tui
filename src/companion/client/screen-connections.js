@@ -5,7 +5,9 @@
 //   shell.h                  the page's element helper h(tag, attrs, ...children)
 //   shell.go(id) / land()    Back → 'account'; Explore without a model → 'chat'; Continue to the workspace → land() (the
 //                            landing rule: chat when a route is ready, else this screen again with its words)
-//   (no shell.toast from this screen since round 7's D15: the observed words go on the card, beside its one state word)
+//   (no shell.toast from this screen since round 7's D15; since the operator's 19:18 order, item 5, a card carries ONE status line —
+//   the observed word and one plain sentence — and ONE verb: what an action says goes to the context's live line for that card,
+//   the probe's full words with the address to the context's Details and the records)
 // Words: the server's (one source: SCREEN_WORDS and each card's provider state). A key pasted for Ollama Cloud goes in a JSON
 // body only: never in the address, never kept in the page, never logged. A selection is never a connection: a card's state
 // word is the provider's. Amber marks focus and the ONE primary step; green marks "checked" only; every glyph has its word.
@@ -15,7 +17,7 @@
 // TimmyRive.mountProviderCard(host, providerId, { size: 'wide', label }) into a host BESIDE the card's words (≤ 160 px tall, D15),
 // mounted ONCE per card for the screen's life (the host outlives a render; handle.unmount() when the screen is destroyed) — and
 // the feed, one line per state change, TimmyRive.fromProviderState(id, state, 'GET /api/connections: ' + id), so the Rive label
-// and the native State come from the backend's event, not from the card's drawing. The card's buttons stay these HTML buttons.
+// and the native State come from the backend's event, not from the card's drawing. The controls stay HTML buttons (the card's one verb; the rest in the context).
 // Without the module or its mount API the host stays empty and takes no room: the HTML beside it says the state, as before.
 // R11 round 7 (the operator's order of 2026-10-24 13:40, "Models and connections"; UI-OWNERSHIP.md; the rendered study):
 // the page on the scaffold every destination shares — the kicker · title · one-line description · the PRIMARY NEXT ACTION
@@ -77,7 +79,7 @@
     if (section === host) { const work = region('page-work'); if (work) { host = work.querySelector(':scope > .page-mount') || work.appendChild(h('div', { class: 'page-mount' })); } }
     // one screen state per draw: a draw after the shell shows the screen again starts afresh (the previous poll stops)
     if (host._cxScreen && typeof host._cxScreen.destroy === 'function') host._cxScreen.destroy();
-    const live = { data: null, pull: null, pullBox: null, said: null, destroyed: false, poll: null, rive: {}, fed: {}, sel: '', recordsOpen: false };
+    const live = { data: null, pull: null, pullBox: null, saidFor: {}, destroyed: false, poll: null, rive: {}, fed: {}, sel: '', recordsOpen: false };
     const rive = () => (window.TimmyRive && typeof window.TimmyRive === 'object' ? window.TimmyRive : null);
     const regions = { context: region('page-context'), dock: region('page-dock'), records: region('page-records') };
     /** Where this screen's elements are looked up: the page's section (the context, the dock and the records live outside the host). */
@@ -89,8 +91,16 @@
     const kickerNumber = () => { const p = sh.PAGES && sh.PAGES.find ? sh.PAGES.find((x) => x.id === 'connections') : null; return p && p.n ? String(p.n) : ''; };
 
     const cardOf = (id) => main.querySelector(`[data-provider="${id}"]`);
-    const say = (card, words, kind) => {
-      const el = card && card.querySelector('[data-cn-say]');
+    /**
+     * What an action just said, for the card it concerns (the operator's 19:18 order, item 5: the card carries ONE status line and
+     * ONE verb; the rest — these words among them — is the context column's, for the SELECTED card): written into the context's
+     * live line for that card when the context shows it, and remembered so a redraw of the context shows it again; render()
+     * forgets it once the card's state changes (the status line then says the new state itself). Plain words only: no address, no
+     * path, no endpoint, no command — those are the Details' and the records'.
+     */
+    const say = (id, words, kind) => {
+      if (words) live.saidFor[id] = { words, kind: kind || '' }; else delete live.saidFor[id];
+      const el = scope.querySelector(`[data-cn-say="${id}"]`);
       if (!el) return;
       el.textContent = words || '';
       el.dataset.kind = kind || '';
@@ -152,54 +162,55 @@
       const local = c.local || {};
       switch (c.situation) {
         case 'pending': return c.id === 'ollama-local' ? () => { if (live.pull && live.pull.ui) live.pull.ui.cancelBtn.click(); else showPull(c); } : null;
-        case 'no-model': return c.local && !c.local.installed ? () => { open(local.link); say(cardOf(c.id), `${local.install || 'Install Ollama'}; then ${local.start || 'start it'}. Then Check.`, 'step'); } : () => showPull(c);
+        // (the install and start commands for this computer are the Details' "On this computer" row; the line here is plain)
+        case 'no-model': return c.local && !c.local.installed ? () => { open(local.link); say(c.id, INSTALL_WORDS, 'step'); } : () => showPull(c);
         case 'unreachable': return c.id === 'ollama-local' ? () => check(c, 'ollama-local') : () => check(c, c.id);
         case 'refused': return c.id === 'openrouter' ? () => startOpenRouter(c) : () => focusKey(c);
         case 'no-account': return c.id === 'openrouter' ? () => startOpenRouter(c) : c.id === 'ollama-cloud' ? () => focusKey(c) : () => focusGateway(c);
         default: return c.id === 'cloudflare' ? () => focusGateway(c) : () => check(c, c.id);
       }
     }
-    const focusKey = (c) => { const el = cardOf(c.id) && cardOf(c.id).querySelector('#cn-ollama-cloud-key'); if (el) { el.focus(); say(cardOf(c.id), 'Paste the key from ollama.com/settings/keys, then Save the key.', 'step'); } };
-    const focusGateway = (c) => { const card = cardOf(c.id); const fold = card && card.querySelector('[data-cn-fold="cloudflare"]'); if (fold) fold.open = true; const el = card && card.querySelector('#cn-cloudflare-gateway'); if (el) el.focus(); };
+    const focusKey = (c) => { selectCard(c.id); openContext(); const el = scope.querySelector('#cn-ollama-cloud-key'); if (el) { el.focus(); say(c.id, 'Paste the key from your Ollama account’s keys page, then Save the key.', 'step'); } };
+    const focusGateway = (c) => { selectCard(c.id); openContext(); const fold = scope.querySelector('[data-cn-fold="cloudflare"]'); if (fold) fold.open = true; const el = scope.querySelector('#cn-cloudflare-gateway'); if (el) el.focus(); };
+    /** The plain line after "Install Ollama" (the commands for this computer stand in the Details' "On this computer" row). */
+    const INSTALL_WORDS = 'Install Ollama from its download page and start it; then Check.';
 
     /** A verb that opens another page (a sign-in, an install page) carries the page's glyph for it. */
     const OPENS = new Set(['Connect with OpenRouter', 'Sign in again', 'Install Ollama']);
     const verbLabel = (c) => (OPENS.has(c.verb) ? `${c.verb} ↗` : c.verb);
-    /** The first sentence of the probe's words (the observation); the whole stands in the records' row. */
+    /** The first sentence of the probe's words (a fallback for a server without `status`); the whole stands in the records' row. */
     const firstSentence = (words) => { const m = /^(.*?[.!?])(?=\s+[A-Z(“"]|\s*$)/.exec(String(words || '').trim()); return m ? m[1] : String(words || ''); };
+    /** A card is selected by a press anywhere on it (a selection, never a connection): the context shows that card's facts and tools. */
+    const selectCard = (id) => { if (live.sel !== id) { live.sel = id; drawContext(); markChosen(); } };
+    /** On a phone the context is the shell's sheet: an action that continues there opens it (SHELL CONTRACT v1 sheet()). */
+    const openContext = () => { try { if (typeof sh.sheet === 'function' && window.matchMedia && window.matchMedia('(max-width: 720px)').matches) sh.sheet('context', true); } catch { /* the column stands */ } };
     /**
-     * A card (R11 round 7, the lead's D15 on H168's R85/R86): a compact cell — the native face (≤ 160 px) BESIDE the title and the
-     * state, never over them; ONE state word, the observed one (the probe's: "checked" when the listing answered), with the first
-     * sentence of the probe's words under it (the whole in the records); the situation stays as data-situation and drives the verb;
-     * the verb and the other controls span the card below, above the fold. The provider's description, the next-step sentence and
-     * its detail lines are the context column's facts for the selected card.
+     * A card (R11 round 7, the lead's D15 and the operator's 19:18 order, item 5): a compact cell — the title, the native face
+     * (≤ 160 px) BESIDE it, ONE status line (the observed word + one plain sentence: no address, no path, no endpoint — those are the
+     * context's Details and the records; once the face is drawn its headline IS the word and the line is the sentence), ONE verb (the
+     * primary for its situation: Connect / Check / Download / Set up). Everything else — the other controls, the forms, the facts and
+     * the mechanics — is the context column's, for the SELECTED card.
      */
     function cardEl(c, primaryId) {
       const mark = stateMark(c.state);
       const isPrimary = c.id === primaryId;
       const act = verbAction(c);
       const chosen = c.id === live.sel;
-      // (a press anywhere on a card selects it — a selection, never a connection — so the context shows that card's facts)
-      const select = () => { if (live.sel !== c.id) { live.sel = c.id; drawContext(); markChosen(); } };
-      return h('article', { class: `sh-card cn-card cn-card-${c.id}${chosen ? ' is-chosen' : ''}`, 'data-provider': c.id, 'data-state': c.state, 'data-situation': c.situation, 'aria-labelledby': `cn-card-${c.id}-title`, 'aria-current': chosen ? 'true' : null, onClick: select },
+      return h('article', { class: `sh-card cn-card cn-card-${c.id}${chosen ? ' is-chosen' : ''}`, 'data-provider': c.id, 'data-state': c.state, 'data-situation': c.situation, 'aria-labelledby': `cn-card-${c.id}-title`, 'aria-current': chosen ? 'true' : null, onClick: () => selectCard(c.id) },
         h('header', { class: 'cn-card-head' },
           h('h2', { id: `cn-card-${c.id}-title`, class: 'cn-card-title' }, c.title),
           h('p', { class: 'sh-sub cn-card-sub' }, c.subtitle)),
-        h('div', { class: 'cn-card-state' },
-          h('p', { class: `${mark.cls} cn-state` }, h('span', { class: 'cn-state-glyph', 'aria-hidden': 'true' }, mark.glyph), ' ', h('span', { class: 'cn-state-word' }, c.state)),
-          h('p', { class: 'sh-note cn-words', title: c.words }, firstSentence(c.words))),
+        h('p', { class: 'cn-status', 'data-cn-status': c.id },
+          h('span', { class: `${mark.cls} cn-state-word` }, c.state), h('span', { class: 'cn-status-sep', 'aria-hidden': 'true' }, ' · '), h('span', { class: 'cn-status-words' }, c.status || firstSentence(c.words))),
         riveHost(c),
         h('div', { class: 'cn-verb-row' },
-          act ? h('button', { type: 'button', class: `${isPrimary ? 'sh-btn-primary' : 'sh-btn'} is-small cn-verb`, 'data-cn-verb': c.id, onClick: act }, verbLabel(c)) : h('span', { class: 'sh-note cn-verb-waiting', 'data-cn-verb': c.id }, c.verb)),
-        actions(c),
-        // (the provider's detail lines — what a check found, Cloudflare's five settings — are the context's facts for the selected card)
-        h('footer', { class: 'cn-card-foot' },
-          h('p', { class: 'sh-note cn-say', 'data-cn-say': '', 'aria-live': 'polite' })));
+          act ? h('button', { type: 'button', class: `${isPrimary ? 'sh-btn-primary' : 'sh-btn'} is-small cn-verb`, 'data-cn-verb': c.id, onClick: act }, verbLabel(c)) : h('span', { class: 'sh-note cn-verb-waiting', 'data-cn-verb': c.id }, c.verb)));
+      // (no footer: what an action says goes to the context's live line for the selected card — say())
     }
 
-    /** The card's other controls. A control the verb-led action already is (the same words, the same step) is not drawn twice. */
+    /** The card's other controls — drawn in the context column for the SELECTED card. A control the verb-led action already is (the same words, the same step) is not drawn twice. */
     function actions(c) {
-      const row = h('div', { class: 'sh-actions cn-actions' });
+      const row = h('div', { class: 'sh-actions cn-actions cn-context-tools', 'data-cn-tools': c.id });
       const dup = (label) => label === c.verb || (c.verb === 'Download a model' && label === 'Download a local model') || (c.verb === 'Check again' && label === 'Check');
       const btn = (label, onClick, cls) => (dup(label) ? null : h('button', { type: 'button', class: cls || 'sh-btn is-small', onClick }, label));
       const rowAppend = row.append.bind(row);
@@ -210,7 +221,7 @@
       } else if (c.id === 'ollama-local') {
         const local = c.local || {};
         row.append(
-          btn('Install Ollama', () => { open(local.link); say(cardOf(c.id), `${local.install || 'Install Ollama'}; then ${local.start || 'start it'}. Then Check.`, 'step'); }),
+          btn('Install Ollama', () => { open(local.link); say(c.id, INSTALL_WORDS, 'step'); }),
           btn('Download a local model', () => showPull(c)),
           btn('Check', () => check(c, 'ollama-local')),
           h('button', { type: 'button', class: 'sh-btn-text cn-link', onClick: () => open(local.link) }, `${c.action} ↗`));
@@ -221,10 +232,11 @@
           e.preventDefault();
           const key = input.value;
           input.value = '';
-          if (!key.trim()) { say(cardOf(c.id), 'Paste the key from ollama.com/settings/keys first.', 'failed'); return; }
+          if (!key.trim()) { say(c.id, 'Paste the key from your Ollama account’s keys page first.', 'failed'); return; }
           const r = await postJson('/api/connections/ollama-cloud/key', { key });
           if (r.ok) await refresh();
-          say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The key was not saved.'), r.ok ? 'step' : 'failed');
+          // (the server's words name the file and the fingerprint: those are the records'; the line here is plain)
+          say(c.id, r.ok ? 'The key is saved, not checked yet. Check the key asks Ollama Cloud whether it takes it; no model is run.' : (r.body.error || 'The key was not saved.'), r.ok ? 'step' : 'failed');
         } },
           h('label', { for: 'cn-ollama-cloud-key', class: 'sh-note cn-label' }, 'Key: sent once, in the request body; never shown again.'),
           h('div', { class: 'cn-form-row' }, input, h('button', { type: 'submit', class: 'sh-btn is-small' }, 'Save the key')));
@@ -238,7 +250,8 @@
           e.preventDefault();
           const r = await postJson('/api/connections/cloudflare', { gatewayUrl: url.value.trim() || null, cloudLogs: logs.checked });
           if (r.ok) await refresh();
-          say(cardOf(c.id), r.ok ? r.body.words : (r.body.error || 'The settings were not saved.'), r.ok ? 'step' : 'failed');
+          // (the server's words name the settings file: the records say where; the line here is plain)
+          say(c.id, r.ok ? 'The settings are saved. Nothing is sent to Cloudflare to check them; local logs stay as they are.' : (r.body.error || 'The settings were not saved.'), r.ok ? 'step' : 'failed');
         } },
           h('label', { for: 'cn-cloudflare-gateway', class: 'sh-note cn-label' }, 'AI Gateway / model routing (optional)'),
           h('div', { class: 'cn-form-row' }, url),
@@ -253,35 +266,41 @@
     }
 
     async function startOpenRouter(c) {
-      say(cardOf(c.id), 'Starting the sign-in…', 'step');
+      say(c.id, 'Starting the sign-in…', 'step');
       const r = await postJson('/api/connections/openrouter/start', { callback: `${location.origin}/api/connections/openrouter/callback` });
-      if (!r.ok) { say(cardOf(c.id), r.body.error || 'The sign-in could not start.', 'failed'); return; }
+      if (!r.ok) { say(c.id, r.body.error || 'The sign-in could not start.', 'failed'); return; }
       open(r.body.url);
-      live.said = { id: c.id, words: `${r.body.words} This card says when the key is saved.`, kind: 'step' };
-      await refresh();
+      await refresh(); // (the state is pending now: the line said before is forgotten with the change, and this one follows it)
+      say(c.id, `${r.body.words} The card’s status line says when the key is saved.`, 'step');
     }
+    /** The state word a card shows now (after a refresh), or none. */
+    const stateOf = (id) => { const x = live.data && (live.data.cards || []).find((k) => k.id === id); return x ? x.state : null; };
     async function check(c, id) {
       const what = live.data && live.data.checks && live.data.checks[id];
-      say(cardOf(c.id), what ? what.words : 'Checking…', 'step');
+      const before = c.state;
+      // (what a check asks, in plain words — describeCheck's `words`; the endpoints it sends to are the Details' "A check sends")
+      say(c.id, what ? what.words : 'Checking…', 'step');
       const r = await postJson(`/api/connections/${id}/check`, {});
-      if (!r.ok) { say(cardOf(c.id), r.body.error || 'The check did not run.', 'failed'); return; }
+      if (!r.ok) { say(c.id, r.body.error || 'The check did not run.', 'failed'); return; }
       await refresh();
-      const s = r.body.state || {};
-      // (the observed words on the card itself, beside its state word — no toast: the shell's would paint over the records band, R96)
-      say(cardOf(c.id), s.words || '', 'step');
+      // the card's ONE status line says what the check found (the operator's 19:18 order, item 5; the probe's full words, with the
+      // address, are the Details' "Observed" row and the records): the line here is cleared when the state changed, else says so
+      say(c.id, stateOf(id) === before ? 'Checked again; the state is as it was.' : '', 'step');
     }
     async function forget(c) {
       let r; try { r = await api(`/api/connections/${c.id}`, { method: 'DELETE' }); } catch { r = null; }
       let j = null; try { j = r ? await r.json() : null; } catch { j = null; }
       await refresh();
-      say(cardOf(c.id), (j && (j.words || j.error)) || 'Nothing was removed.', r && r.ok ? 'step' : 'failed');
+      // (the server's words name the file: the records say where; the line here is plain)
+      say(c.id, r && r.ok ? (j && j.removed === false ? 'Nothing was kept for this provider.' : 'Forgotten.') : ((j && j.error) || 'Nothing was removed.'), r && r.ok ? 'step' : 'failed');
     }
 
     // Ollama · local: the download, with its size, the person's confirmation, its progress and Cancel (SSE from the server)
     function showPull(c, model) {
-      const card = cardOf(c.id);
-      if (!card) return;
-      let box = card.querySelector('.cn-pull');
+      selectCard(c.id); openContext();
+      const tools = scope.querySelector(`[data-cn-tools="${c.id}"]`);
+      if (!tools) return;
+      let box = scope.querySelector('.cn-pull');
       if (box && !model) { box.remove(); live.pullBox = null; return; }
       if (box) { const sel = box.querySelector('#cn-pull-model'); if (sel) { sel.value = model; sel.focus(); } return; }
       const local = c.local || { starters: [] };
@@ -298,7 +317,7 @@
         h('div', { class: 'cn-form-row' }, select, other),
         h('div', { class: 'cn-form-row' }, startBtn, confirmBtn, cancelBtn),
         bar, status);
-      card.querySelector('.cn-actions').after(box);
+      tools.after(box);
       live.pullBox = box;
       startBtn.addEventListener('click', () => startPull((other.value.trim() || select.value), { status, bar, confirmBtn, cancelBtn, startBtn }));
       select.focus();
@@ -374,9 +393,11 @@
       return aside;
     }
     /**
-     * The context column (R11 round 7, the lead's D15 on H168's R87): the SELECTED card's facts — what it costs, what a check sends
-     * and asks, when it was last observed, its links — never the card again (its words, state and verb are on the card). Ollama · local
-     * adds the download offer: each starter as "Download <model> (<size>)", nothing downloaded until the card's confirmation.
+     * The context column (R11 round 7, the lead's D15 on H168's R87; the operator's 19:18 order, item 5): the SELECTED card's facts
+     * and tools — what it is, what it costs, its other controls and forms, and behind Details the mechanics (what a check sends and
+     * asks, the time, the commands, what was observed in full, the detail lines) — never the card again (its one status line and its
+     * one verb are on the card). Ollama · local adds the download offer: each starter as "Download <model> (<size>)", nothing
+     * downloaded until the confirmation.
      */
     function drawContext() {
       const body = scope.querySelector('[data-cn-context]');
@@ -395,21 +416,39 @@
           h('span', { class: 'cn-starter-words' }, `${typeof m.bytes === 'number' && m.bytes > 0 && m.size !== bytesWords(m.bytes) ? `${m.size} on disk · ` : ''}${m.use}${m.default ? ' · the default' : ''}`)))),
         h('p', { class: 'sh-note' }, c.local.offer.hardware),
         h('p', { class: 'sh-note' }, `Sizes: ${c.local.sizeNote}.`)) : null;
+      // the provider's detail lines: the local card's is what the check FOUND (the models this computer's Ollama holds — a fact the
+      // person chooses by, in view); Cloudflare's are its configured parts (hosts, variables: technical syntax, behind Details)
+      const lines = c.lines && c.lines.length ? h('ul', { class: 'cn-context-lines', 'data-cn-lines': c.id }, ...c.lines.map((l) => h('li', null, l))) : null;
+      const found = c.id === 'ollama-local' && lines ? h('div', { class: 'cn-found', 'data-cn-found': c.id }, h('p', { class: 'sh-label cn-found-label' }, 'What the check found'), lines) : null;
+      // the mechanics behind Details (the operator's 19:18 order, item 5): what a check sends and asks, the time, the commands,
+      // what was observed in full (the address among its words)
+      const details = h('details', { class: 'cn-context-details', 'data-cn-details': c.id },
+        h('summary', { class: 'sh-note cn-details-summary' }, 'Details · what a check sends, what was observed'),
+        h('dl', { class: 'cn-facts cn-facts-details' },
+          fact('Next step', c.next || ''),
+          chk ? fact('A check sends', chk.sends || '') : null,
+          chk ? fact('What it asks', chk.words || '') : null,
+          fact('Last observed', c.at ? clock(c.at) : 'not yet — nothing has been asked of this provider'),
+          fact('Observed', c.words || ''),
+          c.local && c.local.installed === false ? fact('On this computer', `${c.local.install || 'Install Ollama'}; then ${c.local.start || 'start it'}`) : null),
+        found ? null : lines);
+      // the live line for what an action on this card said (say): the remembered words, when any
+      const said = live.saidFor[c.id] || { words: '', kind: '' };
       body.replaceChildren(
         h('div', { class: 'cn-context-card', 'data-cn-context-for': c.id },
           h('p', { class: 'cn-context-for' }, h('span', { class: 'cn-context-mark', 'aria-hidden': 'true' }, MARKS[c.id] || '·'), ' ', h('strong', { class: 'cn-context-name' }, c.title), h('span', { class: 'cn-context-sub' }, ` · ${c.subtitle}`)),
           h('p', { class: 'cn-context-about' }, c.body),
           h('dl', { class: 'cn-facts' },
-            fact('Next step', c.next || ''),
             fact('Cost', c.cost || ''),
-            chk ? fact('A check sends', chk.sends || '') : null,
-            chk ? fact('What it asks', chk.words || '') : null,
-            fact('Last observed', c.at ? clock(c.at) : 'not yet — nothing has been asked of this provider'),
-            c.key ? fact('Key', `saved from ${c.key.from}; never shown (its fingerprint is in the records)`) : null,
-            c.local && c.local.installed === false ? fact('On this computer', `${c.local.install || 'Install Ollama'}; then ${c.local.start || 'start it'}`) : null),
-          c.lines && c.lines.length ? h('ul', { class: 'cn-context-lines', 'data-cn-lines': c.id }, ...c.lines.map((l) => h('li', null, l))) : null,
+            c.key ? fact('Key', `saved from ${c.key.from}; never shown (its fingerprint is in the records)`) : null),
+          found,
+          actions(c),
+          h('p', { class: 'sh-note cn-say', 'data-cn-say': c.id, 'data-kind': said.kind, 'aria-live': 'polite' }, said.words),
+          details,
           links.length ? h('div', { class: 'sh-actions cn-context-links' }, ...links) : null),
         offer);
+      // the download box outlives a redraw of the context (its progress goes on): back under the local card's tools
+      if (live.pullBox && c.id === 'ollama-local') { const tools = body.querySelector('[data-cn-tools="ollama-local"]'); if (tools) tools.after(live.pullBox); }
     }
     function markChosen() {
       for (const el of main.querySelectorAll('.cn-card[data-provider]')) { const on = el.dataset.provider === live.sel; el.classList.toggle('is-chosen', on); if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); }
@@ -488,13 +527,13 @@
       }
       if (regions.records) regions.records.replaceChildren(records(s, data, cards));
       register(s, sum, cards, primaryId);
+      // a card whose state changed says the new state on its status line itself: the line an action said before it is forgotten
+      // (an action that says more after its refresh — a check, a key saved — says it after this render)
+      for (const c of cards) if (live.fed[c.id] !== undefined && live.fed[c.id] !== c.state) delete live.saidFor[c.id];
       drawContext();
       // every path that applies a provider's state ends here (the first draw, Check, a download, a key, a delete, the socket's
       // connections event through update()): the feed says each change once, with the backend's event as its source
       feedStates(cards);
-      // the download box and a card's last status line outlive a render (a refresh after an action keeps what it said)
-      if (live.pullBox) { const local = cardOf('ollama-local'); const at = local && local.querySelector('.cn-actions'); if (at) at.after(live.pullBox); }
-      if (live.said) { say(cardOf(live.said.id), live.said.words, live.said.kind); live.said = null; }
       // a sign-in pending: ask again until the callback landed (the browser is away on OpenRouter's page)
       const pending = cards.some((c) => c.state === 'pending');
       if (pending && !live.poll) live.poll = setTimeout(() => { live.poll = null; void refresh(); }, 3000);

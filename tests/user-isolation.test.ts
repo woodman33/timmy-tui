@@ -9,6 +9,11 @@
  * `clerk_user_id` in a body or a query changes nothing (A's token with B's id: A's data); the user's home is 0700 under
  * <TIMMY_HOME>/users/<id>; and no user id, token or key value is in any log line the companion writes.
  *
+ * R11 round 7 (the operator's 19:18 order, item 1): Connections with two users at once — A's Check on Ollama · local reaches A's own
+ * recorded address (the FAKE) and tells A's socket alone ({ type: 'connections', … } to the sockets whose session verified as A);
+ * B's socket, open at the same time, gets no event of A's; B's GET /api/connections after A's Check carries nothing of A's; the
+ * cached observation (state/connections.json) is under A's home alone.
+ *
  * The route names are C1-C3's (R11-R4-COMMON): an owner who changes one posts it in the handoff first, and this file follows.
  * Until an owner's piece lands, its case fails with words naming it.
  */
@@ -20,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { fakeIdentityProvider, fakeUserId, type FakeIdentity } from './fixtures/fake-identity.js';
 import { startFakeOllamaJourney, type FakeOllamaJourney } from './fixtures/fake-ollama-journey.js';
+import { WebSocket } from 'ws';
 
 // ── C1-C3's names ─────────────────────────────────────────────────────────────
 
@@ -429,6 +435,82 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(where).toEqual([`<home>/users/${A}/providers.json`]);
     const b = await call('GET', ROUTES.connections, { session: identity.token(B) });
     expect(cloudCard(b).key, 'B\'s cloud card still carries no key').toBeUndefined();
+  });
+
+  it('Connections, two users at once (the operator\'s 19:18 order, item 1): A presses Check on Ollama · local and A\'s own FAKE answers; B\'s page, open at the same time, keeps only B\'s own words (B\'s address, not checked) and receives NO connections event of A\'s; GET /api/connections as B after A\'s Check carries nothing of A\'s (its port, its model, its check); the cached record is A\'s home\'s alone', async () => {
+    // THE CHANNEL a Check's event takes (server.ts mountConnections → notify): the page's WebSocket, and only the sockets whose hello's
+    // session verified as THAT user (views: `v.user.id === userId`) — { type: 'connections', provider, state, words }; no SSE, no
+    // broadcast to every client. H170's fix (bd6def41) made the check ask the user's OWN recorded address; this case pins both:
+    // the cached record per home (state/connections.json) and the event's delivery, with two pages open at once.
+    // B's own address: a closed port on 127.0.0.1 (nothing listens), recorded in B's providers.json as a setup would (what B held
+    // there stays); A's is the FAKE
+    const bHome = userHome(B);
+    mkdirSync(bHome, { recursive: true, mode: 0o700 });
+    let bHad: Record<string, unknown> = {};
+    try { bHad = JSON.parse(readFileSync(join(bHome, 'providers.json'), 'utf8')) as Record<string, unknown>; } catch { /* none yet */ }
+    writeFileSync(join(bHome, 'providers.json'), JSON.stringify({ ...bHad, ollama_host: 'http://127.0.0.1:9' }), { mode: 0o600 });
+    pointAtFakeOllama(A);
+    const fakePort = new URL(ollama.url).port;
+    type LocalCard = { state?: string; words?: string; at?: string; lines?: string[]; local?: { address?: string } };
+    const localCard = (a: Answer): LocalCard => (((a.json?.cards ?? []) as Array<{ id?: string } & LocalCard>).find((c) => c.id === 'ollama-local') ?? {});
+    // two pages open at the same time: a socket each, with its own session in its hello (as the page sends it), every message kept
+    const open = async (session: string): Promise<{ messages: Array<Record<string, unknown>>; close: () => void }> => {
+      const ws = new WebSocket(companion.address.replace(/^http/, 'ws'), ['timmy-companion', `timmy-token.${TOKEN}`], { origin: companion.address });
+      const messages: Array<Record<string, unknown>> = [];
+      ws.on('message', (d) => { try { messages.push(JSON.parse(String(d)) as Record<string, unknown>); } catch { /* not JSON */ } });
+      await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
+      ws.send(JSON.stringify({ type: 'hello', session }));
+      await new Promise((r) => setTimeout(r, 700));
+      return { messages, close: () => ws.close() };
+    };
+    const pageA = await open(identity.token(A));
+    const pageB = await open(identity.token(B));
+    try {
+      // the welcome frames came to both (each its own project), not a 'connections' event yet
+      expect(pageA.messages.some((m) => m.type === 'welcome' || m.type === 'project'), `A's page said hello and was answered: ${JSON.stringify(pageA.messages.map((m) => m.type))}`).toBe(true);
+      expect(pageB.messages.some((m) => m.type === 'welcome' || m.type === 'project'), `B's page said hello and was answered: ${JSON.stringify(pageB.messages.map((m) => m.type))}`).toBe(true);
+      const bBefore = await call('GET', ROUTES.connections, { session: identity.token(B) });
+      expect(bBefore.status).toBe(200);
+      const markA = pageA.messages.length;
+      const markB = pageB.messages.length;
+      // A presses Check: A's own address (the FAKE) answers; A's page is told
+      const check = await call('POST', '/api/connections/ollama-local/check', { session: identity.token(A) });
+      expect(check.status, `A's POST /api/connections/ollama-local/check: ${check.text.slice(0, 300)}`).toBe(200);
+      expect(check.text, 'A\'s check answered by A\'s own FAKE (its port named)').toContain(`127.0.0.1:${fakePort}`);
+      await new Promise((r) => setTimeout(r, 1_500));
+      const connectionsEvents = (ms: Array<Record<string, unknown>>): Array<Record<string, unknown>> => ms.filter((m) => m.type === 'connections' || /connections/i.test(String(m.type ?? m.event ?? '')));
+      const aEvents = connectionsEvents(pageA.messages.slice(markA));
+      const bEvents = connectionsEvents(pageB.messages.slice(markB));
+      expect(aEvents.length, `A's page received A's connections event(s): ${JSON.stringify(pageA.messages.slice(markA).map((m) => m.type))}`).toBeGreaterThanOrEqual(1);
+      expect(aEvents.some((e) => e.provider === 'ollama-local'), 'A\'s event names ollama-local').toBe(true);
+      const aEvent = aEvents.find((e) => e.provider === 'ollama-local')!;
+      expect(aEvent.state, `A's event carries A's own checked state: ${JSON.stringify(aEvent).slice(0, 300)}`).toBe('checked');
+      expect(String(aEvent.words ?? ''), 'A\'s event names A\'s own address (the FAKE\'s port)').toContain(`127.0.0.1:${fakePort}`);
+      // B's page: ZERO connections events of A's, and nothing of A's in any message that reached it
+      expect(bEvents, `B's page received a connections event it must not: ${JSON.stringify(bEvents).slice(0, 400)}`).toEqual([]);
+      const toB = JSON.stringify(pageB.messages.slice(markB));
+      expect(toB, 'nothing of A\'s check reached B\'s page (the FAKE\'s port)').not.toContain(`127.0.0.1:${fakePort}`);
+      expect(toB, 'nothing of A\'s check reached B\'s page (A\'s model)').not.toContain(MODEL);
+      // GET /api/connections as B after A's Check: B's own card as it was — B's address, not checked; A's port, model and check nowhere
+      const bAfter = await call('GET', ROUTES.connections, { session: identity.token(B) });
+      expect(bAfter.status).toBe(200);
+      const bCard = localCard(bAfter);
+      expect(bAfter.text, 'B\'s connections carry nothing of A\'s port').not.toContain(`127.0.0.1:${fakePort}`);
+      expect(bAfter.text, 'B\'s connections carry nothing of A\'s model').not.toContain(MODEL);
+      expect(bCard.state ?? '', `B's local card is not checked: ${JSON.stringify(bCard).slice(0, 300)}`).not.toMatch(/^checked$|connected/i);
+      expect(`${bCard.words ?? ''} ${(bCard.lines ?? []).join(' ')} ${bCard.local?.address ?? ''}`, 'B\'s card speaks of B\'s own address, never another port').not.toMatch(new RegExp(`127\\.0\\.0\\.1:(?!9\\b)\\d+`));
+      expect(localCard(bAfter).state, 'B\'s local card state unchanged by A\'s Check').toBe(localCard(bBefore).state);
+      // A's own card after: checked, the FAKE's model
+      const aAfter = await call('GET', ROUTES.connections, { session: identity.token(A) });
+      expect(localCard(aAfter).state, `A's local card after Check: ${JSON.stringify(localCard(aAfter)).slice(0, 300)}`).toBe('checked');
+      expect(aAfter.text).toContain(MODEL);
+      // the cached record (state/connections.json) is written under A's home alone; B's home holds no accepted ollama observation
+      const records = filesUnder(timmyHome).filter((f) => f.endsWith(join('state', 'connections.json')));
+      expect(records.map((f) => f.replace(timmyHome, '<home>')), 'the observation record lives in A\'s home').toContain(`<home>/users/${A}/state/connections.json`);
+      const ofB = records.find((f) => f.includes(join('users', B, 'state')));
+      if (ofB) expect(readFileSync(ofB, 'utf8'), 'B\'s record (if any) holds no accepted ollama answer').not.toMatch(/"ollama"\s*:\s*\{[^}]*"accepted"/);
+      expect(readFileSync(records.find((f) => f.includes(join('users', A, 'state')))!, 'utf8'), 'A\'s record holds A\'s accepted answer').toMatch(/"ollama"\s*:\s*\{[^}]*"accepted"/);
+    } finally { pageA.close(); pageB.close(); }
   });
 
   it('no user id, token or key value in any log line the companion writes, nor in a home file but the keys\' own', () => {
