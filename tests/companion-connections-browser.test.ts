@@ -10,7 +10,7 @@
  * with the backend's event as its source; the unmount on a redraw — and a bare page (no TimmyRive) draws the same words.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -111,7 +111,10 @@ window.__unmounted = 0; window.__mounts = [];
 /** The page of this test: H171's shell stood in by a FAKE TimmyShell with the same surface; the real screen script and sheet. */
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FAKE shell</title>
 <style>:root{--timmy-ground:#000;--timmy-surface:#0c0c0c;--timmy-raised:#161616;--timmy-line:#2a2a2a;--timmy-line-strong:#3a3a3a;--timmy-text:#f2f2f2;--timmy-text-secondary:#a8a8a8;--timmy-accent:#FFB000;--timmy-accent-ink:#000;--timmy-accent-soft:#333;--timmy-silver:#E8E4D9;--timmy-live:#00ff00;--timmy-weight-heading:600;--timmy-weight-strong:600;--timmy-weight-body:400;--timmy-font-mono:monospace}
-body{margin:0;background:var(--timmy-ground);color:var(--timmy-text);font:15px/1.4 sans-serif}.sh-screen{height:100vh;overflow-y:auto}.sh-main{width:100%;max-width:1240px;margin:0 auto;padding:36px 48px;box-sizing:border-box}.sh-card{padding:28px;border:1px solid var(--timmy-line-strong);border-radius:6px;background:var(--timmy-surface)}.sh-btn,.sh-btn-primary,.sh-btn-text{font:inherit;cursor:pointer}.sh-btn{border:1px solid var(--timmy-line-strong);background:transparent;color:var(--timmy-text);padding:8px 14px}.sh-btn-primary{border:1px solid var(--timmy-accent);background:var(--timmy-accent);color:#000;padding:8px 14px}.sh-btn-text{border:0;background:transparent;color:var(--timmy-text);text-decoration:underline}.sh-input,.sh-select{font:inherit;padding:6px 10px;border:1px solid var(--timmy-line-strong);background:#000;color:var(--timmy-text)}.sh-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.sh-state.is-live{color:var(--timmy-live)}.sh-note{font-size:13px;color:var(--timmy-text-secondary)}.sh-head,.sh-foot{display:flex;justify-content:space-between;gap:16px;padding:16px 48px}.sh-steps{display:flex;gap:20px}@media (max-width:720px){.sh-main{padding:20px 16px}.sh-head,.sh-foot{padding:12px 16px}}</style>
+body{margin:0;background:var(--timmy-ground);color:var(--timmy-text);font:15px/1.4 sans-serif}.sh-screen{height:100vh;overflow-y:auto}.sh-main{width:100%;max-width:1240px;margin:0 auto;padding:36px 48px;box-sizing:border-box}.sh-card{padding:28px;border:1px solid var(--timmy-line-strong);border-radius:6px;background:var(--timmy-surface)}.sh-btn,.sh-btn-primary,.sh-btn-text{font:inherit;cursor:pointer}.sh-btn{border:1px solid var(--timmy-line-strong);background:transparent;color:var(--timmy-text);padding:8px 14px}.sh-btn-primary{border:1px solid var(--timmy-accent);background:var(--timmy-accent);color:#000;padding:8px 14px}.sh-btn-text{border:0;background:transparent;color:var(--timmy-text);text-decoration:underline}.sh-input,.sh-select{font:inherit;padding:6px 10px;border:1px solid var(--timmy-line-strong);background:#000;color:var(--timmy-text)}.sh-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.sh-state.is-live{color:var(--timmy-live)}.sh-note{font-size:13px;color:var(--timmy-text-secondary)}.sh-head,.sh-foot{display:flex;justify-content:space-between;gap:16px;padding:16px 48px}.sh-steps{display:flex;gap:20px}@media (max-width:720px){.sh-main{padding:20px 16px}.sh-head,.sh-foot{padding:12px 16px}}
+/* the FAKE scaffold at the real shell's measures (companion.css 1440: the 244 px rail beside the page, padding 26/32, the body grid work + 320 px context, gap 24; ≤ 720: padding 16, one column) so the cards' geometry here is the product's */
+.sh-screen.page{box-sizing:border-box;padding:26px 32px 22px 276px;display:flex;flex-direction:column;gap:18px}.page-head{display:flex;justify-content:space-between;gap:24px}.page-kicker{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase}.page-title{margin:4px 0;font-size:30px;line-height:1.15;font-weight:600}.page-intro{margin:0;font-size:15px}.page-band{min-height:48px;border:1px solid var(--timmy-line);border-radius:10px;padding:12px 16px;box-sizing:border-box}.page-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;align-items:start}.page-body:has(> .page-context[hidden]){grid-template-columns:minmax(0,1fr)}.page-work{min-width:0;display:flex;flex-direction:column;gap:14px}.page-context{min-width:0;display:flex;flex-direction:column;gap:16px}.page-dock{display:flex;gap:12px;align-items:center}.dock-tools{display:flex;flex-wrap:wrap;gap:8px}
+@media (max-width:720px){.sh-screen.page{padding:16px}.page-body{grid-template-columns:minmax(0,1fr)}}</style>
 <link rel="stylesheet" href="/screen-connections.css"></head><body>
 __SECTION__
 <script>
@@ -186,9 +189,13 @@ beforeAll(async () => {
     (req as express.Request & { user?: ConnectionsUser }).user = { id, username: `fake-${id}` };
     next();
   };
+  // (the user's own record names the FAKE Ollama — as `timmy init --ollama <host>` records it; the companion's shell variable is passed
+  // through as identity/scope.ts userEnv passes it and is never a user's address since the 18:21 fix: tests/companion-connections pins it)
   const userEnv = (user: ConnectionsUser): Record<string, string | undefined> => {
     const home = join(root, 'users', user.id);
     for (const d of ['timmy', 'settings', 'mcp']) mkdirSync(join(home, d), { recursive: true, mode: 0o700 });
+    const providers = join(home, 'timmy', 'providers.json');
+    if (!existsSync(providers)) writeFileSync(providers, JSON.stringify({ ollama_host: ollamaOrigin }, null, 2), { mode: 0o600 });
     return { PATH: join(root, 'bin'), HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_SETTINGS_DIR: join(home, 'settings'), TIMMY_MCP_HOME: join(home, 'mcp'), OLLAMA_HOST: ollamaOrigin };
   };
   const app = express();
@@ -240,22 +247,47 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.locator('.cn-card .cn-card-title').allTextContents()).toEqual(['OpenRouter', 'Ollama · local', 'Ollama · cloud', 'Cloudflare']);
     expect(await page.locator('.cn-card .cn-state-word').allTextContents()).toEqual(['not set up', 'not installed', 'not set up', 'not set up']);
     // each card in one of the order's situations, with its verb-led action; the ONE primary is the recommended card's verb
-    expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => [e.getAttribute('data-situation'), e.querySelector('.cn-situation')?.textContent, e.querySelector('[data-cn-verb]')?.textContent, e.querySelector('[data-cn-verb]')?.className.includes('sh-btn-primary')]))).toEqual([
-      ['no-account', 'No account', 'Connect with OpenRouter ↗', false], ['no-model', 'No downloaded model', 'Install Ollama ↗', true], ['no-account', 'No account', 'Save an Ollama key', false], ['no-account', 'No account', 'Set up Cloudflare', false]]);
-    expect(await page.locator('.sh-btn-primary').count()).toBe(2); // the recommended card's verb and the context's verb (the head's primary is the shell's .ui-primary)
+    // (D15: ONE state word per card — the probe's; the situation drives the verb and stays as data-situation, no chip, no frame by colour)
+    expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => [e.getAttribute('data-situation'), e.querySelector('[data-cn-verb]')?.textContent, e.querySelector('[data-cn-verb]')?.className.includes('sh-btn-primary')]))).toEqual([
+      ['no-account', 'Connect with OpenRouter ↗', false], ['no-model', 'Install Ollama ↗', true], ['no-account', 'Save an Ollama key', false], ['no-account', 'Set up Cloudflare', false]]);
+    expect(await page.locator('.cn-card .cn-situation').count()).toBe(0);
+    expect(await page.locator('.cn-card .cn-state-word').count()).toBe(4); // one per card
+    expect(await page.locator('.cn-card').evaluateAll((els) => els.map((e) => getComputedStyle(e).borderColor))).toEqual(Array(4).fill(await page.locator('.cn-card').first().evaluate((e) => getComputedStyle(e).borderColor))); // no frame by state
+    expect(await page.locator('.sh-btn-primary').count()).toBe(1); // the recommended card's verb alone (the head's primary is the shell's .ui-primary; the context repeats no verb)
+    // D15 (H168's R85): the face beside the words at ≤ 160 px, every card's verb above the fold at 1440×900 (the FAKE scaffold at the shell's measures)
+    const geometry = await page.locator('.cn-card').evaluateAll((els) => els.map((e) => {
+      const r = e.getBoundingClientRect(); const v = e.querySelector('[data-cn-verb]')!.getBoundingClientRect(); const f = e.querySelector('.cn-rive')?.getBoundingClientRect();
+      return { id: e.getAttribute('data-provider'), top: Math.round(r.top), height: Math.round(r.height), width: Math.round(r.width), verbTop: Math.round(v.top), verbBottom: Math.round(v.bottom), face: f ? [Math.round(f.width), Math.round(f.height), Math.round(f.left - r.left)] : null };
+    }));
+    console.info(`companion-connections-browser 1440x900 (FAKE scaffold at the shell's measures): ${geometry.map((g) => `${g.id} ${g.width}×${g.height} at y ${g.top}, verb y ${g.verbTop}–${g.verbBottom}, face ${g.face ? `${g.face[0]}×${g.face[1]} at x+${g.face[2]}` : 'none'}`).join(' · ')}`);
+    for (const g of geometry) {
+      expect(g.verbBottom, `${g.id}: its verb above the fold`).toBeLessThanOrEqual(900);
+      expect(g.height, `${g.id}: a compact cell`).toBeLessThanOrEqual(460);
+      expect(g.face![1], `${g.id}: the face ≤ 160 px tall`).toBeLessThanOrEqual(160);
+      expect(g.face![2], `${g.id}: the face beside the words, not over them`).toBeGreaterThan(g.width / 2);
+    }
     // the context: Choose your model, the chosen provider (the recommended one) with its cost, what a check sends, the offer
     expect(await page.locator('.cn-context-title').textContent()).toBe('Choose your model');
-    expect(await page.locator('.cn-pick[aria-pressed="true"]').textContent()).toBe('Ollama · local');
+    expect(await page.locator('.cn-pick[aria-pressed="true"]').textContent()).toBe('Ollama local'); // (the short name on the segmented control; the full one as its title)
+    expect(await page.locator('.cn-pick[aria-pressed="true"]').getAttribute('title')).toBe('Ollama · local');
+    // (R87: the context holds the selected card's facts, not the card again — no second title block, state or verb)
+    expect(await page.locator('.cn-context-card .cn-state-word, .cn-context-card [data-cn-context-verb], .cn-context-card .cn-situation').count()).toBe(0);
+    expect(await page.locator('.cn-context-card .cn-facts dt').allTextContents()).toEqual(['Next step', 'Cost', 'A check sends', 'What it asks', 'Last observed', 'On this computer']);
+    expect(await page.locator('.cn-context-card .cn-context-about').textContent()).toBe('Run models on this computer. No provider account required.'); // (the description is the context's, not the card's)
+    // (R87: the segmented control in one row at 1440)
+    expect(new Set(await page.locator('.cn-pick').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))).size).toBe(1);
     expect(await page.locator('.cn-context-card').getAttribute('data-cn-context-for')).toBe('ollama-local');
-    expect(await page.locator('.cn-facts dd').first().textContent()).toBe('No charge: models run on this computer. A download comes from ollama.com and takes disk space.');
+    expect(await page.locator('.cn-facts div').filter({ has: page.locator('dt', { hasText: /^Cost$/ }) }).locator('dd').textContent()).toBe('No charge: models run on this computer. A download comes from ollama.com and takes disk space.');
     expect(await page.locator('.cn-offer .cn-starter').count()).toBe(3);
+    expect(await page.locator('.cn-offer .cn-starter-pick').first().textContent()).toMatch(/^Download \S+ \(\d+(\.\d+)? [GM]B\)$/); // (R96: the verb and the size, not "Offer")
     expect(await page.locator('.cn-offer').textContent()).toContain('a rule of thumb from Ollama’s library, not a measurement of this computer');
     expect(await page.locator('.cn-note').textContent()).toContain('Nothing is downloaded until you confirm.');
     // the records are closed until asked; the dock's Records opens them
     expect(await page.locator('.cn-records').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
     await page.getByRole('button', { name: 'Records', exact: true }).click();
     expect(await page.locator('.cn-records').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
-    expect(await page.locator('.cn-record').count()).toBe(6);
+    expect(await page.locator('.cn-record').count()).toBe(7);
+    expect(await page.locator('.cn-record').nth(4).textContent()).toContain('id alice'); // (R95: the session's raw id behind Details, not in the band)
     for (const name of ['Connect with OpenRouter ↗', 'Install Ollama ↗', 'Download a local model', 'Set up local Ollama ↗', 'Sign in to Ollama ↗', 'Open Cloudflare setup ↗', 'Back', 'Explore without a model', 'Set up a model', 'Download a model']) {
       await expect(page.getByRole('button', { name, exact: true }).count()).resolves.toBe(1);
     }
@@ -271,11 +303,12 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     // R11 round 6: the native ProviderCard's host in every card — the footer's first child, the state word right after it — mounted
     // once per card through TimmyRive.mountProviderCard(host, id, { size: 'wide', label }) (the FAKE's marker stands in the host)
     const hosts = await page.locator('.cn-card > .cn-rive').evaluateAll((els) => els.map((e) => ({ id: e.getAttribute('data-rive-host'), card: e.closest('.cn-card')?.getAttribute('data-provider'), next: e.nextElementSibling?.className ?? '', marker: e.querySelector('[data-fake-rive="ProviderCard"]')?.textContent ?? '' })));
-    expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, card: id, next: expect.stringContaining('cn-card-state'), marker: `FAKE ProviderCard ${id}` })));
+    expect(hosts).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'].map((id) => ({ id, card: id, next: expect.stringContaining('cn-verb-row'), marker: `FAKE ProviderCard ${id}` })));
     type Mount = { providerId: string; o: { size?: string; label?: string; providerName?: string; detail?: string } | null };
     expect(await page.evaluate(() => (window as unknown as { __mounts: Mount[] }).__mounts)).toEqual([
-      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter', providerName: 'OpenRouter', detail: 'No account' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local', providerName: 'Ollama · local', detail: 'No downloaded model' } },
-      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud', providerName: 'Ollama · cloud', detail: 'No account' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare', providerName: 'Cloudflare', detail: 'No account' } }]);
+      // (D15: the detail run is the provider's subtitle — a fact; the one state word is the card's, the face's label follows the feed)
+      { providerId: 'openrouter', o: { size: 'wide', label: 'OpenRouter', providerName: 'OpenRouter', detail: 'One account. Many model providers.' } }, { providerId: 'ollama-local', o: { size: 'wide', label: 'Ollama · local', providerName: 'Ollama · local', detail: 'On your computer' } },
+      { providerId: 'ollama-cloud', o: { size: 'wide', label: 'Ollama · cloud', providerName: 'Ollama · cloud', detail: 'Your Ollama account' } }, { providerId: 'cloudflare', o: { size: 'wide', label: 'Cloudflare', providerName: 'Cloudflare', detail: 'Optional · gateway, agents and sync' } }]);
     // the feed: the first draw fed each card's state ONCE, the backend's event as the source (never the card's drawing)
     type Handle = { id: string; binds: string[]; events: Array<{ input: string; value: string; source: string }>; word: string | null };
     const inspect = () => page.evaluate(() => (window as unknown as { TimmyRive: { inspect(): Handle[] } }).TimmyRive.inspect());
@@ -296,13 +329,13 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect(await page.content()).not.toContain(FAKE_KEY);
     expect(requests.some((u) => u.includes(FAKE_KEY))).toBe(false);
     expect(requests.every((u) => u.startsWith(base))).toBe(true);
-    // its check: the FAKE ollama.com takes the key; the state is checked (green), the toast is the observed fact
+    // its check: the FAKE ollama.com takes the key; the state is checked (green); the observed words on the card itself, beside its
+    // one state word — no toast from this screen (R96: the shell's toast painted over the records band)
     await page.getByRole('button', { name: 'Check the key', exact: true }).click();
     await page.locator('.cn-card-ollama-cloud .cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
     expect(await page.locator('.cn-card-ollama-cloud .cn-state').getAttribute('class')).toContain('is-live');
-    const toasts = await page.evaluate(() => (window as unknown as { __toasts: Array<{ words: string; live: boolean }> }).__toasts);
-    expect(toasts.at(-1)).toMatchObject({ live: true });
-    expect(toasts.at(-1)!.words).toMatch(/^Checked just now: Ollama Cloud took the key/);
+    expect(await page.locator('.cn-card-ollama-cloud .cn-say').textContent()).toMatch(/^Checked just now: Ollama Cloud took the key/);
+    expect(await page.evaluate(() => (window as unknown as { __toasts: unknown[] }).__toasts.length)).toBe(0);
     // the two refreshes (the key saved, the key checked) fed the cloud card's two changes and nothing else: still four handles
     // (no re-mount: the host moved into each redrawn card), the other three cards unchanged, so unfed
     const after = await inspect();
@@ -312,8 +345,9 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     expect([after[0], after[1], after[3]].map((x) => x.events.length)).toEqual([1, 1, 1]);
     expect(await page.locator('.cn-card-ollama-cloud > .cn-rive [data-fake-rive="ProviderCard"]').count()).toBe(1);
     expect(await page.evaluate(() => (window as unknown as { __mounts: unknown[] }).__mounts.length)).toBe(4);
-    // RIVE CONTRACT v2's optional setProvider: the card's detail run follows the situation (No account → Existing setup), once per change
-    expect(await page.evaluate(() => (window as unknown as { __setProvider: Array<{ providerId: string; p: { name: string; detail: string } }> }).__setProvider)).toEqual([{ providerId: 'ollama-cloud', p: { name: 'Ollama · cloud', detail: 'Existing setup' } }]);
+    // RIVE CONTRACT v2's optional setProvider: the detail run is the subtitle (a fact that does not move), so no call followed the
+    // situation's change — the face's state is the feed's (H174's f165d8c7: the label and the ProviderState run say the observed word)
+    expect(await page.evaluate(() => (window as unknown as { __setProvider?: unknown[] }).__setProvider ?? [])).toEqual([]);
     // the cloud card's situation moved: an existing setup now, its verb "Check again"; the band's Model cell follows the route
     // (this FAKE user's route stays not ready: no model chosen), so the registered primary stays "Set up a model"; the
     // registration was redrawn once per refresh into the same containers (never a second head, dock button or records)
@@ -353,7 +387,9 @@ describe('the Connections screen in Chromium (FAKE shell, real routes, FAKE prov
     await card.getByRole('button', { name: 'Check', exact: true }).click();
     await card.locator('.cn-state-word').filter({ hasText: /^checked$/ }).waitFor();
     expect(await card.locator('.cn-words').textContent()).toMatch(/^Checked just now: Ollama answered at 127\.0\.0\.1:\d+ with local models \(no account, no charge\)\.$/);
-    expect((await card.locator('.cn-lines').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
+    // (the Check pressed on the card selected it: the context shows its facts, the detail lines the check found among them)
+    expect(await page.locator('.cn-card.is-chosen').getAttribute('data-provider')).toBe('ollama-local');
+    expect((await page.locator('.page-context .cn-context-lines[data-cn-lines="ollama-local"]').textContent()) ?? '').toContain('holds fake-qwen3:8b (5.2 GB)');
     // the download box: a name typed, the size asked (unknown: not a starter, not held), then the confirmation, then progress
     await card.getByRole('button', { name: 'Download a local model', exact: true }).click();
     await card.getByLabel('Another model name', { exact: true }).fill('fake-new:3b');

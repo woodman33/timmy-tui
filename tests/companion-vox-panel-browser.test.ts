@@ -126,7 +126,7 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       await page.click('.vox-ent[data-vox-entity="color-region"]');
       await page.waitForFunction(() => document.querySelectorAll('.vox-overlay .ov.is-selected').length === 2);
       expect(await page.$$eval('.vox-overlay .ov.is-selected', (els) => els.map((e) => [e.getAttribute('data-shape'), getComputedStyle(e).stroke]))).toEqual([['box', 'rgb(255, 176, 0)'], ['point', 'rgb(255, 176, 0)']]);
-      expect(await page.$eval('.vox-overlay .ov[data-vox-entity="qr-1"]', (e) => getComputedStyle(e).stroke)).toBe('rgb(232, 228, 217)');
+      expect(await page.$eval('.vox-overlay .ov[data-vox-entity="qr-1"]', (e) => getComputedStyle(e).stroke)).toBe('rgb(189, 202, 218)'); // (D12: the silver of what was measured is the B11 text-secondary alias now)
       expect(await page.$eval('.vox-ent[data-vox-entity="color-region"]', (b) => b.getAttribute('aria-current'))).toBe('true');
       expect(await page.$eval('.vox-val[aria-current="true"]', (v) => v.getAttribute('data-value'))).toBe('color_region');
       // the annotated copy the record sealed, chosen above the stage
