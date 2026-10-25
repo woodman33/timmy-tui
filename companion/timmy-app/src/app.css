@@ -175,6 +175,11 @@ code, .ta-mono { font-family: var(--timmy-ui-font-mono, "Monaspace Argon", ui-mo
 .ta-md-code code { padding: 0; background: none; }
 .ta-md-link { text-decoration: underline dotted; }
 
+.ta-starts { justify-content: center; margin-top: 10px; }
+.ta-chip { padding: 5px 12px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-pill, 999px); background: var(--timmy-ui-surface, #111A23); color: var(--timmy-ui-text, #ECF1F5); font: inherit; font-size: 13px; cursor: pointer; }
+.ta-chip:hover { border-color: var(--timmy-ui-focus, #FFB000); }
+.ta-next-step { padding-top: 4px; }
+
 /* review */
 .ta-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ta-table th { text-align: left; font-weight: var(--timmy-ui-weight-medium, 500); color: var(--timmy-ui-text-muted, #9AAFC3); font-size: 12px; letter-spacing: .04em; padding: 6px 8px; border-bottom: 1px solid var(--timmy-ui-border-quiet, #1E2A36); }

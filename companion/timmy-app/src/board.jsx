@@ -143,7 +143,7 @@ export const Board = memo(function Board({ licenseKey, onEditor }) {
   }, [page]);
   return (
     <Tldraw
-      persistenceKey="timmy-app"
+      persistenceKey="timmy-app-2"
       licenseKey={licenseKey || undefined}
       shapeUtils={SHAPE_UTILS}
       assetUrls={assetUrls || (assetUrls = getAssetUrls({ baseUrl: `${location.origin}/app/dist/assets/` }))}

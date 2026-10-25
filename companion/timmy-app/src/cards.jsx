@@ -147,6 +147,7 @@ export function ModelsHereCard({ theme }) {
             </>
           ) : <Empty>{cloud ? cloud.words || cloud.error || 'None listed.' : 'Not asked yet.'}</Empty>}
           {chooseResult && (chooseResult.source === 'ollama-local') ? <p className={`ta-result${chooseResult.ok ? ' is-ok' : ''}`} role="status">{chooseResult.words}</p> : null}
+          {chosen && view && view.route && view.route.ready ? <div className="ta-row ta-next-step"><Button kind="primary" onClick={() => goTo('chat')}>Start the chat · 02 →</Button><span className="ta-muted">with {chosen.model}</span></div> : null}
         </>
       )}
     </Card>
@@ -180,7 +181,7 @@ export function ProvidersCard({ theme }) {
                   <p>{c && c.words ? c.words : p.words}</p>
                   {p.next ? <p className="ta-muted">{p.next}</p> : null}
                   <div className="ta-row">
-                    {p.id === 'openrouter' && p.state === 'not set up' ? <Button kind="primary" onClick={startSignIn}>Sign in with OpenRouter</Button> : null}
+                    {p.id === 'openrouter' && p.state === 'not set up' ? <Button kind={view && view.route && view.route.ready ? 'quiet' : 'primary'} onClick={startSignIn}>Sign in with OpenRouter</Button> : null}
                     {p.id === 'openrouter' || p.id === 'ollama-local' ? <Button onClick={() => checkProvider(p.id)}>Check</Button> : null}
                     {(p.links || []).slice(0, 2).map((l) => <Out key={l.url} href={l.url}>{l.label}</Out>)}
                   </div>
@@ -272,6 +273,9 @@ function LiveTurn({ turn, theme, saved }) {
   );
 }
 
+/** Ways to begin, written into the composer (never sent by themselves). */
+const STARTS = ['What can you help me with in this project?', 'Read the project’s files and summarise them.', 'Plan the next step with me.'];
+
 export function ChatCard({ theme }) {
   const view = useApp((s) => s.view);
   const turn = useApp((s) => s.turn);
@@ -297,7 +301,12 @@ export function ChatCard({ theme }) {
     <Card id="chat" kicker="02 · CHAT" title={view && view.project ? `Timmy · ${view.project.name}` : 'Timmy'} className="ta-card-chat"
       tools={<><StateWord word={activityOf(turn)} /><Button onClick={newConversation} disabled={running}>New conversation</Button></>}>
       <ol className="ta-turns" ref={list} aria-label="The conversation" aria-live="polite">
-        {!shown.length && !turn ? <li className="ta-turn ta-hello"><p className="ta-text">{ready ? 'Say what you want to work on. Timmy runs the real agent here: its tools ask you first, and each answer is sealed with a receipt.' : 'Choose a model first (01 · Connect), then say what you want to work on.'}</p></li> : null}
+        {!shown.length && !turn ? (
+          <li className="ta-turn ta-hello">
+            <p className="ta-text">{ready ? 'Say what you want to work on. Timmy runs the real agent here: its tools ask you first, and each answer is sealed with a receipt.' : 'Choose a model first (01 · Connect), then say what you want to work on.'}</p>
+            {ready ? <div className="ta-row ta-starts">{STARTS.map((t) => <button key={t} type="button" className="ta-chip" onClick={() => setDraft(t)}>{t}</button>)}</div> : null}
+          </li>
+        ) : null}
         {shown.map((t, i) => <Turn key={`${t.at}-${i}`} t={t} />)}
         {live ? <LiveTurn turn={turn} theme={theme} saved={messageSaved} /> : null}
       </ol>
