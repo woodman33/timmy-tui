@@ -173,7 +173,12 @@
    */
   function primaryOf() {
     const listed = Boolean(P.listing && P.listing.ok && P.listing.key === serverKey(P.server));
-    if (!listed) return { label: P.server.kind === 'stdio' ? 'Check the typed line for Timmy’s terminal' : `List ${serverLabel()}’s tools`, run: () => { const b = P.el.listCtl && P.el.listCtl.querySelector('[data-tools-action="list"]'); if (b && !b.disabled) b.click(); }, why: '' };
+    if (!listed) {
+      // a typed line checked and refused (NEEDS YOU): the page's next step is the copy of its line, so the head says that (D24: the
+      // head's primary is the page's one arrow; the in-work step button below repeats it in the secondary look)
+      if (refusedListing()) return { label: 'Copy the line for Timmy’s terminal', run: () => { const b = P.el.tools && P.el.tools.querySelector('[data-tools-action="copy-terminal"]'); if (b) b.click(); }, why: '' };
+      return { label: P.server.kind === 'stdio' ? 'Check the typed line for Timmy’s terminal' : `List ${serverLabel()}’s tools`, run: () => { const b = P.el.listCtl && P.el.listCtl.querySelector('[data-tools-action="list"]'); if (b && !b.disabled) b.click(); }, why: '' };
+    }
     if (!P.tool) return { label: 'Pick a tool', run: () => { const b = P.el.tools && P.el.tools.querySelector('button'); if (b) b.focus(); }, why: '' };
     return { label: `Call ${P.tool.name}`, run: () => { const b = P.el.callCtl && P.el.callCtl.querySelector('[data-tools-action]'); if (b && !b.disabled) b.click(); }, why: '' };
   }
