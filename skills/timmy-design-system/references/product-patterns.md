@@ -44,7 +44,8 @@ token focus ring (D17).
 section.page.ws-page[data-page][data-ws-page][data-state=empty|content|running|approval|error]
   header.page-head      .page-kicker ("NN / VERB PHRASE": the number is the rail's order) · h1.page-title · p.page-intro ·
                         .page-head-actions (.page-context-btn: the phone's opener; .page-primary: the ONE primary next action)
-  div.page-band         .band-cell × Workspace · Model · Records (+ the page's own cells) · .band-action (the primary as text)
+  div.page-band         .band-cell × Workspace · Model · Records (+ the page's own cells; a cell without words is not drawn) ·
+                        .band-action ONLY for a verb that differs from the primary's (D19: the band never twins the primary)
   div.page-body         grid: .page-work (minmax 0 1fr) + aside.page-context (320 px; 280 at ≤ 1320; a sheet ≤ 720)
   div.page-dock         .dock-label · #ws-strip (the frame's actions, moved here) · .dock-tools (the page's) · .dock-stop
   div.page-records      quiet, expandable: <details class="records"> (the owner's)
@@ -56,7 +57,7 @@ The frame's Unfinished box (companion.js prepends it) sits between the head and 
 ### Registration (`window.TimmyShell`)
 
 ```js
-TimmyShell.page(id, { kicker, title, intro, primary: { label, run, disabled?, why? }, context: 'models'|'selection'|null, band?: [{k,v}], dock? });
+TimmyShell.page(id, { kicker, title, intro, primary: { label, run, disabled?, why? }, context: 'models'|'selection'|null, band?: [{k,v}], bandAction?: { label, run, disabled?, why? }, dock? });
 TimmyShell.state(id, 'empty'|'content'|'running'|'approval'|'error', { words?, next?: { label, run } });
 TimmyShell.band(id, { workspace?, model?, records? });
 TimmyShell.go(id, why);        // a page id or a legacy tab id (studio → canvas, logs → runs, create → motion)
@@ -82,8 +83,10 @@ scrim close it; the focus returns to Menu); the sheet's list (`.rail-scroll`) is
 last group clears the foot (R99). The topbar is two rows: the crumb with the theme switch as WORDS ("Glacier" · "Amber", the
 active one pressed — never two dots, R92), the live word under them. The context is a bottom sheet (`.page-context.is-open`,
 opened by `.page-context-btn`, shown only while the column holds something). The head is a grid: the opener on the kicker's row,
-the intro two lines at most, the primary full width; the band is ONE row (Workspace · Model · Records as a line); the dock is
-one sticky row scrolling sideways; the records band is folded (44 px). Nothing is cut, nothing scrolls sideways. No focus trap.
+the intro two lines at most, the primary full width; the band shows its first two facts WHOLE (what waits on you before them)
+and folds the rest behind a "· more" disclosure (D19: never a label with an empty value); the dock is one sticky row scrolling
+sideways and says nothing when the frame gives no actions; the records band is folded (44 px). Nothing is cut, nothing scrolls
+sideways. No focus trap.
 
 ## Help & find (`#shell-help-dialog`)
 
