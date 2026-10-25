@@ -137,6 +137,8 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
             if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/tab${key}-${id}-${at}.png` });
             if (id === 'chat') {
               // the chat tab's other view, this page's own chat (its Send is the composer's amber words, not a fill)
+              // (R11 round 7, H171: the older views are the Chat page's records, closed by default — opened for this read)
+              await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
               await page.click('#btn-streamdown');
               await page.waitForSelector('#tab-streamdown.active #streamdown-root > *', { timeout: 20_000 });
               await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
