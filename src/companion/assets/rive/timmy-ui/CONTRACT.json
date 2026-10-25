@@ -188,7 +188,10 @@
     "feeds": "fromSse(event, data, source) · fromProviderState(id, word, source) · stopping(source) · reconcile(word, { turn, source })",
     "identity": "a 'turn' event names the feed's current turn (data.id); 'needs-you' / 'done' of another turn are ignored as stale (recorded, never applied); 'done'.receipt is attached to the handle; stopping = STOP REQUESTED until 'done' cancelled",
     "shape": "timmy-rive props { w, h, component, state, label, provider } unchanged; AS SAVED / NOT A LIVE JOB until a feed event reaches it on its page",
-    "versions": "the bindings tell v1 from v2 by the runs present (v2: Caption on every production artboard); v1's runtime workarounds (the caption overwrite, the scaled pill) apply to a v1 file only"
+    "versions": "the bindings tell v1 from v2 by the runs present (v2: Caption on every production artboard); v1's runtime workarounds (the caption overwrite, the scaled pill) apply to a v1 file only",
+    "label": "the face's HTML label shows the OBSERVED word the feed gave (fromProviderState's stateWord: H170's \"checked\" / \"pending\" / …; the derivation's data-state), never the vocabulary's word beside it (R86: one word per card); the vocabulary word stays the State mapping (data-state, the shape's saved prop, inspect().word); inspect().shown and the label's data-observed say the observed word when it differs",
+    "headline": "no success pose is authored (connected = the Idle pose), so a connected card's Idle headline run (HeadlineIdle, v2's named run — no new run needed) is set to the observed word as a headline (\"Checked\") while connected and back to its baked \"Choose your connection\" otherwise (R86)",
+    "smallFace": "under 320 CSS px of face (measured by the mount's ResizeObserver) the small runs Title / Tag / Caption of a production AgentConsole or ProviderCard are set to \"\" and restored above it (R97: 5–6 px of type at the band's 300 px); the Inspect view's faces keep theirs; inspect().runs.small says { below: 320, faceWidth, hidden }"
   },
   "meta": {
     "name": "timmy-ui",
