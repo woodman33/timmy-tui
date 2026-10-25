@@ -231,8 +231,14 @@
     const out = phone() && kids.length > main
       ? [...kids.slice(0, main), (() => {
         const word = h('span', { class: 'band-more-word' }, 'more');
-        const d = h('details', { class: 'band-more' }, h('summary', { class: 'band-more-summary' }, h('span', { 'aria-hidden': 'true' }, '· '), word), h('div', { class: 'band-more-cells' }, ...kids.slice(main)));
-        d.addEventListener('toggle', () => { text(word, d.open ? 'less' : 'more'); });
+        const summary = h('summary', { class: 'band-more-summary' }, h('span', { 'aria-hidden': 'true' }, '· '), word);
+        const d = h('details', { class: 'band-more' }, summary, h('div', { class: 'band-more-cells' }, ...kids.slice(main)));
+        // the word follows `open` SYNCHRONOUSLY: on the summary's activation (click, Enter, Space) the state about to be is the
+        // opposite of the current one (the toggle event is queued as a task and can arrive after a read under load — the freeze's
+        // --maxWorkers=2 read "· more" on an open details); the toggle listener covers a programmatic `open`
+        const say = (open) => { text(word, open ? 'less' : 'more'); };
+        summary.addEventListener('click', () => { say(!d.open); });
+        d.addEventListener('toggle', () => { say(d.open); });
         return d;
       })()]
       : kids;
