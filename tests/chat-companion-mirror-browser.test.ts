@@ -98,6 +98,8 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
       // R5 (H132): the mirror is the Chat tab's (2). R10 CHAT (H171): Chat is the menu's first destination, and the mirror
       // one of its older views, below the conversation
       await page.click('#rail-menu .rail-item[data-dest="chat"]');
+      // R11 round 7 (the lead): the mirror is one of the Chat's older views behind the page's CLOSED records — opened for this read
+      await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
       await page.waitForSelector('#console-logs [data-mirror="empty"]', { timeout: 15_000 });
       const words = (await page.textContent('#console-logs [data-mirror="empty"]'))!.replace(/\s+/g, ' ');
       expect(words).toContain('In the Workbench (timmy workbench), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor\'s turn is labelled Monitor.');

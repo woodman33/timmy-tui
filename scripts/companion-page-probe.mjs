@@ -181,6 +181,9 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
           if (found) await page.evaluate(() => { const b = document.getElementById('rail-find-btn'); if (b && b.getAttribute('aria-expanded') === 'true') b.click(); });
         }
       }
+      // R11 round 7 (the lead): the Chat's older views sit behind the page's CLOSED records (D4's quiet records) — open them
+      // before a view switch, as the policy test's tab() does; a page without records is unchanged
+      await page.evaluate(() => { for (const d of document.querySelectorAll('section.page[data-page] .page-records details.records')) d.setAttribute('open', ''); });
       if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
       else if (!ws) await page.click(`[data-tab="${name}"]`);
       await until((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p && p.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name);

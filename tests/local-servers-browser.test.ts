@@ -153,7 +153,10 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       expect(seen.find((s) => s.path.split('?')[0] === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
       // Slate 3D's frame is given the token in its fragment, never in its address's query (R4 H92: when its tab is opened)
       expect(await page.evaluate(() => document.getElementById('slate3d-frame')?.getAttribute('src') ?? null)).toBeNull();
-      await page.click('[data-tab="slate3d"]');
+      // R11 round 7 (the lead): the legacy tab switcher is hidden under the one shell — Motion & 3D (legacy 'create', Slate 3D's
+      // panel) opens from the rail, which shows that section and lets companion.js give the frame its address
+      await page.click('#rail-menu .rail-item[data-page="motion"]');
+      await page.waitForFunction(() => Boolean((document.getElementById('slate3d-frame') as HTMLIFrameElement | null)?.getAttribute('src')), null, { timeout: 10_000 });
       const frame = await page.evaluate(() => (document.getElementById('slate3d-frame') as HTMLIFrameElement).getAttribute('src') ?? '');
       expect(frame).toBe(`/slate3d/?board=ledger#t=${token}`);
     } finally {
