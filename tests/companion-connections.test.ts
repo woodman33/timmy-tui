@@ -8,7 +8,7 @@
  * is tested by H172; here the contract is the request's `user` and `userEnv`, each user's own Timmy home.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -146,14 +146,27 @@ const events: Array<{ user: string } & ConnectionsEvent> = [];
 const fakeWithUser: express.RequestHandler = (req, res, next) => {
   const id = req.get('X-FAKE-User');
   if (!id) { refuseRequest(res, 401, 'FAKE withUser: no session on this request'); return; }
-  (req as express.Request & { user?: ConnectionsUser }).user = { id, username: `fake-${id}` };
+  (req as express.Request & { user?: ConnectionsUser }).user = id === 'operator' ? { id: 'operator', operator: true } : { id, username: `fake-${id}` };
   next();
 };
-/** C1's userEnv as this test stands it in: the user's own Timmy home under <root>/users/<id>, the FAKE Ollama's address. */
+/**
+ * C1's userEnv as this test stands it in: the user's own Timmy home under <root>/users/<id>, with the companion's shell variables
+ * passed through as identity/scope.ts userEnv passes them — OLLAMA_HOST among them, set to the FAKE Ollama here as the installed
+ * companion's shell had it (H172's installed run, 18:21): a user's own address is the record in the user's home (recordOllama),
+ * never this variable. The operator principal (as('operator')) is the one whose env this variable is.
+ */
 const userEnv = (user: ConnectionsUser): Record<string, string | undefined> => {
   const home = join(root, 'users', user.id);
   for (const d of ['timmy', 'settings', 'mcp']) mkdirSync(join(home, d), { recursive: true, mode: 0o700 });
   return { PATH: join(root, 'bin'), HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_SETTINGS_DIR: join(home, 'settings'), TIMMY_MCP_HOME: join(home, 'mcp'), OLLAMA_HOST: ollamaOrigin, OPENROUTER_API_KEY: 'FAKE-env-key-that-must-never-count-0123', OLLAMA_API_KEY: 'FAKE-env-cloud-key-never-counted-4567' };
+};
+/** The user's own Ollama address, recorded in the user's providers.json (as `timmy init --ollama <host>` records it; saveKey keeps the field). */
+const recordOllama = (user: string, host: string): void => {
+  const home = join(root, 'users', user, 'timmy');
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const file = join(home, 'providers.json');
+  const body = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> : {};
+  writeFileSync(file, JSON.stringify({ ...body, ollama_host: host }, null, 2), { mode: 0o600 });
 };
 const as = (user: string, init: RequestInit = {}): RequestInit => ({ ...init, headers: { ...(init.headers as Record<string, string> | undefined ?? {}), 'X-FAKE-User': user } });
 const jsonOf = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
@@ -348,6 +361,38 @@ describe('the Connections routes: the four providers under the signed-in user\'s
     expect(((await jsonOf(forged)).cards as Array<Record<string, unknown>>)[0].state).toBe('not set up');
   });
 
+  it('users are apart on Ollama · local too: each Check asks the address the user\'s own home records, never the companion\'s OLLAMA_HOST (H172\'s installed run, 18:21)', async () => {
+    // alice recorded the FAKE Ollama; bob recorded an address where nothing listens (as H172's second user did: 127.0.0.1:9);
+    // carol recorded nothing. The companion's shell variable (userEnv's OLLAMA_HOST) names the FAKE for all three.
+    const fakePort = new URL(ollamaOrigin).port;
+    recordOllama('alice', ollamaOrigin);
+    recordOllama('bob', '127.0.0.1:9');
+    const before = ollama.seen.length;
+    const a = (await jsonOf(await post('/api/connections/ollama-local/check', 'alice', {}))).state as Record<string, unknown>;
+    expect(a.state).toBe('checked');
+    expect(String(a.words)).toContain(`Ollama answered at 127.0.0.1:${fakePort}`);
+    const afterAlice = ollama.seen.length;
+    expect(afterAlice).toBeGreaterThan(before);
+    // bob: his own address, nothing there — not alice's answer, and nothing asked of the FAKE
+    const b = (await jsonOf(await post('/api/connections/ollama-local/check', 'bob', {}))).state as Record<string, unknown>;
+    expect(b.state).toBe('not installed');
+    expect(String(b.words)).toMatch(/nothing answered at 127\.0\.0\.1:9 when checked just now/);
+    expect(String(b.words)).not.toContain(`127.0.0.1:${fakePort}`);
+    expect(ollama.seen.length).toBe(afterAlice);
+    // carol: no record of her own → Ollama's default address, never the companion's variable; nothing asked of the FAKE
+    const c = (await jsonOf(await post('/api/connections/ollama-local/check', 'carol', {}))).state as Record<string, unknown>;
+    expect(String(c.words)).toContain('127.0.0.1:11434');
+    expect(String(c.words)).not.toContain(`127.0.0.1:${fakePort}`);
+    expect(ollama.seen.length).toBe(afterAlice);
+    // each card reads its own observation: alice's stays checked at the FAKE, bob's and carol's name their own addresses
+    expect((await cards('alice'))['ollama-local']).toMatchObject({ state: 'checked', local: expect.objectContaining({ address: ollamaOrigin }) });
+    expect((await cards('bob'))['ollama-local']).toMatchObject({ state: 'not installed', local: expect.objectContaining({ address: 'http://127.0.0.1:9' }) });
+    expect(String((await cards('bob'))['ollama-local'].words)).not.toContain(`127.0.0.1:${fakePort}`);
+    expect((await cards('carol'))['ollama-local']).toMatchObject({ local: expect.objectContaining({ address: 'http://127.0.0.1:11434' }) });
+    // the operator principal keeps the companion's own variable (its env is the companion's: identity/scope.ts userEnv)
+    expect((await cards('operator'))['ollama-local']).toMatchObject({ local: expect.objectContaining({ address: ollamaOrigin }) });
+  });
+
   it('Ollama · cloud: a key pasted into the body is saved under the user\'s home and never echoed; checked only against the FAKE ollama.com; forgotten on DELETE', async () => {
     const bad = await post('/api/connections/ollama-cloud/key', 'alice', { key: 'short' });
     expect(bad.status).toBe(400);
@@ -374,6 +419,7 @@ describe('the Connections routes: the four providers under the signed-in user\'s
   });
 
   it('Ollama · local: the check asks the FAKE Ollama on this computer; the download says its size, waits for the confirmation, streams progress to done', async () => {
+    recordOllama('alice', ollamaOrigin);
     const checked = await jsonOf(await post('/api/connections/ollama-local/check', 'alice', {}));
     const s = checked.state as Record<string, unknown>;
     expect(s.state).toBe('checked');
@@ -434,6 +480,7 @@ describe('the Connections routes: the four providers under the signed-in user\'s
   });
 
   it('Ollama · local: Cancel before the confirmation downloads nothing; Cancel during the download aborts it (the FAKE stops), and Ollama keeps what it got', async () => {
+    recordOllama('alice', ollamaOrigin);
     const res = await post('/api/connections/ollama-local/pull', 'alice', { model: 'fake-new:3b' });
     const first = await sse(res, ['cancelled'], async (name, data) => {
       if (name === 'waiting') {

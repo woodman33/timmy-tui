@@ -213,14 +213,17 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(await eventsOf('welcome')).toEqual([]);
       // FAKE: H170's feed with the backend's word (the test calls it; in the product, screen-connections.js's one line)
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown } }).TimmyRive.fromProviderState('ollama-cloud', 'checked', 'FAKE (the test): GET /api/connections ollama-cloud "checked"'));
-      expect(await text(o.page, '[data-rive-status="connection-ollama-cloud"]')).toBe('connected');
+      // R86 (round 7): the label shows the OBSERVED word the feed gave ("checked"), never the vocabulary's word beside it; the event
+      // keeps the vocabulary value (connected → State 0) and says what was shown
+      expect(await text(o.page, '[data-rive-status="connection-ollama-cloud"]')).toBe('checked');
+      expect(await o.page.getAttribute('[data-rive-status="connection-ollama-cloud"]', 'data-observed')).toBe('checked');
       let evs = await eventsOf('connection-ollama-cloud');
       // connected: no success pose is authored → the native State stays 0 Idle, the label says connected, the event says why
       expect(evs[evs.length - 1]).toMatchObject({ input: 'connection', value: 'connected', source: 'FAKE (the test): GET /api/connections ollama-cloud "checked"', did: 'moved (no success pose is authored: State stays 0 Idle; the label says connected)', native: { input: 'State', value: 0 } });
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown } }).TimmyRive.fromProviderState('ollama-cloud', 'refused', 'FAKE (the test): refused'));
-      expect(await text(o.page, '[data-rive-status="connection-ollama-cloud"]')).toBe('failed');
+      expect(await text(o.page, '[data-rive-status="connection-ollama-cloud"]')).toBe('refused');
       await o.page.evaluate(() => (window as unknown as { TimmyRive: { fromProviderState: (id: string, w: string, s: string) => unknown } }).TimmyRive.fromProviderState('openrouter', 'pending', 'FAKE (the test): pending'));
-      expect(await text(o.page, '[data-rive-status="connection-openrouter"]')).toBe('checking');
+      expect(await text(o.page, '[data-rive-status="connection-openrouter"]')).toBe('pending');
       // FAKE: H169's SSE names through fromSse, and Stop
       const sse = (event: string, data: unknown) => o.page.evaluate(([e, d]) => (window as unknown as { TimmyRive: { fromSse: (e: string, d: unknown, s: string) => unknown } }).TimmyRive.fromSse(e as string, d, `FAKE (the test): SSE ${e as string}`), [event, data]);
       await sse('turn', { id: 'turn-fake' });
@@ -280,6 +283,8 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         expect(derived[derived.length - 1].source).toBe(`derived from the page's drawing of GET /api/connections: ${id} data-state="${state}"`);
         const expected = state === 'checked' ? 'connected' : state === 'pending' ? 'checking' : state === 'refused' || state === 'unreachable' ? 'failed' : 'disconnected';
         expect(derived[derived.length - 1].value, String(id)).toBe(expected);
+        // the face's label says the card's own observed word (R86), the vocabulary word only when they are the same word
+        expect(await text(o.page, `[data-rive-status="connection-${id}"]`), String(id)).toBe(String(state).trim());
       }
       expect(o.errors).toEqual([]);
     } finally { await o.context.close(); }
@@ -288,7 +293,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
   it('the mounts the screens call (R11 round 6): mountConsole follows the activity feed, mountProviderCard its provider, mountActionButton is a real button whose REAL action runs on a trusted click / Enter only, never when disabled; each drawn by the runtime, unmount cleans up', async () => {
     const o = await open({ width: 1440, height: 900 });
     try {
-      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string; did?: string; stale?: boolean }>; runs: Record<string, { reads?: string; note?: string; hidden?: boolean }> | null; restored: number; fedState: number | undefined; identity: { turn?: string; project?: string; session?: string } | null; receipt: string | null; stale: number; fileContract: number | null }>; handles: () => unknown[] };
+      type R = { mountConsole: (h: Element, o: object) => { id: string; state: string }; mountProviderCard: (h: Element, id: string, o?: object) => { id: string }; mountActionButton: (h: Element, o: object) => { id: string; setDisabled: (b: boolean) => void; unmount: () => void }; fromSse: (e: string, d: unknown, s: string) => unknown; fromProviderState: (id: string, w: string, s: string) => unknown; inspect: () => Array<{ id: string; component: string; place: string; state: string; word: string; disabled: boolean; runtime: { inputs: Array<{ name: string; value: unknown }> } | null; events: Array<{ input: string; value: unknown; source: string; did?: string; stale?: boolean }>; runs: Record<string, { reads?: string; note?: string; hidden?: boolean; below?: number }> | null; restored: number; fedState: number | undefined; identity: { turn?: string; project?: string; session?: string } | null; receipt: string | null; stale: number; fileContract: number | null }>; handles: () => unknown[] };
       // the test's own host on the page (the screens' calls are H171's and H170's; the API is what is tested here)
       await o.page.evaluate(() => {
         const W = window as unknown as { TimmyRive: R; __acted: string[] };
@@ -412,7 +417,9 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         // the v2 file: the named runs carry the page's words (read back from the runtime) and the preview variants stay in the view
         const v2 = await o.page.evaluate(() => { const g = (n: string) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === n)!; return (k: string) => hd.rive!.getTextRunValue(k); }; const c = g('test:console'); const p = g('test:provider:ollama-local'); const a = g('test:action'); return { console: { caption: c('Caption'), tag: c('Tag') }, card: { caption: p('Caption'), name: p('ProviderName'), state: p('ProviderState') }, action: { caption: a('Caption') }, artboards: (window as unknown as { TimmyRive: R }).TimmyRive.inspect().filter((x) => /^(test:|activity$|connection-)/.test(x.component)).map((x) => [x.component, (x as unknown as { artboard: string }).artboard]) }; });
         expect(v2.console).toEqual({ caption: 'LIVE  /  THE TURN’S EVENTS', tag: 'turn turn-FAKE-1' });
-        expect(v2.card).toEqual({ caption: 'LIVE  /  GET /api/connections', name: 'Ollama · local', state: 'disconnected' }); // (fed 'pending' below → 'checking')
+        // (the card mount is 240 px wide: under 320 px its small runs — title, tag, caption — are hidden, R97; the HTML words carry them)
+        expect(v2.card).toEqual({ caption: '', name: 'Ollama · local', state: 'disconnected' }); // (fed 'pending' below)
+        expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local')!.runs!.small)).toMatchObject({ below: 320, hidden: true });
         expect(v2.action).toEqual({ caption: 'Answer: once' });
         expect(Object.fromEntries(v2.artboards as Array<[string, string]>)).toMatchObject({ 'test:console': 'AgentConsole', 'test:provider:ollama-local': 'ProviderCard', 'test:action': 'ActionButton' }); // (the view's preview variants: the PREVIEW case)
       }
@@ -422,8 +429,37 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('openrouter', 'checked', 'FAKE (the test): another provider'));
       expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('disconnected');
       await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'pending', 'FAKE (the test): pending'));
-      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('checking');
-      if (SERVED_V2) expect(await o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === 'test:provider:ollama-local')!; return hd.rive!.getTextRunValue('ProviderState'); })).toBe('checking'); // the v2 face's own state word
+      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('pending'); // R86: the observed word, one word per card
+      const cardRuns = () => o.page.evaluate(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as RR[]).find((x) => x.component === 'test:provider:ollama-local')!; return { state: hd.rive!.getTextRunValue('ProviderState'), headline: hd.rive!.getTextRunValue('HeadlineIdle') }; });
+      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: 'pending', headline: 'Choose your connection' }); // the v2 face's own state word; the Idle headline baked while not connected
+      // R86: a CONNECTED card is the Idle pose (no success pose is authored) — its headline gives way to the observed state
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'checked', 'FAKE (the test): checked'));
+      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('checked');
+      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: 'checked', headline: 'Checked' });
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'not set up', 'FAKE (the test): not set up'));
+      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('not set up');
+      if (SERVED_V2) expect(await cardRuns()).toEqual({ state: 'not set up', headline: 'Choose your connection' });
+      await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.fromProviderState('ollama-local', 'pending', 'FAKE (the test): pending again'));
+      expect(await text(o.page, '#m-provider [data-rive-status]')).toBe('pending');
+      if (SERVED_V2) {
+        // R97: under 320 px of face the console's small runs (title, tag, caption: 5–6 px of type at the band's 300 px) are hidden — a
+        // runtime decision by the face's measured width, taken back when the face is wide again; the HTML words beside it carry them
+        const smallRuns = (name: string) => o.page.evaluate((n) => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; faceWidth: number; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === n)!; return { faceWidth: hd.faceWidth, title: hd.rive!.getTextRunValue('Title'), tag: hd.rive!.getTextRunValue('Tag'), caption: hd.rive!.getTextRunValue('Caption') }; }, name);
+        await o.page.evaluate(() => { const R = (window as unknown as { TimmyRive: R }).TimmyRive; const host = document.createElement('div'); host.id = 'm-narrow'; host.style.width = '300px'; document.body.append(host); R.mountConsole(host, { size: 'wide', name: 'test:narrow' }); });
+        await o.page.waitForFunction(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().some((x) => x.component === 'test:narrow' && x.state === 'drawn'), null, { timeout: 30_000 });
+        await o.page.waitForFunction(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === 'test:narrow')!; return hd.rive!.getTextRunValue('Title') === ''; }, null, { timeout: 10_000 });
+        const narrow = await smallRuns('test:narrow');
+        expect(narrow.faceWidth).toBeLessThan(320);
+        expect(narrow).toMatchObject({ title: '', tag: '', caption: '' });
+        expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:narrow')!.runs!.small)).toMatchObject({ below: 320, hidden: true });
+        await o.page.evaluate(() => { (document.getElementById('m-narrow') as HTMLElement).style.width = '420px'; });
+        await o.page.waitForFunction(() => { const hd = ((window as unknown as { TimmyRive: R }).TimmyRive.handles() as unknown as Array<{ component: string; rive: { getTextRunValue: (k: string) => string | undefined } | null }>).find((x) => x.component === 'test:narrow')!; return hd.rive!.getTextRunValue('Title') === 'TIMMY  /  AGENT CONSOLE'; }, null, { timeout: 10_000 });
+        const wide = await smallRuns('test:narrow');
+        expect(wide.faceWidth).toBeGreaterThanOrEqual(320);
+        expect(wide).toMatchObject({ title: 'TIMMY  /  AGENT CONSOLE', caption: 'LIVE  /  THE TURN’S EVENTS' });
+        // the wide console of this test (600+ px) kept its runs all along
+        expect((await smallRuns('test:console')).title).toBe('TIMMY  /  AGENT CONSOLE');
+      }
       expect(await o.page.evaluate(() => (window as unknown as { TimmyRive: R }).TimmyRive.inspect().find((x) => x.component === 'test:provider:ollama-local')!.runtime!.inputs.find((i) => i.name === 'State')!.value)).toBe(1);
       // the action: a synthetic click runs nothing; the person's click runs it once; Enter on the focused button runs it again
       await o.page.evaluate(() => (document.querySelector('#m-action button') as HTMLButtonElement).click());
@@ -528,13 +564,13 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
       expect(await count()).toBe(baseline);
       expect(await text(o.page, '#s-console [data-rive-status]')).toBe('awaiting approval');
       expect(await text(o.page, '[data-rive-status="activity"]')).toBe('awaiting approval');
-      for (const p of ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare']) expect(await text(o.page, `#s-${p} [data-rive-status]`)).toBe('checking');
+      for (const p of ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare']) expect(await text(o.page, `#s-${p} [data-rive-status]`)).toBe('pending'); // the observed word (R86)
       // the sustained stream: every ~10 ms for 3 s; sampled every 500 ms; the view's draws counted (one per frame at most)
       const drawsBeforeStream = await o.page.evaluate(() => (window as unknown as { timmyInspectAnimation: { draws: () => number } }).timmyInspectAnimation.draws());
       await o.page.evaluate(() => {
         const R = (window as unknown as { TimmyRive: R }).TimmyRive;
-        const S = (window as unknown as { __storm: { n: number; done: boolean; t0: number; t1: number; last: { act: string; prov: string } } });
-        S.__storm = { n: 0, done: false, t0: performance.now(), t1: 0, last: { act: '', prov: '' } };
+        const S = (window as unknown as { __storm: { n: number; done: boolean; t0: number; t1: number; last: { act: string; prov: string; observed: string } } });
+        S.__storm = { n: 0, done: false, t0: performance.now(), t1: 0, last: { act: '', prov: '', observed: '' } };
         const acts: Array<[string, string, unknown]> = [['working', 'turn', {}], ['awaiting', 'needs-you', {}], ['stopped', 'done', { status: 'cancelled' }], ['failed', 'error', {}], ['idle', 'done', { status: 'answered' }]];
         const provs: Array<[string, string]> = [['disconnected', 'not set up'], ['checking', 'pending'], ['connected', 'checked'], ['failed', 'refused']];
         const end = Date.now() + 3000;
@@ -543,7 +579,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
           const a = acts[n % acts.length]; const p = provs[n % provs.length];
           if (n % 7 === 3) { R.stopping(`FAKE stream ${n}`); S.__storm.last.act = 'stopping'; } else { R.fromSse(a[1], a[2], `FAKE stream ${n}`); S.__storm.last.act = a[0]; }
           for (const id of ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare']) R.fromProviderState(id, p[1], `FAKE stream ${n}`);
-          S.__storm.last.prov = p[0];
+          S.__storm.last.prov = p[0]; S.__storm.last.observed = p[1];
         };
         // one batch per 10 ms of wall clock: when a frame runs long (many live instances), the batches due arrive together — as a
         // real SSE stream's events do on a busy page — so the cadence holds whatever the frame rate
@@ -558,7 +594,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         expect(await count(), `sample ${i}`).toBe(baseline);
       }
       await o.page.waitForFunction(() => (window as unknown as { __storm: { done: boolean } }).__storm.done, null, { timeout: 10_000 });
-      const storm = await o.page.evaluate(() => (window as unknown as { __storm: { n: number; t0: number; t1: number; last: { act: string; prov: string } } }).__storm);
+      const storm = await o.page.evaluate(() => (window as unknown as { __storm: { n: number; t0: number; t1: number; last: { act: string; prov: string; observed: string } } }).__storm);
       const drawsDuringStream = (await o.page.evaluate(() => (window as unknown as { timmyInspectAnimation: { draws: () => number } }).timmyInspectAnimation.draws())) - drawsBeforeStream;
       // a batch (5 events) per 10 ms for the 3 s, and the view drew at most once per frame of it
       expect(storm.n, `batches in ${Math.round(storm.t1 - storm.t0)} ms`).toBeGreaterThanOrEqual(290);
@@ -578,7 +614,7 @@ describe.skipIf(!browserPath)('the Rive components, their bindings and the Inspe
         else if (/^storm:(openrouter|ollama|cloudflare)|^connection-/.test(component)) { expect(word, component).toBe(storm.last.prov); expect(state, component).toBe(CSTATE[storm.last.prov]); }
       }
       expect(await text(o.page, '#s-console [data-rive-status]')).toBe(SHOWN[storm.last.act] || storm.last.act);
-      expect(await text(o.page, '#s-ollama-local [data-rive-status]')).toBe(storm.last.prov);
+      expect(await text(o.page, '#s-ollama-local [data-rive-status]')).toBe(storm.last.observed); // the label: the last event's OBSERVED word (R86)
       // (b) repeated redraws: 500 asks within one frame draw once; across 20 frames at 10 asks each, at most one draw per frame
       const draws = await o.page.evaluate(async () => {
         const V = (window as unknown as { timmyInspectAnimation: { redrawSoon: () => void; draws: () => number } }).timmyInspectAnimation;

@@ -92,8 +92,12 @@
     provider: 'OpenRouter  ·  Ollama  ·  Cloudflare', // ProviderCard ×5 under one name: not addressable (left as baked)
     pill: 'Primary action',                   // AgentConsole, ProviderCard: the amber pill under "Inspect interaction" (a Shape; the listener's hit area)
     // v2 (RIVE CONTRACT v2, CONTRACT.json): one name each, the page's words
-    v2: Object.freeze({ caption: 'Caption', tag: 'Tag', title: 'Title', providerName: 'ProviderName', providerState: 'ProviderState', providerDetail: 'ProviderDetail' }),
+    v2: Object.freeze({ caption: 'Caption', tag: 'Tag', title: 'Title', providerName: 'ProviderName', providerState: 'ProviderState', providerDetail: 'ProviderDetail', headlineIdle: 'HeadlineIdle', headlineIdleDefault: 'Choose your connection' }),
   });
+  /** Under this many CSS px of face the small runs are hidden (R97: 5–6 px of type at the band's 300 px). */
+  const SMALL_FACE = 320;
+  /** A headline from the observed state word ("checked" → "Checked"). */
+  const headlineOf = (w) => { const t = String(w || '').trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; };
   const CAPTION = Object.freeze({
     preview: 'PREVIEW  /  NOT A LIVE JOB',
     activity: 'LIVE  /  THE TURN’S EVENTS',
@@ -148,10 +152,21 @@
         const tag = tagOf(handle);
         runs.tag = put(RUNS.v2.tag, tag);
         if (/^ProviderCard/.test(art)) {
+          const isBound = handle.binds.some((b) => b.startsWith('connection'));
           runs.providerName = put(RUNS.v2.providerName, typeof handle.providerName === 'string' ? handle.providerName : providerNameOf(handle.providerId));
-          runs.providerState = put(RUNS.v2.providerState, handle.binds.some((b) => b.startsWith('connection')) ? (handle.word || '') : null);
+          runs.providerState = put(RUNS.v2.providerState, isBound ? labelWord(handle) : null);
           runs.providerDetail = put(RUNS.v2.providerDetail, typeof handle.providerDetail === 'string' ? handle.providerDetail : null);
+          // R86: no success pose is authored (connected = the Idle pose), so the Idle pose's baked headline "Choose your connection"
+          // would stand on a connected card — the headline gives way to the provider's observed state while it is connected
+          const connected = isBound && handle.word === 'connected';
+          runs.headlineIdle = put(RUNS.v2.headlineIdle, connected ? headlineOf(labelWord(handle)) : RUNS.v2.headlineIdleDefault);
         }
+        // R97: under 320 px of face the small runs (the title, the tag, the caption) are 5–6 px — hidden there (the HTML words beside
+        // the face carry them); the Inspect view's faces keep theirs (the place to read a face)
+        const small = handle.place !== 'inspect' && typeof handle.faceWidth === 'number' && handle.faceWidth > 0 && handle.faceWidth < SMALL_FACE;
+        runs.small = { below: SMALL_FACE, faceWidth: handle.faceWidth || null, hidden: Boolean(small) };
+        if (small) { runs.title = put(RUNS.v2.title, ''); runs.tag = put(RUNS.v2.tag, ''); runs.caption = put(RUNS.v2.caption, ''); }
+        else { runs.title = put(RUNS.v2.title, /^ProviderCard/.test(art) ? 'TIMMY  /  PROVIDERS' : 'TIMMY  /  AGENT CONSOLE'); }
       } else if (/^ActionButton/.test(art)) {
         runs.caption = put(RUNS.v2.caption, /Preview$/.test(art) ? null : (typeof handle.faceLabel === 'string' ? handle.faceLabel : (handle.word || '')));
       }
@@ -384,24 +399,29 @@
     } catch (e) { return `the runtime refused: ${e && e.message ? e.message : e}`; }
   }
 
-  function setLabel(handle, input, value) {
+  /** The word the label shows: the OBSERVED word the feed gave (H170's "checked", the probe's own word — R86: one word per card, never
+   * the vocabulary's beside it), else the vocabulary word. */
+  const labelWord = (handle) => (typeof handle.shown === 'string' && handle.shown ? handle.shown : handle.word);
+  function setLabel(handle, input, value, shown) {
     if (!handle.label) return;
-    if (input === 'selected' || input === 'expanded') { handle.label.dataset[input] = String(Boolean(value)); handle.label.textContent = handle.word + (handle.values.selected ? ' · selected' : '') + (handle.values.expanded ? ' · expanded' : ''); return; }
-    if (input === 'welcome') { handle.label.textContent = `${handle.word} · welcome`; return; }
+    if (input === 'selected' || input === 'expanded') { handle.label.dataset[input] = String(Boolean(value)); handle.label.textContent = labelWord(handle) + (handle.values.selected ? ' · selected' : '') + (handle.values.expanded ? ' · expanded' : ''); return; }
+    if (input === 'welcome') { handle.label.textContent = `${labelWord(handle)} · welcome`; return; }
     handle.word = wordOf(input, value);
-    handle.label.textContent = handle.word + (handle.values.selected ? ' · selected' : '') + (handle.values.expanded ? ' · expanded' : '');
+    handle.shown = typeof shown === 'string' && shown.trim() ? shown.trim() : null;
+    handle.label.textContent = labelWord(handle) + (handle.values.selected ? ' · selected' : '') + (handle.values.expanded ? ' · expanded' : '');
     handle.label.dataset.state = String(value);
+    if (handle.shown && handle.shown !== handle.word) handle.label.dataset.observed = handle.shown; else delete handle.label.dataset.observed;
     if (handle.root) handle.root.dataset.state = String(value);
   }
 
   /** One binding event: recorded for the Inspect view, the label written, the runtime moved. */
-  function set(handle, input, value, source) {
+  function set(handle, input, value, source, shown) {
     if (!handle || typeof input !== 'string' || handle.state === 'unmounted') return null;
     const did = move(handle, input, value);
-    const ev = { input, value, at: now(), source: typeof source === 'string' && source ? source : 'unnamed', did, native: handle.lastNative || null };
+    const ev = { input, value, at: now(), source: typeof source === 'string' && source ? source : 'unnamed', did, native: handle.lastNative || null, ...(typeof shown === 'string' && shown && shown !== value ? { shown } : {}) };
     handle.events.push(ev);
     if (handle.events.length > MAX_EVENTS) handle.events.splice(0, handle.events.length - MAX_EVENTS);
-    setLabel(handle, input, value);
+    setLabel(handle, input, value, input === 'connection' ? shown : undefined);
     if (input === 'activity' || input === 'connection') {
       // the face's caption follows the source of its state: a preview says PREVIEW, a feed says LIVE (never the other way)
       handle.stateSource = ev.source.startsWith('PREVIEW') ? 'preview' : 'fed';
@@ -577,7 +597,12 @@
   /** The canvas drawn again at the element's size (a mount in a host shown later draws when it is shown). */
   function fitWhenShown(handle) {
     if (typeof ResizeObserver === 'undefined' || !handle.face) return;
-    const ro = new ResizeObserver(() => { try { if (handle.rive && handle.face.clientWidth > 0) handle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ } });
+    const ro = new ResizeObserver(() => {
+      const w = handle.face.clientWidth;
+      try { if (handle.rive && w > 0) handle.rive.resizeDrawingSurfaceToCanvas(); } catch (e) { /* drawn at its size */ }
+      // the face's width in CSS px decides the small runs (R97): re-applied only when the side of 320 changes
+      if (w > 0) { const was = handle.faceWidth; handle.faceWidth = w; if (handle.rive && (was === undefined || (was < SMALL_FACE) !== (w < SMALL_FACE))) applyRuns(handle); }
+    });
     ro.observe(handle.face);
     handle.observer = ro;
   }
@@ -697,11 +722,12 @@
   }
   function fromProviderState(id, stateWord, source) {
     const word = connectionWordOf(stateWord);
+    const shown = typeof stateWord === 'string' ? stateWord.trim() : '';
     const src = source || `GET /api/connections: ${id} "${stateWord}"`;
-    lastSeen[`connection:${id}`] = { word, source: src };
+    lastSeen[`connection:${id}`] = { word, source: src, shown };
     const out = [];
-    for (const x of bound(`connection:${id}`)) out.push(set(x, 'connection', word, src));
-    for (const x of bound('connection')) out.push(set(x, 'connection', word, src));
+    for (const x of bound(`connection:${id}`)) out.push(set(x, 'connection', word, src, shown));
+    for (const x of bound('connection')) out.push(set(x, 'connection', word, src, shown));
     return out;
   }
   /** H169's SSE event → the activity vocabulary (null when the event moves nothing: route, delta, tool ran, …). */
@@ -777,7 +803,7 @@
     for (const b of handle.binds) {
       const key = b === 'connection' ? null : b;
       const hit = key ? lastSeen[key] : null;
-      if (hit) set(handle, b.startsWith('connection') ? 'connection' : 'activity', hit.word, hit.source);
+      if (hit) set(handle, b.startsWith('connection') ? 'connection' : 'activity', hit.word, hit.source, hit.shown);
     }
   }
   function watchPage() {
@@ -848,6 +874,7 @@
       nativeReduced: Boolean(x.nativeReduced), contract: x.stateMachine === TIMMY_UI.stateMachine ? 'TimmyUI' : null, place: x.place || 'inspect', disabled: Boolean(x.disabled),
       runs: x.runs ? JSON.parse(JSON.stringify(x.runs)) : null, stateSource: x.stateSource, fedState: x.fedState, restored: x.restored || 0,
       fileContract: x.contract, identity: x.identity ? { ...x.identity } : null, receipt: x.receipt || null, stale: x.stale || 0, retryable: Boolean(x.retryable),
+      shown: x.shown || null, faceWidth: typeof x.faceWidth === 'number' ? x.faceWidth : null,
     }));
   }
 

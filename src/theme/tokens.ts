@@ -29,10 +29,12 @@
  * (`UI_THEMES`, under html[data-theme]). The family describes surface, depth and the primary action; it
  * never changes a status's meaning: focus stays exact #FFB000 and an observed live / passed / sealed
  * state stays #28FE14 in both. The terminal keeps B10 exactly (`HOMEBREW`, above: byte-identical, pinned
- * by tests/theme-tokens.test.ts), and the B10 web names (`--timmy-ground` …) keep their values for the
- * pages not yet on the contract, the Studio's own sheet and the tests that pin those rendered colours;
- * a page on the contract reads the `--timmy-ui-*` names only. The study's tokens.json v0.1 is the start
- * (D1); the values changed from it, each with its measured reason, are marked "measured" below.
+ * by tests/theme-tokens.test.ts). The B10 WEB names (`--timmy-ground` …) are ALIASES of their B11 role
+ * since D12 (the lead's ruling of 2026-10-24 18:06 on H168's R83/R84: two palettes were measured on every
+ * page): `LEGACY_WEB_ALIAS` below names each role, and themeCss writes `--timmy-ground: var(--timmy-ui-canvas)`
+ * and so on, so a legacy sheet and a contract sheet draw ONE palette and the two families reach both. A page
+ * on the contract reads the `--timmy-ui-*` names only. The study's tokens.json v0.1 is the start (D1); the
+ * values changed from it, each with its measured reason, are marked "measured" below.
  */
 import type { TerminalPalette } from '../term/palettes.js';
 
@@ -259,6 +261,42 @@ export const UI_SHADOW = {
 export const UI_WEB_FONT_PATH = '/web/fonts/';
 
 /**
+ * D12 (ONE PALETTE): the B11 role each B10 web name is an alias of. themeCss writes `--timmy-<name>: var(--timmy-ui-<role>)`, so
+ * a sheet that still reads a legacy name draws the registry's colour of the active family, and the terminal (HOMEBREW above) is
+ * untouched. The two B10 names that bundled two B11 roles are split by meaning, not by value:
+ *   - `accent` was focus AND the primary next step: it is the FAMILY accent now (the primary, an active cue), so a focus ring
+ *     written as `outline: 2px solid var(--timmy-accent)` must read `--timmy-ui-focus` instead (exact #FFB000, both families);
+ *     `attention` and `failure` (what waits on you; failed, with ✕ and its word) keep the exact amber through `focus`.
+ *   - `accent-soft` was the selection's grey ground: the family's 18 % tint (`accent-glow`) — a ground, not the light fill
+ *     `--timmy-ui-accent-soft` is (that fill wants `accent-ink` on it). A 1 px ring that read it wants `--timmy-ui-accent`.
+ *   - `silver` / `ai` (made by a model, commands to copy, neutral highlights) are the neutral `text-secondary` (#BDCADA, 11.9:1
+ *     on the canvas); `link` takes the family's light half (`accent-soft`), so Glacier's links are Glacier's.
+ *   - `text-secondary` (#8E8E93, 6.4:1 on black) is `text-muted` (#9AAFC3): 8.7:1 on the canvas, 7.8:1 on surface, 6.6:1 on
+ *     raised — measured in tests/theme-tokens.test.ts; every other text name keeps ≥ 6:1 on every surface too.
+ */
+export const LEGACY_WEB_ALIAS: Readonly<Record<keyof typeof HOMEBREW, string>> = {
+  ground: 'canvas',
+  surface: 'surface',
+  raised: 'raised',
+  line: 'border-quiet',
+  lineStrong: 'border',
+  text: 'text',
+  textSecondary: 'text-muted',
+  accent: 'accent',
+  accentInk: 'accent-ink',
+  accentSoft: 'accent-glow',
+  silver: 'text-secondary',
+  attention: 'focus',
+  failure: 'focus',
+  live: 'verified',
+  liveDim: 'verified-dim',
+  ai: 'text-secondary',
+  link: 'accent-soft',
+  diffAdd: 'diff-add',
+  diffRemove: 'diff-remove',
+};
+
+/**
  * The B11 block of the theme sheet: the Outfit face, the shared `--timmy-ui-*` variables, the two families (amber also
  * without the attribute), and the reduced-motion rule. `uiFontPath` names where the Outfit file is served; null leaves the
  * face with its local() sources only (no request is made where the file is not served: the Studio's /fonts/).
@@ -322,6 +360,10 @@ export function uiThemeCss(uiFontPath: string | null): string {
  * caller's font path is the companion's web fonts folder (UI_WEB_FONT_PATH, where the built web assets put it); any
  * other path (the Studio's /fonts/, which serves Monaspace Argon only) gets the face's local() sources alone, so no
  * request can 404 there. `uiFontPath` says it explicitly where a caller wants to.
+ *
+ * D12: the B10 colour names are written as aliases of their B11 role (LEGACY_WEB_ALIAS), never as values: one palette on
+ * every page, the family reaching the legacy sheets too. The B10 type lines (`--timmy-size-*`, `--timmy-weight-*`,
+ * `--timmy-line-height`) keep their values — a legacy h1/h2 has no one B11 size — and `--timmy-font-mono` is the one stack.
  */
 export function themeCss(fontPath = '/fonts/', uiFontPath: string | null = fontPath === UI_WEB_FONT_PATH ? fontPath : null): string {
   const faces = FONT_FILES.map((f) => [
@@ -334,11 +376,11 @@ export function themeCss(fontPath = '/fonts/', uiFontPath: string | null = fontP
     '}',
   ].join('\n'));
   const vars = [
-    ...Object.entries(HOMEBREW).map(([name, value]) => `  --timmy-${kebab(name)}: ${value};`),
-    `  --timmy-font-mono: ${TYPE.stack};`,
+    ...(Object.keys(HOMEBREW) as (keyof typeof HOMEBREW)[]).map((name) => `  --timmy-${kebab(name)}: var(--timmy-ui-${LEGACY_WEB_ALIAS[name]});`),
+    '  --timmy-font-mono: var(--timmy-ui-font-mono);',
     ...Object.entries(TYPE.size).map(([name, px]) => `  --timmy-size-${name}: ${px}px;`),
     ...Object.entries(TYPE.weight).map(([name, w]) => `  --timmy-weight-${name}: ${w};`),
     `  --timmy-line-height: ${TYPE.lineHeight};`,
   ];
-  return [`/* Timmy's shared look (src/theme/tokens.ts); DESIGN.md §10 B9. */`, ...faces, ':root {', '  color-scheme: dark;', ...vars, '}', uiThemeCss(uiFontPath)].join('\n');
+  return [`/* Timmy's shared look (src/theme/tokens.ts); DESIGN.md §10 B10 names as aliases of B11 (D12). */`, ...faces, ':root {', '  color-scheme: dark;', ...vars, '}', uiThemeCss(uiFontPath)].join('\n');
 }

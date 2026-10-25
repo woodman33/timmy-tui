@@ -43,7 +43,7 @@
  *         the source "GET /api/connections: <id>".
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -373,7 +373,14 @@ async function tabOrder(page: Page, max = 40): Promise<string[]> {
 async function toChat(o: Opened, size: { width: number; height: number }, capPrefix: string): Promise<Locator> {
   await until(o.page, 'the connections screen', (s) => /Connect with OpenRouter/.test(s));
   await o.page.getByRole('button', { name: /Continue to the workspace|Explore without a model/ }).first().click();
-  await until(o.page, 'the chat', (s) => /Message Timmy/i.test(s));
+  // (hold B on c027b2fe: at 390 "Continue to the workspace" on Models & accounts left the page where it was for 20 s while the desktop
+  // went to the Chat — observed and said; the Chat is then opened by the shell so this leg, about the faces, goes on)
+  const came = await until(o.page, 'the chat', (s) => /Message Timmy/i.test(s), 8_000).then(() => true, () => false);
+  if (!came) {
+    console.warn(`${size.width}x${size.height}: "Continue to the workspace" did not open the Chat within 8 s (the page stayed on ${await o.page.evaluate(() => document.body.getAttribute('data-page'))}): opened by TimmyShell.go('chat') for this leg — a finding for the page's owner, not a pass`);
+    await o.page.evaluate(() => (window as unknown as { TimmyShell?: { go?: (id: string, why?: string) => unknown } }).TimmyShell?.go?.('chat', 'journey'));
+    await until(o.page, 'the chat', (s) => /Message Timmy/i.test(s));
+  }
   const landing = await text(o.page);
   const welcome = /What would you like to make\?/.test(landing);
   const landedWords = o.landedOn === 'connections' ? 'The page landed on Models & accounts after the FAKE session (THE LANDING RULE).' : `The page landed on "${o.landedOn}" after the FAKE session (account.js's return path took the boot default), not on Models & accounts as the landing rule says; Models & accounts was then opened for this leg (said, not asserted).`;
@@ -567,6 +574,35 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await inputIs(o.page, key, 'State', 0, 20_000);
         seen.push('a second NEEDS-YOU answered with Enter on the focused ActionButton');
         // ── Stop mid-turn: State 3 and the receipt's stop ──
+        // (verification 1: the conversation and the project's receipt records as they stand BEFORE the turn that will be stopped —
+        // "M untouched" is read as "unchanged by this Stop", since the USER's one project carries this run's earlier turns and, at
+        // 390, the 1440 case's own stopped turn)
+        type ViewTurn = { kind: string; text?: string; stopped?: { record: string; by?: string }; receipt?: { id: string; status: string } };
+        type ViewBody = { ok?: boolean; error?: string; conversation?: { turns?: ViewTurn[]; total?: number }; turns?: ViewTurn[] };
+        const readView = (): Promise<ViewBody> => o.page.evaluate(() => (window as unknown as { TimmyShell: { fetch: (u: string) => Promise<Response> } }).TimmyShell.fetch('/api/chat/view').then((r) => r.json())) as Promise<ViewBody>;
+        const answersOf = (v: ViewBody): Array<{ stopped: boolean; by: string; receipt: string; status: string }> => (v.conversation?.turns ?? v.turns ?? []).filter((t) => t.kind === 'timmy').map((t) => ({ stopped: Boolean(t.stopped), by: t.stopped?.by ?? '', receipt: t.receipt?.id ?? '', status: t.receipt?.status ?? '' }));
+        type Rec = { id?: string; hash?: string; status?: string; turn_id?: string; stopped_by?: string };
+        const projectRoots = async (): Promise<string[]> => {
+          const projects = await o.page.evaluate(() => (window as unknown as { TimmyShell: { fetch: (u: string) => Promise<Response> } }).TimmyShell.fetch('/api/projects').then((r) => r.json())) as Array<{ root: string }> | { projects: Array<{ root: string }> };
+          return (Array.isArray(projects) ? projects : projects.projects ?? []).map((r) => r.root).filter(Boolean);
+        };
+        const readRecords = (roots: string[]): Rec[] => {
+          const recs: Rec[] = [];
+          for (const root of roots) {
+            const dir = join(root, '.timmy', 'receipts');
+            if (!existsSync(dir)) continue;
+            for (const f of readdirSync(dir)) if (f.endsWith('.jsonl')) for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) { if (!line.trim()) continue; try { recs.push(JSON.parse(line) as Rec); } catch { /* a cut line */ } }
+          }
+          return recs;
+        };
+        const viewBefore = await readView();
+        expect(viewBefore.ok, `GET /api/chat/view before the slow turn (${viewBefore.error ?? ''})`).toBe(true);
+        const answersBefore = answersOf(viewBefore);
+        const roots = await projectRoots();
+        // (a record's hash reads "sha256_<hex>"; the view's receipt id is the hex's first 8)
+        const hash8 = (r: Rec): string => String(r.hash ?? r.id ?? '').replace(/^sha256_/, '').slice(0, 8);
+        // (only receipt records — lines with a hash; a chain file's other lines are not receipts and have no identity to compare by)
+        const recordsBefore = readRecords(roots).filter((r) => hash8(r)).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: hash8(r) }));
         await composer.first().fill('FAKE: answer slowly please');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         await inputIs(o.page, key, 'State', 1, 20_000);
@@ -584,6 +620,29 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         // the stopped turn folds with its receipt (H171's dd8b2aa3): the receipt line says the stop
         const folded = await until(o.page, 'the stopped turn with its receipt', (s) => /stopped by you/i.test(s) && /receipt [0-9a-f]{8}/.test(s), 30_000);
         expect(folded).toMatch(/stopped by you/i);
+        // STOP ENDS THE CORRECT TURN (the operator's 17:53 order, verification 1): the stop asked by id N (the stopping event's source
+        // "POST /api/chat/stop { id: N }"); the conversation gained exactly ONE answer — the stopped one, with a 'cancelled' receipt —
+        // and every answer before it reads exactly as before the Stop (stopped or not, its receipt and status); the project's receipt
+        // records say the same by identity: the one new record carries turn_id N, status 'cancelled', stopped_by this surface, its hash
+        // the view's receipt id; every record from before stands unchanged.
+        const stopId = /id:\s*['"]?([\w.-]+)/.exec(stopping!.source)?.[1] ?? '';
+        expect(stopId, `the stop's turn id from "${stopping!.source}"`).not.toBe('');
+        const viewAfter = await readView();
+        expect(viewAfter.ok, `GET /api/chat/view after the Stop (${viewAfter.error ?? ''})`).toBe(true);
+        const answersAfter = answersOf(viewAfter);
+        expect(answersAfter.length, 'the conversation gained exactly one answer (the stopped turn)').toBe(answersBefore.length + 1);
+        const last = answersAfter[answersAfter.length - 1];
+        expect(last.stopped, 'the LAST answer is the stopped turn (the conversation keeps the stop record)').toBe(true);
+        expect(last.by, 'stopped by this page').toBe('companion');
+        expect(last.status, 'the stopped turn\'s receipt status').toBe('cancelled');
+        expect(last.receipt, 'the stopped turn has its receipt').toMatch(/^[0-9a-f]{8}/);
+        expect(answersAfter.slice(0, answersBefore.length), 'every earlier answer unchanged by this Stop (stopped or not, receipt, status)').toEqual(answersBefore);
+        const recordsAfter = readRecords(roots).filter((r) => hash8(r)).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: hash8(r), stoppedBy: r.stopped_by ?? '' }));
+        const newRecords = recordsAfter.filter((r) => !recordsBefore.some((b) => b.hash === r.hash));
+        expect(newRecords.map((r) => [r.turn, r.status, r.stoppedBy]), `one new receipt record: turn_id ${stopId}, cancelled, stopped by this page (${recordsAfter.length} records under ${roots.join(', ') || 'no project root'})`).toEqual([[stopId, 'cancelled', 'companion']]);
+        expect(newRecords[0].hash, 'the view\'s receipt id is N\'s record').toBe(last.receipt.slice(0, 8));
+        expect(recordsAfter.filter((r) => recordsBefore.some((b) => b.hash === r.hash)).map((r) => ({ turn: r.turn, status: r.status, hash: r.hash })), 'every earlier receipt record stands unchanged').toEqual(recordsBefore);
+        seen.push(`Stop ended the correct turn: id ${stopId} → the one new answer is the stopped one, its receipt ${last.receipt} cancelled (stopped_by companion, turn_id ${stopId} on the record); ${answersBefore.length} earlier answer(s) and ${recordsBefore.length} earlier receipt record(s) unchanged`);
         await caps.cap(o.page, size, 'chat-stopped', ['After Stop: the console stopped (State 3, from the turn\'s own done (cancelled)); the stopped turn folded with its receipt.'], { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: /stopped by you/i }).last(), what: 'the stopped turn' });
         seen.push('a slow turn: working (State 1) → Stop → stopped (State 3) with its receipt');
         // ── the welcome's starter ActionButton fires the starter (a new conversation shows the welcome again) ──
