@@ -127,6 +127,9 @@ describe('the companion\'s built web code at /web/, from both local servers (R4 
       // R5 (H132): the model chat is the Chat tab's (2) second view
       // R10 CHAT (H171): the shell's left menu opens Chat, whose older views keep this page's Streamdown chat
       await page.click('#rail-menu .rail-item[data-dest="chat"]');
+      // R11 round 7 (the lead): the Chat's older views, the Streamdown island among them, sit behind the page's CLOSED records
+      // ("Try a Markdown sample" is the island's switch) — open the records before the switch, as the policy test's tab() does
+      await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
       await page.click('[data-tab="streamdown"]');
       await page.waitForFunction(() => document.getElementById('streamdown-root')?.dataset.island === 'absent', null, { timeout: 10_000 });
       expect(await page.textContent('#streamdown-root .sd-absent')).toBe(WEB_ABSENT_SOURCE);

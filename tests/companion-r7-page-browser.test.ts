@@ -222,6 +222,23 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
               };
             }, t.id);
             if (!t.unfinished) { expect(box, `${at} tab ${t.key}: no Unfinished box`).toBeNull(); continue; }
+            // R11 round 7, D23 (the lead's 23:31 ruling on H168's R106): on the pages whose owners moved the box, the frame's Unfinished
+            // words live in the page's RECORDS (.page-records, open) and NOTHING is drawn between the head and the band — the companion's
+            // own box is hidden (Motion & 3D) or taken out of the section's top level (Runs & receipts, the Control Room). A page not
+            // yet moved (Fleet & Clef) still draws the box between the head and the band, as SHELL CONTRACT v1.1 placed it.
+            const records = await page.evaluate((id) => {
+              const sec = document.querySelector(`[data-ws-page="${id}"]`)!;
+              const rec = sec.querySelector(':scope > .page-records') as HTMLElement | null;
+              if (!rec) return null;
+              const r = rec.getBoundingClientRect();
+              return { text: (rec.textContent ?? '').replace(/\s+/g, ' ').trim(), drawn: r.width > 0 && r.height > 0, open: Array.from(rec.querySelectorAll('details')).some((d) => d.open) };
+            }, t.id);
+            const inRecords = Boolean(records && records.text.includes(`Works now: ${t.unfinished.works}`) && records.text.includes(`Not yet: ${t.unfinished.missing}`));
+            if (!box || !box.drawn) {
+              expect(inRecords, `${at} tab ${t.key}: the Unfinished words (D23) in the page's records — found: ${JSON.stringify(records).slice(0, 300)}`).toBe(true);
+              expect(records!.drawn, `${at} tab ${t.key}: the records region is drawn`).toBe(true);
+              continue;
+            }
             expect(box, `${at} tab ${t.key}`).toMatchObject({
               inSection: true, drawn: true, belowHead: true, aboveBand: true,
               title: `◌ Unfinished · ${t.label}`, works: `Works now: ${t.unfinished.works}`, missing: `Not yet: ${t.unfinished.missing}`,

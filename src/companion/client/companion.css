@@ -1456,6 +1456,11 @@ body.slate-absent p { max-width: 72ch; }
   .stage-media > .stage-text { flex: 1 1 0; min-height: 0; max-height: none; }
   .stage-side { overflow: auto; }
 }
+/* D24 (R11 round 7, the lead; hold C on c72a265a — companion-amber-fit: two accent-filled primaries on Home, the head's primary and the
+   dock's first step saying the same action): under the scaffold the frame's primary step keeps its number, its words and its place
+   first, not the accent fill — the page head's primary is the one arrow (D8). (Every width: the strip sits in the page's dock.) */
+#ws-main .page-dock .act.is-primary, #ws-strip .act.is-primary { background: var(--timmy-ui-elev-raised); border-color: var(--timmy-ui-border); color: var(--timmy-text); font-weight: var(--timmy-ui-weight-medium); }
+#ws-main .page-dock .act.is-primary .act-cmd, #ws-main .page-dock .act.is-primary .act-effect, #ws-strip .act.is-primary .act-cmd, #ws-strip .act.is-primary .act-effect { color: var(--timmy-text-secondary); }
 @media (max-width: 1100px) { .stage-split { grid-template-columns: minmax(0, 1fr); } }
 .stage-notice { color: var(--timmy-text); border-left: 2px solid var(--timmy-line-strong); padding: 2px 8px; overflow-wrap: anywhere; }
 .stage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
