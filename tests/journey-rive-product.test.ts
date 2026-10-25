@@ -574,6 +574,32 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         await inputIs(o.page, key, 'State', 0, 20_000);
         seen.push('a second NEEDS-YOU answered with Enter on the focused ActionButton');
         // ── Stop mid-turn: State 3 and the receipt's stop ──
+        // (verification 1: the conversation and the project's receipt records as they stand BEFORE the turn that will be stopped —
+        // "M untouched" is read as "unchanged by this Stop", since the USER's one project carries this run's earlier turns and, at
+        // 390, the 1440 case's own stopped turn)
+        type ViewTurn = { kind: string; text?: string; stopped?: { record: string; by?: string }; receipt?: { id: string; status: string } };
+        type ViewBody = { ok?: boolean; error?: string; conversation?: { turns?: ViewTurn[]; total?: number }; turns?: ViewTurn[] };
+        const readView = (): Promise<ViewBody> => o.page.evaluate(() => (window as unknown as { TimmyShell: { fetch: (u: string) => Promise<Response> } }).TimmyShell.fetch('/api/chat/view').then((r) => r.json())) as Promise<ViewBody>;
+        const answersOf = (v: ViewBody): Array<{ stopped: boolean; by: string; receipt: string; status: string }> => (v.conversation?.turns ?? v.turns ?? []).filter((t) => t.kind === 'timmy').map((t) => ({ stopped: Boolean(t.stopped), by: t.stopped?.by ?? '', receipt: t.receipt?.id ?? '', status: t.receipt?.status ?? '' }));
+        type Rec = { id?: string; hash?: string; status?: string; turn_id?: string; stopped_by?: string };
+        const projectRoots = async (): Promise<string[]> => {
+          const projects = await o.page.evaluate(() => (window as unknown as { TimmyShell: { fetch: (u: string) => Promise<Response> } }).TimmyShell.fetch('/api/projects').then((r) => r.json())) as Array<{ root: string }> | { projects: Array<{ root: string }> };
+          return (Array.isArray(projects) ? projects : projects.projects ?? []).map((r) => r.root).filter(Boolean);
+        };
+        const readRecords = (roots: string[]): Rec[] => {
+          const recs: Rec[] = [];
+          for (const root of roots) {
+            const dir = join(root, '.timmy', 'receipts');
+            if (!existsSync(dir)) continue;
+            for (const f of readdirSync(dir)) if (f.endsWith('.jsonl')) for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) { if (!line.trim()) continue; try { recs.push(JSON.parse(line) as Rec); } catch { /* a cut line */ } }
+          }
+          return recs;
+        };
+        const viewBefore = await readView();
+        expect(viewBefore.ok, `GET /api/chat/view before the slow turn (${viewBefore.error ?? ''})`).toBe(true);
+        const answersBefore = answersOf(viewBefore);
+        const roots = await projectRoots();
+        const recordsBefore = readRecords(roots).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: (r.hash ?? r.id ?? '').slice(0, 8) }));
         await composer.first().fill('FAKE: answer slowly please');
         await o.page.getByRole('button', { name: /^Send/ }).first().click();
         await inputIs(o.page, key, 'State', 1, 20_000);
@@ -592,46 +618,28 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         const folded = await until(o.page, 'the stopped turn with its receipt', (s) => /stopped by you/i.test(s) && /receipt [0-9a-f]{8}/.test(s), 30_000);
         expect(folded).toMatch(/stopped by you/i);
         // STOP ENDS THE CORRECT TURN (the operator's 17:53 order, verification 1): the stop asked by id N (the stopping event's source
-        // "POST /api/chat/stop { id: N }"); the conversation's LAST answer (N) is the stopped one with a receipt whose status is
-        // 'cancelled'; the EARLIER answers (M: the two NEEDS-YOU turns of this case) keep their own receipts, status 'ok', untouched;
-        // and the project's receipt records say the same by identity: the record with turn_id N is 'cancelled' (stopped_by this
-        // surface), M's records are not.
+        // "POST /api/chat/stop { id: N }"); the conversation gained exactly ONE answer — the stopped one, with a 'cancelled' receipt —
+        // and every answer before it reads exactly as before the Stop (stopped or not, its receipt and status); the project's receipt
+        // records say the same by identity: the one new record carries turn_id N, status 'cancelled', stopped_by this surface, its hash
+        // the view's receipt id; every record from before stands unchanged.
         const stopId = /id:\s*['"]?([\w.-]+)/.exec(stopping!.source)?.[1] ?? '';
         expect(stopId, `the stop's turn id from "${stopping!.source}"`).not.toBe('');
-        type ViewTurn = { kind: string; text?: string; stopped?: { record: string; by?: string }; receipt?: { id: string; status: string } };
-        // (the route's envelope: { ok, project, conversation: { session, total, turns }, route, … } — the turns under `conversation`)
-        const view = await o.page.evaluate(() => (window as unknown as { TimmyShell: { fetch: (u: string) => Promise<Response> } }).TimmyShell.fetch('/api/chat/view').then((r) => r.json())) as { ok?: boolean; error?: string; conversation?: { turns?: ViewTurn[]; total?: number }; turns?: ViewTurn[] };
-        expect(view.ok, `GET /api/chat/view answered ok (${view.error ?? ''})`).toBe(true);
-        const answers = (view.conversation?.turns ?? view.turns ?? []).filter((t) => t.kind === 'timmy');
-        expect(answers.length, 'the conversation holds the earlier answers and the stopped one').toBeGreaterThanOrEqual(3);
-        const last = answers[answers.length - 1];
-        const earlier = answers.slice(0, -1);
-        expect(last.stopped, 'the LAST answer is the stopped turn (the conversation keeps the stop record)').toBeTruthy();
-        expect(last.receipt?.status, 'the stopped turn\'s receipt status').toBe('cancelled');
-        for (const [i, m] of earlier.entries()) {
-          expect(m.stopped, `an earlier answer (M${i + 1}) is not marked stopped`).toBeUndefined();
-          expect(m.receipt?.status, `M${i + 1}'s receipt status untouched`).toBe('ok');
-          expect(m.receipt?.id, `M${i + 1}'s receipt is its own`).not.toBe(last.receipt?.id);
-        }
-        // the receipt records by identity (turn_id), read from the USER's project folder (the test owns this home)
-        const projects = await o.page.evaluate(() => (window as unknown as { TimmyShell: { fetch: (u: string) => Promise<Response> } }).TimmyShell.fetch('/api/projects').then((r) => r.json())) as Array<{ id?: string; root: string; name?: string }> | { projects: Array<{ id?: string; root: string }> };
-        const rows = Array.isArray(projects) ? projects : projects.projects ?? [];
-        const roots = rows.map((r) => r.root).filter(Boolean);
-        type Rec = { id?: string; hash?: string; status?: string; turn_id?: string; stopped_by?: string; kind?: string };
-        const recs: Rec[] = [];
-        for (const root of roots) {
-          const dir = join(root, '.timmy', 'receipts');
-          if (!existsSync(dir)) continue;
-          for (const f of readdirSync(dir)) if (f.endsWith('.jsonl')) for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) { if (!line.trim()) continue; try { recs.push(JSON.parse(line) as Rec); } catch { /* a cut line */ } }
-        }
-        const ofN = recs.filter((r) => r.turn_id === stopId);
-        expect(ofN.length, `one receipt record with turn_id ${stopId} (${recs.length} records read under ${roots.join(', ') || 'no project root'})`).toBe(1);
-        expect(ofN[0].status, 'N\'s receipt record: status cancelled').toBe('cancelled');
-        expect(ofN[0].stopped_by, 'N\'s receipt record: stopped by this page').toBe('companion');
-        expect((ofN[0].hash ?? ofN[0].id ?? '').slice(0, 8), 'the view\'s receipt id is N\'s record').toBe(String(last.receipt?.id ?? '').slice(0, 8));
-        const others = recs.filter((r) => r.turn_id && r.turn_id !== stopId && r.status === 'ok');
-        expect(others.length, 'the earlier turns\' receipts (turn_id ≠ N) stand with status ok').toBeGreaterThanOrEqual(earlier.length);
-        seen.push(`Stop ended the correct turn: id ${stopId} → the last answer stopped, its receipt ${last.receipt?.id} cancelled (stopped_by companion, by turn_id); ${earlier.length} earlier answer(s) untouched (status ok, their own receipts)`);
+        const viewAfter = await readView();
+        expect(viewAfter.ok, `GET /api/chat/view after the Stop (${viewAfter.error ?? ''})`).toBe(true);
+        const answersAfter = answersOf(viewAfter);
+        expect(answersAfter.length, 'the conversation gained exactly one answer (the stopped turn)').toBe(answersBefore.length + 1);
+        const last = answersAfter[answersAfter.length - 1];
+        expect(last.stopped, 'the LAST answer is the stopped turn (the conversation keeps the stop record)').toBe(true);
+        expect(last.by, 'stopped by this page').toBe('companion');
+        expect(last.status, 'the stopped turn\'s receipt status').toBe('cancelled');
+        expect(last.receipt, 'the stopped turn has its receipt').toMatch(/^[0-9a-f]{8}/);
+        expect(answersAfter.slice(0, answersBefore.length), 'every earlier answer unchanged by this Stop (stopped or not, receipt, status)').toEqual(answersBefore);
+        const recordsAfter = readRecords(roots).map((r) => ({ turn: r.turn_id ?? '', status: r.status ?? '', hash: (r.hash ?? r.id ?? '').slice(0, 8), stoppedBy: r.stopped_by ?? '' }));
+        const newRecords = recordsAfter.filter((r) => !recordsBefore.some((b) => b.hash === r.hash));
+        expect(newRecords.map((r) => [r.turn, r.status, r.stoppedBy]), `one new receipt record: turn_id ${stopId}, cancelled, stopped by this page (${recordsAfter.length} records under ${roots.join(', ') || 'no project root'})`).toEqual([[stopId, 'cancelled', 'companion']]);
+        expect(newRecords[0].hash, 'the view\'s receipt id is N\'s record').toBe(last.receipt.slice(0, 8));
+        expect(recordsAfter.filter((r) => recordsBefore.some((b) => b.hash === r.hash)).map((r) => ({ turn: r.turn, status: r.status, hash: r.hash })), 'every earlier receipt record stands unchanged').toEqual(recordsBefore);
+        seen.push(`Stop ended the correct turn: id ${stopId} → the one new answer is the stopped one, its receipt ${last.receipt} cancelled (stopped_by companion, turn_id ${stopId} on the record); ${answersBefore.length} earlier answer(s) and ${recordsBefore.length} earlier receipt record(s) unchanged`);
         await caps.cap(o.page, size, 'chat-stopped', ['After Stop: the console stopped (State 3, from the turn\'s own done (cancelled)); the stopped turn folded with its receipt.'], { to: o.page.locator('#cx-own li, #cx-turns li').filter({ hasText: /stopped by you/i }).last(), what: 'the stopped turn' });
         seen.push('a slow turn: working (State 1) → Stop → stopped (State 3) with its receipt');
         // ── the welcome's starter ActionButton fires the starter (a new conversation shows the welcome again) ──
