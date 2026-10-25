@@ -187,7 +187,11 @@
 .cm-desc > p { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
 .cm-desc-state { font-size: 13px; color: var(--timmy-text-secondary); white-space: nowrap; }
 .cm-desc .cm-state { margin: 6px 0 0; }
-.cm-connect { margin-top: 12px; }
+/* (R82) what to do about the state — a terminal's command among it — behind Details; (R78) the way to the connections screen a quiet link */
+.cm-how { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-how > summary { cursor: pointer; color: var(--timmy-text); }
+.cm-how .cm-next { margin: 4px 0 0 14px; overflow-wrap: anywhere; }
+.cm-connect { margin-top: 10px; display: inline-block; text-decoration: underline; text-underline-offset: 2px; color: var(--timmy-text); }
 .cm-bottom { margin: auto 16px 0; padding: 14px 0 16px; border-top: 1px solid var(--timmy-line); }
 .cm-bottom h3 { margin-top: 6px; font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); overflow-wrap: anywhere; }
 .cm-bottom .cm-state { margin: 4px 0 0; }
@@ -425,7 +429,7 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
 .cx-console { margin: 8px 0 2px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); }
 .cx-console-head { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 2px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
 .cx-console-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border: 0; background: transparent; color: var(--timmy-text); font: inherit; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
-.cx-console-toggle:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+.cx-console-toggle:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; } /* (D12: the focus ring is the exact focus token, not the family accent) */
 .cx-console-caret { display: inline-block; }
 .cx-console.is-folded .cx-console-caret { transform: rotate(-90deg); }
 .cx-console-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -434,13 +438,14 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
 #cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { width: auto; height: clamp(120px, 20vh, 190px); aspect-ratio: 640 / 380; }
 #cx-console .tr-component .tr-words { font-size: 13px; }
 #cx-console .tr-component .tr-status { font-size: 14px; }
-/* folded: ONE row — the toggle, then the state word and its note (the face hidden, never the word); the conversation keeps the height */
+/* D13 (H168's R77; the lead's ruling): the band folded is ONE ROW — the toggle, the face at 40 px (the artboard's proportions;
+   H174 hides its small runs under 320 px) and the state words beside it; it is the band's form whenever no turn runs or asks */
 .cx-console.is-folded { display: flex; align-items: center; gap: 10px; min-height: 28px; }
 .cx-console.is-folded .cx-console-head { flex: 0 0 auto; }
 .cx-console.is-folded .cx-console-note { display: none; }
-.cx-console.is-folded .cx-console-body { flex: 1; min-width: 0; padding: 0 8px 0 0; }
-.cx-console.is-folded .cx-console-body .tr-face { display: none; }
-.cx-console.is-folded .cx-console-body .tr-component[data-artboard] { display: block; }
+.cx-console.is-folded .cx-console-body { flex: 1; min-width: 0; padding: 2px 8px 2px 0; }
+.cx-console.is-folded .cx-console-body .tr-component[data-artboard] { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0 10px; }
+#cx-console.is-folded .cx-console-body .tr-component[data-artboard="AgentConsole"] .tr-face { display: inline-grid; width: auto; height: 40px; aspect-ratio: 640 / 380; border-radius: 6px; }
 .cx-console.is-folded .cx-console-body .tr-words { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
 .cx-console.is-folded .cx-console-body .tr-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-height: 760px) { .cx-console { margin: 4px 0 0; } .cx-console-head, .cx-console.is-folded { min-height: 26px; } }
@@ -483,13 +488,12 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
 .cx-needs > p + p, .cx-needs .cx-needs-opts { margin-top: 6px; }
 .cx-needs-k { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-attention, var(--timmy-accent)); }
 .cx-needs .cx-act-sub { margin: 6px 0 0; }
-/* R11 round 6 (H168's R65): the band's height is taken from the conversation, so what the conversation shows must fit beside it.
-   The band open (body.console-open, chat-shell.js syncConsoleClass): the face at 18 % of the window's height (162 px at 900: the
-   native text still reads), the welcome compact — the mark, the question, the line and the three starters whole above the band
-   at 1440 × 900; the primary starter's native face beside its label, its words under them, so its card is as tall as the others */
-/* (the lead's ruling on CI run 40110859990: the face ≥ 300 px wide at 1440 × 900, so the artboard's 28 px headline is ≥ 13 px on
-   screen — the page's own floor; 178 px tall is 300 wide at 640 : 380; a short window and a phone fold the band instead) */
-#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { height: clamp(178px, 20vh, 190px); }
+/* R11 round 6 (H168's R65): the band's height is taken from the conversation, so what the conversation shows must fit beside it
+   (body.console-open, chat-shell.js syncConsoleClass: the welcome compact while the band is open) */
+/* (the lead's ruling on CI run 40110859990 — the face ≥ 300 px wide at 1440 × 900 — gave way to D13, H168's R77: the band OPENS only
+   while a turn runs or asks, to ≤ 160 px (12 % of the window: 108 px at 900), the composer still in view under it; H174 hides the
+   artboard's small runs under 320 px; a short window and a phone keep the one row) */
+#cx-console .tr-component[data-artboard="AgentConsole"] .tr-face { width: auto; height: clamp(96px, 12vh, 160px); aspect-ratio: 640 / 380; }
 .cx-console { margin: 4px 0 2px; }
 .cx-console-head { min-height: 26px; }
 .cx-console-body { padding: 0 8px 4px; }
@@ -545,7 +549,7 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
 .cx-attach-form { display: grid; gap: 6px; margin: 10px 0; max-width: 46ch; }
 .cx-attach-form label { font-size: 13px; color: var(--timmy-text-secondary); }
 .cx-attach-path { min-height: 34px; padding: 6px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-ground); color: var(--timmy-text); font: inherit; font-family: var(--timmy-font-code, inherit); font-size: 13px; }
-.cx-attach-path:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+.cx-attach-path:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 1px; }
 /* the catalog's metadata on the row (H169's CATALOG METADATA v1): the capabilities the provider lists as true, the provider */
 .cm-row-caps { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; font-size: 13px; line-height: 1.3; color: var(--timmy-text-secondary); }
 .cm-cap { padding: 0 6px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font-size: 13px; color: var(--timmy-text); }
@@ -559,10 +563,35 @@ body[data-chat-state="empty"] .cx-head { display: none; } /* (R11 round 4: the w
    controls sit in the task dock; the status row is a line of the records. An older shell sets none of this. */
 body.cx-on-scaffold .cx-top, body.cx-on-scaffold #cx-head, body.cx-on-scaffold #cx-primary, body.cx-on-scaffold #cx-sub { display: none; }
 body.cx-on-scaffold .cx-body { grid-template-columns: minmax(0, 1fr); }
-/* the work keeps room for the welcome whole with the band open (the ruling on CI 40110859990) and for a readable conversation:
-   below 680 px the page grows and #ws-main scrolls to the dock and the records (the probe of 16:03 measured a 238 px work
-   area at 1440 × 900 under the shell's head, band, dock and records) */
-body.cx-on-scaffold #ws-chat .page-body { min-height: 680px; }
+/* D13 (H168's R77 High; the lead's ruling): at 1440 × 900 the composer is in view in EVERY Chat state without scrolling — the page
+   takes the height the shell's main column gives it (its head, band, dock and folded records are the chrome; the body what 900
+   allows: 468–490 px there, measured in hold N — the 680 px floor of 16:03 pushed the composer under the fold); inside, the
+   conversation is the part that scrolls (.cx-scroll). The floor of 400 px is for SHORTER windows: the band's row, the route line,
+   the composer and the hint take ≈ 250, so the conversation keeps ≥ 150 px and the page grows (#ws-main scrolls, the composer
+   still above the fold at 1280 × 720) instead of the work spilling over the dock; the console band is one row unless a turn runs
+   (above); the welcome is ≤ 120 px (below) */
+body.cx-on-scaffold #ws-chat .page-body { min-height: 400px; }
+/* the welcome in two short rows — the mark beside "Start with", then the three starters as one row of chips (the words behind
+   each title are the desk's; the primary's native face carries its own label — R97: not twice) */
+body.cx-on-scaffold #cx-empty.is-welcome { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 10px; row-gap: 8px; margin: 10px auto 6px; max-width: 860px; }
+body.cx-on-scaffold #cx-empty.is-welcome .cx-welcome-mark.sh-mark.is-big { width: 40px; height: 40px; font-size: 22px; border-radius: 6px; margin: 0; }
+body.cx-on-scaffold #cx-empty.is-welcome .cx-start-k { margin: 0; }
+body.cx-on-scaffold #cx-empty.is-welcome .cx-ways.cx-starters { grid-column: 1 / -1; margin: 0; gap: 10px; }
+body.cx-on-scaffold .cx-starters .cx-way-words, body.cx-on-scaffold .cx-starters .cx-twin-words { display: none; }
+body.cx-on-scaffold .cx-starters .cx-way-compact { min-height: 0; padding: 8px 12px; flex-direction: row; align-items: center; gap: 8px; }
+body.cx-on-scaffold .cx-way-twin .cx-rive-host:not(.is-loading) { padding: 0; border: 0; }
+body.cx-on-scaffold #cx-empty .cx-way-twin .cx-rive-host .tr-face { width: 140px; }
+/* the band OPENED by the viewer on the empty Chat (H168's R65: the welcome whole above the open band): ONE row at a desk — the
+   mark, "Start with" and the three chips side by side (≈ 46 px in the ≈ 78 px the open band leaves at 1440 × 900) */
+@media (min-width: 761px) {
+  body.cx-on-scaffold.console-open #cx-empty.is-welcome { grid-template-columns: auto auto minmax(0, 1fr); margin: 2px auto; row-gap: 0; }
+  body.cx-on-scaffold.console-open #cx-empty.is-welcome .cx-welcome-mark.sh-mark.is-big { width: 32px; height: 32px; font-size: 18px; }
+  body.cx-on-scaffold.console-open #cx-empty.is-welcome .cx-ways.cx-starters { grid-column: 3; display: flex; flex-wrap: nowrap; gap: 8px; }
+  body.cx-on-scaffold.console-open .cx-starters .cx-way-compact { padding: 6px 10px; }
+}
+/* R81 (H168): the records' mirror keeps its state line; its Save · Download · ✕ Delete row and the planned badge are an older
+   interaction model and are not drawn under the fold (the markup is index.html's: said in the handoff) */
+body.cx-on-scaffold .page-records #console-card .card-header .row-8 { display: none; }
 body.cx-on-scaffold .page-context .cx-models { display: flex; position: static; width: auto; max-height: calc(100vh - 220px); border-left: 0; border: 1px solid var(--timmy-ui-border-quiet, var(--timmy-line)); border-radius: var(--timmy-ui-radius-panel, 3px); background: var(--timmy-ui-elev-surface, var(--timmy-surface)); }
 body.cx-on-scaffold .page-dock .cx-controls { min-height: 0; padding: 0; border: 0; overflow: visible; flex-wrap: wrap; }
 body.cx-on-scaffold .page-dock .cx-controls-label { display: none; }
