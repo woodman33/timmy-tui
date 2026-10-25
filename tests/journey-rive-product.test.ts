@@ -467,8 +467,10 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect((await root.getAttribute('data-artboard')) || h.artboard, 'the console takes the AgentConsole artboard').toBe('AgentConsole');
         const boxOf = await o.page.locator(`canvas[data-timmy-rive="${key}"]`).first().boundingBox();
         expect(boxOf, 'the console\'s canvas has a box').toBeTruthy();
-        // (the readable-width rule — the lead's ruling: the face ≥ 300 px wide at 1440×900 — is asserted at the END of the case, so a
-        // short face fails the case without cutting the recording and the captures that follow)
+        // (the round-6 readable-width rule — the face ≥ 300 px wide at 1440×900 — is SUPERSEDED by the operator's 19:18 order, item 3
+        // (H171 2c01a896: the established Chat's band is one row, its console 65×38 px) and D18 (H174 9bc54381: a face whose room cannot
+        // reach the 13-px floor keeps the HTML word BESIDE it — inspect().words 'beside', wordsWhy says why); the legibility truth is
+        // read from the runtime at the END of the case (so a wrong face fails the case without cutting the recording and the captures)
         const consoleWidth = boxOf!.width;
         if (phone) expect(consoleWidth, 'within the phone\'s width').toBeLessThanOrEqual(size.width);
         expect(await o.page.locator(`[data-rive-status="${key}"]`).first().getAttribute('aria-live')).toBe('polite');
@@ -688,7 +690,19 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         expect(o.left, 'requests that left 127.0.0.1').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
         expect(o.missing, 'resources the page asked for and the companion has not').toEqual([]);
-        if (!phone) expect(consoleWidth, 'readable: the console face ≥ 300 px wide at 1440×900 (the lead\'s ruling on H174\'s card size, the borders inside)').toBeGreaterThanOrEqual(300);
+        // LEGIBILITY (D18, item 3): the console's word is carried legibly — either the face draws it at ≥ 13 px (words 'spoken', reached) or
+        // the HTML word stands beside the face (words 'beside'); the runtime's own report, never the picture; the face's size said
+        {
+          const truth = await o.page.evaluate((k) => {
+            type H = { component: string; state: string; words: string | null; wordsWhy: string | null; faceWidth: number | null; faceHeight: number | null; headline: { px: number; scale: number; reached: boolean; floor: number } | null };
+            const R = (window as unknown as { TimmyRive?: { inspect?: () => H[] } }).TimmyRive;
+            return (R?.inspect?.() ?? []).find((h) => h.component === k) ?? null;
+          }, key);
+          expect(truth, 'the console\'s handle in TimmyRive.inspect()').toBeTruthy();
+          const legible = truth!.words === 'beside' || (truth!.words === 'spoken' && Boolean(truth!.headline?.reached));
+          expect(legible, `the console's word is carried legibly (D18): words "${truth!.words}", headline ${truth!.headline ? `${truth!.headline.px} px (×${truth!.headline.scale}, reached ${truth!.headline.reached})` : '(no report)'} — ${truth!.wordsWhy ?? 'no wordsWhy'}; the face ${Math.round(consoleWidth)} px wide`).toBe(true);
+          seen.push(`the console face ${Math.round(consoleWidth)}×${truth!.faceHeight ?? '?'} px: words "${truth!.words}" (${truth!.headline ? `headline ${truth!.headline.px} px, reached ${truth!.headline.reached}` : 'no headline report'}) — ${truth!.wordsWhy ?? ''}`);
+        }
         chatPassed = true;
       } finally {
         const video = o.page.video();
@@ -726,13 +740,13 @@ describe('the native Rive UI in the product: Chat, Connections, Canvas — a FAK
         // "Check again"); what was pressed is said
         const localCard = o.page.locator(SEL.card('ollama-local')).first();
         await localCard.click();
-        if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+        const openSheet = async (): Promise<void> => { if (phone && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); } };
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
         let pressedCheck: string;
-        if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; }
-        else if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
-        else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the page read:\n${(await text(o.page)).slice(0, 1500)}`);
+        // (the card's own verb is pressed on the page itself, BEFORE the phone's modal context sheet is opened — the sheet would intercept it)
+        if (/^Check( again)?$/.test(localVerb)) { await localCard.locator('[data-cn-verb="ollama-local"]').first().click(); pressedCheck = `the card's own verb "${localVerb}"`; }
+        else { await openSheet(); if (await contextCheck.count()) { await contextCheck.first().click(); pressedCheck = `the context's "Check" for the selected local card (the card's own verb reads "${localVerb}")`; } else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}"); the page read:\n${(await text(o.page)).slice(0, 1500)}`); }
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' });
         await inputIs(o.page, key, 'State', 0, 15_000);
         // item 4 (H174's 9b6b2449): the face's HTML label and headline read the OBSERVED word the screen fed ("checked"); the binding's

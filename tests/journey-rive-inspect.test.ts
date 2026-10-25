@@ -386,13 +386,19 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
           // the binding state row says the word AND the native input it set
           expect(await o.page.locator('[data-inspect-values="connection-openrouter"]').innerText()).toMatch(/connection = "disconnected" → State 0/);
         }
-        // the connection labels: the cards not set up / not installed → "disconnected" (the vocabulary's word, in the HTML label);
+        // the connection labels: the cards not set up / not installed → the binding "disconnected" (State 0); item 4 (H174's 9b6b2449):
+        // the HTML label reads the OBSERVED word the card carries ("not set up", "not installed") where the bindings pass it beside the
+        // vocabulary's word; an older bindings file reads "disconnected" — either is the derivation, said which;
         // a card ALREADY "checked" when the view opens (the companion kept the observation from an earlier Check) → "connected" at once
-        for (const p of ['openrouter', 'ollama-cloud', 'cloudflare']) expect(await label(o.page, `connection-${p}`), `connection-${p}`).toBe('disconnected');
+        for (const p of ['openrouter', 'ollama-cloud', 'cloudflare']) {
+          const cardState = (await o.page.locator(`[data-provider="${p}"]`).first().getAttribute('data-state').catch(() => null)) ?? '';
+          const w = await label(o.page, `connection-${p}`);
+          expect([...(cardState ? [cardState] : []), 'disconnected'], `connection-${p}: the label reads the card's observed word ("${cardState}") or the vocabulary's "disconnected"`).toContain(w);
+        }
         const localState = await o.page.locator('[data-provider="ollama-local"]').first().getAttribute('data-state');
         // (item 4, H174's 9b6b2449: the label reads the OBSERVED word "checked" where the bindings carry it beside the vocabulary's "connected")
         if (localState === 'checked') expect(['connected', 'checked'], 'a card already checked when the Inspect view opens must read connected / checked (H174: the first look() runs before the view\'s handles exist, so a state seen then is never applied to them)').toContain(await labelIs(o.page, 'connection-ollama-local', /^(connected|checked)$/, 5_000).catch((e: Error) => e.message));
-        else expect(await label(o.page, 'connection-ollama-local')).toBe('disconnected');
+        else expect([...(localState ? [localState] : []), 'disconnected'], `connection-ollama-local: the label reads the card's observed word ("${localState}", item 4) or the vocabulary's "disconnected"`).toContain(await label(o.page, 'connection-ollama-local'));
         // the PREVIEW label on every operational card; the welcome has none (a user trigger); the mark has no preview
         for (const key of ['connection-openrouter', 'connection-ollama-local', 'connection-ollama-cloud', 'connection-cloudflare', 'activity']) {
           expect(await o.page.locator(`[data-preview-words="${key}"]`).first().innerText(), `${key}'s preview label`).toBe(PREVIEW_LABEL);
@@ -432,12 +438,15 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         await closeInspect(o.page);
         const localCard = o.page.locator('[data-provider="ollama-local"]').first();
         await localCard.click();
-        if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
         const localVerb = ((await localCard.locator('[data-cn-verb="ollama-local"]').first().textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
         const contextCheck = o.page.locator('[data-cn-tools="ollama-local"]').getByRole('button', { name: /^Check$/ });
-        if (await contextCheck.count()) await contextCheck.first().click();
-        else if (/^Check( again)?$/.test(localVerb)) await localCard.locator('[data-cn-verb="ollama-local"]').first().click();
-        else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}")`);
+        // (the card's own verb is pressed on the page itself, BEFORE the phone's modal context sheet is opened — the sheet would intercept it)
+        if (/^Check( again)?$/.test(localVerb)) await localCard.locator('[data-cn-verb="ollama-local"]').first().click();
+        else {
+          if (size.width <= 720 && !(await o.page.locator('.page-context.is-open').first().isVisible().catch(() => false))) { await o.page.locator('.page-context-btn').filter({ visible: true }).first().click(); await o.page.locator('.page-context.is-open').first().waitFor({ state: 'visible', timeout: 5_000 }); }
+          if (await contextCheck.count()) await contextCheck.first().click();
+          else throw new Error(`no Check control for Ollama · local: neither the context's tool ([data-cn-tools="ollama-local"] "Check") for the selected card nor the card's verb (reads "${localVerb}")`);
+        }
         // the card's own state first (H170's data-state: "checked" once the FAKE answered its list), then the binding's word
         await o.page.waitForSelector('[data-provider="ollama-local"][data-state="checked"]', { timeout: 20_000, state: 'attached' }).catch(async () => {
           const st = await o.page.locator('[data-provider="ollama-local"]').first().getAttribute('data-state').catch(() => null);
@@ -463,7 +472,9 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
           expect(await inputValue(o.page, 'connection-ollama-local', 'State')).toBe(0);
           expect(await o.page.locator('[data-inspect-component="connection-ollama-local"] .tr-facts').innerText()).toContain('connected has NO success pose');
         }
-        expect(await label(o.page, 'connection-openrouter'), 'the other cards stay as they are').toBe('disconnected');
+        // the other cards stay as they are: the OpenRouter card's label reads its observed word ("not set up", item 4) or the vocabulary's "disconnected"
+        const orState = (await o.page.locator('[data-provider="openrouter"]').first().getAttribute('data-state').catch(() => null)) ?? '';
+        expect([...(orState ? [orState] : []), 'disconnected'], `the other cards stay as they are (openrouter: "${orState}")`).toContain(await label(o.page, 'connection-openrouter'));
         await closeInspect(o.page);
         expect(o.left, 'requests that left 127.0.0.1 (Clerk\'s fetches to the FAKE instance aside)').toEqual([]);
         expect(o.errors, 'page errors').toEqual([]);
@@ -555,7 +566,18 @@ describe('the Rive components and the Inspect animation view: a FAKE identity pr
         expect(await o.page.$$eval('[data-inspect-events="activity"] li .tr-native', (els) => els.map((e) => (e.textContent || '').trim())), 'the view writes the native input beside each event').toEqual(expect.arrayContaining(['→ State 3', '→ State 1', '→ State 0']));
       }
       const card = await o.page.locator('[data-inspect-component="activity"]').innerText();
-      expect(card, 'the Inspect view shows no receipt and no progress number').not.toMatch(/receipt [0-9a-f]{8}|\d+ ?%|sha256_/i);
+      // the Inspect view shows no FABRICATED receipt and no progress number: since H174's 4e8d4905 (R11 round 7: "the runtime binds the
+      // feed's identity and receipt") the activity card's "Identity / receipt" row names the REAL turn's receipt as its done event
+      // attached it — so a receipt shown here must be one of THIS conversation's sealed receipts (GET /api/chat/view as the user: the
+      // turn's receipt id is the hash's first 8), and no percentage stands anywhere on the card
+      expect(card, 'no progress number on the Inspect view').not.toMatch(/\d+ ?%/);
+      const shownReceipts = [...card.matchAll(/receipt (?:sha256_)?([0-9a-f]{8})[0-9a-f]*/gi)].map((m) => m[1].toLowerCase());
+      if (shownReceipts.length) {
+        const view = await api('GET', '/api/chat/view', { session: identity.token(USER) });
+        expect(view.status, `GET /api/chat/view as the user: ${view.text.slice(0, 200)}`).toBe(200);
+        const ids = ((view.json?.conversation?.turns ?? []) as Array<{ receipt?: { id?: string } }>).map((t) => String(t.receipt?.id ?? '').toLowerCase()).filter(Boolean);
+        for (const r of shownReceipts) expect(ids, `the receipt the Inspect view names (${r}…) is one of this conversation's sealed receipts (the turn's done event attached it), never an invented one — the view's: ${ids.join(', ') || '(none)'}`).toContain(r);
+      }
       await closeInspect(o.page);
       expect(o.errors, 'page errors').toEqual([]);
       expect(o.missing, `resources the page asked for and the companion has not (the mark's known miss counted apart: ${o.markAsks.length})`).toEqual([]);
