@@ -33,13 +33,16 @@ export async function roboflowUpload(project: string, dir?: string): Promise<{ o
   }
   if (!files.length) return { ok: false, uploaded: 0, reason: 'no png/jpg artifacts in the project yet — generate first' };
   let uploaded = 0;
+  // R11 (H170; Phase 0 item 3): the key goes in the Authorization header (Bearer, as src/vision/platform.ts sends it to
+  // api.roboflow.com), never in the URL: a URL lands in logs, histories and error text; a header does not
+  const key = process.env.ROBOFLOW_API_KEY!;
   for (const f of files.slice(0, 20)) {
     try {
       const form = new FormData();
-      form.append('file', new Blob([readFileSync(f)], { type: 'image/png' }), basename(f));
+      form.append('file', new Blob([readFileSync(f)], { type: /\.jpe?g$/i.test(f) ? 'image/jpeg' : 'image/png' }), basename(f));
       const res = await fetch(
-        `https://api.roboflow.com/dataset/timmy-${project}/upload?api_key=${process.env.ROBOFLOW_API_KEY}`,
-        { method: 'POST', body: form }
+        `https://api.roboflow.com/dataset/timmy-${encodeURIComponent(project)}/upload`,
+        { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form }
       );
       if (res.ok) uploaded++;
     } catch { /* per-file best effort; the count is the truth */ }

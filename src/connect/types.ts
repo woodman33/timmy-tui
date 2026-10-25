@@ -35,6 +35,8 @@ export interface ProbeFacts {
   detach?: 'setsid' | 'perl' | 'wmi' | 'none';
   /** the program that gives a file's sha256 there */
   sha256?: string;
+  /** which `stat` can identify an open file there (fstat dev:inode), so a fetch can rule out a swap: GNU, BSD/macOS, or none */
+  identity?: 'gnu' | 'bsd' | 'none';
   found_on_path: string[];
   not_found_on_path: string[];
 }

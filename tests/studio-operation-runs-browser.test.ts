@@ -26,6 +26,7 @@ import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
 import { addOperation, writeOperation, type Operation } from './helpers/canvas-operation.js';
 import { grant } from './helpers/canvas-auth.js';
+import { groupBy } from './helpers/studio-steady.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -66,7 +67,8 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot, runDetail: producer });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot, runDetail: producer });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const named = await fetch(`${base}/api/project/active`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}` },
@@ -100,7 +102,8 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
       await page.goto(`${base}/#code=${await grant(Number(new URL(base).port), server.projectToken)}`);
       await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-      await page.click('#project-by button[data-by="operation"]');
+      // R10 (H172): the first press after the page's first cards, once the panel stands still (./helpers/studio-steady.ts)
+      await groupBy(page, 'operation');
       await page.waitForSelector(`#project-groups section.pop[data-op="${X}"] .pop-place`, { timeout: 20_000 });
       await page.click(`#project-groups section.pop[data-op="${X}"] .pop-place`);
       await page.waitForFunction(() => /^Operation /.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
@@ -111,7 +114,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       // its run is the newest now: said as its own run, with no "now" line
       await waitText(page, `${at} .tc-last`, new RegExp(`^Run of operation ${X} \\(build\\): completed`));
       expect(await page.locator(`${at} .tc-now-run`).count()).toBe(0);
-      expect(await text(page, `${at} .tc-op`)).toBe(`operation ${X}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `${at} .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`${at} .tc-op`, 'title')).toBe(`operation ${X}`);
 
       // Y runs RUN.md › build again (its own record, a job started inside it): the newest run is Y's now
       writeOperation(p, { id: Y, request: '/run RUN.md build' });
@@ -121,7 +126,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       await waitText(page, `${at} .tc-now-run`, new RegExp(`^now: the newest run of RUN\\.md \\(build\\) is completed, by operation ${Y}$`));
       // X's card still says X's run, and names X: never Y's run in its place
       expect(await text(page, `${at} .tc-last`)).toMatch(new RegExp(`^Run of operation ${X} \\(build\\): completed`));
-      expect(await text(page, `${at} .tc-op`)).toBe(`operation ${X}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `${at} .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`${at} .tc-op`, 'title')).toBe(`operation ${X}`);
       await page.click(`${at} .tc-toggle`);
       await waitText(page, `${at} .tc-details`, new RegExp(`run of operation ${X}job ${x.job.id}`));
       expect(await text(page, `${at} .tc-details`)).toContain(`newest runjob ${y.id}`);
@@ -138,7 +145,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       const plain = await page.evaluate(() => (window as never as Win).timmyCanvas.editor.store.allRecords()
         .find((r) => r.typeName === 'shape' && r.type === 'timmy-workflow' && !r.meta?.timmyOperation)?.id);
       await waitText(page, `[data-timmy-card="${plain}"] .tc-last`, /^Newest run \(build\): completed/);
-      expect(await text(page, `[data-timmy-card="${plain}"] .tc-op`)).toBe(`operation ${Y}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `[data-timmy-card="${plain}"] .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`[data-timmy-card="${plain}"] .tc-op`, 'title')).toBe(`operation ${Y}`);
       expect(await page.locator(`[data-timmy-card="${plain}"] .tc-now-run`).count()).toBe(0);
       if (process.env.TIMMY_CANVAS_SHOTS) await page.screenshot({ path: join(process.env.TIMMY_CANVAS_SHOTS, 'operation-runs-1440x900.png') });
       expect([...origins].every((o) => o === base)).toBe(true);

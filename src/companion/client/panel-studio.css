@@ -1,0 +1,112 @@
+/* R11 round 7 (H176; DESIGN.md §10 B11, SHELL CONTRACT v1): the Canvas page's own sheet (src/companion/client/panel-studio.js).
+   Every colour, face, radius and material is a --timmy-ui-* token (the hex beside it only its fallback); the list's rows are
+   raised cards, the chosen one carries the focus ring's amber edge (the selection is where to look, never green). Served
+   beside companion.css once src/companion/server.ts lists it (the lead's line); until then the page falls back to
+   companion.css's boxes and reads the same, less the materials. */
+
+/* the Canvas page's wide layout on the scaffold (SHELL CONTRACT v1 nests the page's grid under .page-body > .page-work, where
+   companion.css's `#ws-studio > .cols-two` no longer reaches): the board list — the page's work — takes the wide right column,
+   whole height; Timmy Studio's state, the canvas's revision and jobs, and the tab's actions stack on the left (companion.css
+   1500–1503 place them). A narrow screen keeps the page's order. */
+/* (R11 round 7, H176; the lead's D20: the state and canvas cards are hidden by the panel on the scaffold — their facts are the page's
+   records — so the left column holds the tab's actions alone, at the top; the board keeps the wide right column, whole height) */
+@media (min-width: 861px) {
+  #ws-studio .page-work > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: minmax(0, 1fr); }
+  #ws-studio .page-work > .cols-two > .col-stack { display: contents; }
+  #ws-studio .page-work > .cols-two section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 1; align-self: start; }
+  #ws-studio .page-work > .cols-two .studio-host { grid-column: 2; grid-row: 1; }
+}
+
+/* the chain companion.css gives the host's direct box (#ws-studio .studio-host > .box.sb-box: flex 1 1 auto, min-height 0), carried
+   through the page's wrappers, so the list scrolls inside its box and never runs under the activity section */
+.sb-page { display: flex; flex-direction: column; gap: var(--timmy-ui-space-3, 12px); flex: 1 1 auto; min-height: 0; min-width: 0; }
+.sb-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--timmy-ui-space-3, 12px); flex: 1 1 auto; min-height: 0; }
+.sb-body > .box.sb-box, .sb-body > .box.sb-context { min-height: 0; margin-top: 8px; }
+.sb-page-head, .sb-dock, .sb-records { flex: 0 0 auto; }
+/* the panel's own context box, drawn only while the shell's context column is not on the page */
+.sb-body:has(.sb-context) { grid-template-columns: minmax(0, 1fr) minmax(0, 320px); }
+@media (max-width: 1100px) { .sb-body:has(.sb-context) { grid-template-columns: minmax(0, 1fr); } }
+
+/* the panel's own head, dock and records, drawn only while the shell is not on the page */
+.sb-page-head { display: grid; gap: 4px; }
+.sb-page-kicker { margin: 0; font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/var(--timmy-ui-leading-label, 1.35) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
+  letter-spacing: var(--timmy-ui-tracking-kicker, .14em); text-transform: uppercase; color: var(--timmy-ui-accent, #D6AA64); }
+.sb-page-title { margin: 0; font: var(--timmy-ui-weight-heading, 600) var(--timmy-ui-size-page, 30px)/var(--timmy-ui-leading-tight, 1.15) var(--timmy-ui-font, "Outfit", system-ui, sans-serif);
+  letter-spacing: var(--timmy-ui-tracking-title, -0.02em); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-page-intro { margin: 0; max-width: 64ch; font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-dock { display: flex; flex-wrap: wrap; align-items: center; gap: var(--timmy-ui-space-2, 8px); padding: var(--timmy-ui-space-2, 8px) 0; border-top: 1px solid var(--timmy-ui-border-quiet, #1E2A36); }
+.sb-dock-label { font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); letter-spacing: var(--timmy-ui-tracking-kicker, .14em); text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--timmy-ui-space-2, 8px); }
+.sb-records .sb-rec, .page-records .sb-rec { font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-rec > summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-rec-line { margin: 4px 0 0; overflow-wrap: anywhere; }
+.sb-rec-muted { color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-starter-list { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+
+/* R11 round 7 (H176; the lead's D14 R88): the board's map — the page's work beside the list. The Studio itself is not embedded
+   (the companion's page policy frames only itself, and a Studio page loads only with a one-time grant), so the saved board is
+   drawn: each item a box where it sits on its page, in the registry's materials (a draft dashed amber: it waits in Studio; the
+   chosen one the focus edge); the page tabs when the board has more than one page; a height of its own, so the list has its room */
+.sb-map { display: grid; gap: var(--timmy-ui-space-2, 8px); }
+.sb-map[hidden] { display: none; }
+.sb-map-pages { display: flex; flex-wrap: wrap; gap: 4px; }
+.sb-map-page { font: var(--timmy-ui-weight-medium, 500) var(--timmy-ui-size-label, 13px)/1.35 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); padding: 3px 10px; border-radius: var(--timmy-ui-radius-pill, 999px);
+  border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); background: var(--timmy-ui-surface, #111A23); color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; }
+.sb-map-page[aria-selected="true"] { background: var(--timmy-ui-raised, #1C2936); border-color: var(--timmy-ui-border, #44586B); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-map-page:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.sb-map-svg { display: block; width: 100%; height: clamp(220px, 42vh, 560px); border-radius: var(--timmy-ui-radius-control, 10px); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); background: var(--timmy-ui-canvas, #080B0F); }
+.sb-map-ground { fill: var(--timmy-ui-canvas, #080B0F); }
+.sb-map-item rect { fill: var(--timmy-ui-raised, #1C2936); stroke: var(--timmy-ui-border, #44586B); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.sb-map-item text { fill: var(--timmy-ui-text, #ECF1F5); font-family: var(--timmy-ui-font, "Outfit", system-ui, sans-serif); pointer-events: none; }
+.sb-map-item.kind-reference rect, .sb-map-item.kind-image rect { fill: var(--timmy-ui-surface, #111A23); }
+.sb-map-item.kind-words rect { fill: transparent; stroke-dasharray: 6 4; }
+.sb-map-item.kind-other-project rect { fill: transparent; stroke: var(--timmy-ui-text-muted, #9AAFC3); stroke-dasharray: 4 4; }
+.sb-map-item.is-draft rect { stroke: var(--timmy-ui-focus, #FFB000); stroke-dasharray: 8 5; }
+.sb-map-item.is-selected rect { stroke: var(--timmy-ui-focus, #FFB000); stroke-width: 3; }
+.sb-map-item:hover rect { stroke: var(--timmy-ui-text-secondary, #BDCADA); }
+.sb-map-item:focus-visible { outline: none; }
+.sb-map-item:focus-visible rect { stroke: var(--timmy-ui-focus, #FFB000); stroke-width: 3; }
+.sb-map-foot { margin: 0; font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-muted, #9AAFC3); }
+
+/* the list: each row a raised card; the chosen one carries the amber edge (the page's context shows it) */
+.sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--timmy-ui-space-2, 8px); }
+.sb-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--timmy-ui-space-3, 12px); padding: var(--timmy-ui-space-2, 8px) var(--timmy-ui-space-3, 12px);
+  border-radius: var(--timmy-ui-radius-control, 10px); background: var(--timmy-ui-raised, #1C2936); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); cursor: pointer;
+  font: var(--timmy-ui-weight-body, 400) var(--timmy-ui-size-label, 13px)/var(--timmy-ui-leading-body, 1.55) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-item.no-thumb { grid-template-columns: minmax(0, 1fr); }
+.sb-item:hover { border-color: var(--timmy-ui-border, #44586B); }
+.sb-item:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; box-shadow: 0 0 0 2px var(--timmy-ui-focus-halo, #080B0F); }
+.sb-item[aria-current="true"] { border-color: var(--timmy-ui-focus, #FFB000); }
+.sb-item.kind-other-project { border-style: dashed; }
+.sb-kind { margin: 0; font-size: var(--timmy-ui-size-label, 13px); letter-spacing: .04em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-title.sb-ctx-title, .sb-item .sb-title { font: var(--timmy-ui-weight-strong, 600) var(--timmy-ui-size-body, 14px)/var(--timmy-ui-leading-label, 1.35) var(--timmy-ui-font, "Outfit", system-ui, sans-serif); letter-spacing: 0; color: var(--timmy-ui-text, #ECF1F5); overflow-wrap: anywhere; }
+.sb-excerpt { margin: 0; color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.sb-where { margin: 0; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.sb-draft { margin: 0; padding-left: 8px; border-left: 2px dashed var(--timmy-ui-text-secondary, #BDCADA); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-fake { font-size: 11px; letter-spacing: .06em; padding: 0 5px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-pill, 999px); color: var(--timmy-ui-text, #ECF1F5); }
+.sb-acts { margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.sb-link { color: var(--timmy-ui-accent-soft, #EAD0A3); }
+.sb-addr { color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.sb-thumb { padding: 0; border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); border-radius: var(--timmy-ui-radius-control, 10px); background: var(--timmy-ui-canvas, #080B0F); overflow: hidden; cursor: zoom-in; width: 96px; height: 72px; }
+.sb-img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.sb-thumb-failed { color: var(--timmy-ui-text-muted, #9AAFC3); font-size: var(--timmy-ui-size-label, 13px); }
+.sb-summary { margin: 0; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-body, 1.55); }
+.sb-summary.tone-failed { color: var(--timmy-ui-focus, #FFB000); }
+.sb-foot { margin: 0; color: var(--timmy-ui-text-muted, #9AAFC3); font-size: var(--timmy-ui-size-label, 13px); }
+.sb-ctx { display: grid; gap: 4px; }
+.sb-ctx .sb-kind { margin-bottom: 2px; }
+
+/* a phone (D5): one column, the rows whole */
+@media (max-width: 720px) {
+  .sb-item { grid-template-columns: minmax(0, 1fr); }
+  .sb-thumb { width: 100%; height: 120px; }
+}
+
+/* R11 round 7 (H176; the lead's D20): on the scaffold the board is the page's work itself — the map and the list with one fact line —
+   not a titled card; the empty note is the shell's state note, said once (the panel's own line hides then); the section's legacy
+   cards ("Timmy Studio" with its own Open Studio, "Timmy Canvas · revision and jobs" with its Open Timmy Canvas link) are hidden by
+   the panel (their facts are in the records; the elements stay for the page's other readers, never shown) */
+.sb-board { display: grid; gap: var(--timmy-ui-space-2, 8px); min-width: 0; min-height: 0; }
+.sb-summary[hidden] { display: none; }
+#ws-studio [data-studio-hidden="d20"] { display: none !important; }
+.sb-rec-jobs { margin: 2px 0 0; padding-left: 18px; display: grid; gap: 2px; }

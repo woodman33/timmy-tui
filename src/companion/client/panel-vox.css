@@ -1,0 +1,41 @@
+/* R11 round 7 (H170; UI-OWNERSHIP.md): the VoxVision page's own sheet (src/companion/client/panel-vox.js), beside the
+   .vox-* rules companion.css keeps for the three columns: the honest evidence rows (each quantity its own row; "Unknown" in
+   the text colour with its why, never a colour that claims a state; green only on a verified receipt's row), the page's
+   tools in the shell's dock. The head, band and dock frame are the shell's. Theme variables only (the B10 web names stand
+   on this page until it moves to --timmy-ui-*, SHELL CONTRACT v1 §0); no colour is written here. */
+.vox-page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.vox-page > .vox-cols { flex: 1 1 auto; min-height: 0; }
+/* R11 round 7 (the lead's GATE 05 on 2e6266ff: the image at 4.6 % of the panel at 1376×768): under the shell's scaffold the
+   page scrolls as a whole and .page-work gives the host no height, so the three columns take a height of their own here — the
+   viewport the largest box, the image at its own aspect with its labels beside or below it (layoutStage sizes the frame to the
+   stage), the side boxes scrolling within their share (companion.css's percentages resolve against a definite height again).
+   Two columns under 1180 px: the columns take their content's height and the stage keeps a height of its own; one column
+   under 860 px (companion.css): the boxes stack and the stage is as tall as a full-width 16:9 image with its labels below. */
+.page-work > .vox-host > .vox-page > .vox-cols { flex: none; height: clamp(460px, calc(100vh - 300px), 920px); }
+@media (max-width: 1180px) {
+  .page-work > .vox-host > .vox-page > .vox-cols { height: auto; }
+  .page-work > .vox-host .vox-stage { flex: none; height: clamp(240px, 46vh, 640px); }
+}
+@media (max-width: 860px) {
+  .page-work > .vox-host .vox-stage { height: auto; min-height: calc(56.25vw + 72px); }
+}
+/* the evidence rows */
+.vox-cols .vox-right > .box.vox-evidence-box { flex: 0 1 auto; max-height: 46%; min-height: 5em; }
+.vox-ev-lead { margin: 0 0 8px; font-size: 12px; color: var(--timmy-text-secondary); }
+.vox-ev { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; font-size: 13px; }
+.vox-ev-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 2px 10px; padding: 6px 0; border-top: 1px solid var(--timmy-line); }
+.vox-ev-row:first-child { border-top: 0; padding-top: 0; }
+.vox-ev-row dt { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); }
+.vox-ev-row dd { margin: 0; color: var(--timmy-text); overflow-wrap: anywhere; }
+.vox-ev-row.is-unknown dd { color: var(--timmy-text-secondary); }
+.vox-ev-unknown { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.vox-ev-row.is-verified dd { color: var(--timmy-live); }
+
+/* the page's tools in the shell's dock */
+.vox-dock-btn[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.vox-dock-note { font-size: 12px; color: var(--timmy-text-secondary); }
+
+@media (max-width: 720px) {
+  .vox-ev-row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .vox-page * { transition: none !important; animation: none !important; } }

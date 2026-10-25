@@ -7,7 +7,7 @@
  * each canvas job with the revision and source revision it produced, and its receipt once sealed.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
@@ -53,7 +53,39 @@ export interface CanvasJob {
   sourceRevision: string;
   at: string;
   receipt?: string;
+  /** R6 (H139): the project the job ran for (its id), as the canvas server stamped the call; absent in ledgers from before R6. */
+  project?: string;
 }
+
+/**
+ * R5 (H133): one line of the drafts record (`drafts.jsonl`, beside the canvas): a draft Timmy proposed (or that was refused before
+ * or after it ran), and each decision a person made on one (accepted or discarded), with the canvas revision and source revision
+ * that hold it. Appended, never rewritten.
+ */
+export interface DraftRecord {
+  at: string;
+  draft: string;
+  event: 'proposed' | 'refused' | 'accepted' | 'discarded';
+  job: string | null;
+  /** How many shapes it had (proposed: drawn; accepted or discarded: kept or removed). */
+  shapes: number;
+  /** The canvas revision it was made from. */
+  from: number | null;
+  /** The canvas revision (and its sha256) that holds the event: the save after it. */
+  revision: number | null;
+  sourceRevision: string | null;
+  /** refused: why, in words; stale or changes. */
+  why?: string;
+  reason?: 'stale' | 'changes';
+  /** accepted or discarded: who decided (a person, through this canvas page's session; or the REPL's token), and whether this record holds its proposal. */
+  by?: 'page' | 'token';
+  proposed?: boolean;
+  /** R6 (H139): the project whose board the draft is on (its id); absent in records from before R6. */
+  project?: string;
+}
+
+export const DRAFT_ID = /^draft-[0-9a-f]{8,32}$/;
+const MAX_DRAFT_LINES = 2000;
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 const isRevision = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
@@ -68,12 +100,60 @@ function writeWhole(path: string, text: string): void {
 export class CanvasDocuments {
   private readonly file: string;
   private readonly jobsFile: string;
+  private readonly draftsFile: string;
   private readonly maxBytes: number;
 
   constructor(private readonly dir: string, options: { maxBytes?: number } = {}) {
     this.file = join(dir, 'canvas.json');
     this.jobsFile = join(dir, 'jobs.json');
+    this.draftsFile = join(dir, 'drafts.jsonl');
     this.maxBytes = options.maxBytes ?? MAX_CANVAS_BYTES;
+  }
+
+  /** R5 (H133): the drafts record, oldest first (the last 2000 lines); a line that cannot be read is skipped. */
+  drafts(): DraftRecord[] {
+    let text = '';
+    try { text = readFileSync(this.draftsFile, 'utf8'); } catch { return []; }
+    const out: DraftRecord[] = [];
+    for (const line of text.split('\n').slice(-MAX_DRAFT_LINES - 1)) {
+      if (!line.trim()) continue;
+      try {
+        const r = JSON.parse(line) as DraftRecord;
+        if (r && typeof r === 'object' && typeof r.draft === 'string' && DRAFT_ID.test(r.draft)) out.push(r);
+      } catch {
+        // a torn line is skipped, never repaired
+      }
+    }
+    return out;
+  }
+
+  /** R5 (H133): appends one line to the drafts record (readable by its owner only). */
+  recordDraft(entry: Omit<DraftRecord, 'at'> & { at?: string }): DraftRecord {
+    if (!DRAFT_ID.test(entry.draft)) throw new Error(`Not a draft id: ${JSON.stringify(entry.draft).slice(0, 40)}`);
+    const line = { ...entry, at: entry.at ?? new Date().toISOString() } as DraftRecord;
+    mkdirSync(this.dir, { recursive: true });
+    appendFileSync(this.draftsFile, `${JSON.stringify(line)}\n`, { mode: 0o600 });
+    return line;
+  }
+
+  /**
+   * R5 (H133): keeps a page's version of the canvas as a copy beside the canvas file (`copies/canvas-r<revision>-<time>.json`),
+   * when a newer version is on disk and the page may not save over it. The canvas file is never touched. Returns where it went.
+   */
+  keepCopy(input: { snapshot?: unknown; revision?: unknown; baseRevision?: unknown }): { ok: true; kept: string; revision: number; sourceRevision: string } | { ok: false; error: string; tooLarge?: true } {
+    const { snapshot, revision, baseRevision } = input;
+    if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot) || !isRevision(revision) || !isRevision(baseRevision)) {
+      return { ok: false, error: 'Send {"snapshot": {...}, "revision": N, "baseRevision": N}: the page\'s canvas, as a save sends it.' };
+    }
+    const text = JSON.stringify(snapshot);
+    if (Buffer.byteLength(text) > this.maxBytes) return { ok: false, error: `This canvas is too large to keep (over ${this.maxBytes} bytes).`, tooLarge: true };
+    const savedAt = new Date().toISOString();
+    const sourceRevision = sha256(text);
+    const name = `canvas-r${revision}-${savedAt.replace(/[:.]/g, '-')}.json`;
+    const copies = join(this.dir, 'copies');
+    mkdirSync(copies, { recursive: true });
+    writeWhole(join(copies, name), `${JSON.stringify({ format: 'timmy-canvas-copy', version: 1, revision, baseRevision, savedAt, sourceRevision, snapshot })}\n`);
+    return { ok: true, kept: `copies/${name}`, revision, sourceRevision };
   }
 
   /** The saved canvas, or a blank one. The source revision is always computed from the snapshot read. */
@@ -159,10 +239,14 @@ export class CanvasDocuments {
     }
   }
 
-  /** A call of job `id` ended, leaving the canvas at `revision` (`sourceRevision`). A failed call marks the job failed. */
-  recordJob(id: string, call: { ok: boolean; revision: number; sourceRevision: string }): CanvasJob {
+  /**
+   * A call of job `id` ended, leaving the canvas at `revision` (`sourceRevision`). A failed call marks the job failed. R6 (H139):
+   * with the project it ran for (its id), kept on the job.
+   */
+  recordJob(id: string, call: { ok: boolean; revision: number; sourceRevision: string; project?: string }): CanvasJob {
     if (!JOB_ID.test(id)) throw new Error(`Not a job ID: ${JSON.stringify(id).slice(0, 40)}`);
     if (!SHA256.test(call.sourceRevision) || !isRevision(call.revision)) throw new Error('A job call needs its revision and its source revision (a sha256).');
+    if (call.project !== undefined && !/^[0-9a-f]{16}$/.test(call.project)) throw new Error('A job\'s project is its id (16 hex).');
     const list = this.jobs();
     const before = list.find((j) => j.id === id);
     // A ledger from before round R1 has no count: its job failed at least once if it says failed.
@@ -175,6 +259,7 @@ export class CanvasDocuments {
       failed: failedBefore + (call.ok ? 0 : 1),
       revision: call.revision,
       sourceRevision: call.sourceRevision,
+      ...(call.project ? { project: call.project } : {}),
       at: new Date().toISOString(),
     };
     mkdirSync(this.dir, { recursive: true });

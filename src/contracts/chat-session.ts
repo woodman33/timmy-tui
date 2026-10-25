@@ -22,6 +22,11 @@ export interface ChatTurnHooks {
   /** the answer so far */
   onText(full: string): void;
   onTool?(event: { id: string; name: string; phase: 'start' | 'end'; outcome?: string }): void;
+  /**
+   * R11 round 4 (H169; contract C3): the turn's identity, told as its hold is taken (src/agent/chat-turn.ts projectTurn: the
+   * hold's id, the same id Stop names through requestTurnStop) and before anything is sent
+   */
+  onTurn?(turn: { id: string; startedAt: string }): void;
   /** a surface that cannot show the NEEDS YOU box answers 'deny' and says where the person can decide */
   askPerson(req: ApprovalRequest): Promise<Decision>;
   signal?: AbortSignal;
@@ -39,6 +44,17 @@ export interface ChatTurnResult {
   /** "no charge (local endpoint)", a reported amount, or "cost unknown" */
   costWords: string;
   model?: string;
+  /** R11 round 4 (H169; contract C3): the turn's facts as sealed, for a surface that draws them apart from the words */
+  /** the steps the turn took (the model's tool calls, as the receipt counts them) */
+  steps?: number;
+  /** what the provider reported spending, in dollars (0 on this computer's Ollama); null when nothing was reported */
+  costUsd?: number | null;
+  /** true only when the cost is known whole (a local endpoint's no charge, or everything OpenRouter reported) */
+  costMeasured?: boolean;
+  /** the last-resort local fallback answered after OpenRouter failed (free-only / local-only only) */
+  fellBack?: boolean;
+  /** the turn's identity (the hold's id), when a turn was started */
+  turnId?: string;
 }
 
 /**
@@ -67,6 +83,12 @@ export interface ChatSession {
    * A refusal's `lines` say which, and that nothing was sent; it is `sent: false` with no receipt.
    */
   sendOnce(key: string, text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult>;
+  /**
+   * R11 round 6 (H169; the companion's "New conversation", the REPL's /new): the project's next turn starts a conversation of
+   * its own on the project's one agent (src/agent/core.ts startSession); the saved one stays on disk. Refused, with why,
+   * while a turn of the project runs. Optional: a surface's own session (the Workbench's fakes) need not offer it.
+   */
+  newConversation?(): { ok: true; session: string } | { ok: false; why: string };
 }
 
 export type ChatSurface = 'repl' | 'monitor' | 'workbench' | 'companion';

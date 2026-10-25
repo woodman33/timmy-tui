@@ -109,7 +109,8 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const fixtures = temp('timmy-cards-fixtures-');
     const fakePython = join(fixtures, 'fake-python');
@@ -322,7 +323,12 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       await page.waitForFunction((s) => !(document.querySelector(`${s} button[data-tc-act="rebuild"]`) as HTMLButtonElement).disabled, at);
       await page.click(`${at} button[data-tc-act="rebuild"]`);
       await page.waitForFunction((s) => /^canvas \/recipe tray/.test(document.querySelector(`${s} .tc-answer`)?.textContent ?? ''), at, { timeout: 20_000 });
-      await page.waitForFunction((s) => /^Newest build: succeeded/.test(document.querySelector(`${s} .tc-build`)?.textContent ?? ''), at, { timeout: 30_000 });
+      // R5 (H133): the build is checked once its copy in the project has verified. Between the job's own success and the REPL's
+      // watcher copying its exports into the project, a reading says "Newest build: succeeded · but its exports are not
+      // verified in the project: out/recipes/<job>/outer.stl is missing", with no facts (true then). Under load the watcher's
+      // next poll can come after the page's next reading, and a wait for "succeeded" alone passed on that line.
+      const build = (): Promise<string> => page.evaluate((s) => document.querySelector(`${s} .tc-build`)?.textContent ?? '', at);
+      await expect.poll(build, { timeout: 30_000 }).toMatch(/^Newest build: succeeded · its signed result verified now/);
       expect(await text(page, `${at} .tc-build`)).toMatch(/bounds 160 x 80 x 30 mm/);
       expect(errors.filter((e) => !/status of 422/.test(e))).toEqual([]);
     } finally {
@@ -334,7 +340,12 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     const { page, context, errors } = await open({ grant: false });
     try {
       // R4 (H83): no canvas, no cards, no project: the page says it needs /canvas open, and starts nothing else
-      expect(await text(page, '#status')).toBe('Not loaded: This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none. In Timmy: /canvas open.');
+      // R5 (H133): said once, in the middle of the page (it had been in the panel's line too); the line points there
+      expect(await text(page, '#status')).toBe('Not loaded: why, and what to type in Timmy, are in the middle of the page.');
+      expect(await text(page, '#refused-words')).toBe('This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none.');
+      expect((await page.evaluate(() => document.body.innerText)).split('This page was opened without a grant from Timmy').length - 1).toBe(1);
+      // and no workspace strip: the page has no session to read it with
+      expect(await page.isHidden('#frame')).toBe(true);
       expect(await page.isVisible('#refused')).toBe(true);
       expect(await page.isHidden('#side-ready')).toBe(true);
       expect(await page.locator('[data-timmy-card]').count()).toBe(0);

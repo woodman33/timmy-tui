@@ -106,7 +106,7 @@ const DOC = {
 };
 
 const saved: Record<string, string | undefined> = {};
-const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_TUI_ACTIVE'];
+const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_TUI_ACTIVE'];
 const originalCwd = process.cwd();
 let work = '';
 let root = '';
@@ -128,6 +128,8 @@ beforeAll(async () => {
   writeFileSync(busFile(), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.seeded', payload: { note: 'SYNTHETIC bus event' } })}\n`);
   process.env.TIMMY_REPO = root;
   process.env.OPENROUTER_API_KEY = FAKE_KEY;
+  // R11 (H169, Phase 0 item 2): the page's Send asks the model chosen for this process (no fixed model of its own): a FAKE one
+  process.env.OPENROUTER_MODEL = 'fake-maker/fake-local-servers-model';
   process.env.TIMMY_HOME = home;
   delete process.env.TIMMY_TUI_ACTIVE;
   process.chdir(work);
@@ -234,21 +236,25 @@ describe('the browser companion (timmy watch)', () => {
     expect([...byHost.messages, ...byOrigin.messages]).toEqual([]);
   });
 
-  it('/chat with a rebinding Host or another site\'s Origin is refused and the FAKE upstream receives nothing', async () => {
+  // R11 round 4 (H169): the legacy raw POST /chat stream is gone (the page's chat is the real turn, POST /api/chat/turn, mounted
+  // by the page's wiring); the companion's token rule is checked on a content route that stays, /api/chat/stop
+  it('a content route with a rebinding Host or another site\'s Origin is refused and the FAKE upstream receives nothing', async () => {
     for (const headers of [{ Host: `${REBIND}:${cport}`, ...auth(ctoken) }, { Origin: `http://${REBIND}`, ...auth(ctoken) }]) {
-      const r = await call(cport, 'POST', '/chat', { headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ message: 'hello' }) });
+      const r = await call(cport, 'POST', '/api/chat/stop', { headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ turn: 't1-00000000' }) });
       expect(r.status).toBe(403);
     }
     expect(fake.seen).toEqual([]);
   });
 
-  it('without the token, /chat is refused, says what to do, and the FAKE upstream receives nothing', async () => {
+  it('without the token, a content route is refused, says what to do, and the FAKE upstream receives nothing; the legacy POST /chat is gone', async () => {
     for (const headers of [{}, auth(OTHER), { Authorization: ctoken }, { Authorization: `Basic ${ctoken}` }]) {
-      const r = await call(cport, 'POST', '/chat', { headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ message: 'hello' }) });
+      const r = await call(cport, 'POST', '/api/chat/stop', { headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ turn: 't1-00000000' }) });
       expect(r.status).toBe(401);
       expect(r.headers['www-authenticate']).toBe('Bearer');
       expect(String(r.json.error)).toMatch(/timmy watch/);
     }
+    const legacy = await call(cport, 'POST', '/chat', { headers: { 'Content-Type': 'application/json', ...auth(ctoken) }, body: JSON.stringify({ message: 'hello' }) });
+    expect(legacy.status).toBe(404);
     expect(fake.seen).toEqual([]);
   });
 
@@ -298,16 +304,12 @@ describe('the browser companion (timmy watch)', () => {
     expect(tail?.events.map((e) => e.kind)).toContain('test.seeded');
   });
 
-  it('with the token each works as before: /chat streams the FAKE upstream\'s answer, fusion writes its receipt, emit reaches the controller, receipts and the canvas answer', async () => {
+  it('with the token each works as before: fusion writes its receipt, emit reaches the controller, receipts and the canvas answer (the legacy /chat stream is gone: nothing reaches the FAKE upstream)', async () => {
+    // R11 round 4 (H169): the page's chat is the real turn (POST /api/chat/turn, src/companion/chat-run.ts); the raw stream to
+    // OpenRouter's chat/completions is removed, so the FAKE upstream sees nothing from this server
     const chat = await call(cport, 'POST', '/chat', { headers: { 'Content-Type': 'application/json', ...auth(ctoken) }, body: JSON.stringify({ message: 'hello companion' }) });
-    expect(chat.status).toBe(200);
-    expect(chat.body).toContain('event: delta\ndata: "FAKE upstream "');
-    expect(chat.body).toContain('event: delta\ndata: "answer"');
-    expect(chat.body).toContain('event: usage');
-    expect(chat.body).toContain('event: done');
-    expect(fake.seen).toHaveLength(1);
-    expect(fake.seen[0].auth).toBe(`Bearer ${FAKE_KEY}`);
-    expect(JSON.parse(fake.seen[0].body)).toMatchObject({ stream: true, messages: [{ role: 'user', content: 'hello companion' }] });
+    expect(chat.status).toBe(404);
+    expect(fake.seen).toHaveLength(0);
 
     const fusion = await call(cport, 'POST', '/api/workflow/fusion', { headers: { 'Content-Type': 'application/json', ...auth(ctoken) }, body: JSON.stringify({ prompt: 'SYNTHETIC fusion', models: ['m1'] }) });
     expect(fusion.status).toBe(200);
@@ -335,7 +337,8 @@ describe('the browser companion (timmy watch)', () => {
   it('the page itself is open: it carries no content of the operator\'s', async () => {
     const page = await call(cport, 'GET', '/');
     expect(page.status).toBe(200);
-    expect(page.body).toContain('TIMMY Browser Companion');
+    // the page's own title since H132's workspace view (e0c9732): "TIMMY · companion" (was "TIMMY Browser Companion")
+    expect(page.body).toContain('<title>TIMMY · companion</title>');
     expect(page.body).not.toContain(ctoken);
   });
 
@@ -391,11 +394,11 @@ describe('the browser companion with --lan', () => {
       const opened = await wsTry(`ws://${lan}:${lanServer.port}/`, ['timmy-companion', `timmy-token.${token}`], { origin: `http://${lan}:${lanServer.port}`, hello: true, wait: 600 });
       expect(opened.open).toBe(true);
       expect(opened.messages.some((m) => m.type === 'bus.tail')).toBe(true);
-      // /chat over the network without the token: refused, nothing sent upstream
+      // a content route over the network without the token: refused, nothing sent upstream
       const seen = fake.seen.length;
       const chat = await new Promise<number>((resolve, reject) => {
-        const body = JSON.stringify({ message: 'x' });
-        const req = request({ host: lan, port: lanServer.port, path: '/chat', method: 'POST', headers: { Host: `${lan}:${lanServer.port}`, 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(body)) }, setHost: false, agent: false }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)); });
+        const body = JSON.stringify({ turn: 't1-00000000' });
+        const req = request({ host: lan, port: lanServer.port, path: '/api/chat/stop', method: 'POST', headers: { Host: `${lan}:${lanServer.port}`, 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(body)) }, setHost: false, agent: false }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)); });
         req.on('error', reject);
         req.end(body);
       });

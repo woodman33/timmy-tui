@@ -68,12 +68,20 @@ export async function runStudio(argv: string[], env: Record<string, string | und
     '',
   ].join('\n'));
   return new Promise<number>((resolve) => {
+    let stopping = false;
     const stop = (code: number) => (): void => {
-      // A browser holding a keep-alive connection must not keep Timmy running.
-      setTimeout(() => resolve(code), 3000).unref();
+      if (stopping) return;
+      stopping = true;
+      // R5 (H137; H133's finding): every way out stops what this run started, and only that (a port another process holds was
+      // never ours: 69 above). A browser holding a keep-alive connection must not keep Timmy running: after a grace the server
+      // drops every connection still open, so the server is closed when this resolves, whoever called it
+      setTimeout(() => { server.closeAllConnections(); resolve(code); }, STOP_GRACE_MS).unref();
       server.close(() => resolve(code));
     };
     process.once('SIGINT', stop(130));
     process.once('SIGTERM', stop(143));
   });
 }
+
+/** R5 (H137): how long a stop waits for open connections (a page's keep-alive) before it drops them (ms). */
+export const STOP_GRACE_MS = 3000;

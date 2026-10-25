@@ -62,13 +62,12 @@
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
-    "scripts/vision-bridge.py",
-    "scripts/vision-doctor.py",
-    "scripts/vision-stream.py",
     "studio/tldraw-mission-map",
-    "templates/vision",
-    "deploy/vision",
-    "docs/ROBOFLOW-VISION.md",
+    "scripts/roboflow-bridge.py",
+    "scripts/vision-bridge.py",
+    "lanes/geo/voxel_score.py",
+    "lanes/geo/scale_solver.py",
+    "lanes/geo/bench_loader.py",
     "tools/spatial-fit-20260915/adapter.py",
     "tools/spatial-fit-20260915/README.md",
     "docs/VISUAL-TOOLS.md",
@@ -117,7 +116,8 @@
     "mission-map": "tsx src/cli.ts vision serve --port 4321",
     "vision:studio": "tsx src/cli.ts vision serve",
     "vision:doctor": "tsx src/cli.ts vision doctor",
-    "build:cli": "node scripts/build-cli.mjs"
+    "build:cli": "node scripts/build-cli.mjs",
+    "test:vision:real": "node scripts/test-vision-real.mjs"
   },
   "repository": {
     "type": "git",
@@ -145,6 +145,7 @@
   },
   "homepage": "https://timmytui.com",
   "dependencies": {
+    "@clerk/clerk-js": "6.40.1",
     "@cloudflare/flagship": "^0.3.1",
     "@fontsource/monaspace-argon": "5.3.0",
     "@mcpc-tech/cmcp": "^0.0.15",

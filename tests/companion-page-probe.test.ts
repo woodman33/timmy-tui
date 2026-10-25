@@ -31,6 +31,11 @@ describe('the policies the probe asks for (src/companion/page.ts pagePolicy, src
     expect(strictPolicy(pagePolicy('127.0.0.1:4100').replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"), 4100)).toBe(false);
     expect(strictPolicy(pagePolicy('127.0.0.1:4100').replace("script-src 'self'", "script-src 'self' https://cdn.example"), 4100)).toBe(false);
     expect(strictPolicy(pagePolicy('127.0.0.1:4100').replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"), 4100)).toBe(false);
+    // R11 round 6: the one keyword the Rive runtime's WebAssembly needs is strict too (exactly that, nothing else with it)
+    const base = pagePolicy('127.0.0.1:4100').replace(/script-src 'self'(?: 'wasm-unsafe-eval')?/, "script-src 'self'");
+    expect(strictPolicy(base.replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'"), 4100)).toBe(true);
+    expect(strictPolicy(base.replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'"), 4100)).toBe(false);
+    expect(strictPolicy(base.replace("script-src 'self'", "script-src 'wasm-unsafe-eval'"), 4100)).toBe(false);
     expect(strictPolicy(pagePolicy('127.0.0.1:4100').replace("img-src 'self' data:", 'img-src *'), 4100)).toBe(false);
     expect(strictPolicy(null, 4100)).toBe(false);
     // a Host the local rule would never let through is not written into the policy

@@ -1,0 +1,8 @@
+name: welcome
+file: welcome.riv
+artboard: TimmyWelcome
+stateMachine: Welcome
+inputs: welcome, selected, expanded
+logs:
+  file: build/rive.log
+  problems: build/problems.log

@@ -1,0 +1,32 @@
+name: Real local vision
+
+# R11 (H170, the vision integration): run by hand only. This job installs NumPy and OpenCV from PyPI and runs real
+# pixel computation; it is proposed, not enabled on every pull request, so that no push downloads anything without
+# a need (R11-COMMON: propose, do not enable, anything that downloads). The lead enables `pull_request` if wanted.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-opencv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install real local pixel-processing dependencies
+        run: python3 -m pip install numpy==2.5.4 opencv-python-headless==5.0.0.93
+      - name: Real pixel computation, never skip for absent OpenCV
+        run: npm run test:vision:real
+      - name: Shipped assets and isolated unit coverage
+        run: npx vitest run tests/vision-assets.test.ts tests/vision-runtime.test.ts tests/vision-not-available.test.ts --maxWorkers=1
+      - name: Python bridge contract tests (SDK doubles; not live inference)
+        run: python3 -m unittest discover -s tests -p '*bridge*.py' -v

@@ -64,7 +64,8 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       // Each command is typed at a prompt that is back and ready, as a person would (SUITE-01 once lost
       // the next one on a loaded machine).
-      await waitFor(/Show the model, or switch[\s\S]*Enter to send/);
+      // the end of /help (its last command) with the prompt back under it; /model's own words changed with its price (39d21ec)
+      await waitFor(/\/exit +Quit Timmy[\s\S]*Enter to send/);
       tmux('send-keys', '-t', 't', '-l', '/nope');
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/Unknown command: \/nope\.[\s\S]*Enter to send/);

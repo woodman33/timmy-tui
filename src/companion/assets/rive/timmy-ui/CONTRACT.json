@@ -1,0 +1,281 @@
+{
+  "name": "timmy-ui",
+  "version": 2,
+  "status": "served: the v2 build of commit 44c4605f's source — this folder's source (R11 round 7, H174); the consumers' rule `production` (the operator's item 4 of 2026-10-24 19:18) is runtime-only — no rebuild",
+  "asset": {
+    "file": "timmy-ui.riv",
+    "contractOfTheServedFile": 2,
+    "builtFrom": "the source of commit 44c4605f (scene.rml as create-controls.py writes it: this folder's source)",
+    "built": "Rive CLI 1.1.1 on the operator's machine, 2026-10-24 15:15 PT: `rive . --verify` 0 errors 0 warnings, `rive . --once` 0 errors 0 warnings, `rive inspect` 0 warnings; BUILD.txt, rive-build-log.txt, rive-build-problems.txt and INSPECT-summary.txt beside this file record it (the CLI writes rive.log / problems.log; renamed: the repo ignores *.log)",
+    "sha256": "b493297ab715f0c63159bcba77edbfe232b06567c209d98460590b660bd9fd36",
+    "bytes": 93256,
+    "artboards": 7,
+    "evidenceOfTheStates": "per-state native renders of the PRODUCTION artboards are not possible from the CLI (it drives pointer and key gestures and --data view-model properties, not a state-machine input): the states are what the browser suites show on this file (tests/companion-rive-browser.test.ts, tests/studio-rive-shape-browser.test.ts) and the lead's native renders of the artboards at rest and of the preview variant after a click"
+  },
+  "source": {
+    "generator": "create-controls.py (Python 3.12+; writes scene.rml, the CLI's four-line rive.yaml, and this file's `meta` block)",
+    "markup": "scene.rml",
+    "font": {
+      "file": "Outfit.ttf",
+      "family": "Outfit",
+      "axis": "wght 100–900 (variable)",
+      "licence": "Outfit-OFL.txt (SIL OFL 1.1; no Reserved Font Name declared)",
+      "made_by": "make-font.py from @fontsource-variable/outfit's latin woff2 — the font this product serves at /web/fonts/"
+    },
+    "yaml": "rive.yaml holds the CLI's name + logs only: its yaml parser (fkyaml) aborts on any other key — the listing reads this file's `meta` block instead"
+  },
+  "served": {
+    "asset": "/assets/rive/timmy-ui/timmy-ui.riv",
+    "listing": "GET /api/rive/assets (runtime, components, mark; the companion and the Studio)",
+    "runtime": "/vendor/rive/rive.js + rive.wasm (@rive-app/canvas, served by this product)"
+  },
+  "stateMachine": {
+    "name": "TimmyUI",
+    "inputs": {
+      "State": {
+        "type": "Number",
+        "values": {
+          "0": "Idle",
+          "1": "Working / Checking",
+          "2": "Approval / NEEDS-YOU",
+          "3": "Stopped",
+          "4": "Failed"
+        },
+        "note": "no success value: a connected provider is State 0 and the words say connected"
+      },
+      "Hover": {
+        "type": "Bool",
+        "note": "the page's selection (tldraw) or the pointer over an ActionButton; never a state"
+      },
+      "Pressed": {
+        "type": "Bool",
+        "note": "a press, down then up on the next frame; never a state"
+      },
+      "ReducedMotion": {
+        "type": "Bool",
+        "note": "zero-duration transitions AND the Working pose without its spinning ring (the WorkingStill state): nothing keeps moving; the words carry the state"
+      }
+    }
+  },
+  "artboards": {
+    "AgentConsole": {
+      "size": [
+        640,
+        380
+      ],
+      "role": "the turn's activity",
+      "runs": {
+        "Title": "TIMMY  /  AGENT CONSOLE (baked; '' on a production mount — consumers.production)",
+        "Tag": "NATIVE RIVE UI → the turn's identity words on an Inspect face; '' on a production mount",
+        "Caption": "'' → LIVE  /  THE TURN’S EVENTS on a non-mount face the feed set; PREVIEW on the preview artboard; '' on a production mount",
+        "HeadlineIdle…HeadlineFailed": "the authored headline per state (baked in its state group); on a production mount every one reads the HTML state word",
+        "LineIdle…LineFailed": "the authored line per state; '' on a production mount"
+      },
+      "listeners": []
+    },
+    "ProviderCard": {
+      "size": [
+        400,
+        260
+      ],
+      "role": "one provider's connection",
+      "runs": {
+        "Title": "TIMMY  /  PROVIDERS (baked; '' on a production mount — consumers.production)",
+        "Tag": "NATIVE RIVE UI → the page's words on an Inspect face; '' on a production mount",
+        "Caption": "'' → LIVE  /  GET /api/connections on a non-mount face the feed set; PREVIEW on the preview artboard; '' on a production mount",
+        "ProviderName": "Provider → OpenRouter · Ollama · local · Ollama · cloud · Cloudflare on an Inspect face (ONE run, outside the state groups: v1's five same-named subtitle runs are gone); '' on a production mount — the name is in the face's aria-label",
+        "ProviderState": "'' → the observed state word on an Inspect face; '' on a production mount (the headline carries it)",
+        "ProviderDetail": "'' → the page's one line on an Inspect face; '' on a production mount (the screen's HTML carries it)",
+        "HeadlineIdle…HeadlineFailed": "the authored headline per state; on a production mount every one reads the HTML state word"
+      },
+      "listeners": []
+    },
+    "ActionButton": {
+      "size": [
+        240,
+        72
+      ],
+      "role": "a real action (Amber primary-action material)",
+      "runs": {
+        "Caption": "Action → the button's own label"
+      },
+      "listeners": [
+        "Button enter / exit → Hover",
+        "Button down / up → Pressed"
+      ],
+      "note": "the per-state baked labels of v1 are gone; the state poses change the right-hand mark only"
+    },
+    "ActionButtonGlacier": {
+      "size": [
+        240,
+        72
+      ],
+      "role": "the same button in the Glacier material (a mount picks by the page's data-theme)",
+      "runs": {
+        "Caption": "Action"
+      },
+      "listeners": [
+        "Button enter / exit → Hover",
+        "Button down / up → Pressed"
+      ]
+    },
+    "AgentConsolePreview": {
+      "size": [
+        640,
+        380
+      ],
+      "role": "PREVIEW (the Inspect view only; never mounted in the product)",
+      "bakes": [
+        "Caption = PREVIEW  /  NOT A LIVE JOB",
+        "the Inspect interaction pill",
+        "the Inspect click listener: State → 1"
+      ]
+    },
+    "ProviderCardPreview": {
+      "size": [
+        400,
+        260
+      ],
+      "role": "PREVIEW (the Inspect view only)",
+      "bakes": [
+        "Caption = PREVIEW  /  NOT A LIVE JOB",
+        "the Inspect interaction pill",
+        "the Inspect click listener: State → 1"
+      ]
+    },
+    "ActionButtonPreview": {
+      "size": [
+        240,
+        72
+      ],
+      "role": "PREVIEW (the Inspect view only)",
+      "bakes": [
+        "Caption = Preview action",
+        "the Inspect click listener: State → 1"
+      ]
+    }
+  },
+  "materials": {
+    "registry": "DESIGN.md B11 / the study's token registry v0.1",
+    "canvas": "#080B0F",
+    "surface": "#111A23",
+    "raised": "#1C2936",
+    "border": "#44586B",
+    "text": "#ECF1F5",
+    "secondary": "#BDCADA",
+    "muted": "#9AAFC3",
+    "focus": "#FFB000 (the Working ring, Approval, Failed: focus / intent / attention)",
+    "stopped": "#9AAFC3",
+    "neverOnAFace": "#28FE14 — no observed-live claim is drawn; the HTML words say connected / passed / sealed",
+    "primaryAction": {
+      "amber": {
+        "start": "#F0E5D4",
+        "soft": "#EAD0A3",
+        "accent": "#D6AA64",
+        "ink": "#402E14 (H175's measured ink: 6.05:1 on the accent)"
+      },
+      "glacier": {
+        "start": "#E1EEF7",
+        "soft": "#BED9ED",
+        "accent": "#8ABBE3",
+        "ink": "#1D3848 (6.02:1)"
+      }
+    }
+  },
+  "consumers": {
+    "mountApi": "window.TimmyRive.mountConsole(host, { size, words, label, heading, name, place, identity: { project, session }, caption }) · mountProviderCard(host, providerId, { size, words, label, name, place, providerName, detail }) · mountActionButton(host, { label, action, disabled, name, place, theme }); `words`: 'beside' (the default: the HTML status word beside the face) | 'spoken' (the status in the accessibility tree and off the screen while the face is drawn — a screen whose own words sit beside the face); a console's or card's `label`, `caption`, `identity` and `detail` are accepted and kept on the handle (the Inspect view reads them) — a production face draws none of them (consumers.production)",
+    "handle": "root, unmount(), setLabel(words) (an ActionButton's Caption; a console's or card's state word and headline), setDisabled(bool), setProvider({ name, detail }) on a card (the name goes to the face's aria-label), place, mounted",
+    "feeds": "fromSse(event, data, source) · fromProviderState(id, word, source) · stopping(source) · reconcile(word, { turn, source })",
+    "identity": "a 'turn' event names the feed's current turn (data.id); 'needs-you' / 'done' of another turn are ignored as stale (recorded, never applied); 'done'.receipt is attached to the handle; stopping = STOP REQUESTED until 'done' cancelled",
+    "shape": "timmy-rive props { w, h, component, state, label, provider } unchanged; AS SAVED / NOT A LIVE JOB until a feed event reaches it on its page",
+    "versions": "the bindings tell v1 from v2 by the runs present (v2: Caption on every production artboard); v1's runtime workarounds (the caption overwrite, the scaled pill) apply to a v1 file only",
+    "label": "the face's HTML label (span.tr-status, aria-live=polite: the live region) shows the OBSERVED word the feed gave (fromProviderState's stateWord: H170's \"checked\" / \"pending\" / …; the derivation's data-state), never the vocabulary's word beside it (R86: one word per card); the vocabulary word stays the State mapping (data-state, the shape's saved prop, inspect().word); inspect().shown and the label's data-observed say the observed word when it differs",
+    "production": {
+      "rule": "the operator's item 4 (2026-10-24 19:18; the lead's ruling of 19:24): a PRODUCTION face — one a screen mounts through mountConsole / mountProviderCard (handle.mounted; inspect().mounted) — carries ONE thing, the state: the HTML state word as its headline in EVERY pose and the mark the state animates. Runtime-only (runs and labels): no rebuild; the artboards are unchanged",
+      "headline": "Headline{Idle|Working|Approval|Stopped|Failed} all read labelWord(handle) — the IDENTICAL string the HTML status reads (\"checked\", \"pending\", \"not set up\", \"idle\", \"working\", \"awaiting approval\", \"stopping\", \"stopped\", \"failed\"): no capitalised twin, no second vocabulary; a pose change keeps the word and moves the mark (f165d8c7's \"Checked\" on HeadlineIdle only is superseded)",
+      "hidden": "Title, Tag, Caption read \"\" at EVERY size (f165d8c7's 320-px threshold is superseded); on a ProviderCard ProviderName, ProviderState, ProviderDetail read \"\" too (the state is the headline; the provider's name is the card's HTML title and the face's aria-label); on the AgentConsole Line{pose} reads \"\"; the ActionButton is untouched (its Caption is its own label)",
+      "accessibleName": "a mounted role=img face's aria-label is the state word (the console: \"working\"), with the provider's name after it on a card (\"checked · OpenRouter\" — mountProviderCard's providerName / setProvider({ name }), else the id's own words); it follows every state change; a mounted ActionButton keeps its own label as its name (a button's name is its action; its HTML twin is unchanged)",
+      "liveRegion": "the status span beside the face stays the live region (aria-live=polite, the same word as the headline); with `words: 'spoken'` it is off the screen while the face is drawn AND its headline reaches the floor (legibility), and beside the fallback glyph while it is not (rive-components.css: .tr-mount[data-words=spoken][data-rive=drawn] .tr-status; data-words is the EFFECTIVE mode, data-words-asked the ask) — a screen must never display:none it (that silences the announcement), and a screen that hides its own word beside a drawn face must key that on data-words=\"spoken\", never on data-rive=\"drawn\" alone",
+      "legibility": "the lead's ruling of 2026-10-24 22:12 (D2's floor): the one word a production face draws must be READABLE where it is drawn — 13 CSS px at least. At mount and on every resize the bindings compute the headline's drawn size (19 px × faceWidth / 400 on a card; 28 px × faceHeight / 380 on the console; the face's clientWidth / clientHeight) and, where the artboard's room allows, scale every pose's Headline Text node (artboard.node('Headline<pose>'), as v1's pill was scaled — a runtime transform, no rebuild) up to the floor, capped so the word stays inside the face (to the right of the headline's top-left origin by the word's estimated width at 0.6 em per character; below it by 1.25 lines; the card's room ends at the mark's ring x 306 and y 250, the console's at the ring's top y 192 and x 612), never shrunk. Where the floor cannot be reached — the Chat band's 40-px-tall face (the room allows ×2.69 of 28 px: ≈ 8 px), a card too narrow for its word — `words: 'spoken'` is NOT honoured: the HTML status stays visible beside the face. Reached, measured in the suite: a 240-px card (×1.15 → 13 px), a 152-px card (×1.8 → 13 px), the open Chat band's 108-px face (×1.63 → 13 px)",
+      "sameString": "the face's headline run and the HTML status word are compared equal by the suite (tests/companion-rive-browser.test.ts): one word, drawn once legibly — on the face where it is large enough, in the HTML where the screen keeps it",
+      "notProduction": "the Inspect view's faces (the preview artboards) and the Studio's timmy-rive shape are not mounts: they draw the artboard as authored — Title / Tag / Caption (PREVIEW · AS SAVED / NOT A LIVE JOB · LIVE), ProviderName / ProviderState / ProviderDetail, the baked headlines and lines; the Inspect view is the place to read a face",
+      "inspect": "inspect().runs.production = { headline, hidden: [the run names set to \"\"], faceWidth, fit, words, note }; inspect().runs.headline.poses and .line.poses read every pose's run back; inspect().faceName is the face's aria-label; inspect().mounted; inspect().words = the EFFECTIVE mode, .wordsAsked the ask, .wordsWhy the reason in words; inspect().headline = { floor: 13, authored, faceWidth, faceHeight, drawn (the px as authored at this size), scale (the node's), px (drawn × scale), reached, room: { width, height } (the caps the artboard allows), nodes (the Headline nodes scaled), word }"
+    }
+  },
+  "meta": {
+    "name": "timmy-ui",
+    "file": "timmy-ui.riv",
+    "contract": "2",
+    "artboard": "AgentConsole",
+    "artboards": [
+      "AgentConsole",
+      "ProviderCard",
+      "ActionButton",
+      "ActionButtonGlacier"
+    ],
+    "previewArtboards": [
+      "AgentConsolePreview",
+      "ProviderCardPreview",
+      "ActionButtonPreview"
+    ],
+    "stateMachine": "TimmyUI",
+    "inputs": [
+      "State",
+      "Hover",
+      "Pressed",
+      "ReducedMotion"
+    ],
+    "font": "Outfit.ttf",
+    "runs": {
+      "AgentConsole": [
+        "Title",
+        "Tag",
+        "Caption"
+      ],
+      "ProviderCard": [
+        "Title",
+        "Tag",
+        "Caption",
+        "ProviderName",
+        "ProviderState",
+        "ProviderDetail"
+      ],
+      "ActionButton": [
+        "Caption"
+      ],
+      "ActionButtonGlacier": [
+        "Caption"
+      ]
+    },
+    "sizes": {
+      "AgentConsole": [
+        640,
+        380
+      ],
+      "ProviderCard": [
+        400,
+        260
+      ],
+      "ActionButton": [
+        240,
+        72
+      ],
+      "ActionButtonGlacier": [
+        240,
+        72
+      ],
+      "AgentConsolePreview": [
+        640,
+        380
+      ],
+      "ProviderCardPreview": [
+        400,
+        260
+      ],
+      "ActionButtonPreview": [
+        240,
+        72
+      ]
+    }
+  }
+}

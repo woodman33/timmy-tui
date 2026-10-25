@@ -257,7 +257,8 @@ describe.skipIf(!PYTHON3)('one receipt per block on a pty (workers/upmd/pty_run.
     expect(long.block!.stop_words).toBeUndefined(); // a plain /stop: no words are claimed for it
     expect(run).toMatchObject({ status: 'cancelled', job: { steps: [{ name: 'first', receipt: short(first) }, { name: 'long', state: 'stopped', receipt: short(long) }] }, child_receipts: [short(first), short(long)] });
     expect(verifyChain('runs', root).ok).toBe(true);
-    expect(text(ws.jobsView(job.id)).split('\n')[2]).toMatch(new RegExp(`^ {6}${G.bullet} long {2}stopped · (<0\\.1|\\d+\\.\\d) s · receipt ${short(long)}$`));
+    // R7 lead (H148's N5): the block a cancel cut off is cancelled in /jobs (its record and receipt keep "stopped")
+    expect(text(ws.jobsView(job.id)).split('\n')[2]).toMatch(new RegExp(`^ {6}${G.bullet} long {2}cancelled · (<0\\.1|\\d+\\.\\d) s · receipt ${short(long)}$`));
   }, 60_000);
 });
 

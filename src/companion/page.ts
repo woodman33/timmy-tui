@@ -22,9 +22,22 @@
  * R4 (H97): the files of H92's page that H95's replaced and no page asked for any more (its chat and markdown scripts,
  * src/companion/client/chat.js and markdown.js, and the routes /timmy-theme.css, /fonts/<name> and /vendor/marked.esm.js)
  * are no longer shipped or served. Timmy Canvas keeps its own /timmy-theme.css and /fonts/<name> (src/studio/server.ts).
+ *
+ * R5 (H132, the operator's palette, DESIGN.md §10 B10): the page is drawn in Timmy's shared look again, so /timmy-theme.css
+ * (src/theme/tokens.ts themeCss: the --timmy-* variables and Monaspace Argon's faces) and the four Monaspace Argon files
+ * those faces name (by exact name, from the @fontsource/monaspace-argon package, OFL-1.1, unmodified) are served here, as
+ * Timmy Canvas serves its own. The files are at /web/fonts/<name>, beside the page's other font files (the page's files are
+ * its own and /web/'s; a page without its token asks for nothing else), answered before the built web code's own files.
+ * The page's sheet (companion.css) uses only those variables. Outfit, Inter and Fira Code (b69ab12's look) are no longer
+ * named by the page. /chat.js, /markdown.js, /vendor/marked.esm.js and /fonts/<name> stay gone.
  */
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { NextFunction, Request, Response } from 'express';
 import type express from 'express';
+import { FONT_FILES, themeCss } from '../theme/tokens.js';
 import { failRequest } from '../utils/server-failure.js';
 import { sendWebFile } from './web-assets.js';
 
@@ -57,15 +70,43 @@ export const PAGE_IMG_SRC = "img-src 'self' data:";
  * The companion page's policy. `host`: the request's Host, which the local rule has already checked; the page's own
  * WebSocket (ws://<host>) is named beside 'self' (some browsers do not count ws: as 'self').
  */
+/**
+ * R11 round 4 (H171, step 4): what the identity provider adds to connect-src, only when configured: the Clerk instance's
+ * frontend API (H173's identityConfig / connectSrcFor: " https://<host>", exactly one https origin, nothing else). Set once by
+ * the server (setPagePolicyConnect); '' leaves the policy as it was. script-src stays 'self'.
+ */
+let policyConnect = '';
+const CONNECT_ORIGIN = /^ https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i;
+export function setPagePolicyConnect(extra: string): void {
+  policyConnect = typeof extra === 'string' && CONNECT_ORIGIN.test(extra) ? extra : '';
+}
+/**
+ * R11 round 4 (H171, step 3): the T mark's Rive runtime compiles WebAssembly (its rive.wasm, served by this companion from
+ * /vendor/rive/), which the policy allows only with the keyword 'wasm-unsafe-eval' — a keyword, not a host: script-src names
+ * no origin but 'self' either way. Set by mountMark only when the mark's file is here to draw; without it the page loads no
+ * runtime and the policy stays as it was.
+ */
+let policyWasm = false;
+export function setPagePolicyWasm(on: boolean): void { policyWasm = on === true; }
+/**
+ * R11 round 4 (H171, step 4): Clerk's script (served by this companion from /vendor/clerk/) makes a Web Worker from a blob:
+ * of its own code; with no worker-src the policy falls back to script-src 'self', which refuses a blob: worker, and Clerk
+ * falls back to page timers. Set by the server only when the identity provider is configured: worker-src 'self' blob: —
+ * a worker made of the page's own scripts, never a fetched one from elsewhere. Absent, the page declares no worker-src.
+ */
+let policyWorker = false;
+export function setPagePolicyWorker(on: boolean): void { policyWorker = on === true; }
+
 export function pagePolicy(host: string | undefined): string {
   const socket = typeof host === 'string' && HOST.test(host) ? ` ws://${host}` : '';
   return [
     "default-src 'none'",
-    "script-src 'self'",
+    `script-src 'self'${policyWasm ? " 'wasm-unsafe-eval'" : ''}`,
     PAGE_STYLE_SRC,
     "font-src 'self'",
     PAGE_IMG_SRC,
-    `connect-src 'self'${socket}`,
+    `connect-src 'self'${socket}${policyConnect}`,
+    ...(policyWorker ? ["worker-src 'self' blob:"] : []),
     "frame-src 'self'",
     "object-src 'none'",
     "base-uri 'none'",
@@ -112,12 +153,15 @@ const escHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&am
  * colour on the frame's ground, Inter), as the page around it. R4 (H104, r25's D11): status 200: the words are the page
  * (the npm package never ships Slate 3D's bundle, so this is what an installed companion's SLATE 3D tab shows), and a 404
  * made the browser log "Failed to load resource … 404" in the companion page's console each time the tab was opened.
+ * R5 (H132): in Timmy's shared look (the theme's text on the canvas, in Monaspace Argon).
  */
 export function sendSlateAbsent(res: Response, words: string): void {
   if (res.headersSent) { res.destroy(); return; }
   safetyHeaders(res, SLATE_ABSENT_POLICY, 'SAMEORIGIN');
   res.status(200).set('Cache-Control', 'no-store').type('text/html; charset=utf-8').send([
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Slate 3D</title>',
+    // R5 (H132): Timmy's shared look first (the page's sheet uses its variables only)
+    `<link rel="stylesheet" href="${THEME_PATH}">`,
     '<link rel="stylesheet" href="/companion.css"></head>',
     `<body class="slate-absent"><p>${escHtml(words)}</p></body></html>`,
     '',
@@ -132,3 +176,93 @@ export function mountWebAssets(app: express.Application, webDir?: string): void 
 }
 
 export const FONT_ABSENT = 'No such font here: the page uses this computer\'s own monospace font instead.';
+
+/**
+ * R11 round 4 (H171, step 3): the Rive runtime for the T mark, served from its package (@rive-app/canvas, a runtime
+ * dependency; no CDN: the page's CSP is 'self'): /vendor/rive/rive.js and /vendor/rive/rive.wasm by exact name. Not
+ * installed → 404 in words; the page keeps its text mark.
+ */
+export const RIVE_PATH = '/vendor/rive/';
+const RIVE_FILES: Readonly<Record<string, string>> = { 'rive.js': 'text/javascript; charset=utf-8', 'rive.wasm': 'application/wasm' };
+export function riveDir(): string | null {
+  try { return dirname(createRequire(import.meta.url).resolve('@rive-app/canvas/package.json')); } catch { return null; }
+}
+export const RIVE_ABSENT = 'The Rive runtime is not installed here (@rive-app/canvas): the page draws its text mark instead.';
+export function mountRive(app: express.Application): void {
+  app.get(`${RIVE_PATH}:file`, (req, res, next) => {
+    const file = String(req.params.file);
+    const type = RIVE_FILES[file];
+    const dir = type ? riveDir() : null;
+    if (!type || !dir || !existsSync(join(dir, file))) { if (type) failRequest(res, 404, RIVE_ABSENT, 'text'); else next(); return; }
+    res.set('Cache-Control', 'public, max-age=86400').type(type).sendFile(join(dir, file), (err?: Error) => { if (err) failRequest(res, 404, RIVE_ABSENT, 'text'); });
+  });
+}
+
+/**
+ * R11 round 4 (H171, step 3): the T mark's files (src/companion/assets/mark/: the preview's proposed T mark — its Rive source
+ * scene.rml and rive.yaml, and timmy-mark.riv when the binary is there; a proposed mark, not a final mascot), at /assets/<name>
+ * by exact name. A file not there → 404 in words; the page keeps its text mark.
+ */
+export const MARK_FILES: Readonly<Record<string, string>> = { 'timmy-mark.riv': 'application/octet-stream', 'scene.rml': 'text/plain; charset=utf-8', 'rive.yaml': 'text/plain; charset=utf-8' };
+export const MARK_ABSENT = 'The T mark’s file is not in this installation: the page draws its text mark instead.';
+export function markDir(assetsDir?: string): string {
+  return assetsDir ?? join(dirname(fileURLToPath(import.meta.url)), 'assets', 'mark');
+}
+export function mountMark(app: express.Application, assetsDir?: string): void {
+  const dir = markDir(assetsDir);
+  // the policy's WebAssembly keyword only when there is a mark to draw and a runtime to draw it with (see setPagePolicyWasm)
+  const rive = riveDir();
+  const hasMark = (): boolean => existsSync(join(dir, 'timmy-mark.riv'));
+  const hasRuntime = (): boolean => rive !== null && existsSync(join(rive, 'rive.js')) && existsSync(join(rive, 'rive.wasm'));
+  setPagePolicyWasm(hasMark() && hasRuntime());
+  // what the page may draw (chat-shell.js asks before loading the runtime): always 200, so an installation without the mark
+  // records no failed request on every open
+  app.get('/assets/mark.json', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ mark: hasMark(), runtime: hasRuntime(), words: hasMark() ? 'The T mark is drawn by its Rive file.' : MARK_ABSENT });
+  });
+  app.get('/assets/:file', (req, res, next) => {
+    const file = String(req.params.file);
+    const type = MARK_FILES[file];
+    if (!type) { next(); return; }
+    if (!existsSync(join(dir, file))) { failRequest(res, 404, MARK_ABSENT, 'text'); return; }
+    res.set('Cache-Control', 'public, max-age=3600').type(type).sendFile(join(dir, file), (err?: Error) => { if (err) failRequest(res, 404, MARK_ABSENT, 'text'); });
+  });
+}
+
+/** R5 (H132): the path of the theme's style sheet (the variables and the font faces), as the page links it. */
+export const THEME_PATH = '/timmy-theme.css';
+/** R5 (H132): where the theme's font faces find their files (themeCss's fontPath), beside the page's other web files. */
+export const THEME_FONT_PATH = '/web/fonts/';
+
+/** R5 (H132): Monaspace Argon's files, from its package (a runtime dependency); null when it is not installed. */
+export function themeFontDir(): string | null {
+  try {
+    return join(dirname(createRequire(import.meta.url).resolve('@fontsource/monaspace-argon/package.json')), 'files');
+  } catch {
+    return null;
+  }
+}
+
+/** The only font files the page's theme names, by exact name (src/theme/tokens.ts FONT_FILES). */
+const THEME_FONTS: ReadonlySet<string> = new Set(FONT_FILES.map((f) => f.file));
+
+/**
+ * R5 (H132): Timmy's shared look for the page: the theme's sheet (no project content, so no token) and Monaspace Argon's
+ * files by exact name. Mounted before the built web code (mountWebAssets): any other name under /web/fonts/, or a Monaspace
+ * file the package does not have here, goes on to it, which answers its own files or a 404 in words (no path of this
+ * computer); the page then falls back to this computer's own monospace font (the theme's stack).
+ */
+export function mountTheme(app: express.Application): void {
+  const css = themeCss(THEME_FONT_PATH);
+  app.get(THEME_PATH, (_req, res) => {
+    res.set('Cache-Control', 'no-store').type('text/css; charset=utf-8').send(css);
+  });
+  app.get(`${THEME_FONT_PATH}:file`, (req, res, next) => {
+    const file = String(req.params.file);
+    const dir = THEME_FONTS.has(file) ? themeFontDir() : null;
+    if (!dir || !existsSync(join(dir, file))) { next(); return; }
+    res.set('Cache-Control', 'public, max-age=86400').type('font/woff2').sendFile(join(dir, file), (err?: Error) => {
+      if (err) failRequest(res, 404, FONT_ABSENT, 'text');
+    });
+  });
+}

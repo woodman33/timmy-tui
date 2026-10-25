@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Timmy review candidate, in ONE command (R10, H163). The operator typed `timmy` and got his protected global install, an
+# older release candidate; this launcher has a name no one takes for it, and it never runs or changes that install.
+#
+#   ./timmy-review             first run: checks SHA256SUMS, installs the packed Timmy into ./sandbox and seeds the demo
+#                              (as ./review.sh install and ./review.sh demo do); every run: opens the Workbench on the
+#                              active project (as ./review.sh workbench does)
+#   ./timmy-review --version   the candidate's version and revision; opens nothing (about: the same, with more)
+#   ./timmy-review --help      this, in words; every other command is ./review.sh's (./review.sh help)
+#
+# It finds a Node 24 or later by itself: TIMMY_NODE when set, else the first node on PATH that is 24 or later, else
+# /opt/homebrew/bin/node, /usr/local/bin/node, else the newest under ~/.nvm/versions/node. Linux and macOS, bash 3.2 or
+# later. scripts/review/build-review.sh fills in the revision, its branch and the package's file name.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+REV="__REV__"
+REVFULL="__REVFULL__"
+BRANCH="__BRANCH__"
+TGZ="__TGZ__"
+BOX="${TIMMY_REVIEW_HOME:-$HERE/sandbox}"
+# the sandbox's home folder (review.sh's H): Timmy's home is its timmy folder
+H="$BOX/home"
+NODE_FILE="$BOX/node.path"
+FIRST_RUN="$BOX/first-run.txt"
+VERSION="${TGZ#timmy-tui-}"; VERSION="${VERSION%.tgz}"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'timmy-review: %s\n' "$1" >&2; exit "${2:-1}"; }
+# a path as a person reads it here: their home folder as ~
+tilde() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
+
+# the version a node says it is ("24.21.0"), read from its --version; empty when it says none
+node_version() { "$1" --version 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\.[0-9.]*\).*/\1/p' | head -n 1; }
+# whether version $1 is 24 or later
+new_enough() { [ -n "$1" ] && [ "${1%%.*}" -ge 24 ] 2>/dev/null; }
+# a version as one number, to find the newest
+vnum() { local IFS=. a b c; set -- $1; a=${1:-0}; b=${2:-0}; c=${3:-0}; echo $(( a * 1000000 + b * 1000 + c )); }
+runnable() { [ -f "$1" ] && [ -x "$1" ]; }
+
+# NODE, NODE_V and NODE_WHY: the node this run uses, found as the header says; or one line that refuses (exit 3)
+find_node() {
+  local d n v first="" seen="" best="" bestv="" oldifs="$IFS"
+  if [ -n "${TIMMY_NODE:-}" ]; then
+    v=""; runnable "$TIMMY_NODE" && v="$(node_version "$TIMMY_NODE")"
+    if new_enough "$v"; then NODE="$TIMMY_NODE"; NODE_V="$v"; NODE_WHY="named by TIMMY_NODE"; return 0; fi
+    die "TIMMY_NODE is $TIMMY_NODE, which is $( [ -n "$v" ] && printf 'Node %s' "$v" || printf 'not a node that runs here'): the candidate needs Node 24 or later; set TIMMY_NODE to one, or unset it and ./timmy-review looks for one" 3
+  fi
+  IFS=:
+  for d in $PATH; do
+    IFS="$oldifs"
+    [ -n "$d" ] || continue
+    n="$d/node"
+    runnable "$n" || continue
+    v="$(node_version "$n")"
+    [ -n "$first" ] || first="$n"
+    if new_enough "$v"; then
+      NODE="$n"; NODE_V="$v"; NODE_WHY="the first Node 24 or later on your PATH"
+      [ "$first" = "$n" ] || NODE_WHY="$NODE_WHY; your PATH's first node, $first, is v$(node_version "$first") and is not used"
+      return 0
+    fi
+    seen="$seen, $n is v${v:-?}"
+  done
+  IFS="$oldifs"
+  for n in /opt/homebrew/bin/node /usr/local/bin/node; do
+    runnable "$n" || continue
+    v="$(node_version "$n")"
+    if new_enough "$v"; then NODE="$n"; NODE_V="$v"; NODE_WHY="found at $n (no node on your PATH is 24 or later)"; return 0; fi
+    case "$seen" in *" $n is "*) ;; *) seen="$seen, $n is v${v:-?}" ;; esac
+  done
+  for n in "${NVM_DIR:-$HOME/.nvm}"/versions/node/v*/bin/node; do
+    runnable "$n" || continue
+    v="$(node_version "$n")"
+    new_enough "$v" || continue
+    if [ -z "$bestv" ] || [ "$(vnum "$v")" -gt "$(vnum "$bestv")" ]; then best="$n"; bestv="$v"; fi
+  done
+  if [ -n "$best" ]; then NODE="$best"; NODE_V="$bestv"; NODE_WHY="the newest Node 24 or later under ~/.nvm/versions/node"; return 0; fi
+  die "no Node 24 or later found (it looked at TIMMY_NODE, every node on your PATH, /opt/homebrew/bin/node, /usr/local/bin/node and ~/.nvm/versions/node${seen:+; seen: ${seen#, }}): install Node 24 or later, or set TIMMY_NODE to one" 3
+}
+
+# the timmy a plain `timmy` runs, found on PATH and never run: its path, and its version from the package.json beside it
+installed_timmy() {
+  local p real t dir d v
+  p="$(command -v timmy 2>/dev/null)" || return 1
+  case "$p" in /*) ;; *) return 1 ;; esac
+  real="$p"
+  while [ -L "$real" ]; do
+    t="$(readlink "$real")" || break
+    case "$t" in /*) real="$t" ;; *) real="$(dirname "$real")/$t" ;; esac
+  done
+  dir="$(cd "$(dirname "$real")" 2>/dev/null && pwd -P)" || dir=""
+  v=""
+  for d in "$dir" "$dir/.." "$dir/../.."; do
+    [ -n "$dir" ] && [ -f "$d/package.json" ] || continue
+    grep -q '"name"[[:space:]]*:[[:space:]]*"timmy-tui"' "$d/package.json" 2>/dev/null || continue
+    v="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$d/package.json" | head -n 1)"
+    break
+  done
+  if [ -n "$v" ]; then
+    say "Your installed timmy: $(tilde "$p") (timmy-tui $v, read from its package.json; not run)"
+  else
+    say "Your installed timmy: $(tilde "$p") (its version is not known here: no timmy-tui package.json beside it; not run)"
+  fi
+}
+
+# whether the packed Timmy is installed in the sandbox, on a node that is still there and still 24 or later
+installed() { [ -x "$BOX/prefix/node_modules/.bin/timmy" ] && [ -f "$NODE_FILE" ] && runnable "$(cat "$NODE_FILE")" && new_enough "$(node_version "$(cat "$NODE_FILE")")"; }
+# whether the sandbox already has a Timmy home (the demo's, or one set up by hand): it is never seeded twice
+seeded() { [ -f "$H/timmy/identity.json" ]; }
+
+# every file SHA256SUMS lists, checked (sha256sum on Linux, shasum on macOS); one line that refuses when any differs (exit 4)
+check_sums() {
+  local sums="$HERE/SHA256SUMS" want f got n=0 bad="" nbad=0
+  [ -f "$sums" ] || { say "SHA256SUMS: none in this package, so its files are not checked"; return 0; }
+  while read -r want f; do
+    [ -n "$want" ] || continue
+    f="${f#\*}"
+    n=$((n + 1))
+    if [ -f "$HERE/$f" ]; then
+      if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$HERE/$f" | cut -d' ' -f1)"; else got="$(shasum -a 256 "$HERE/$f" | cut -d' ' -f1)"; fi
+    else got="missing"; fi
+    [ "$got" = "$want" ] || { nbad=$((nbad + 1)); bad="$bad, $f"; }
+  done < "$sums"
+  [ "$nbad" -eq 0 ] || die "SHA256SUMS: $nbad of its $n files $( [ "$nbad" -eq 1 ] && printf 'does' || printf 'do') not match (${bad#, }): this package is not as it was built; get it again" 4
+  say "SHA256SUMS: the $n files it lists match"
+}
+
+# the active project's name, as Timmy records it (<Timmy home>/state/active-project.json), when there is one
+active_name() {
+  local r
+  r="$(sed -n 's/.*"root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$H/timmy/state/active-project.json" 2>/dev/null | head -n 1)"
+  [ -n "$r" ] && basename "$r"
+}
+
+headline() { say "Timmy review candidate $REV ($BRANCH), in its own sandbox; your installed timmy is not used or changed"; }
+version_line() { say "Timmy review candidate $REV ($BRANCH): timmy-tui $VERSION, revision $REVFULL"; }
+
+case "${1:-}" in
+  "") ;;
+  --version|-v|version) version_line; exit 0 ;;
+  about)
+    version_line
+    say "  package file  $TGZ (beside this launcher)"
+    if installed; then
+      say "  installed in $(tilde "$BOX"): yes, on $(cat "$NODE_FILE") (v$(node_version "$(cat "$NODE_FILE")"))"
+      said="$("$HERE/review.sh" timmy --version 2>/dev/null | tail -n 1)"
+      say "  the installed build says: ${said:-nothing (its timmy --version gave no line)}"
+    else
+      say "  installed in $(tilde "$BOX"): not yet (./timmy-review installs it on its first run)"
+    fi
+    installed_timmy | sed 's/^/  /'
+    exit 0 ;;
+  -h|--help|help)
+    headline
+    say ""
+    say "  ./timmy-review             the first run checks SHA256SUMS, installs the packed Timmy into $(tilde "$BOX") and"
+    say "                             seeds the demo; every run opens the Workbench on the active project"
+    say "  ./timmy-review --version   the candidate's version and revision (about: with the install and your timmy)"
+    say "  ./review.sh help           every other command: repl, watch, check, timmy ARGS, shell, where, clean"
+    say ""
+    say "  A plain \`timmy\` is your installed timmy, not this candidate. Node: TIMMY_NODE, else the first Node 24 or later"
+    say "  on your PATH, else /opt/homebrew/bin/node, /usr/local/bin/node, else the newest under ~/.nvm/versions/node."
+    exit 0 ;;
+  *) die "it takes no \"$1\": ./timmy-review opens the Workbench (--version, about, --help); the other commands are ./review.sh help" 2 ;;
+esac
+
+headline
+installed_timmy || true
+
+if installed && seeded; then
+  NODE="$(cat "$NODE_FILE")"
+  say "Node: $NODE (v$(node_version "$NODE")), the one the first run installed with"
+  if [ -f "$FIRST_RUN" ]; then
+    say "Installed and seeded by the first run ($(head -n 1 "$FIRST_RUN")): this run skips the install and the demo."
+  else
+    say "Installed and seeded already (by ./review.sh install and demo): this run skips the install and the demo."
+  fi
+else
+  if [ -f "$NODE_FILE" ] && ! installed && [ -x "$BOX/prefix/node_modules/.bin/timmy" ]; then
+    say "The node the first run installed with, $(cat "$NODE_FILE"), is gone or older than Node 24: this run installs again."
+  fi
+  NODE=""; NODE_V=""; NODE_WHY=""
+  find_node
+  say "Node: $NODE (v$NODE_V), $NODE_WHY"
+  if ! installed; then
+    check_sums
+    say "Installing the packed Timmy into $(tilde "$BOX") (npm fetches its dependencies; nothing is installed globally)..."
+    PATH="$(dirname "$NODE"):$PATH" "$HERE/review.sh" install || die "the install stopped (above); ./timmy-review tries it again" 1
+  else
+    say "Installed already (an earlier run): this run does not install again."
+  fi
+  if ! seeded; then
+    say "Seeding the demo: projects first-light, blank and tray (the active one), with scripted review content..."
+    PATH="$(dirname "$NODE"):$PATH" "$HERE/review.sh" demo || die "the demo setup stopped (above); ./review.sh clean, then ./timmy-review, starts again from nothing" 1
+  else
+    say "A Timmy home is already in the sandbox: it is not seeded again."
+  fi
+  mkdir -p "$BOX" && printf '%s\nrevision %s, node %s\n' "$(date '+%Y-%m-%d %H:%M %Z')" "$REV" "$NODE" > "$FIRST_RUN"
+fi
+
+name="$(active_name || true)"
+say "Opening the Workbench${name:+ on $name}: the Workbench's Ctrl+C quits it; ./timmy-review opens it again."
+# the node found or recorded first on PATH for review.sh too (its own small reads, such as the active project's folder, use
+# the node on PATH; Timmy itself always runs on the node recorded at install)
+PATH="$(dirname "$NODE"):$PATH" exec "$HERE/review.sh" workbench

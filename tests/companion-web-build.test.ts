@@ -43,7 +43,7 @@ describe('the companion\'s web code, built from the installed packages (R4 H95)'
     expect(record.inputs).toBe(inputsHash(root));
   });
 
-  it('ships the page\'s three fonts, the latin variable files only, each with its OFL-1.1 licence beside it, as the page\'s sheet names them', () => {
+  it('ships b69ab12\'s three fonts, the latin variable files only, each with its OFL-1.1 licence beside it; the page\'s sheet names none of them since R5 (its one face is the theme\'s Monaspace Argon)', () => {
     const fonts = readdirSync(join(dir, 'fonts')).sort();
     expect(fonts).toEqual(FONTS.flatMap((f: { file: string; licence: string }) => [f.file, f.licence]).sort());
     const css = readFileSync(join(root, 'src', 'companion', 'client', 'companion.css'), 'utf8');
@@ -53,8 +53,10 @@ describe('the companion\'s web code, built from the installed packages (R4 H95)'
       const licence = readFileSync(join(dir, 'fonts', f.licence), 'utf8');
       expect(licence, f.licence).toContain('SIL Open Font License, Version 1.1');
       expect(licence).toBe(readFileSync(join(pkg, 'LICENSE'), 'utf8'));
-      // the page's sheet declares the family by the name it uses, from this file
-      expect(css).toMatch(new RegExp(`font-family: '${f.family}';[^}]*src: url\\(/web/fonts/${f.file.replace(/[.]/g, '\\.')}\\) format\\('woff2-variations'\\)`));
+      // R5 (H132, DESIGN.md §10 B10): the page's sheet no longer declares or names the family; its face is Monaspace Argon
+      // (/timmy-theme.css, src/theme/tokens.ts), served by the companion at /fonts/
+      expect(css).not.toMatch(new RegExp(`font-family:[^;}]*['"]?${f.family}['"]?`));
+      expect(css).not.toContain(`/web/fonts/${f.file}`);
     }
   });
 

@@ -140,6 +140,7 @@ import { buildOverview, type Overview } from '../overview/index.js';
 import { overviewLines } from './overview.js';
 import { overviewShape } from './board-overview.js';
 import { REPL_END_REASON, STOPPED_WITH_STOP, stopReason } from '../utils/stop-words.js';
+import { JOB_CANCELLED, stepStateWords } from '../contracts/stop-words.js';
 // Round R4 (H65): Results and review (/review, /restore, the board's section); hooks are marked "R4 (H65)".
 import { MAX_CHANGES_ONE, operationReview, reviewView, visible } from '../review/changes.js';
 import { restore as restoreKept } from '../review/restore.js';
@@ -199,7 +200,15 @@ export interface WorkspaceDeps {
   askPerson?: (req: ApprovalRequest) => Promise<Decision>;
   /** R4 (H99): /run's progress lines (src/repl/run-progress.ts): its timings (a test gives short ones), or false for none */
   runProgress?: { tickMs?: number; quietMs?: number; minGapMs?: number } | false;
+  /**
+   * R7 (H149): the surface this Workspace serves (the REPL, the Workbench), written with the active project it chooses
+   * (src/project/index.ts saveActiveProject `by`), so a REPL that follows the choice says where it was made.
+   */
+  surface?: 'repl' | 'workbench' | 'md' | 'act';
 }
+
+/** R7 (H149): what of a Workspace runs now (src/repl/project-follow.ts Busy): a chat turn, a typed command, a board or canvas action. */
+type Request = 'turn' | 'command' | 'action';
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
 export type ObserveOutcome =
@@ -249,6 +258,18 @@ export const freePort = (): Promise<number> => new Promise((resolve, reject) => 
     srv.close(() => resolve(port));
   });
 });
+
+/**
+ * R10 (H163; R7's item D, which failed on CI's fast runners only): whether an output-folder file dated `mtimeMs` was written
+ * by a job whose start was stamped at `startMs` (JobManager stamps it before the job's process starts). A job's receipt seals
+ * the files this says yes to as its outputs (outputsSince). Up to R10 every file from a second before the start counted, so a
+ * run that began less than a second after another run wrote out/shot.png sealed that image as its own output, though it never
+ * wrote it. A sub-second time (ext4, APFS, tmpfs) is at most a clock tick early (the kernel dates writes with its coarse
+ * clock), so it counts from the start less WRITE_TICK_MS; a whole-second time (HFS+, FAT, some network shares) may date a
+ * write made in the run's first second up to a second before it began, so it keeps that second's margin.
+ */
+export const WRITE_TICK_MS = 50;
+export const writtenInRun = (mtimeMs: number, startMs: number): boolean => mtimeMs >= startMs - (mtimeMs % 1000 === 0 ? 1000 : WRITE_TICK_MS);
 
 /** Round R3 (/agent): `<agent> --version`'s first line (5 s at most), or null when it does not say. */
 const agentVersion = (bin: string): Promise<string | null> => new Promise((resolve) => {
@@ -488,8 +509,26 @@ export class Workspace {
   private use(p: ActiveProject): void {
     (this.d.chdir ?? process.chdir)(p.root);
     this.project = p;
-    saveActiveProject(p);
+    saveActiveProject(p, this.d.surface ? { by: this.d.surface } : {});
     this.switched = this.d.onSwitch?.(p);
+  }
+
+  /**
+   * R7 (H149): the active project another surface chose (src/repl/project-follow.ts): this Workspace moves there as /project does
+   * (the folder, the project, its conversation and the canvas's handoff, through onSwitch) without writing the record again, as
+   * the choice is the other surface's. What runs keeps the project it started in (each job, flow and run carries its own).
+   */
+  follow(p: ActiveProject): void {
+    (this.d.chdir ?? process.chdir)(p.root);
+    this.project = p;
+    this.switched = this.d.onSwitch?.(p);
+  }
+
+  /** R7 (H149): what this Workspace started that still runs in `root` (its jobs and its flows), as a follow's notice names them. */
+  runningIn(root: string): Array<{ id: string; what: string }> {
+    const jobs = [...this.mine].map((id) => this.jobs.get(id)).filter((j): j is JobRecord => !!j && !j.stale && !TERMINAL.has(j.state) && sameFolder(j.root, root));
+    const flow = this.flows.runningIn(root);
+    return [...jobs.map((j) => ({ id: j.id, what: j.label })), ...(flow?.id && !flow.elsewhere ? [{ id: flow.id, what: `its ${flow.step} step` }] : [])];
   }
 
   summary(): Line[] {
@@ -500,7 +539,8 @@ export class Workspace {
       [{ text: '  Project  ', role: 'secondary' }, { text: this.project.name, role: 'strong' }, { text: this.project.chosen ? '' : '  (this folder)', role: 'secondary' }],
       [{ text: '  Folder   ', role: 'secondary' }, { text: this.d.link(this.tilde(this.root), fileUrl(this.root)) }],
       [{ text: '  Files    ', role: 'secondary' }, { text: `${files.length}${truncated ? '+' : ''}: ${counts}` }],
-      [{ text: '  Jobs     ', role: 'secondary' }, { text: live.length ? live.map((j) => `${j.id} ${j.state}`).join(', ') : 'none running' }],
+      // R7 (H149): a job keeps the project it started in, and says so here when that is another project than this one
+      [{ text: '  Jobs     ', role: 'secondary' }, { text: live.length ? live.map((j) => `${j.id} ${j.state}${sameFolder(j.root, this.root) ? '' : ` (in ${j.project})`}`).join(', ') : 'none running' }],
       ...(this.switched ? [[{ text: '  Context  ', role: 'secondary' as const }, { text: this.switched }]] : []),
       [{ text: '  Next     ', role: 'secondary' }, { text: '/files, /workflows, /preview, /results', role: 'secondary' }],
     ];
@@ -1026,8 +1066,12 @@ export class Workspace {
   async run(args: string, o: { from?: 'board' } = {}): Promise<Line[]> {
     const [docArg, blockArg] = args.trim().split(/\s+/).filter(Boolean);
     if (!docArg) return this.workflows('');
+    // R7 (H149): the project this run starts in, read once: a follow of the active project while it starts (it awaits upmd's
+    // check, NEEDS YOU and the pty's) moves nothing of it (its prediction, job, blocks and records are this project's)
+    const root = this.root;
+    const project = this.project.name;
     // R4 (H74): one reading of the run for /run and `timmy md` (src/repl/workflow-gate.ts planRun), the same words as before
-    const p = planRun(this.root, docArg, blockArg);
+    const p = planRun(root, docArg, blockArg);
     if (!p.ok) return this.say(p.why, p.failure ? 'failure' : undefined);
     const r = { rel: p.rel, sha256: p.sha256 };
     const { blocks, target } = p;
@@ -1042,10 +1086,10 @@ export class Workspace {
       for (const l of gateLines(p, { arrow: this.d.glyphs.arrow, sep: this.sep, answer: ask ? 'box' : 'none' })) this.d.notify(l);
       if (!ask) {
         const op = currentOperation();
-        if (o.from === 'board') this.heldRuns.hold({ root: this.root, rel: r.rel, target, ...(r.sha256 ? { sha256: r.sha256 } : {}), at: Date.now(), order: plan.order, risky: p.risky, ...(op ? { operation: op } : {}) });
+        if (o.from === 'board') this.heldRuns.hold({ root: root, rel: r.rel, target, ...(r.sha256 ? { sha256: r.sha256 } : {}), at: Date.now(), order: plan.order, risky: p.risky, ...(op ? { operation: op } : {}) });
         return this.say(needsPersonText(r.rel, target, p.risky, o.from === 'board' ? 'the board' : 'this Timmy (no terminal)'), 'estimate');
       }
-      const answer = await askRun({ root: this.root, rel: r.rel, target, order: plan.order, risky: p.risky, ...(r.sha256 ? { sha256: r.sha256 } : {}) }, ask);
+      const answer = await askRun({ root: root, rel: r.rel, target, order: plan.order, risky: p.risky, ...(r.sha256 ? { sha256: r.sha256 } : {}) }, ask);
       if (!answer.ok) return this.say(answer.why, answer.denied ? 'secondary' : 'estimate');
       approved = answer.decision;
     }
@@ -1058,7 +1102,7 @@ export class Workspace {
     r.sha256 = copy.sha256;
     // F-3: the prediction is sealed before anything runs, with the document's hash as its input identity.
     const predicted = this.d.seal({
-      kind: 'predict', subject: `workflow · predict · ${r.rel} › ${target}`, policy: 'human-gated', status: 'ok', project: this.project.name, project_id: projectId(this.root),
+      kind: 'predict', subject: `workflow · predict · ${r.rel} › ${target}`, policy: 'human-gated', status: 'ok', project: project, project_id: projectId(root),
       prediction: {
         doc: r.rel, block: target, order: plan.order, expect: 'each block exits 0',
         // R4 (H74): its risky blocks and how they were asked about; the answer as a decision
@@ -1073,10 +1117,10 @@ export class Workspace {
     const stopFile = pty.ok ? stop : undefined;
     // R4 (H114): each block's start and end as the wrapper reads them, beside its stop file: a block's own time is the wrapper's
     const blocksFile = stopFile ? runBlocksFile(stopFile) : undefined;
-    const how = upmdJob(tool.bin, upmdRunArgs(copy.path, target, this.root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}), ...(blocksFile ? { blocksFile } : {}) });
+    const how = upmdJob(tool.bin, upmdRunArgs(copy.path, target, root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}), ...(blocksFile ? { blocksFile } : {}) });
     const parse = upmdLineParser(blocks, how.live ? 'pty' : 'pipe', undefined, how.live && blocksFile ? { blocksFile } : {});
     const job = this.jobs.start({
-      kind: 'workflow', label: `${r.rel} › ${target}`, project: this.project.name, root: this.root,
+      kind: 'workflow', label: `${r.rel} › ${target}`, project: project, root: root,
       command: how.command, args: how.args,
       parseLine: (line, j) => parse(line, j.steps),
       expected: { steps: plan.order, ...(predicted ? { receipt: predicted } : {}) }, // R4 (H67): the order its prediction sealed
@@ -1084,10 +1128,10 @@ export class Workspace {
     this.mine.add(job.id);
     this.predictions.set(job.id, { doc: r.rel, block: target, order: plan.order, ...(predicted ? { receipt: predicted } : {}) });
     // R4 (H74): each block's receipt is sealed as it ends, from what /run read before upmd started
-    this.blockSeals.begin(job.id, { root: this.root, project: this.project.name, projectId: projectId(this.root), doc: r.rel, ...(r.sha256 ? { docSha256: r.sha256 } : {}), blocks, ...(predicted ? { prediction: predicted } : {}) });
-    this.heldRuns.settle(this.root, r.rel, target);
+    this.blockSeals.begin(job.id, { root: root, project: project, projectId: projectId(root), doc: r.rel, ...(r.sha256 ? { docSha256: r.sha256 } : {}), blocks, ...(predicted ? { prediction: predicted } : {}) });
+    this.heldRuns.settle(root, r.rel, target);
     // R4 (H99, gap 5): a line as its state changes, and while it runs at least every 15 s, read from its own records
-    this.runProgress?.follow(job.id, { root: this.root, ...(job.operation ? { operation: job.operation } : {}), order: plan.order, live: how.live });
+    this.runProgress?.follow(job.id, { root: root, ...(job.operation ? { operation: job.operation } : {}), order: plan.order, live: how.live });
     return [
       ...(approved ? [[{ text: '  Approved   ', role: 'secondary' as const }, { text: `${p.risky.map((b) => b.name).join(', ')}, ${approved}, in its NEEDS YOU box`, role: 'strong' as const }]] : []),
       [{ text: '  Predicted  ', role: 'secondary' }, { text: plan.order.join(` ${this.d.glyphs.arrow} `), role: 'strong' }, { text: `, each exits 0${predicted ? `${this.sep}receipt ${predicted}` : ''}`, role: 'secondary' }],
@@ -1196,7 +1240,8 @@ export class Workspace {
       // first (the last build's state, and what upmd does with its exit), the flow's long words last. R4 (H107): upmd's word
       // in the words every view uses
       const still = s?.outcome === 'no change';
-      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (${s.state === 'failed' ? upmdCounted(s.code) : `exit ${s.code ?? '?'}`})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state;
+      // R7 lead (H148's N5): the step a cancel cut off is cancelled (its record says stopped: src/contracts/stop-words.ts)
+      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (${s.state === 'failed' ? upmdCounted(s.code) : `exit ${s.code ?? '?'}`})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : stepStateWords(s.state);
       if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${word}${this.sep}${done} of ${total}${sealed ? `${this.sep}block ${s.name}: receipt ${sealed}` : ''}${still && s.why ? `${this.sep}${s.why}` : ''}`, role: s.state === 'failed' && !still ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
@@ -1273,14 +1318,16 @@ export class Workspace {
       const why = job.error ?? (step ? `${step.name} exited ${step.code ?? '?'}` : `exit ${job.exitCode ?? job.signal ?? '?'}`);
       this.d.notify([{ text: `  ${g.fail} ` }, { text: `${job.id} failed`, role: 'failure' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}: ${why}${this.sep}/jobs ${job.id} shows its output${opTail(job, this.sep)}`, role: 'secondary' }]);
     } else if (job.state === 'cancelled') {
-      this.d.notify([{ text: '  ' }, { text: `${job.id} stopped`, role: 'strong' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${opTail(job, this.sep)}`, role: 'secondary' }]);
+      // R7 lead (H148's N5; H149's PTY capture beside /stop's own "cancelled"): a job a cancel ended is cancelled
+      this.d.notify([{ text: '  ' }, { text: `${job.id} ${JOB_CANCELLED}`, role: 'strong' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${opTail(job, this.sep)}`, role: 'secondary' }]);
     }
   }
 
   private outputsSince(job: JobRecord): Array<{ path: string; sha256?: string; bytes: number }> {
-    const since = Date.parse(job.startedAt) - 1000;
+    // R10 (H163): only the files written in the run, never one another run wrote just before it (writtenInRun)
+    const start = Date.parse(job.startedAt);
     return listProjectFiles(job.root).files
-      .filter((f) => f.role === 'output' && f.mtimeMs >= since)
+      .filter((f) => f.role === 'output' && writtenInRun(f.mtimeMs, start))
       .slice(0, 50)
       .map((f) => { const sha = sha256File(join(job.root, f.rel)); return { path: f.rel, ...(sha ? { sha256: sha } : {}), bytes: f.bytes }; });
   }
@@ -1834,6 +1881,8 @@ export class Workspace {
     if (!bin) return { ok: false, refused: 'missing', error: `${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.` };
     const run = newRunId();
     const root = o.root ?? this.root;
+    // R7 (H149): its project read with its folder, before the checks it awaits (a follow meanwhile moves nothing of the run)
+    const project = o.project ?? this.project.name;
     const planned = planAgent(name, task, { env, paid: o.paid, run, bin, ...(o.local ? { local: true, root } : {}) });
     if (!planned.ok) return { ok: false, refused: planned.refused, error: planned.error };
     const plan = planned.plan;
@@ -1873,7 +1922,7 @@ export class Workspace {
     try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
     const job = this.jobs.start({
       // R4 (H62): OpenHands' job keeps its own limit above OpenHands' own (the backstop), and every stop of it stops its container first.
-      kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.jobTimeoutMs ?? plan.timeoutMs,
+      kind: 'task', label: agentLabel(name, run, task, root), project, root, command: plan.command, args: plan.args, timeoutMs: plan.jobTimeoutMs ?? plan.timeoutMs,
       ...(state.openhands ? { stopFirst: this.openhands.stopFirst(state.openhands) } : {}),
       ...(plan.env ? { env: plan.env } : {}),
       ...(plan.stdin ? { stdin: plan.stdin } : {}),
@@ -2302,7 +2351,31 @@ export class Workspace {
    */
   async operate<T>(request: string, via: OperationVia, run: () => T | Promise<T>): Promise<T> {
     const h = this.ops.begin({ request, via, root: this.root, project: this.project.name });
-    return this.ops.run(h, run);
+    // R7 (H149): while it runs, a follow of the active project waits (src/repl/project-follow.ts): it finishes in its project
+    const mark: { what: Request } = { what: via === 'repl' ? (request.trimStart().startsWith('/') ? 'command' : 'turn') : 'action' };
+    this.requests.add(mark);
+    try {
+      return await this.ops.run(h, run);
+    } finally {
+      this.requests.delete(mark);
+      if (!this.requests.size) for (const fn of [...this.whenIdle]) { try { fn(); } catch { /* a listener's failure is its own */ } }
+    }
+  }
+
+  /** R7 (H149): the requests this Workspace runs now (operate), and who is told once none runs. */
+  private readonly requests = new Set<{ what: Request }>();
+  private readonly whenIdle = new Set<() => void>();
+
+  /** R7 (H149): what of this Workspace runs now: a chat turn first, then a typed command, then a board or canvas action; null: none. */
+  get busy(): Request | null {
+    const kinds = new Set([...this.requests].map((r) => r.what));
+    return kinds.has('turn') ? 'turn' : kinds.has('command') ? 'command' : kinds.has('action') ? 'action' : null;
+  }
+
+  /** R7 (H149): `fn` is called each time the last request this Workspace runs has ended; the function returned stops that. */
+  afterRequests(fn: () => void): () => void {
+    this.whenIdle.add(fn);
+    return () => { this.whenIdle.delete(fn); };
   }
 
   /** `timmy act`'s operation: a new one recorded at once, or (`join`, its TIMMY_OPERATION) the running one it continues. */

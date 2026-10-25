@@ -1,15 +1,23 @@
 /**
- * R4 (H110): one frame of the Workbench: the zones laid out for the terminal's size (src/workbench/layout.ts), each zone's
- * rows from its view (src/workbench/views.ts), each list scrolled so its selected row shows, every row exactly the
- * terminal's width. It also says where each region's selectable rows are, so a click lands on what it is drawn over.
+ * R4 (H110), R5 (H131): one frame of the Workbench: the zones laid out for the terminal's size (src/workbench/layout.ts), row 1
+ * (TIMMY, the project, the ten tabs) and row 2 (the tab's workflow actions) from the workspace frame (src/workbench/hub.ts), the
+ * body's columns and Activity & log from their views (src/workbench/views.ts), each list scrolled so its selected row shows,
+ * every row exactly the terminal's width. It also says where each region's selectable rows, each tab and each action are, so a
+ * click lands on what it is drawn over.
  */
+import { tabOf } from '../contracts/workspace.js';
 import { compose, innerWidth, panel, type Glyphs, type Placed } from './frame.js';
-import { layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
+import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, workspaceOfPage, type PageHit } from './hub.js';
+import { destinationOf, destinationsRow } from './destinations.js';
+import type { WorkspaceConnection } from '../contracts/workspace.js';
+import { headerRows, homeSideView, selectedHome } from './home-journey.js';
+import { bodyKind, chatLayout, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
+import { chatScreen, convoRowsAt, firstRowsAt, firstRunLines, isFirstRun, isWelcome, noModelLines, noModelNow, welcomeLines } from './chat-shell.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
 import { fit, type Line } from './text.js';
-import { bottomView, centerView, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
+import { bottomView, centerView, chatFollows, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
 
 export interface RegionDraw {
   rect: Rect;
@@ -31,6 +39,12 @@ export interface Frame {
   regions: Partial<Record<Region, RegionDraw>>;
   /** the right dock's tabs, by cell (for a click) */
   tabs: Array<{ x0: number; x1: number; y: number; tab: 'tools' | 'inspector' | 'files' }>;
+  /** R5 (H131): row 1's tabs, by cell (a click opens one) */
+  pages: PageHit[];
+  /** R5 (H131): row 2's workflow actions, by cell (a click selects one; Enter runs it) */
+  actions: Array<{ x0: number; x1: number; y: number; i: number }>;
+  /** R11 (H167; step 1c): the Chat screen's model chip, by cell (a click opens Models) */
+  chip?: { x0: number; x1: number; y: number };
 }
 
 export interface FrameAsk { ui: Ui; data: Data; g: Glyphs; columns: number; rows: number; now: number; can: ViewCtx['can'] }
@@ -40,59 +54,172 @@ export const scrollTo = (at: number | undefined, prev: number, height: number, t
 
 const rangeNote = (scroll: number, height: number, total: number): string | undefined => (total > height ? `${scroll + 1}–${Math.min(total, scroll + height)} of ${total}` : undefined);
 
+/**
+ * R5 (H131): the body's title, the crumb "project / destination": the project and the destination the header marks (its name
+ * as the rail says it: Files, Workflows, Runs & receipts, Canvas, Vision, Motion & 3D, Models & accounts, Tools & integrations,
+ * Control Room), or the workspace's own name where it is a page's second (Motion, God's Eye View, REA, Templates, Fleet & Clef).
+ * R11 round 7 (H177): the page's title and its one-line description are the page head's (pageHead), above the actions.
+ */
+export function bodyTitle(ui: Ui, data: Data): string {
+  const d = destinationOf(ui.workspace, ui.page);
+  const own = d && (d.ws ?? workspaceOfPage(d.page)) === ui.workspace;
+  return `${data.project.name} / ${own ? d.label : navItem(ui.workspace).label}`;
+}
+
+/** R11 round 7 (H177): the page head's words: the workspace's title and its one-line description (src/workbench/nav.ts). */
+export function pageHead(ui: Pick<Ui, 'workspace'>): { title: string; description: string } {
+  const n = navItem(ui.workspace);
+  return { title: n.title, description: n.purpose };
+}
+
 export function frameOf(a: FrameAsk): Frame {
   const { ui, data, g } = a;
-  const layout = layoutFor({ columns: a.columns, rows: a.rows, navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityRows: ui.activityOpen ? 8 : 0, focusMode: ui.focusMode === true });
-  const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can });
+  // R10 CHAT (H167): the Chat screen is one shell (src/workbench/chat-shell.ts): the permanent rail, the header, the conversation,
+  // Models and this conversation's controls; every other workspace is drawn as before
+  const shell = ui.page === 'chat' && ui.workspace === 'chat' && !ui.chatClassic ? chatLayout({ columns: a.columns, rows: a.rows, modelsOpen: ui.modelsOpen === true || ui.rightOpen }) : null;
+  if (shell) return chatFrame(a, shell);
+  const layout = layoutFor({
+    columns: a.columns, rows: a.rows, body: bodyKind(isHub(ui.page), ui.workspace), pipeline: ui.page === 'chat' && !ui.overlay,
+    navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityOpen: ui.activityOpen, focusMode: ui.focusMode === true,
+    // R10 (H167; H168's F9): Chat's own column is its event log; Activity & log keeps its strip there, not the same lines again
+    quietLog: ui.page === 'chat' && !ui.overlay,
+  });
+  const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can, columns: a.columns });
   const placed: Placed[] = [];
   const regions: Frame['regions'] = {};
   const tabs: Frame['tabs'] = [];
+  const actions: Frame['actions'] = [];
+
+  // row 1: TIMMY, the project, and the grouped destinations (R11 round 7, H177: src/workbench/destinations.ts, the Chat
+  // screen's rail groups: Chat · WORK · CREATE · CONNECT; before, the ten tabs). R10 (H167): two rows where there is room, the
+  // status row (the project, the route of the next turn, what runs and waits) above the destinations; on a short terminal one
+  // row, TIMMY and the project before the keys
+  const bar = layout.tabRows === 2 && !layout.tooSmall
+    ? headerRows(data, ui.page, a.columns, g, ui.workspace)
+    : (() => {
+      const d = destinationsRow({ tabs: data.frame?.tabs, page: ui.page, workspace: ui.workspace, width: a.columns, g, prefix: [{ text: 'TIMMY', role: 'strong', bold: true }, { text: ` ${g.sep} `, role: 'secondary' }, { text: data.project.name, role: 'strong' }] });
+      return { lines: [d.line], hits: d.hits };
+    })();
+  placed.push({ rect: layout.tabs, rows: bar.lines.slice(0, layout.tabs.h).map((l) => fit(l, a.columns, g.ellipsis)) });
+  const pages: PageHit[] = bar.hits.map((h) => ({ ...h, y0: layout.tabs.y + h.y0, y1: Math.min(layout.tabs.y + layout.tabs.h - 1, layout.tabs.y + h.y1) }));
 
   if (layout.tooSmall) {
     // too small for the zones: the facts that stay at every size, and why the rest is not drawn
-    const stop = stopWords(data, selectedItem(ctx(layout.top)), ui.workspace);
+    const stop = stopWords(data, selectedItem(ctx(layout.tabs)), ui.workspace);
     const lines: Line[] = [
-      [{ text: `${data.project.name} / ${navItem(ui.workspace).label}`, role: 'strong' }],
+      [{ text: `${data.project.name} / ${tabOf(ui.page).label} / ${navItem(ui.workspace).label}`, role: 'strong' }],
       [{ text: runWords(data), role: data.decisions.total ? 'attention' : 'secondary' }],
-      stop.target ? [{ text: '[x]', role: 'action' }, { text: ` ${stop.text}`, role: 'strong' }] : [{ text: stop.text, role: 'secondary' }],
+      stop.target || stop.turn?.mine ? [{ text: '[x]', role: 'action' }, { text: ` ${stop.text}`, role: 'strong' }] : [{ text: stop.text, role: 'secondary' }],
       [{ text: `The Workbench needs at least ${MIN_COLUMNS}×${MIN_ROWS}; this terminal is ${a.columns}×${a.rows}. Make it larger, or use timmy (the REPL). Ctrl+C quits.`, role: 'secondary' }],
     ];
-    return { screen: Array.from({ length: a.rows }, (_, i) => fit(lines[i] ?? [], a.columns, g.ellipsis)), layout, regions, tabs };
+    const top = layout.tabs.h;
+    const screen = Array.from({ length: a.rows }, (_, i) => (i < top ? fit(bar.lines[i] ?? [], a.columns, g.ellipsis) : fit(lines[i - top] ?? [], a.columns, g.ellipsis)));
+    return { screen, layout, regions, tabs, pages, actions };
   }
 
-  // the navigation (its selection is the workspace shown)
+  // row 2: the page head (R11 round 7, H177: the hierarchy in cells, current task → primary next action): its title edge the
+  // page's title, its note the key that opens it (and "unfinished" where the frame says so), its first row the one-line
+  // description, then the workflow actions (the region 'top') with the one primary next step amber, the selected step's words,
+  // and the run state and Stop in its foot
+  {
+    const c = ctx(layout.top);
+    const t = topLines(c, layout.topDetail, layout.tabRows === 2);
+    const tab = tabOf(ui.page);
+    // R7 (H150): an unfinished tab says so beside its name (the frame's tabs[].unfinished), in words, not by colour
+    const unfinished = frameTabs(data.frame).find((x) => x.id === ui.page)?.unfinished;
+    const first = workspaceOfPage(ui.page) === ui.workspace;
+    const head = pageHead(ui);
+    // (the key in the text's colour, as every key hint; "again": the key a second time shows this workspace of its page)
+    const note: Line = [{ text: `[${tab.key}]`, role: 'text' }, ...(first ? [] : [{ text: ' again', role: 'secondary' as const }]), ...(unfinished ? [{ text: ` ${g.sep} unfinished`, role: 'secondary' as const }] : [])];
+    placed.push({ rect: layout.top, rows: panel({ title: head.title, lines: [fit([{ text: head.description, role: 'secondary' }], c.width, g.ellipsis), ...t.lines], focused: ui.focus === 'top', note, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
+    regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
+    // where each button is drawn: inside the border and its one cell of air, on the row under the description
+    const x0 = layout.top.x + 1 + (layout.top.w - 2 >= 6 ? 1 : 0);
+    for (const h of t.hits) actions.push({ x0: x0 + h.x0, x1: x0 + h.x1, y: layout.top.y + 2, i: h.i });
+  }
+
+  // the Chat tab's pipeline row, above its two columns
+  if (layout.strip) {
+    const c = ctx(layout.strip);
+    placed.push({ rect: layout.strip, rows: panel({ title: 'Pipeline · intent → predict → run → receipt', lines: pipelineLines(c, c.width), focused: false }, layout.strip, g) });
+  }
+
+  // the navigation drawer (its selection is the workspace shown)
   if (layout.nav) {
     const c = ctx(layout.nav);
     const v = navView(c);
     const active = v.items.findIndex((it) => it.item.kind === 'action' && it.item.action === ui.workspace);
-    const at = active >= 0 ? v.items[active].line : undefined;
-    const scroll = scrollFor(ui, 'nav', v.items, { ...(at !== undefined ? { at } : {}), height: c.height, total: v.lines.length, first: active === 0 });
-    placed.push({ rect: layout.nav, rows: panel({ title: 'TIMMY', lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'nav', ...(layout.navAs === 'drawer' ? { footer: 'Esc closes' } : {}) }, layout.nav, g) });
+    // while it searches, its prompt and the matches below it show (a short drawer would otherwise keep the shown workspace's
+    // row in view and the typed words above it, out of sight)
+    const searching = ui.input.field === 'search';
+    const at = searching ? v.prompt : active >= 0 ? v.items[active].line : undefined;
+    const scroll = scrollFor(ui, 'nav', v.items, { ...(at !== undefined ? { at } : {}), height: c.height, total: v.lines.length, first: searching || active === 0 });
+    placed.push({ rect: layout.nav, rows: panel({ title: 'TIMMY', lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'nav', footer: 'Esc closes' }, layout.nav, g) });
     regions.nav = { rect: layout.nav, list: 'nav', items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
   }
 
-  // the top: project, task, state and Stop
-  {
-    const c = ctx(layout.top);
-    placed.push({ rect: layout.top, rows: panel({ title: 'Timmy Workbench', lines: topLines(c), focused: ui.focus === 'top' }, layout.top, g) });
-    regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
-  }
+  // R8 (H157; item G): whether the page's Unfinished box leaves some of its words out (Context then shows them first)
+  let unfinishedRest = false;
 
-  // the center
+  // the body's left column: Home's cards, Chat's conversation, or the tab's workspace
   if (layout.center) {
     const c = ctx(layout.center);
-    const v = centerView(c);
+    const view = centerView(c);
+    unfinishedRest = view.unfinishedRest === true;
+    // R8 (H157; item G): the rows pinned on the window's first rows (an Unfinished box cut to its title) stay while the rest
+    // scrolls; the rest is the list the cursor keys and the wheel move (its rows counted from below the pinned ones)
+    const pin = Math.min(view.pin ?? 0, view.lines.length, Math.max(0, c.height - 1));
+    const pinned = view.lines.slice(0, pin);
+    const cut: View = pin ? { ...view, lines: view.lines.slice(pin), items: view.items.map((x) => ({ ...x, line: x.line >= 0 ? x.line - pin : x.line })) } : view;
+    const bodyH = Math.max(1, c.height - pin);
+    // R10 (H167; H168's F9): a view's foot (Chat's composer) at the column's foot, as references 02 and 11 draw the prompt
+    // row under the stream: the rows between are left blank (the rows above it keep their places)
+    const foot = Math.min(cut.footRows ?? 0, cut.lines.length);
+    const v: View = foot && cut.lines.length < bodyH
+      ? { ...cut, lines: [...cut.lines.slice(0, cut.lines.length - foot), ...Array.from({ length: bodyH - cut.lines.length }, (): Line => []), ...cut.lines.slice(cut.lines.length - foot)] }
+      : cut;
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
     const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
-    const scroll = scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line } : {}), height: c.height, total: v.lines.length, first: i === 0 });
-    const title = ui.overlay ? overlayTitle(ui) : `${navItem(ui.workspace).title}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
-    placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
-    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
+    const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
+    // R5 (H131; the QA round's defect 8): the conversation follows its newest rows until the person selects a message
+    const follow = list === 'center:chat' && chatFollows(ui);
+    // R7 lead (the rehearsal's dry runs on 3453b3b and b40fad3: tab 6 at 160x45, 120x40 and 100x30, with the demo's mesh,
+    // opened part or all of the way past its Unfinished box, and tab 7 at 100x30 past all of it, to keep the first item whole
+    // in view): an unfinished tab's page opens at its top, so what works on it now and what it does not do yet are in view
+    // (the operator: "visibly unfinished"), while the cursor is on the first item and the wheel has not scrolled the page,
+    // whichever zone has the keyboard. The first item can then begin below the window (the title's range says how far the
+    // page goes); a moved cursor is kept in view as before, and every other page scrolls as before.
+    // R8 (H157; item G): the box is cut so the first item's first row shows from the top (src/workbench/views.ts
+    // withUnfinished); a pinned box title scrolls nothing away, so that page scrolls to its first item as any list does
+    const opening = !follow && (view.unfinished ?? 0) > 0 && !pin && i === 0 && !ui.wheel[list];
+    const scroll = follow
+      ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: bodyH, total: v.lines.length })
+      : opening
+        ? 0
+        : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: bodyH, total: v.lines.length, first: i === 0 });
+    const title = ui.overlay ? overlayTitle(ui) : `${bodyTitle(ui, data)}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
+    const note = rangeNote(scroll, bodyH, v.lines.length);
+    placed.push({ rect: layout.center, rows: panel({ title, lines: [...pinned, ...v.lines.slice(scroll, scroll + bodyH)], focused: ui.focus === 'center', ...(note ? { note } : {}) }, layout.center, g) });
+    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: pin, height: bodyH, total: v.lines.length };
   }
 
-  // the right dock: its tabs stay; its rows scroll
-  if (layout.right) {
+  // the body's right column: Context (Tools, Inspector, Files), or Home's preview and Chat's event log
+  if (layout.right && layout.rightAs === 'hub') {
     const c = ctx(layout.right);
+    const home = ui.page === 'home';
+    // R10 (H167): Home's right column is the selected item of recent work (where it opens, its receipt), the connections in a
+    // word each and the project; the preview in words, the cards and their addresses are the inspector's ([i])
+    const homeConn = home && ui.workspace === 'connections';
+    const v = homeConn ? homeSideView(c, connStepWords) : home ? previewView(c) : eventLogView(c);
+    const list = `right:hub-${ui.page}`;
+    const scroll = scrollFor(ui, list, [], { height: c.height, total: v.lines.length });
+    const picked = homeConn ? selectedHome({ ui, data, now: a.now }) : null;
+    const pickedName = picked?.kind === 'work' ? picked.work.title : picked?.kind === 'conn' ? picked.conn.label : '';
+    const title = homeConn ? (pickedName ? `Selected ${g.sep} ${pickedName}` : 'Selected') : home ? 'Preview · the companion and Studio, in words' : 'This conversation · turns and receipts';
+    placed.push({ rect: layout.right, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'right', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.right, g) });
+    regions.right = { rect: layout.right, list, items: [], scroll, fixed: 0, height: c.height, total: v.lines.length };
+  } else if (layout.right) {
+    const c = { ...ctx(layout.right), unfinishedRest };
     const v = rightView(c);
     const list = `right:${ui.tab}`;
     const fixed = 2;
@@ -115,24 +242,87 @@ export function frameOf(a: FrameAsk): Frame {
     }
   }
 
-  // the bottom: task controls and Activity (its events scroll; R4, H112: oldest first, the newest at the bottom, each event
-  // shown whole when it fits, and the view follows the newest only while the selection is the newest)
+  // Activity & log: its first rows stay; expanded, its events scroll (R4, H112: oldest first, the newest at the bottom, each
+  // shown whole when it fits, the view following the newest only while the selection is the newest); the key-hint line last
   {
     const c = ctx(layout.bottom);
-    const v = bottomView(c);
-    const fixed = ui.activityOpen ? 3 : 2;
-    const body = Math.max(0, c.height - fixed);
+    const v = bottomView(c, { logLines: layout.logLines, stop: !layout.topDetail, quiet: layout.quietLog === true });
+    const fixed = Math.min(v.fixed, v.lines.length);
+    const body = Math.max(0, c.height - fixed - 1);
     const rest = v.lines.slice(fixed);
     const items = v.items.map((x) => ({ ...x, line: x.line - fixed }));
     const i = items.length ? cursorOf(ui, 'bottom', items.length) : -1;
     const scroll = scrollFor(ui, 'bottom', items, { ...(i >= 0 ? { at: items[i].line, end: endOf(items, i, rest.length) } : {}), height: Math.max(1, body), total: rest.length });
-    const lines = [...v.lines.slice(0, fixed), ...rest.slice(scroll, scroll + body)];
+    const shown = rest.slice(scroll, scroll + body);
+    const above = [...v.lines.slice(0, fixed), ...shown, ...Array.from({ length: Math.max(0, body - shown.length) }, (): Line => [])];
+    // R5 (H131): a notice two rows long takes the row above the hints for its few seconds (never Activity's first row)
+    if (v.footAbove && above.length > 1) above[above.length - 1] = v.footAbove;
+    const lines = [...above, v.foot];
     const note = ui.activityOpen ? rangeNote(scroll, Math.max(1, body), rest.length) : undefined;
-    placed.push({ rect: layout.bottom, rows: panel({ title: navItem(ui.workspace).task, lines, focused: ui.focus === 'bottom', ...(note ? { note } : {}) }, layout.bottom, g) });
+    placed.push({ rect: layout.bottom, rows: panel({ title: 'Activity & log', lines, focused: ui.focus === 'bottom', ...(note ? { note } : {}) }, layout.bottom, g) });
     regions.bottom = { rect: layout.bottom, list: 'bottom', items, scroll, fixed, height: Math.max(1, body), total: rest.length };
   }
 
-  return { screen: compose(layout, placed), layout, regions, tabs };
+  return { screen: compose(layout, placed), layout, regions, tabs, pages, actions };
+}
+
+/**
+ * R10 CHAT (H167): the Chat screen's frame (src/workbench/chat-shell.ts chatScreen, the operator's terminal target's grid):
+ * the rail (region nav), the header, the conversation and the composer (center), Models (right; a drawer below 110 columns),
+ * this conversation's actions and the status row (bottom). A box opened over the conversation (the Keys, a NEEDS YOU box, a
+ * setup box) is drawn in the conversation's place. Every row exactly the terminal's width.
+ */
+function chatFrame(a: FrameAsk, layout: Layout): Frame {
+  const { ui, data, g } = a;
+  // R10 CHAT (H167): the first run's question (no model yet, not answered here), or Chat with no model and nothing said yet:
+  // their choices are the center's items (list center:first); a box over the center (a setup's, a message) is drawn as before
+  // (R11 H167, step 2a: and the welcome of an empty conversation with a model on the route: its four starter actions)
+  if (!ui.overlay && (isFirstRun({ ui, data }) || noModelNow({ ui, data }) || isWelcome({ ui, data }))) {
+    const first = isFirstRun({ ui, data });
+    const at = first ? firstRowsAt(a.columns, a.rows) : convoRowsAt(a.columns, a.rows);
+    const ctx = { ui, data, g, width: a.columns, height: a.rows, now: a.now };
+    // (the choices are marked while the conversation's zone has the keyboard and no field has it: a draft being typed below
+    // the welcome's choices leaves them plain)
+    const focused = ui.focus === 'center' && !ui.input.field;
+    const f = first ? firstRunLines(ctx, at.width, at.rows, focused) : noModelNow({ ui, data }) ? noModelLines(ctx, at.width, focused) : welcomeLines(ctx, at.width, at.rows, focused);
+    const out = chatScreen(ctx, { convo: f.lines, convoItems: f.items, convoScroll: 0, convoTotal: f.lines.length, first, list: 'center:first', focus: ui.focus });
+    return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [], ...(out.chip ? { chip: out.chip } : {}) };
+  }
+  // (R10 CHAT H167: Connect OpenRouter takes the composer's rows too: its address and choices whole at 80x24; and the Keys,
+  // H168's pass 3a R10: a longer list than the conversation's rows)
+  const full = ui.overlay?.kind === 'connect' || ui.overlay?.kind === 'help';
+  const at = full ? firstRowsAt(a.columns, a.rows) : convoRowsAt(a.columns, a.rows);
+  const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, inChat: true };
+  const view = centerView(c);
+  const list = ui.overlay ? 'overlay' : 'center:chat';
+  const i = view.items.length ? cursorOf(ui, list, view.items.length) : -1;
+  const span = i >= 0 ? view.items[i].rows ?? 1 : 1;
+  const follow = list === 'center:chat' && chatFollows(ui);
+  const scroll = follow
+    ? scrollFor(ui, list, [], { at: Math.max(0, view.lines.length - 1), height: at.rows, total: view.lines.length })
+    : scrollFor(ui, list, view.items, { ...(i >= 0 ? { at: view.items[i].line, ...(span > 1 ? { end: view.items[i].line + span - 1 } : {}) } : {}), height: at.rows, total: view.lines.length, first: i === 0 });
+  let shown = view.lines.slice(scroll, scroll + at.rows);
+  // R11 (H167; step 2, H168's pass 4a R32): rows above the view (the person's own message after the first answer at 80x24)
+  // are said on the first row: how many earlier messages, and that ↑ moves to them
+  // (not over the selected message's own first row: a message moved to sits at the top with its YOU / TIMMY row whole)
+  if (scroll > 0 && !ui.overlay && at.rows > 1 && !(i >= 0 && !follow && view.items[i].line === scroll)) {
+    const above = view.items.filter((it) => it.item.kind === 'message' && it.line < scroll).length;
+    const up = g.unicode ? '↑' : '^';
+    const cue = above ? `${up} ${above} earlier ${above === 1 ? 'message' : 'messages'} ${g.sep} ${up} moves to ${above === 1 ? 'it' : 'them'}` : `${up} more above ${g.sep} ${up} moves up`;
+    shown = [[{ text: cue, role: 'secondary' }], ...view.lines.slice(scroll + 1, scroll + at.rows)];
+  }
+  const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, full, focus: ui.focus });
+  const regions: Frame['regions'] = { ...out.regions };
+  return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [], ...(out.chip ? { chip: out.chip } : {}) };
+}
+
+/** R10 (H167): what Enter does on a connection of Home's list, in words (the controller's activate does it): the companion's and
+ *  Studio's Show; a step the Workbench carries out; any other step shown to copy. */
+function connStepWords(conn: WorkspaceConnection): string | null {
+  if (conn.id === 'companion') return 'Companion · Show: opens the companion in your browser';
+  if (conn.id === 'studio') return 'Studio · Show: opens the canvas';
+  if (!conn.setup) return null;
+  return routeOf({ command: conn.setup }).words.replace(/^Enter /, '');
 }
 
 function overlayTitle(ui: Ui): string {
@@ -140,13 +330,19 @@ function overlayTitle(ui: Ui): string {
   if (!o) return '';
   switch (o.kind) {
     case 'help': return 'Keys';
+    case 'find': return 'Find a workspace';
     case 'picker': return 'Switch project';
     case 'new': return 'New project';
     case 'settings': return 'Quick settings';
     case 'confirm-run': return 'Run a workflow block';
     case 'needs-you': return 'NEEDS YOU';
     case 'quit': return 'Quit';
+    case 'confirm-stop': return 'Stop another surface\'s turn';
     case 'message': return o.title;
+    case 'free-models': return 'Choose a free model';
+    case 'local-models': return 'Choose the local model';
+    case 'setup': return o.which === 'chat' ? 'The chat\'s Ollama address' : 'Set up chat';
+    case 'connect': return 'Connect OpenRouter';
     default: return '';
   }
 }

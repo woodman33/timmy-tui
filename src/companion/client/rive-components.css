@@ -1,0 +1,76 @@
+/* R11 round 7 (SHELL CONTRACT v1, DESIGN.md B11): the B11 registry's --timmy-ui-* names, with the B10 legacy web names as the
+   fallback so a page the shell has not moved keeps its look; green (--timmy-ui-verified) only on the observed connected word. */
+/* R11 round 5 (H174): the Rive components (src/companion/client/rive-bindings.js) and the Inspect animation view
+   (screen-inspect-animation.js), on the theme's variables: black ground, structure greys, amber for the one action and for
+   attention, green ONLY for an observed live fact (a connection the backend said is checked). The canvas is never the only carrier
+   of a state: the word beside it is. */
+.tr-component { display: inline-grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; }
+/* the text fallback's glyph in the text colour: B10, amber is a role (focus, the one next step, the selection), never a mark */
+.tr-face { position: relative; display: inline-grid; place-items: center; width: 72px; height: 72px; padding: 0; border: 1px solid var(--timmy-ui-border, var(--timmy-line-strong)); border-radius: 10px; background: var(--timmy-ui-surface, var(--timmy-ground)); color: var(--timmy-ui-text, var(--timmy-text)); font: inherit; font-size: 32px; font-weight: var(--timmy-weight-heading, 600); cursor: default; }
+button.tr-face { cursor: pointer; }
+button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; }
+/* the canvas takes no pointer: the asset bakes a click listener that would push State to 1 Working/Checking without a backend
+   event (a fabricated state on a live face); the face element (the host's button or img) keeps the click, the keyboard and the focus */
+.tr-face canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* the operator's native artboards at their own proportions (AgentConsole 640×380, ProviderCard 400×260, ActionButton 240×72), so the
+   native text reads; a phone width halves them */
+.tr-component[data-artboard="AgentConsole"] .tr-face { width: 320px; height: 190px; border-radius: 8px; }
+.tr-component[data-artboard="ProviderCard"] .tr-face { width: 240px; height: 156px; border-radius: 8px; }
+.tr-component[data-artboard="ActionButton"] .tr-face { width: 240px; height: 72px; border-radius: 8px; }
+.tr-component[data-artboard] { grid-template-columns: 1fr; }
+@media (max-width: 720px) { .tr-component[data-artboard="AgentConsole"] .tr-face { width: 288px; height: 171px; } .tr-component[data-artboard="ProviderCard"] .tr-face { width: 216px; height: 140px; } }
+.tr-face canvas:not([data-loaded]) { visibility: hidden; }
+.tr-fallback { position: relative; z-index: 1; }
+.tr-fallback[hidden] { display: none; }
+.tr-words { display: grid; gap: 2px; align-content: center; }
+.tr-heading { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); }
+.tr-status { font-weight: var(--timmy-weight-heading, 600); }
+.tr-component[data-state="connected"] .tr-status { color: var(--timmy-ui-verified, var(--timmy-live)); }
+.tr-component[data-state="checking"] .tr-status, .tr-component[data-state="awaiting"] .tr-status, .tr-component[data-state="stopping"] .tr-status { color: var(--timmy-ui-focus, var(--timmy-accent)); }
+.tr-component[data-state="failed"] .tr-status { color: var(--timmy-ui-focus, var(--timmy-accent)); }
+.tr-note { font-size: 12px; color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); }
+.tr-note:empty { display: none; }
+
+/* the Inspect view */
+.tr-inspect-own { position: fixed; inset: 0; z-index: 60; overflow: auto; background: var(--timmy-ui-surface, var(--timmy-ground)); color: var(--timmy-ui-text, var(--timmy-text)); }
+.tr-main { display: grid; gap: 16px; padding: 0 16px 32px; }
+.tr-title { margin: 0; }
+.tr-cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.tr-card { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.tr-card h3 { margin: 0; font-size: 15px; }
+.tr-art { min-height: 76px; }
+.tr-facts { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 12px; font-size: 13px; }
+.tr-facts dt { color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); }
+.tr-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tr-facts dt { overflow-wrap: anywhere; }
+.tr-inputs { margin: 0; padding-left: 1em; }
+.tr-events ol { margin: 0; padding-left: 1.2em; font-size: 12px; }
+.tr-events h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); }
+.tr-src-preview { color: var(--timmy-ui-focus, var(--timmy-accent)); }
+.tr-src-derived { color: var(--timmy-ui-text-secondary, var(--timmy-text-secondary)); }
+.tr-previews { border-top: 1px dashed var(--timmy-ui-border-quiet, var(--timmy-line)); padding-top: 8px; display: grid; gap: 6px; }
+.tr-preview-label { margin: 0; color: var(--timmy-ui-focus, var(--timmy-accent)); }
+@media (max-width: 720px) { .tr-cards { grid-template-columns: 1fr; } .tr-facts { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .tr-face, .tr-status { transition: none; animation: none; } }
+
+/* R11 round 6: the mounts in the product (TimmyRive.mountConsole / mountProviderCard / mountActionButton): the artboards at their
+   own proportions, 'card' at a fixed width, 'wide' at the host's width; a disabled action button says so and takes no pose */
+.tr-mount { display: grid; gap: 4px; }
+.tr-mount .tr-face { height: auto; border-radius: 8px; }
+.tr-mount[data-artboard="AgentConsole"] .tr-face { width: 320px; height: auto; aspect-ratio: 640 / 380; }
+.tr-mount[data-artboard="ProviderCard"] .tr-face { width: 240px; height: auto; aspect-ratio: 400 / 260; }
+.tr-mount[data-artboard="ActionButton"] .tr-face { width: 240px; height: auto; aspect-ratio: 240 / 72; font-size: 15px; font-weight: var(--timmy-weight-body, 400); }
+.tr-mount[data-size="wide"][data-artboard] .tr-face { width: 100%; max-width: 100%; }
+.tr-mount .tr-words { font-size: 12px; }
+/* R11 round 7 (the operator's item 4 of 2026-10-24 19:18): a production face draws the state word as its headline. A screen whose own
+   words sit beside the face asks the mount for `words: 'spoken'`: while the face is DRAWN the HTML status stays in the accessibility
+   tree (the live region announces each state change; the face's aria-label is the state word) and off the screen — never display:none,
+   which would silence it. While the face is NOT drawn (the words path) the status shows beside the fallback glyph: the canvas is never
+   the only carrier of a state. data-words is the EFFECTIVE mode (rive-bindings.js placeWords): 'spoken' only while the face's headline
+   reaches the 13-px floor (fitHeadline scales it up within the artboard's room; the Chat band's 40-px face cannot) — else 'beside',
+   whatever was asked (data-words-asked), so a 3–7-px word is never the only carrier. */
+.tr-mount[data-words="spoken"] .tr-words { position: relative; }
+.tr-mount[data-words="spoken"][data-rive="drawn"] .tr-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+button.tr-face[disabled] { opacity: .55; cursor: not-allowed; }
+button.tr-face[disabled]:hover { outline: none; }
+@media (max-width: 720px) { .tr-mount[data-artboard="AgentConsole"] .tr-face { width: 100%; } .tr-mount[data-artboard="ProviderCard"] .tr-face { width: 100%; max-width: 320px; } }

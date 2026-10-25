@@ -4,7 +4,7 @@
 // Both run in a child python3, never import numpy into the server, and seal one receipt per call. Honesty clause: the
 // lane's own exit codes are kept — 0 ok, 2 computed-but-not-trusted (fit applied / scale at the grid edge), 3
 // not_configured (no numpy+scipy) — and a missing input file is refused before any process starts.
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,9 +43,33 @@ function flags(args: Record<string, unknown>, keys: string[]): string[] {
   return out;
 }
 
-function runLane(script: string, argv: string[], subject: string, dir?: string): Outcome {
+const LANE_TIMEOUT_MS = 600_000;
+const LANE_MAX_OUTPUT = 64 * 1024 * 1024;
+
+/**
+ * R5 lead (the gate on aa247e5 had a runner error, a test worker's event loop held 60 s or more; the event-loop heartbeat in
+ * the gate on a77d80d named these calls, up to 22 s each on a loaded machine): the lane script in a child python3, awaited,
+ * never spawnSync, so the MCP server (and any caller) keeps answering while a long bench runs. As spawnSync did: killed at
+ * 10 min or past 64 MiB of output, its status then null.
+ */
+function runPython(script: string, argv: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((done) => {
+    let stdout = '';
+    let stderr = '';
+    let killed = false;
+    const child = spawn('python3', [join(LANE, script), ...argv], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const kill = (): void => { killed = true; child.kill('SIGKILL'); };
+    const timer = setTimeout(kill, LANE_TIMEOUT_MS);
+    child.stdout.setEncoding('utf8').on('data', (c: string) => { if (stdout.length + c.length > LANE_MAX_OUTPUT) kill(); else stdout += c; });
+    child.stderr.setEncoding('utf8').on('data', (c: string) => { stderr = (stderr + c).slice(-LANE_MAX_OUTPUT); });
+    child.on('error', (e) => { clearTimeout(timer); done({ status: null, stdout, stderr: stderr || String(e.message) }); });
+    child.on('close', (code) => { clearTimeout(timer); done({ status: killed ? null : code, stdout, stderr }); });
+  });
+}
+
+async function runLane(script: string, argv: string[], subject: string, dir?: string): Promise<Outcome> {
   const t0 = Date.now();
-  const r = spawnSync('python3', [join(LANE, script), ...argv], { encoding: 'utf8', timeout: 600_000, maxBuffer: 64 * 1024 * 1024 });
+  const r = await runPython(script, argv);
   const ms = Date.now() - t0;
   const last = (r.stdout ?? '').trim().split('\n').pop() ?? '';
   let result: unknown = null; try { result = JSON.parse(last); } catch { /* not JSON: a traceback or nothing */ }
@@ -70,7 +94,7 @@ function runLane(script: string, argv: string[], subject: string, dir?: string):
 function refuse(note: string): Outcome { return { ok: false, status: 'invalid_request', exit_code: null, ms: 0, result: null, note }; }
 const isFile = (p: unknown) => typeof p === 'string' && p.length > 0 && existsSync(p) && statSync(p).isFile();
 
-export function callGeoTool(name: string, args: Record<string, unknown> = {}, dir?: string): Outcome {
+export async function callGeoTool(name: string, args: Record<string, unknown> = {}, dir?: string): Promise<Outcome> {
   switch (name) {
     case 'timmy_geo_score': {
       if (!isFile(args.truth)) return refuse('truth must be an existing file (PLY, JSON {"points"} or mesh)');

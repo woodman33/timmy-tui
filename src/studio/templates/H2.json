@@ -1,0 +1,37 @@
+{
+  "id": "H2",
+  "kind": "starter",
+  "from": { "template": "T22", "key": "foundry-houdini-cookbook", "generated": "2026-07-22" },
+  "title": "Houdini cookbook",
+  "domain": "houdini",
+  "intro": "Proven hou-module patterns, one per card, under six categories. A snippet is text to copy into Houdini: its title, the rule it keeps, and its lines. Nothing on this board runs a snippet.",
+  "workbench": "timmy-starter-v1",
+  "page": "houdini",
+  "lanes": ["steps", "scene", "parm", "geometry", "material", "render", "pdg"],
+  "steps": [
+    { "n": "01", "verb": "Define the geometry", "slot": "result", "guide": "The scene the snippets serve. A result node of this project (a mesh Timmy measured, a VoxVision record) lands here from Nodes; else name the file you work on." },
+    { "n": "02", "verb": "Set the parameters", "slot": "params", "guide": "The values a snippet reads. This project's parameter node lands here from Nodes; its Save and Rebuild go through the live board. Nothing on this board runs by itself." },
+    { "n": "03", "verb": "Cook in Houdini", "slot": "workflow", "guide": "A snippet is text to copy; a cook is a workflow block that runs. A workflow node lands here from Nodes, and its Run goes through the live board. No native Houdini operation is configured in Studio." }
+  ],
+  "shapes": [
+    { "key": "cat-scene", "type": "geo", "x": 0, "y": 330, "w": 196, "h": 56, "color": "grey", "fill": "solid", "font": "mono", "size": "s", "role": "cookbook-category", "lane": "scene", "text": ["SCENE"], "data": { "category": "scene", "snippetCount": 0 } },
+    { "key": "cat-parm", "type": "geo", "x": 216, "y": 330, "w": 196, "h": 56, "color": "grey", "fill": "solid", "font": "mono", "size": "s", "role": "cookbook-category", "lane": "parm", "text": ["PARM"], "data": { "category": "parm", "snippetCount": 0 } },
+    { "key": "cat-geometry", "type": "geo", "x": 432, "y": 330, "w": 196, "h": 56, "color": "grey", "fill": "solid", "font": "mono", "size": "s", "role": "cookbook-category", "lane": "geometry", "text": ["GEOMETRY"], "data": { "category": "geometry", "snippetCount": 0 } },
+    { "key": "cat-material", "type": "geo", "x": 648, "y": 330, "w": 196, "h": 56, "color": "grey", "fill": "solid", "font": "mono", "size": "s", "role": "cookbook-category", "lane": "material", "text": ["MATERIAL"], "data": { "category": "material", "snippetCount": 0 } },
+    { "key": "cat-render", "type": "geo", "x": 864, "y": 330, "w": 196, "h": 56, "color": "grey", "fill": "solid", "font": "mono", "size": "s", "role": "cookbook-category", "lane": "render", "text": ["RENDER"], "data": { "category": "render", "snippetCount": 0 } },
+    { "key": "cat-pdg", "type": "geo", "x": 1080, "y": 330, "w": 196, "h": 56, "color": "grey", "fill": "solid", "font": "mono", "size": "s", "role": "cookbook-category", "lane": "pdg", "text": ["PDG"], "data": { "category": "pdg", "snippetCount": 0 } },
+    { "key": "snippet-scene", "type": "geo", "x": 0, "y": 420, "w": 412, "h": 220, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "align": "start", "role": "cookbook-snippet", "lane": "scene",
+      "text": ["SCENE · snippet", "Title: what the pattern does", "Rule: why it is needed, and what goes wrong without it", "Code: the hou lines, to copy into Houdini. Nothing here runs them."], "data": { "snippetId": "", "category": "scene", "title": "", "law": "", "code": "" } },
+    { "key": "snippet-parm", "type": "geo", "x": 432, "y": 420, "w": 412, "h": 220, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "align": "start", "role": "cookbook-snippet", "lane": "parm",
+      "text": ["PARM · snippet", "Title: what the pattern does", "Rule: why it is needed, and what goes wrong without it", "Code: the hou lines, to copy into Houdini. Nothing here runs them."], "data": { "snippetId": "", "category": "parm", "title": "", "law": "", "code": "" } },
+    { "key": "snippet-geometry", "type": "geo", "x": 864, "y": 420, "w": 412, "h": 220, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "align": "start", "role": "cookbook-snippet", "lane": "geometry",
+      "text": ["GEOMETRY · snippet", "Title: what the pattern does", "Rule: why it is needed, and what goes wrong without it", "Code: the hou lines, to copy into Houdini. Nothing here runs them."], "data": { "snippetId": "", "category": "geometry", "title": "", "law": "", "code": "" } },
+    { "key": "snippet-material", "type": "geo", "x": 0, "y": 670, "w": 412, "h": 220, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "align": "start", "role": "cookbook-snippet", "lane": "material",
+      "text": ["MATERIAL · snippet", "Title: what the pattern does", "Rule: why it is needed, and what goes wrong without it", "Code: the hou lines, to copy into Houdini. Nothing here runs them."], "data": { "snippetId": "", "category": "material", "title": "", "law": "", "code": "" } },
+    { "key": "snippet-render", "type": "geo", "x": 432, "y": 670, "w": 412, "h": 220, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "align": "start", "role": "cookbook-snippet", "lane": "render",
+      "text": ["RENDER · snippet", "Title: what the pattern does", "Rule: why it is needed, and what goes wrong without it", "Code: the hou lines, to copy into Houdini. Nothing here runs them."], "data": { "snippetId": "", "category": "render", "title": "", "law": "", "code": "" } },
+    { "key": "snippet-pdg", "type": "geo", "x": 864, "y": 670, "w": 412, "h": 220, "color": "grey", "fill": "semi", "font": "mono", "size": "s", "align": "start", "role": "cookbook-snippet", "lane": "pdg",
+      "text": ["PDG · snippet", "Title: what the pattern does", "Rule: why it is needed, and what goes wrong without it", "Code: the hou lines, to copy into Houdini. Nothing here runs them."], "data": { "snippetId": "", "category": "pdg", "title": "", "law": "", "code": "" } }
+  ],
+  "bindings": []
+}

@@ -1,0 +1,13 @@
+import rerun as rr, sys, numpy as np
+rr.init("timmy-r9-edge", recording_id="edge-1")
+rr.save(sys.argv[1])
+rr.set_time("frame", sequence=-5)
+rr.set_time("t", duration=-1.25)
+rr.set_time("wall", timestamp=0)
+rr.log("a/b", rr.Points3D([[0,0,0]]))
+rr.set_time("frame", sequence=9007199254740993)
+rr.set_time("t", duration=3725.000000001)
+rr.set_time("wall", timestamp=1792500825.5)
+rr.log("a/b", rr.Points3D([[1,1,1]]))
+rr.log("text", rr.TextLog("line one\nline two ┆ │ with bars"))
+rr.log("space name/é", rr.Points3D([[2,2,2]]))

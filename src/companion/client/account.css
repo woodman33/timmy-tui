@@ -1,0 +1,70 @@
+/* R11 round 7 (H173): the ACCOUNT page's own content (account.js) on the shell's scaffold (SHELL CONTRACT v1 §2:
+   #screen-account.page[data-page="account"] with .page-head / .page-band / .page-body (.page-work + .page-context) /
+   .page-dock / .page-records, the shell's) and the B11 tokens (--timmy-ui-*; the study's values stand in as fallbacks).
+   The card is the page's one light focal object? No: the sign-in card stays a dark surface (typing on dark, as the Card Lab's
+   left column); the light material is kept for the primary action the shell draws. The round-4 layout rules (.ac-main /
+   .ac-hero / .sh-head) stay for an older shell that mounts the screen without the scaffold. */
+.page[data-page="account"] .ac-note, #screen-account .ac-note { font-size: var(--timmy-ui-size-label, 13px); line-height: var(--timmy-ui-leading-label, 1.35); color: var(--timmy-ui-text-secondary, #BDCADA); margin: 0; }
+.page[data-page="account"] .ac-work { max-width: 560px; }
+.page[data-page="account"] .ac-card, #screen-account .ac-card { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; padding: 24px 26px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-panel, 16px); background: var(--timmy-ui-elev-surface, var(--timmy-ui-surface, #111A23)); box-shadow: var(--timmy-ui-shadow-panel, none); }
+.page[data-page="account"] .ac-card h2, #screen-account .ac-card h2 { margin: 0 0 4px; font-size: var(--timmy-ui-size-section, 18px); font-weight: var(--timmy-ui-weight-heading, 600); }
+.page[data-page="account"] .ac-sub, #screen-account .ac-sub { margin: 0 0 18px; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.ac-field { display: block; margin-top: 12px; }
+.ac-field-k { display: block; margin-bottom: 6px; font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.ac-input, .ac-form .sh-input { width: 100%; max-width: 100%; box-sizing: border-box; padding: 10px 12px; font: inherit; color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-raised, #1C2936); border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-control, 10px); }
+.ac-input:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.ac-form .ac-submit { margin-top: 20px; }
+.ac-form .sh-btn.is-wide, .ac-card .sh-btn.is-wide { width: 100%; box-sizing: border-box; }
+.ac-social-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ac-social-row:has(> :only-child) { grid-template-columns: 1fr; }
+.ac-social { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.ac-social-k { font-weight: var(--timmy-ui-weight-strong, 600); }
+.ac-divider { margin: 16px 0 6px; }
+.ac-center { text-align: center; margin-top: 10px; }
+.ac-center-row { justify-content: center; }
+.ac-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
+.ac-error { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--timmy-ui-focus, #FFB000); border-radius: var(--timmy-ui-radius-control, 10px); color: var(--timmy-ui-text, #ECF1F5); }
+.ac-switch { margin-top: 22px; }
+.ac-state { margin-top: 14px; font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text-secondary, #BDCADA); }
+.ac-state.is-live { color: var(--timmy-ui-verified, #28FE14); }
+.ac-state.is-attn { color: var(--timmy-ui-focus, #FFB000); letter-spacing: var(--timmy-ui-tracking-kicker, 0.14em); text-transform: uppercase; margin: 0 0 10px; }
+.ac-text { font: inherit; background: transparent; border: 0; color: var(--timmy-ui-text, #ECF1F5); text-decoration: underline; cursor: pointer; padding: 0; }
+
+/* the blocker: what to set, where, what happens next — a numbered list, the names in mono, the missing ones marked */
+.ac-blocker { border-color: var(--timmy-ui-focus, #FFB000); }
+.ac-steps { margin: 16px 0; padding: 0 0 0 22px; display: grid; gap: 14px; }
+.ac-step .ac-code { font-family: var(--timmy-ui-font-mono, var(--timmy-font-mono, monospace)); font-size: var(--timmy-ui-size-label, 13px); color: var(--timmy-ui-text, #ECF1F5); }
+.ac-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; font-size: var(--timmy-ui-size-label, 13px); border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-pill, 999px); color: var(--timmy-ui-text-secondary, #BDCADA); vertical-align: middle; }
+.ac-tag.is-attn { border-color: var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-focus, #FFB000); }
+.ac-step .ac-note { margin-top: 4px; }
+.ac-where { color: var(--timmy-ui-text-muted, #9AAFC3); }
+
+/* the right column */
+.page[data-page="account"] .ac-ctx-title { margin: 0 0 10px; font-size: var(--timmy-ui-size-section, 18px); }
+.ac-ctx-dl { display: grid; gap: 4px 0; margin: 0 0 12px; font-size: var(--timmy-ui-size-label, 13px); }
+.ac-ctx-dl dt { color: var(--timmy-ui-text, #ECF1F5); font-weight: var(--timmy-ui-weight-strong, 600); margin-top: 8px; }
+.ac-ctx-dl dd { margin: 0; color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.ac-ctx-actions { margin: 12px 0; }
+.ac-details summary, .ac-records summary { cursor: pointer; color: var(--timmy-ui-text-secondary, #BDCADA); font-size: var(--timmy-ui-size-label, 13px); }
+.ac-mono { font-family: var(--timmy-ui-font-mono, var(--timmy-font-mono, monospace)); }
+
+/* an older shell: the round-4 composition (the head with the three steps, the hero, the card, the foot) */
+#screen-account .ac-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 440px); gap: 48px; align-items: center; }
+#screen-account .ac-hero { max-width: 420px; padding: 24px 0 24px 16px; }
+#screen-account .ac-kicker { font-family: var(--timmy-font-mono); letter-spacing: 0.16em; }
+#screen-account .ac-title { margin: 22px 0 0; font-size: 56px; line-height: 1.02; font-weight: var(--timmy-weight-heading); letter-spacing: -0.02em; color: var(--timmy-text); }
+#screen-account .ac-lede { margin-top: 26px; font-size: 18px; line-height: 1.45; color: var(--timmy-text-secondary); }
+@media (max-width: 960px) {
+  #screen-account .ac-main { grid-template-columns: 1fr; gap: 24px; align-items: start; }
+  #screen-account .ac-hero { order: 2; padding-left: 0; }
+  #screen-account .ac-card { order: 1; }
+}
+@media (max-width: 720px) {
+  #screen-account .ac-main { padding: 20px 16px; }
+  .page[data-page="account"] .ac-card, #screen-account .ac-card { padding: 18px 16px; }
+  .ac-social-row { grid-template-columns: 1fr; }
+  .ac-social-row .sh-btn { white-space: normal; line-height: 1.25; }
+  #screen-account .ac-hero { display: none; }
+  #screen-account .ac-title { font-size: 40px; }
+  .page[data-page="account"] .ac-work { max-width: none; }
+}

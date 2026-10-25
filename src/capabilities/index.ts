@@ -27,6 +27,7 @@ import type { ChainEvidence, RunMark } from './evidence.js';
 import type { Ladder, NotReached, Rung } from './ladder.js';
 import { ladderFor, type Probes, type Timed } from './ladder-rows.js';
 import { ollamaRow, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
+import type { OllamaFrom } from './ollama-route.js'; // R6 (H140)
 import type { ChatRoute } from '../agent/chat-route.js'; // R4 (H103): the REPL row's route
 import { atWords } from '../setup/ollama-models.js';
 
@@ -124,6 +125,15 @@ export interface ProbeDeps {
   qualificationRoot?: () => string | undefined;
   /** R4 (H76): the local Ollama's address, as its probe asks it (said in the reachable evidence). */
   ollamaBase?: string;
+  /** R6 (H140): where that address came from (the chat setup's record, a variable, the default): a wrong address's step names it */
+  ollamaFrom?: OllamaFrom;
+  /** R6 (H140): this computer's platform, so an install step fits it (Homebrew only on macOS); process.platform when absent */
+  platform?: NodeJS.Platform;
+  /**
+   * R6 (H140; the one waiting count): keeps the rows this check found, so every process counts the same "needs setup" items
+   * (src/capabilities/tools-record.ts); absent: nothing is kept (a test's checks, or a caller that keeps its own)
+   */
+  record?: (rows: CapabilityRow[]) => void;
   /**
    * R4 (H103): the chat's route as the REPL resolves it (src/agent/chat-route.ts resolveChatRoute): the REPL's row says it (the
    * local model needs no key). Absent: the row says the model key only, as before.
@@ -217,8 +227,9 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     'not-asked': { id: 'openrouter', kind: 'model', name: 'OpenRouter', rung: 'installed', detail: 'key set; not contacted' },
   };
   add(or[openrouter]);
-  // R4 (H82): from the server's own answer; the command's absence said on its own (src/capabilities/ollama-row.ts)
-  add(ollamaRow(ollama, { cli: d.onPath('ollama'), ...(d.ollamaBase ? { base: d.ollamaBase } : {}) }));
+  // R4 (H82): from the server's own answer; the command's absence said on its own (src/capabilities/ollama-row.ts). R6 (H140):
+  // its rung follows that answer alone, and its step fits this computer
+  add(ollamaRow(ollama, { cli: d.onPath('ollama'), ...(d.ollamaBase ? { base: d.ollamaBase } : {}), ...(d.platform ? { platform: d.platform } : {}), ...(d.ollamaFrom ? { from: d.ollamaFrom } : {}) }));
 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });
@@ -243,8 +254,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     ? { id: 'composio', kind: 'tool', name: 'Composio', rung: 'installed', detail: 'lists connections; the rest not built', tools: ['manage_composio_integrations'] }
     : { id: 'composio', kind: 'tool', name: 'Composio', rung: 'needs setup', detail: 'no key', setup: 'set COMPOSIO_API_KEY', tools: ['manage_composio_integrations'] });
   add(d.edgeSet()
-    ? { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'installed', detail: 'edge host set; not contacted', tools: ['cloudflare_send_durable_pulse'] }
-    : { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'needs setup', detail: 'no edge host', setup: 'set TIMMY_EDGE_HOST', tools: ['cloudflare_send_durable_pulse'] });
+    ? { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'installed', detail: 'edge host set; not contacted; offered to a turn only with TIMMY_TOOLS_OPT_IN=cloudflare_send_durable_pulse', tools: ['cloudflare_send_durable_pulse'] }
+    : { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'needs setup', detail: 'no edge host; opt-in (TIMMY_TOOLS_OPT_IN=cloudflare_send_durable_pulse)', setup: 'set TIMMY_EDGE_HOST', tools: ['cloudflare_send_durable_pulse'] });
   // R4 (H76): built, but it reads a flag only through a Worker's binding; no plan here names it, so it is not "proposed".
   add({ id: 'flag', kind: 'tool', name: 'Feature flags', rung: 'needs setup', detail: 'built, but it reads a flag only through a Cloudflare Worker\'s Flagship binding, and this terminal has none', setup: 'run it inside a Cloudflare Worker with a Flagship binding', tools: ['cloudflare_get_feature_flag'] });
   add(keySet(env.BREAK_MODE_API_BASE_URL ?? env.API_BASE_URL) && keySet(env.TIMMY_USERNAME)
@@ -364,7 +375,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // R4 (H88; the Mac run r23): no row shows a path under a home folder, $HOME's or the account's own, as absolute (in a sandbox
   // HOME was not the account's home, and a tool found on PATH under it kept its absolute path on the board and in /tools)
   const homes = (t: string): string => scrubHomes(t, env as NodeJS.ProcessEnv);
-  return legacy.map((r) => {
+  const result = legacy.map((r) => {
     const l = ladderFor(r, ctx);
     const { setup: _setup, exercised: _exercised, ...rest } = r;
     return scrubStrings({
@@ -373,4 +384,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
       ladder: l.ladder, notReached: l.notReached, demonstrated: l.demonstrated,
     }, homes);
   });
+  // R6 (H140): the check's own result is kept for every process's count of what waits on you; a record that cannot be kept
+  // changes nothing here
+  try { d.record?.(result); } catch { /* not kept */ }
+  return result;
 }

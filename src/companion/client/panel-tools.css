@@ -1,0 +1,55 @@
+/* R11 round 7 (H170; UI-OWNERSHIP.md): the Tools & integrations page's own sheet (src/companion/client/panel-tools.js),
+   beside the .tools-* and .tl-* rules companion.css keeps for the inspector and the capability cards: "Where tools work"
+   first (each group with the pages that use it and its rows in the three words — green only on exercised, a verified
+   receipt), the directory second (collapsible), the page's tools in the shell's dock. The head, band and dock frame are the
+   shell's. Theme variables only; no colour is written here. */
+/* under the shell's scaffold (.page-work is a flex column, the page scrolls as a whole in #ws-main): the host lays the panel's
+   rows out, and the inspector's four panes keep a bounded height so each pane scrolls on its own, as the tab did (the picked
+   tool's schema brought to the top of its pane) */
+.page-work > .tools-host { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.page-work .tools-grid { flex: none; height: min(62vh, 760px); min-height: 340px; }
+/* D24 (the lead, 00:13 / 00:31): ONE accent-filled primary per page — the head's (D8). Under the scaffold the inspector's own step
+   buttons keep their words, their place and their is-primary meaning (the step that is next), but draw the raised secondary look
+   (.ui-btn's tokens), never the accent fill the head's primary carries. Drawn without the scaffold (no .page-work), the fill stands. */
+.page-work .tools-go.is-primary { background: var(--timmy-ui-elev-raised, var(--timmy-raised)); border-color: var(--timmy-ui-border, var(--timmy-line-strong)); color: var(--timmy-text); }
+.page-work .tools-go.is-primary:hover:not(:disabled) { border-color: var(--timmy-ui-text-muted, var(--timmy-text-secondary)); }
+
+/* where tools work */
+.tools-wherebox { flex: 0 0 auto; margin: 0 0 12px; }
+.tools-wherebox > .box-body { overflow: visible; }
+.tools-directory { flex: 0 0 auto; }
+.tools-where-lead { margin: 0 0 10px; font-size: 13px; color: var(--timmy-text-secondary); }
+.tools-where { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.tools-where-group { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--timmy-line); border-radius: 8px; min-width: 0; }
+.tools-where-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tools-where-k { margin: 0; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.tools-where-pages { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools-where-page { font: inherit; font-size: 13px; padding: 3px 9px; border: 1px solid var(--timmy-line-strong); border-radius: 999px; background: transparent; color: var(--timmy-text); cursor: pointer; }
+.tools-where-page:hover { border-color: var(--timmy-text-secondary); }
+.tools-where-page:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; }
+.tools-where-how { margin: 0; font-size: 12px; color: var(--timmy-text-secondary); }
+.tools-where-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.tools-where-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+.tools-where-name { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.tools-where-next { color: var(--timmy-text-secondary); font-size: 12px; }
+.tools-where-routes { margin: 4px 0 0; font-size: 12px; color: var(--timmy-text-secondary); }
+
+/* the directory, secondary */
+.tools-directory { margin: 12px 0; border: 1px solid var(--timmy-line); border-radius: 8px; padding: 0 14px; }
+.tools-directory-summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
+.tools-directory-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 4px; }
+.tools-directory[open] .tools-directory-summary { border-bottom: 1px solid var(--timmy-line); margin-bottom: 10px; }
+.tools-directory .tools-caps { padding-bottom: 12px; }
+/* a card's exact step (the inventory's sentence: a command, an env name, an address) behind Details — the body copy keeps the plain step (H168's R108) */
+.tl-next-details { margin: 4px 0 0; }
+.tl-next-summary { cursor: pointer; margin: 0; padding: 2px 0; list-style: none; display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--timmy-text-secondary); }
+.tl-next-summary::-webkit-details-marker { display: none; }
+.tl-next-summary::before { content: '▸'; }
+.tl-next-details[open] .tl-next-summary::before { content: '▾'; }
+.tl-next-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 4px; }
+.tl-next-details .tl-next-detail { margin: 4px 0 0; font-family: var(--timmy-font-mono, monospace); }
+
+@media (max-width: 720px) {
+  .tools-where { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .tools-panel * { transition: none !important; animation: none !important; } }

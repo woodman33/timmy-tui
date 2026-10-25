@@ -13,8 +13,16 @@
  *
  * Every request the page makes, in any frame, is recorded; one to any other origin is aborted before it leaves, and the
  * browser resolves no name but 127.0.0.1, so even a failing run fetches nothing from elsewhere. The policy's violations are
- * collected in every frame (a script the test itself adds is refused and reported, which shows they are seen). The model is
- * a FAKE OpenRouter on 127.0.0.1. Skipped, saying so, where no Chromium or Chrome is found.
+ * collected in every frame (a script the test itself adds is refused and reported, which shows they are seen). Skipped,
+ * saying so, where no Chromium or Chrome is found.
+ *
+ * R11 round 4 (H169, contract C3): the page's chat is the REAL agent turn — the Chat's composer sends POST /api/chat/turn
+ * (src/companion/chat-run.ts, through openChatSession({ surface: 'companion' }); the launch token in a header) and the answer
+ * streams as this page's turn, sealed into the project's conversation. The legacy raw POST /chat and the FAKE OpenRouter
+ * upstream it posted to are gone, so the model here is a FAKE Ollama on 127.0.0.1 (tests/fixtures/fake-ollama-chat.ts) the
+ * setup names as the chat's local model. The Chat draws a model's answer as text (fenced code as blocks: chat-shell.js
+ * textBlock), so Streamdown's drawing of a MODEL's answer (headings, tables, diagrams, its caret) is no longer on the page:
+ * the STREAMDOWN island still draws the ✨ sample (no model asked), and the cases below keep Streamdown exercised there.
  *
  * R4 (H104): the CHAT MIRROR says where chat happens when none of this session has come (r24: an empty panel that said
  * nothing), and shows a REPL turn as the bus carries it (a FAKE receipt.sealed event appended to the bus file the companion
@@ -23,8 +31,6 @@
  */
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -33,14 +39,17 @@ import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { sealTurn } from '../src/repl/seal.js';
 import { tildePath } from '../src/utils/home-scrub.js';
+import { openWorkspaceTab, landWorkspace } from './helpers/companion-page-kit.js';
+import { startFakeOllama, textChunks, type ChatScript, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
 if (!browserPath) console.warn('companion-page-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
 
-const FAKE_KEY = 'FAKE-openrouter-key-for-companion-page-tests';
+/** FAKE: the local model the setup names (not a real Ollama model; the FAKE Ollama lists and answers it). No regex-special character: it is used in patterns as it is. */
+const MODEL = 'fake-page-test:8b';
 
-/** What the FAKE OpenRouter answers: markdown of every kind Streamdown draws. */
+/** What the FAKE model answers: markdown of every kind (the Chat draws it as text, its fenced blocks as blocks). */
 const ANSWER = [
   '# Release notes',
   '',
@@ -128,13 +137,17 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
   const dirs: string[] = [];
   const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
   const saved: Record<string, string | undefined> = {};
-  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME'];
+  // R11 (H171, step 1): the page's chat sends only to a model somebody chose: the setup's (the FAKE Ollama's); R11 round 4
+  // (H169): no OpenRouter key or model in this test's environment (they served the removed POST /chat's FAKE upstream)
+  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME'];
   const originalCwd = process.cwd();
   let browser: Browser;
-  let fake: Server;
+  /** FAKE Ollama: the model behind the real turn; what reached it is in its requests (no model runs) */
+  let ollama: FakeOllama;
   let server: CompanionServer;
   let base = '';
-  const upstream: string[] = [];
+  /** the user messages the FAKE model was asked (the last message of each /api/chat request) */
+  const asked = (): string[] => ollama.chats().map((c) => String(c.messages?.at(-1)?.content ?? ''));
 
   beforeAll(async () => {
     // the page's built chat: built here first when it is missing or stale (CI has no build)
@@ -143,44 +156,42 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const root = temp('h95-root-');
     mkdirSync(join(root, '.timmy', 'runs'), { recursive: true });
     writeFileSync(join(root, '.timmy', 'runs', 'timmy-events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.h95-seeded', payload: { note: 'SYNTHETIC' } })}\n`);
+    // the project's own receipts store, pinned in its folder: the real turn seals each answer there (src/repl/seal.ts)
+    writeFileSync(join(root, '.timmy', 'store-pin'), join(root, '.timmy', 'receipts'));
     process.env.TIMMY_REPO = root;
-    process.env.OPENROUTER_API_KEY = FAKE_KEY;
-    process.env.TIMMY_HOME = temp('h95-home-');
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_MODEL;
+    const home = temp('h95-home-');
+    process.env.TIMMY_HOME = home;
     process.chdir(temp('h95-work-'));
-    // FAKE OpenRouter: the hostile answer, a slow answer (for the caret) or the markdown answer; streamed in pieces that
-    // cut through the markdown (a fence, a list, a link), so the page draws partial markdown on the way
-    fake = createServer((req, res) => {
-      let body = '';
-      req.on('data', (c) => { body += String(c); });
-      req.on('end', () => {
-        upstream.push(body);
-        const asked = String(JSON.parse(body).messages?.at(-1)?.content ?? '');
-        const text = asked.includes('hostile') ? HOSTILE : ANSWER;
-        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        const pieces: string[] = [];
-        const step = asked.includes('slow') ? 12 : Math.ceil(text.length / 5);
-        for (let i = 0; i < text.length; i += step) pieces.push(`data: ${JSON.stringify({ choices: [{ delta: { content: text.slice(i, i + step) } }] })}\n\n`);
-        pieces.push(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: { total_tokens: 99 } })}\n\n`);
-        if (!asked.includes('slow')) { for (const p of pieces) res.write(p); res.end('data: [DONE]\n\n'); return; }
-        let i = 0;
-        const t = setInterval(() => {
-          if (i < pieces.length) { res.write(pieces[i++]); return; }
-          clearInterval(t);
-          res.end('data: [DONE]\n\n');
-        }, 60);
-      });
-    });
-    await new Promise<void>((r) => fake.listen(0, '127.0.0.1', () => r()));
-    server = await startCompanionServer(0, { upstream: `http://127.0.0.1:${(fake.address() as AddressInfo).port}/chat/completions` });
+    // FAKE Ollama (labelled; no model behind it): the hostile answer, a slow answer (for the running indicator) or the
+    // markdown answer, by the message it is asked; streamed in pieces that cut through the markdown (a fence, a list, a
+    // link), so the page draws partial text on the way. One script per request: enough for every case of this file.
+    const script: ChatScript = (request) => {
+      const words = String(request.messages?.at(-1)?.content ?? '');
+      const text = words.includes('hostile') ? HOSTILE : ANSWER;
+      const step = words.includes('slow') ? 12 : Math.ceil(text.length / 5);
+      const pieces: string[] = [];
+      for (let i = 0; i < text.length; i += step) pieces.push(text.slice(i, i + step));
+      return { chunks: textChunks(MODEL, pieces), ...(words.includes('slow') ? { delayMs: 120 } : {}) };
+    };
+    ollama = await startFakeOllama({ models: [{ name: MODEL, capabilities: ['completion', 'tools'] }], chat: Array.from({ length: 24 }, () => script) });
+    // the setup as `timmy init --chat local --model <m>` records it, at the FAKE's address: the one route every surface reads
+    writeFileSync(join(home, 'providers.json'), JSON.stringify({ ollama_host: ollama.url }));
+    writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'Sample', ollama: ollama.url, project: basename(root), chat: 'local', model: MODEL } }));
+    server = await startCompanionServer(0);
     base = `http://127.0.0.1:${server.port}`;
     // the browser resolves no name but 127.0.0.1: nothing the page asks for can leave this computer
     browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+    // R10 lead: say which browser ran this file, so a CI log shows it (the hostile-answer case first failed only on the
+    // runner image whose Google Chrome was newer than every other run's; a passing run proves a fix only on that browser)
+    console.log(`companion-page-browser: ${browser.browserType().name()} ${browser.version()} at ${browserPath}`);
   }, 600_000);
 
   afterAll(async () => {
     await browser?.close();
     await server?.shutdown();
-    await new Promise<void>((r) => (fake ? fake.close(() => r()) : r()));
+    await ollama?.close();
     process.chdir(originalCwd);
     for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -220,22 +231,46 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     page.on('dialog', (d) => { seen.dialogs.push(d.message()); void d.dismiss(); });
     page.on('download', (d) => seen.downloads.push(d.suggestedFilename()));
     await page.goto(target.url);
+    await landWorkspace(page);
     return { page, context, seen };
   }
 
   const connected = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
   const tab = async (page: Page, name: string): Promise<void> => {
-    await page.click(`[data-tab="${name}"]`);
+    // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
+    // switch where it shares its place (the Chat tab's two views)
+    const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
+    // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
+    // the page opens on it
+    if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
+    // R11 round 7 (the lead, D4; H171's d5a6f005): the Chat's turn mirror and the Streamdown island live in the page's records,
+    // a details CLOSED by default — opened here before its switch is reached (the product's own control is "Show the turn mirror")
+    await page.evaluate(() => document.querySelector('#ws-chat .page-records details.records')?.setAttribute('open', ''));
+    // R11 round 7 (the lead, SHELL CONTRACT v1 §2.1): the old tab row stays in the DOM hidden (companion.js's one switcher), so
+    // only a VISIBLE control is clicked — the rail item opened the page above; a panel's own switch is the visible [data-tab]
+    if (await page.locator(`.view-switch [data-tab="${name}"]:visible`).count()) await page.click(`.view-switch [data-tab="${name}"]:visible`);
+    else if (await page.locator(`[data-tab="${name}"]:visible`).count()) await page.click(`[data-tab="${name}"]:visible`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const idle = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'IDLE', null, { timeout: 30_000 });
-  /** Asks the chat (its own input and Send button) and waits for the answer to finish streaming. */
-  const ask = async (page: Page, words: string): Promise<void> => {
-    await page.waitForSelector('#sd-input');
-    await page.fill('#sd-input', words);
-    await page.click('#sd-send');
-    await page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'STREAMING…', null, { timeout: 10_000 }).catch(() => undefined);
-    await idle(page);
+  /**
+   * R11 round 4 (H169): asks the Chat (its composer: #cx-input, Enter) — the REAL turn through POST /api/chat/turn — and waits
+   * until the answer has ended: streamed as this page's own turn, then sealed and folded into the project's conversation
+   * (#cx-turns), or left as the page's own with its end state. Returns the TIMMY turn that holds the answer.
+   */
+  const askChat = async (page: Page, words: string): Promise<ReturnType<Page['locator']>> => {
+    await page.waitForSelector('#cx-input', { timeout: 30_000 });
+    await page.fill('#cx-input', words);
+    await page.focus('#cx-input');
+    await page.waitForFunction(() => !(document.getElementById('cx-send') as HTMLButtonElement | null)?.disabled, null, { timeout: 30_000 });
+    const before = await page.locator('#cx-turns .cx-turn.is-timmy').count();
+    await page.keyboard.press('Enter');
+    // the turn is drawn as the page's own at once; a fast answer may already be sealed and folded into the conversation
+    await page.waitForFunction((n) => document.querySelector('#cx-own .cx-turn.is-timmy') !== null || document.querySelectorAll('#cx-turns .cx-turn.is-timmy').length > n, before, { timeout: 15_000 });
+    await page.waitForFunction((n) => !document.querySelector('#cx-own .cx-turn.is-streaming') && !document.querySelector('#cx-own .cx-running')
+      && (document.querySelector('#cx-own .cx-turn.is-timmy') !== null || document.querySelectorAll('#cx-turns .cx-turn.is-timmy').length > n), before, { timeout: 60_000 });
+    // folded into the conversation (its receipt read back), or still the page's own copy: the newest TIMMY turn either way
+    return page.locator('#cx-own .cx-turn.is-timmy, #cx-turns .cx-turn.is-timmy').last();
   };
   /** The last answer's Mermaid block, scrolled into view (Streamdown draws a diagram when it is seen), drawn. */
   const drawn = async (page: Page): Promise<void> => {
@@ -248,6 +283,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
   };
 
   it('loads only from its own server, through every tab and the chat\'s sample: every request of every frame to 127.0.0.1, its one socket its own, no policy violated, no error', async () => {
+    const chatsBefore = ollama.chats().length;
     const { page, context, seen } = await open();
     try {
       await connected(page);
@@ -273,15 +309,23 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await page.waitForTimeout(500);
       expect(seen.outside).toEqual([]);
       for (const r of seen.requests) expect(new URL(r).origin, r).toBe(base);
-      // the chat's code, its styles and the page's fonts came from this server
-      for (const p of ['/web/island/companion-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/web/fonts/outfit-latin-wght-normal.woff2', '/web/fonts/inter-latin-wght-normal.woff2', '/web/fonts/fira-code-latin-wght-normal.woff2']) {
+      // the chat's code, its styles and Timmy's shared look came from this server (R5 H132: the theme's sheet; its face's
+      // files are this server's too, or the font installed here: the face test below)
+      for (const p of ['/web/island/companion-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/timmy-theme.css']) {
         expect(seen.requests, p).toContain(`${base}${p}`);
       }
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
-      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, Timmy's theme, Monaspace's
-      // files, marked): no page of the companion asks for any of them, so they are no longer shipped or served
-      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|timmy-theme\.css|fonts\/|vendor\/)/.test(new URL(r).pathname))).toEqual([]);
-      expect(upstream).toEqual([]);
+      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, marked): no page of the
+      // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's Inter and Fira Code.
+      // R11 round 7 (H175; DESIGN.md §10 B11, the lead's D2): Outfit is the page's UI face again, served from this server's own
+      // built web assets (/web/fonts/outfit-latin-wght-normal.woff2) — the face test below holds it to that one file.
+      // R11 round 6: what the page may ask for under /vendor/ is what this server serves from its own installed packages —
+      // the Rive runtime (rive-assets.ts: /vendor/rive/rive.js + rive.wasm, for the Chat's AgentConsole band) and, on a
+      // Clerk-configured companion, Clerk's module (/vendor/clerk/, identity) — nothing else there (the old marked copy above all).
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/(?!rive\/|clerk\/)|web\/fonts\/(?:inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
+      for (const p of seen.requests.map((r) => new URL(r).pathname).filter((p) => p.startsWith('/vendor/'))) expect(p, 'under /vendor/ only the Rive runtime or Clerk').toMatch(/^\/vendor\/(?:rive\/rive\.(?:js|wasm)|clerk\/)/);
+      // (R11 round 4: the ✨ sample asks no model: the FAKE Ollama saw no chat request for this page)
+      expect(ollama.chats().length).toBe(chatsBefore);
       expect(seen.sockets).toEqual([`ws://127.0.0.1:${server.port}/`]);
       expect(await violations(page)).toEqual([]);
       expect(seen.console.filter((l) => /Content Security Policy|Refused to/i.test(l))).toEqual([]);
@@ -295,7 +339,12 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const csp = r.headers.get('content-security-policy') ?? '';
     const directives = new Map(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [k, ...v] = d.split(/\s+/); return [k, v.join(' ')] as const; }));
     expect(directives.get('default-src')).toBe("'none'");
-    expect(directives.get('script-src')).toBe("'self'");
+    // R11 round 6 (the lead): the Rive runtime's WebAssembly needs the keyword 'wasm-unsafe-eval' (a keyword, never a host) — the
+    // policy carries it exactly when the companion serves a .riv with the runtime (rive-assets.ts / page.ts setPagePolicyWasm),
+    // and nothing else: still scripts from itself only, no unsafe-inline, no unsafe-eval
+    const listing = await (await fetch(`${base}/api/rive/assets`, { headers: { Authorization: `Bearer ${new URL(server.url).hash.replace(/^#t=/, '')}` } })).json().catch(() => null) as { runtime?: boolean; components?: Array<{ riv?: unknown }> } | null;
+    const wasm = Boolean(listing && listing.runtime && Array.isArray(listing.components) && listing.components.some((c) => c.riv));
+    expect(directives.get('script-src')).toBe(wasm ? "'self' 'wasm-unsafe-eval'" : "'self'");
     expect(directives.get('style-src')).toBe("'self' 'unsafe-inline'");
     expect(directives.get('img-src')).toBe("'self' data:");
     expect(directives.get('font-src')).toBe("'self'");
@@ -303,7 +352,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     expect(directives.get('object-src')).toBe("'none'");
     expect(directives.get('frame-ancestors')).toBe("'none'");
     expect(directives.get('base-uri')).toBe("'none'");
-    expect(csp).not.toMatch(/unsafe-eval|wasm-unsafe-eval|https?:|\*|blob:/);
+    // (R11 round 6: 'wasm-unsafe-eval' is the one keyword the policy may carry — exactly when a .riv is served, asserted above;
+    // 'unsafe-eval' itself, a scheme, a wildcard or blob: never)
+    expect(csp.replace(/'wasm-unsafe-eval'/g, '')).not.toMatch(/unsafe-eval|https?:|\*|blob:/);
+    if (!wasm) expect(csp).not.toMatch(/wasm-unsafe-eval/);
     expect(r.headers.get('x-content-type-options')).toBe('nosniff');
     expect(r.headers.get('referrer-policy')).toBe('no-referrer');
     const html = await r.text();
@@ -316,12 +368,26 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // other site (the built chat's files carry its packages' licence comments, which name their sites as text: what the page
     // fetches is the browser checks' business, above and below)
     const named = [...html.matchAll(/\s(?:src|href)="(\/[^"#]+)"/g)].map((m) => m[1]).filter((p) => !p.startsWith('/slate3d'));
-    expect(named).toEqual(expect.arrayContaining(['/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
+    expect(named).toEqual(expect.arrayContaining(['/timmy-theme.css', '/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
     // R4 (H97): what H92's page had and H95's replaced is not served any more (no page asks for it: the test above)
-    for (const p of ['/chat.js', '/markdown.js', '/timmy-theme.css', '/fonts/monaspace-argon-latin-400-normal.woff2', '/vendor/marked.esm.js']) {
+    for (const p of ['/chat.js', '/markdown.js', '/vendor/marked.esm.js']) {
       const gone = await fetch(`${base}${p}`);
       expect(gone.status, p).toBe(404);
       expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
+    }
+    // R5 (H132, DESIGN.md §10 B10): Timmy's shared look is served again: the --timmy-* variables with Monaspace Argon's faces,
+    // and the faces' files by their exact names only, beside the page's web files (anything else is a 404 in words, no path).
+    // D12 (R11 round 7, H175): the B10 web names are aliases of their B11 role — one palette; focus and verified exact in the registry
+    const theme = await fetch(`${base}/timmy-theme.css`);
+    expect(theme.status).toBe(200);
+    expect(await theme.text()).toMatch(/--timmy-ground: var\(--timmy-ui-canvas\);[\s\S]*--timmy-accent: var\(--timmy-ui-accent\);[\s\S]*--timmy-live: var\(--timmy-ui-verified\);[\s\S]*--timmy-ui-focus: #FFB000;[\s\S]*--timmy-ui-verified: #28FE14;/);
+    const face = await fetch(`${base}/web/fonts/monaspace-argon-latin-400-normal.woff2`);
+    expect(face.status).toBe(200);
+    expect(face.headers.get('content-type')).toMatch(/^font\/woff2/);
+    for (const p of ['/fonts/monaspace-argon-latin-400-normal.woff2', '/web/fonts/monaspace-argon-latin-400-normal.woff', '/web/fonts/..%2F..%2Fpackage.json']) {
+      const no = await fetch(`${base}${p}`);
+      expect(no.status, p).toBe(404);
+      expect(await no.text(), p).not.toMatch(/\/(?:home|root|Users|tmp)\/|node_modules/);
     }
     // R4 (H104, r25's D11): the page names its icon, this server's own SVG
     expect(named).toContain('/favicon.svg');
@@ -349,86 +415,65 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     } finally { await context.close(); }
   });
 
-  it('the chat draws an answer streamed from the FAKE upstream as Streamdown did: headings, lists, a task list, a table with its copy, a link, highlighted code with copy and download, a drawn Mermaid diagram with its PNG and SVG downloads', async () => {
+  it('the Chat draws the FAKE model\'s answer streamed through the real turn (POST /api/chat/turn): its markdown as text, each fenced block as a block (the code, the Mermaid source), the FAKE model named, the evidence line with its receipt; nothing of it as markup', async () => {
+    // R11 round 4 (H169): this case asked the removed POST /chat and read the island's Streamdown DOM (headings, a table with
+    // its copy, a link, Shiki-coloured code, a drawn Mermaid diagram with its downloads). The page's chat is the real turn
+    // now, drawn by the Chat shell as text (chat-shell.js textBlock: fenced code as <pre>, never markup); Streamdown's
+    // drawing of markdown stays exercised on the ✨ sample (the cases below). What is asserted here is what the page does.
     const { page, context, seen } = await open();
     try {
       await connected(page);
-      await tab(page, 'streamdown');
-      await ask(page, 'release notes please');
-      const md = page.locator('#sd-messages .sd-answer').last();
-      expect(await md.locator('[data-streamdown="heading-1"]').textContent()).toBe('Release notes');
-      // b69ab12's cascade: the Tailwind classes before the page's own sheet, so the page's heading margins hold on an
-      // answer's first block too (Streamdown's [&>*:first-child]:mt-0 loses the tie), as in the reconstruction
-      expect(await md.locator('[data-streamdown="heading-1"]').evaluate((e) => [e === e.parentElement?.firstElementChild, getComputedStyle(e).marginTop])).toEqual([true, '16px']);
-      expect(await md.locator('[data-streamdown="heading-2"]').textContent()).toBe('Steps');
-      expect(await md.locator('[data-streamdown="strong"]').first().textContent()).toBe('bold');
-      expect(await md.locator('[data-streamdown="inline-code"]').first().textContent()).toBe('inline code');
-      // the task list: its boxes, as the answer marked them
-      expect(await md.locator('input[type="checkbox"]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).checked))).toEqual([true, false]);
-      // the table, and Streamdown's own copy of it as markdown
-      expect(await md.locator('[data-streamdown="table"] th').allTextContents()).toEqual(['a', 'b']);
-      expect(await md.locator('[data-streamdown="table"] td').allTextContents()).toEqual(['1', '2']);
-      await md.locator('button[title="Copy table"]').click();
-      await page.locator('button', { hasText: /^Markdown$/ }).first().click();
-      await page.waitForFunction(() => navigator.clipboard.readText().then((t) => t.includes('| a | b |')), null, { timeout: 5_000 });
-      // the link: http(s), opened apart from this page, with no referrer
-      const link = md.locator('a[data-streamdown="link"]', { hasText: 'docs link' });
-      expect(await link.getAttribute('href')).toBe('https://docs.example/guide?x=1');
-      expect(await link.getAttribute('target')).toBe('_blank');
-      expect(await link.getAttribute('rel')).toMatch(/noreferrer/);
-      // the code: highlighted by Shiki (its tokens coloured), copied and downloaded by Streamdown's own buttons
-      const code = md.locator('[data-streamdown="code-block"]').filter({ hasText: 'const answer' });
-      expect(await code.locator('pre').textContent()).toContain('const answer: number = 42;');
-      // (Shiki loads the language's grammar first, then Streamdown draws the coloured tokens)
-      await page.waitForFunction(() => {
-        const block = [...document.querySelectorAll('#sd-messages [data-streamdown="code-block"]')].find((b) => b.textContent?.includes('const answer'));
-        return Boolean(block && block.querySelectorAll('span[style*="--sdm-c"]').length > 3);
-      }, null, { timeout: 15_000 });
-      expect(new Set(await code.locator('span[style*="--sdm-c"]').evaluateAll((els) => els.map((e) => getComputedStyle(e).color))).size).toBeGreaterThan(1);
-      await code.locator('[data-streamdown="code-block-copy-button"]').click();
-      await page.waitForFunction(() => navigator.clipboard.readText().then((t) => t.includes('const answer: number = 42;')), null, { timeout: 5_000 });
-      const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), code.locator('[data-streamdown="code-block-download-button"]').click()]);
-      expect(dl.suggestedFilename()).toMatch(/\.ts$/);
-      // the Mermaid diagram, drawn (Mermaid in its strict mode), and its PNG and SVG downloads
-      await drawn(page);
-      const svg = md.locator('[aria-label="Mermaid chart"] > svg');
-      expect(await svg.count()).toBe(1);
-      expect(await svg.textContent()).toMatch(/Prompt[\s\S]*Answer/);
-      for (const kind of ['PNG', 'SVG']) {
-        await md.locator('button[title="Download diagram"]').click();
-        const [d] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), page.locator('button', { hasText: new RegExp(`^${kind}$`) }).first().click()]);
-        expect(d.suggestedFilename()).toBe(`diagram.${kind.toLowerCase()}`);
-      }
-      // the cost words: the provider's reported tokens, never an estimate passed off as measured
-      expect(await page.textContent('#sd-tokens')).toBe('◉ 99 tokens (reported by the provider)');
-      // one request upstream, with the conversation as sent
-      expect(JSON.parse(upstream.at(-1)!).messages.at(-1)).toEqual({ role: 'user', content: 'release notes please' });
+      const turn = await askChat(page, 'release notes please');
+      const text = turn.locator('.cx-text');
+      const words = (await text.textContent()) ?? '';
+      // the markdown, as text: its heading marks, its list and task marks, its table, its link's own text
+      expect(words).toContain('# Release notes');
+      expect(words).toContain('## Steps');
+      expect(words).toContain('- [x] a done task');
+      expect(words).toContain('| a | b |');
+      expect(words).toContain('[docs link](https://docs.example/guide?x=1)');
+      // the two fenced blocks are blocks: the code and the Mermaid source, their fences gone
+      expect(await text.locator('pre').allTextContents()).toEqual(['const answer: number = 42;', 'graph LR\n  A[Prompt] --> B[Answer]']);
+      // nothing of it became markup: no heading, list, table, link, box or image elements in the answer
+      expect(await text.locator('h1, h2, ul, ol, li, table, a, input, img, svg, script').count()).toBe(0);
+      // the FAKE model is named as such beside TIMMY (the page's own chip, from its name)
+      expect(await turn.locator('.cx-who .cx-chip').textContent()).toBe('FAKE model');
+      expect(await turn.locator('.cx-who .cx-model').textContent()).toBe(MODEL);
+      // the evidence line: the model, where it ran, the seconds and the receipt's short id (sealed by the real turn)
+      await expect.poll(async () => ((await turn.locator('.cx-ev-row').textContent()) ?? '').replace(/\s+/g, ' ').trim(), { timeout: 15_000 }).toMatch(new RegExp(`^▸ ${MODEL} · [^·]+ · \\d+(?:\\.\\d)? s · receipt [0-9a-f]{8}`));
+      // one request to the FAKE, with the message as sent, and the turn's request to this server carried the token
+      expect(asked().at(-1)).toBe('release notes please');
+      expect(seen.requests.some((r) => new URL(r).pathname === '/api/chat/turn')).toBe(true);
+      // (the removed path was never asked for)
+      expect(seen.requests.some((r) => new URL(r).pathname === '/chat')).toBe(false);
       expect(seen.outside).toEqual([]);
       expect(await violations(page)).toEqual([]);
       expect(seen.errors).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('shows Streamdown\'s caret while an answer streams, and none once it has ended; the counter says an estimate is one', async () => {
+  it('shows the turn\'s running indicator (the model, where it runs, the seconds, no tool yet) while the FAKE model\'s answer streams through the real turn, and none once it has ended', async () => {
+    // R11 round 4 (H169): Streamdown's caret and its "estimated while streaming" counter belonged to the removed POST /chat
+    // stream in the island. The page's turn runs through POST /api/chat/turn and the Chat shell says what runs, in words.
     const { page, context } = await open();
     try {
       await connected(page);
-      await tab(page, 'streamdown');
-      await page.fill('#sd-input', 'a slow answer please');
-      await page.click('#sd-send');
-      const caret = (): Promise<string> => page.evaluate(() => {
-        const root = [...document.querySelectorAll('#sd-messages .sd-island')].pop();
-        const last = root?.lastElementChild;
-        return last ? getComputedStyle(last, '::after').content : '';
-      });
-      await page.waitForFunction(() => document.querySelectorAll('#sd-messages .sd-island').length > 0 && document.getElementById('sd-status')?.textContent === 'STREAMING…', null, { timeout: 10_000 });
-      await page.waitForFunction(() => {
-        const root = [...document.querySelectorAll('#sd-messages .sd-island')].pop();
-        return Boolean(root?.lastElementChild && getComputedStyle(root.lastElementChild, '::after').content.includes('▋'));
-      }, null, { timeout: 10_000 });
-      expect(await page.textContent('#sd-tokens')).toMatch(/^◉ ~\d+ tokens \(estimated while streaming\)$/);
-      await idle(page);
-      expect(await caret()).not.toContain('▋');
+      await page.waitForSelector('#cx-input', { timeout: 30_000 });
+      await page.fill('#cx-input', 'a slow answer please');
+      await page.focus('#cx-input');
+      await page.waitForFunction(() => !(document.getElementById('cx-send') as HTMLButtonElement | null)?.disabled, null, { timeout: 30_000 });
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#cx-own .cx-turn.is-streaming .cx-running', { timeout: 15_000 });
+      const running = ((await page.textContent('#cx-own .cx-turn.is-streaming .cx-running')) ?? '').replace(/\s+/g, ' ').trim();
+      expect(running).toMatch(new RegExp(`^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Answering · ${MODEL} · Ollama on this computer · \\d+ s · no tool yet$`));
+      // the answer grows while it streams (the FAKE sends it in 12-character pieces, 120 ms apart)
+      const before = ((await page.textContent('#cx-own .cx-turn.is-streaming .cx-text')) ?? '').length;
+      await page.waitForFunction((n) => ((document.querySelector('#cx-own .cx-turn.is-streaming .cx-text')?.textContent ?? '').length) > n, before, { timeout: 15_000 });
+      // ended: no indicator anywhere, the turn answered (folded into the conversation, or the page's own with its end)
+      await page.waitForFunction(() => !document.querySelector('#cx-own .cx-turn.is-streaming') && !document.querySelector('.cx-running'), null, { timeout: 60_000 });
+      await page.waitForFunction(() => document.querySelectorAll('#cx-turns .cx-turn.is-timmy, #cx-own .cx-turn.is-answered').length > 0, null, { timeout: 15_000 });
+      expect(await page.locator('.cx-running').count()).toBe(0);
+      expect(asked().at(-1)).toBe('a slow answer please');
     } finally { await context.close(); }
   });
 
@@ -459,13 +504,13 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       const words = `${await receipt.textContent()} ${await approval.textContent()}`;
       expect(words).not.toMatch(/VERIFIED ✓|GRANTED|DENIED|AWAITING OPERATOR|\bSealed by\b/);
       expect(await receipt.textContent()).toContain('NOT VERIFIED HERE');
-      // the sample is the page's own: no request went upstream for it
-      expect(upstream.filter((b) => b.includes('Try it'))).toEqual([]);
+      // the sample is the page's own: no model was asked for it (R11 round 4: nothing of it reached the FAKE Ollama)
+      expect(asked().filter((w) => w.includes('Try it'))).toEqual([]);
     } finally { await context.close(); }
   });
 
-  // R4 (H98): the sample says it is one wherever it is seen; a model's answer (the FAKE upstream's) and its cards do not
-  it('the ✨ sample carries a visible SAMPLE label on its message, its answer and each card; a model\'s answer and its cards carry none', async () => {
+  // R4 (H98): the sample says it is one wherever it is seen; a model's answer (the FAKE model's, through the real turn) does not
+  it('the ✨ sample carries a visible SAMPLE label on its message, its answer and each card; a model\'s answer carries none', async () => {
     const { page, context, seen } = await open();
     try {
       await connected(page);
@@ -482,76 +527,72 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(await label('.sd-answer.sample > .sd-chips')).toEqual([{ text: 'SAMPLE · THE PAGE’S OWN TEXT · NO MODEL WAS ASKED', shown: true }]);
       expect(await label('.sd-answer.sample [data-card="receipt"] .sd-card-head')).toEqual([{ text: 'SAMPLE', shown: true }]);
       expect(await label('.sd-answer.sample [data-card="approval"] .sd-card-head')).toEqual([{ text: 'SAMPLE', shown: true }]);
-      // a model's answer (FAKE upstream: it holds a <receipt> card) says no SAMPLE anywhere
-      await ask(page, 'a hostile answer please');
-      const answer = '.sd-answer[data-sample="no"]';
-      await page.waitForSelector(`${answer} [data-card="receipt"]`, { timeout: 30_000 });
-      expect(await label(answer)).toEqual([]);
-      expect(await page.$$eval('.sd-user:not(.sample) [data-sample-label]', (els) => els.length)).toBe(0);
+      // a model's answer says no SAMPLE anywhere. R11 round 4 (H169): the model answers through the real turn into the Chat
+      // (POST /api/chat/turn; the island draws no model answer any more, so its [data-sample="no"] answer and its cards are
+      // gone): the FAKE model's turn carries the page's "FAKE model" chip and no SAMPLE label, nor does the message
+      const turn = await askChat(page, 'release notes please');
+      expect(await label('#cx-scroll')).toEqual([]);
+      expect(await turn.locator('.cx-who .cx-chip').allTextContents()).toEqual(['FAKE model']);
+      expect(((await page.textContent('#cx-turns')) ?? '') + ((await page.textContent('#cx-own')) ?? '')).not.toContain('SAMPLE');
       expect(seen.errors).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('a hostile answer is inert through Streamdown: an image with onerror, javascript: and data: links, raw script, frame and style, a card\'s handler, a Mermaid block with an init directive, click directives and HTML in its labels', async () => {
+  it('a hostile answer is inert in the Chat: an image with onerror, javascript: and data: links, raw script, frame and style, a card\'s handler and a Mermaid block with directives arrive as text, make no element, run nothing and fetch nothing', async () => {
+    // R11 round 4 (H169): this case read the island's Streamdown DOM for the removed POST /chat stream (its sanitizer, Mermaid's
+    // strict mode). The page's chat is the real turn into the Chat shell, which sets an answer as text (textBlock: text nodes
+    // and <pre> for fenced code), so hostile markup is words on the screen: the same intent, held by the renderer the page has.
     const { page, context, seen } = await open();
     try {
       await connected(page);
-      await tab(page, 'streamdown');
-      await ask(page, 'a hostile answer please');
-      await drawn(page);
+      const turn = await askChat(page, 'a hostile answer please');
       await page.waitForTimeout(800);
-      const md = page.locator('#sd-messages .sd-answer').last();
-      // outside Mermaid's own drawing (its SVG carries the <style> Mermaid writes for it), no such element; inside it, no script
-      expect(await md.evaluate((el) => [...el.querySelectorAll('script, iframe, frame, object, embed, style, link, meta, base, form')].filter((e) => !e.closest('svg')).map((e) => e.tagName))).toEqual([]);
-      expect(await md.locator('svg script, svg iframe, svg object, svg embed').count()).toBe(0);
-      expect(await md.locator('[onclick], [onerror], [onload], [onmouseover]').count()).toBe(0);
-      // links only to http, https and mailto; the javascript: and data: ones are not links
-      const hrefs = await md.locator('a[href]').evaluateAll((as) => as.map((a) => a.getAttribute('href') ?? ''));
-      expect(hrefs).toContain('https://docs.example/path?q=1');
-      for (const h of hrefs) expect(h, h).toMatch(/^(https?:\/\/|mailto:)/);
-      expect(await md.locator('a', { hasText: 'click me' }).count()).toBe(0);
-      expect(await md.locator('a', { hasText: 'raw anchor' }).count()).toBe(0);
-      // the diagram, drawn in Mermaid's strict mode whatever its init directive asked: a clickable node is wrapped in an <a>
-      // with no address at all (the javascript: one was dropped), its labels' HTML lost its handlers; clicking runs nothing
-      const svg = md.locator('[aria-label="Mermaid chart"] > svg');
-      expect(await svg.count()).toBe(1);
-      expect(await svg.evaluate((el) => [...el.querySelectorAll('a')].map((a) => [a.getAttribute('href'), a.getAttributeNS('http://www.w3.org/1999/xlink', 'href')]))).toEqual([[null, null]]);
-      expect(await svg.locator('[onclick], [onerror], [onload]').count()).toBe(0);
-      for (const n of await svg.locator('g.node').all()) await n.click({ force: true }).catch(() => undefined);
-      await page.locator('[data-card="receipt"]').last().click({ force: true });
-      // nothing ran, nothing was fetched from elsewhere; the only refusals are the policy's, of the image elsewhere
+      const text = turn.locator('.cx-text');
+      // every hostile piece is there as text, none as an element
+      const words = (await text.textContent()) ?? '';
+      for (const piece of ['<img src=x onerror=', '<script>window.__pwned', '<iframe src="http://192.0.2.7/frame">', '[click me](javascript:', '<a href="javascript:', '<b onclick=', '![tracker](http://192.0.2.7/pixel.png)', '<style>body { display: none }</style>', '<receipt id="run_x"']) expect(words, piece).toContain(piece);
+      expect(await text.locator('script, iframe, frame, object, embed, style, link, meta, base, form, img, a, b, receipt, svg').count()).toBe(0);
+      expect(await turn.locator('[onclick], [onerror], [onload], [onmouseover]').count()).toBe(0);
+      // the Mermaid block (with its init and click directives) is a block of source text, drawn by nothing
+      expect(await text.locator('pre').last().textContent()).toContain('click B "javascript:window.__pwned=3" "x"');
+      await text.locator('pre').last().click({ force: true });
+      // nothing ran, nothing was fetched from anywhere else (no image, no frame: they are text), the page still stands
       expect(await page.evaluate(() => (window as unknown as { __pwned?: unknown }).__pwned)).toBeUndefined();
       expect(seen.dialogs).toEqual([]);
       expect(seen.outside).toEqual([]);
-      // the image elsewhere was refused by the page's policy before any request left (the browser reports the attempt, and
-      // its failure: csp; the test's route, which would have aborted it, never saw it); a label's <img src="x">, its handler
-      // removed, asks this server for /x: a 404 in words, inert
-      const elsewhere = seen.requests.filter((r) => new URL(r).origin !== base);
-      expect(elsewhere.length).toBeGreaterThan(0);
-      for (const r of elsewhere) expect(r).toBe('http://192.0.2.7/pixel.png');
-      for (const r of elsewhere) expect(seen.failed, r).toContain(`${r} csp`);
-      for (const v of await violations(page)) expect(v).toBe('img-src http://192.0.2.7/pixel.png');
-      expect(await page.isVisible('#sd-messages')).toBe(true);
+      expect(seen.requests.filter((r) => new URL(r).origin !== base)).toEqual([]);
+      expect(await violations(page)).toEqual([]);
+      expect(await page.evaluate(() => getComputedStyle(document.body).display)).not.toBe('none');
+      expect(await page.isVisible('#cx-turns')).toBe(true);
+      expect(asked().at(-1)).toBe('a hostile answer please');
       expect(seen.errors).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('its three fonts are its own files, each loaded: Outfit for headings, Inter for text, Fira Code for code', async () => {
+  it('its two faces are the theme\'s (R5 H132 B10; R11 round 7 H175, DESIGN.md §10 B11 and the lead\'s D2): Outfit for headings, labels and text, Monaspace Argon for code, paths and keys — each loaded from this computer (installed, or the companion\'s own file), nothing from elsewhere', async () => {
     const { page, context, seen } = await open();
     try {
       await connected(page);
       await page.evaluate(() => document.fonts.ready);
-      const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.status}`).sort());
-      expect(fonts).toEqual(expect.arrayContaining(['Fira Code loaded', 'Inter loaded', 'Outfit loaded']));
-      expect(await page.evaluate(() => getComputedStyle(document.querySelector('h1')!).fontFamily)).toMatch(/^"?Outfit"?/);
-      expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toMatch(/^"?Inter"?/);
-      expect(await page.evaluate(() => getComputedStyle(document.getElementById('status')!).fontFamily)).toMatch(/^"?Fira Code"?/);
-      for (const f of ['outfit', 'inter', 'fira-code']) expect(seen.requests).toContain(`${base}/web/fonts/${f}-latin-wght-normal.woff2`);
+      const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.weight} ${f.status}`));
+      // the mono face: the page's keys (kbd), commands and records are drawn in it, so its regular weight is loaded
+      expect(fonts).toContain('Monaspace Argon 400 loaded');
+      // the UI face: Outfit's one variable file (weights 100 to 900), loaded for the words on screen
+      expect(fonts.some((f) => /^Outfit (?:100 900|\d+) loaded$/.test(f)), fonts.join(', ')).toBe(true);
+      for (const s of ['h1', 'body', '#status', '#project-name', '.page-title', '.rail-item', '#shell-crumb-page']) {
+        expect(await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).fontFamily, s), s).toMatch(/^"?Outfit"?/);
+      }
+      for (const s of ['kbd', 'code, .cmd, pre']) {
+        expect(await page.evaluate((sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).fontFamily : '"Monaspace Argon" (none on the page)'; }, s), s).toMatch(/^"?Monaspace Argon"?/);
+      }
+      // a face's file the browser asked for was this server's (none, where the font is installed): the four Monaspace Argon
+      // files or Outfit's one; b69ab12's Inter and Fira Code are not asked for (the policy case above)
+      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/web/fonts/(?:monaspace-argon-latin-\\d00-(?:normal|italic)|outfit-latin-wght-normal)\\.woff2$`));
       expect(seen.outside).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('the tabs fade with GSAP\'s timing (out 0.15 s power2.in, then in 0.25 s power2.out), and switch at once where reduced motion is asked', async () => {
+  it('the chat\'s two views fade with GSAP\'s timing (out 0.15 s power2.in, then in 0.25 s power2.out), a workspace tab fades in (0.15 s power2.out), and both switch at once where reduced motion is asked', async () => {
     const record = (page: Page): Promise<void> => page.evaluate(() => {
       const w = window as unknown as { __anims: Array<{ id: string; from: unknown; to: unknown; duration: unknown; easing: unknown }> };
       w.__anims = [];
@@ -566,19 +607,30 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const moving = await open();
     try {
       await connected(moving.page);
+      // R10 CHAT (H171): the page opens on Chat; from Home (key 1), opening Chat fades its page in, as before
+      await moving.page.keyboard.press('1');
+      await moving.page.waitForFunction(() => document.body.dataset.dest === 'home' && document.getAnimations().every((a) => a.playState !== 'running'), null, { timeout: 10_000 });
       await record(moving.page);
-      await tab(moving.page, 'workspace');
+      // R5 (H132): a workspace tab (here 2, Chat & Intent) fades its page in; the chat's two views keep GSAP's fade
+      await tab(moving.page, 'chat');
+      await tab(moving.page, 'streamdown');
       expect(await moving.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([
+        { id: 'ws-chat', from: 0, to: 1, duration: 150, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
         { id: 'tab-chat', from: 1, to: 0, duration: 150, easing: 'cubic-bezier(0.32, 0, 0.67, 0)' },
-        { id: 'tab-workspace', from: 0, to: 1, duration: 250, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
+        { id: 'tab-streamdown', from: 0, to: 1, duration: 250, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
       ]);
     } finally { await moving.context.close(); }
     const still = await open({ reducedMotion: 'reduce' });
     try {
       await connected(still.page);
+      // R10 CHAT (H171): from Home (key 1), where the tab row is drawn
+      await still.page.keyboard.press('1');
+      await still.page.waitForFunction(() => document.body.dataset.dest === 'home', null, { timeout: 10_000 });
       await record(still.page);
-      await still.page.click('[data-tab="logs"]');
-      await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active'), null, { timeout: 5_000 });
+      // R11 round 7 (the lead): the tab row is hidden under the one rail (SHELL CONTRACT v1 §2.1); Runs & receipts by its rail item
+      await openWorkspaceTab(still.page, 'logs');
+      await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active') && !document.getElementById('ws-logs')?.hidden, null, { timeout: 5_000 });
+      await tab(still.page, 'streamdown');
       expect(await still.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([]);
       expect(await still.page.evaluate(() => getComputedStyle(document.querySelector('.log-line')!).animationName)).toBe('none');
     } finally { await still.context.close(); }
@@ -599,25 +651,30 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         console.warn('companion-page-browser: Slate 3D is built here, so its absence words were not checked');
         return;
       }
-      // the page's --text-main (#e6edf3) on the frame's ground (#0A1628), in Inter
-      expect(look.color).toBe('rgb(230, 237, 243)');
-      expect(look.ground).toBe('rgb(10, 22, 40)');
-      expect(look.font).toMatch(/^"?Inter"?/);
+      // R5 (H132): the theme's text on the canvas, in Monaspace Argon — D12: the B10 names are aliases, so the text is the
+      // registry's #ECF1F5 on its canvas #080B0F (17.3:1)
+      expect(look.color).toBe('rgb(236, 241, 245)');
+      expect(look.ground).toBe('rgb(8, 11, 15)');
+      expect(look.font).toMatch(/^"?Monaspace Argon"?/);
       expect(contrast(look.color, look.ground)).toBeGreaterThan(7);
       expect(seen.outside).toEqual([]);
       expect(await violations(page)).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('its sheet holds b69ab12\'s design: the same palette, glass panels, glows, gradient title and tab look', () => {
-    const css = readFileSync(new URL('../src/companion/client/companion.css', import.meta.url), 'utf8');
-    for (const rule of [
-      '--bg-base: #07090e;', '--bg-card: rgba(13, 17, 23, 0.75);', '--border-color: #21262d;', '--text-main: #e6edf3;', '--text-muted: #8b949e;',
-      "--font-outfit: 'Outfit', sans-serif;", "--font-inter: 'Inter', sans-serif;", "--font-fira: 'Fira Code', monospace;",
-      'background: radial-gradient(circle, var(--secondary-glow) 0%, transparent 70%);', 'filter: blur(80px);',
-      'background: linear-gradient(135deg, var(--text-main), var(--secondary-hsl));', 'backdrop-filter: blur(12px);',
-      'box-shadow: 0 0 20px hsla(var(--secondary-h), 80%, 60%, 0.35);', 'transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);',
-    ]) expect(css, rule).toContain(rule);
+  it('its sheet colors with Timmy\'s shared variables only (R5 H132, DESIGN.md §10 B10): no color of its own, none of b69ab12\'s palette, glows, blur or gradient title', () => {
+    const css = readFileSync(new URL('../src/companion/client/companion.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    // no literal color anywhere (the shadcn tokens Streamdown's parts name are the palette's own values, as HSL triplets)
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
+    for (const gone of ['--bg-base', '--secondary-hsl', '--primary-hsl', '--success-hsl', 'radial-gradient', 'linear-gradient', 'backdrop-filter', 'blur(', 'Outfit', 'Fira Code']) expect(css, gone).not.toContain(gone);
+    // every color a declaration gives is one of the theme's variables (or transparent, currentColor, inherit, none)
+    const decl = /(?:^|[;{\s])((?:background|border|outline|box-shadow|text-decoration|caret|scrollbar|column-rule)(?:-[a-z-]+)?|color|fill|stroke)\s*:\s*([^;}]+)/g;
+    for (const [, prop, value] of css.matchAll(decl)) {
+      if (/^(?:border(?:-[a-z]+)*-(?:width|style|radius|collapse|spacing)|border-(?:top|right|bottom|left)-(?:width|style)|scrollbar-width|text-decoration-(?:line|thickness|style)|background-(?:clip|image|position|repeat|size)|outline-(?:offset|width|style))$/.test(prop)) continue;
+      // R6 lead: `inset` (a box-shadow's side) and `line-through` (a decoration's line) are keywords, not colors (H142's tab 9)
+      const rest = value.replace(/var\(--timmy-[a-z-]+\)/g, '').replace(/!important|\b(?:solid|dashed|dotted|none|transparent|currentColor|inherit|underline|line-through|inset|thin|auto)\b|-?\d*\.?\d+(?:px|em|rem|%)?/g, '').trim();
+      expect(rest, `${prop}: ${value}`).toBe('');
+    }
   });
 
   // ---------- R4 (H104): the chat mirror (r24: empty, nothing said why) and readable diagrams (r24: labels about 6 px) ----------
@@ -648,6 +705,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own, viewport });
     try {
       await connected(page);
+      // R5 (H132): the mirror is the Chat tab's (2)
+      await tab(page, 'chat');
       // the tail reached the page (its log says so), then the mirror is read
       await page.waitForFunction(() => /Event bus: 1 recent event, latest receipt\.sealed/.test(document.getElementById('logs-list')?.textContent ?? ''), null, { timeout: 15_000 });
       await page.waitForFunction(() => /since this companion started at/.test(document.querySelector('#console-logs [data-mirror="empty"]')?.textContent ?? ''), null, { timeout: 10_000 });
@@ -668,7 +727,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       // R4 (H104, second part): where a REPL turn must happen to be seen: the project this page shows (here the folder
       // TIMMY_REPO fixed, as the test's own companion was started)
       expect(words).toContain(`A REPL turn is seen here when the REPL works in ${basename(root)} (${tildePath(root)}), the folder TIMMY_REPO fixed for this companion: Timmy keeps an event bus in each project's folder, and this page reads that one's.`);
-      expect(words).toContain('STREAMDOWN CHAT is this page\'s own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.');
+      expect(words).toContain('The older STREAMDOWN CHAT view sends nothing now: the chat is the agent turn in Chat (POST /api/chat/turn); its ✨ sample is labelled SAMPLE there and is never shown here.');
       expect(words).not.toMatch(/Waiting for session chat streams/);
       expect(await page.textContent('#mirror-status')).toBe('Local chat mirror: WAITING');
       // the hour-old turn is not this session's; and nothing of the sample is in the mirror
@@ -687,13 +746,16 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own });
     try {
       await connected(page);
+      await tab(page, 'chat');
       await page.waitForSelector('#console-logs [data-mirror="empty"]');
       const first = fakeTurn(new Date(), 'repl · 2 steps');
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
       await page.waitForSelector('#console-logs [data-mirror="repl-turn"]', { timeout: 15_000 });
       const row = (await page.textContent('#console-logs [data-mirror="repl-turn"]'))!.replace(/\s+/g, ' ').trim();
       expect(row).toMatch(/^⌨ REPL turn · ended \d/);
-      expect(row).toContain(`A chat turn in the REPL (timmy) ended (2 steps); Timmy sealed it as receipt ${first.payload.hash.slice(7, 15)}. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.`);
+      // (R10 H167, H168's F3 on the page: the REPL by its name, the receipt's id behind the row's Details)
+      expect(row).toContain('A chat turn in the REPL ended (2 steps); Timmy sealed its receipt. Its words are in the REPL: Timmy seals a REPL turn\'s prompt and answer as hashes only, so they are not on the event bus and are not shown here.');
+      expect(row).toMatch(new RegExp(`Details receipt ${first.payload.hash.slice(7, 15)}$`));
       expect(await page.locator('#console-logs [data-mirror="empty"]').count()).toBe(0);
       await page.waitForFunction(() => document.getElementById('mirror-status')?.textContent === 'Local chat mirror: LIVE', null, { timeout: 5_000 });
       // this monitor's chat as its terminal sends it (sync), around a second, cancelled REPL turn: one list, in time order
@@ -706,8 +768,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       // all three events reached the page (its log names each) before the mirror is read
       await page.waitForFunction(() => ((document.getElementById('logs-list')?.textContent ?? '').match(/Event bus: receipt\.sealed/g) ?? []).length >= 3, null, { timeout: 15_000 });
       const order = await page.$$eval('#console-logs .log-msg', (els) => els.map((e) => (e.querySelector('.log-header span')?.textContent ?? '').trim()));
-      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · cancelled', '◀ TIMMY Agent']);
-      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) cancelled (1 step);');
+      // R5 lead: a cancelled turn is said stopped, the word the Workbench and the shared frame use (1598141)
+      // R7 (H152): with who asked (no other surface did, so the REPL that sent it)
+      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · stopped (asked from the REPL)', '◀ TIMMY Agent']);
+      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL stopped (asked from the REPL; 1 step);');
       // the same sealed turn again (as a reconnect's tail brings it) is still one row
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
       await page.waitForTimeout(1_500);
@@ -726,6 +790,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own });
     try {
       await connected(page);
+      await tab(page, 'chat');
       await page.waitForSelector('#console-logs [data-mirror="empty"]');
       // SYNTHETIC turn facts (no model was asked); the sealing, its signature, its chain and its bus event are the real ones
       const sealed = sealTurn({ prompt: 'SYNTHETIC prompt, never shown', answer: 'SYNTHETIC answer, never shown', steps: 3, spend: 0, costMeasured: false, ms: 1_200, status: 'ok', model: 'SYNTHETIC/model' }, root);
@@ -733,7 +798,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(readFileSync(join(root, '.timmy', 'receipts', 'runs.jsonl'), 'utf8')).toContain(sealed.hash);
       await page.waitForSelector('#console-logs [data-mirror="repl-turn"]', { timeout: 15_000 });
       const row = (await page.textContent('#console-logs [data-mirror="repl-turn"]'))!.replace(/\s+/g, ' ');
-      expect(row).toContain(`A chat turn in the REPL (timmy) ended (3 steps); Timmy sealed it as receipt ${sealed.id}.`);
+      expect(row).toContain('A chat turn in the REPL ended (3 steps); Timmy sealed its receipt.');
+      expect(row).toContain(`Details receipt ${sealed.id}`);
       expect(await page.textContent('#console-logs')).not.toMatch(/SYNTHETIC (prompt|answer)/);
       await page.waitForFunction(() => document.getElementById('mirror-status')?.textContent === 'Local chat mirror: LIVE', null, { timeout: 5_000 });
       expect(seen.outside).toEqual([]);
@@ -774,10 +840,15 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         await idle(page);
         await drawn(page);
         const block = page.locator('#sd-messages [data-streamdown="mermaid-block"]').last();
+        // R10 (H167; the lead's reading of a failure with four browser files at once on 2 CPUs: 5 of the 6 labels read, the last
+        // not drawn yet): the diagram is drawn again as the answer's last part arrives, so an earlier drawing can be the one on
+        // screen just after the stream ends. The sample's whole diagram is the one with its last label: measured once it is drawn
+        const LABELS = ['User Prompt', 'POST /chat SSE', 'Streamdown Parser', 'receipt Card', 'approval Gate', 'Mermaid Diagram'];
+        await expect.poll(async () => (await shownLabels(page, 'chat'))?.labels.map((l) => l.text) ?? null, { timeout: 20_000, interval: 100 }).toEqual(LABELS);
         // the drawing given its size (data-fit, by the chat's script); what is measured below decides, whether or not it is
         await page.waitForFunction(() => Boolean(document.querySelector('#streamdown-root [aria-label="Mermaid chart"] > svg[data-fit]')), null, { timeout: 5_000 }).catch(() => undefined);
         const shown = (await shownLabels(page, 'chat'))!;
-        expect(shown.labels.map((l) => l.text)).toEqual(['User Prompt', 'POST /chat SSE', 'Streamdown Parser', 'receipt Card', 'approval Gate', 'Mermaid Diagram']);
+        expect(shown.labels.map((l) => l.text)).toEqual(LABELS);
         for (const l of shown.labels) {
           expect(l.px, `${l.text} at ${viewport.width}`).toBeGreaterThanOrEqual(12);
           expect(l.boxPx, `${l.text}'s text box at ${viewport.width}`).toBeGreaterThanOrEqual(12);
@@ -788,29 +859,29 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(shown.labels[0].left).toBeGreaterThanOrEqual(blockBox.x);
         // the page's column fits the window (at 390 it was laid out 712 px wide)
         expect(await page.evaluate(() => document.querySelector('.right-col')!.getBoundingClientRect().right)).toBeLessThanOrEqual(viewport.width + 1);
-        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing
-        const settle = (): Promise<void> => page.waitForTimeout(400); // its transform eases in 150 ms
+        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing. A click's new state reaches the drawing's frame
+        // (role="application") as an inline transform that then eases in 150 ms, so each reading is taken again until it is the
+        // one asked for or 10 s pass, and then the last reading is what fails. A fixed 400 ms wait read the scale before a
+        // zoom had landed on a loaded computer ("expected 1 to be close to 0.9", R5 H130).
+        const again = { timeout: 10_000, interval: 50 };
+        const scale = async (): Promise<number> => (await shownLabels(page, 'chat'))!.scale;
+        const left = async (): Promise<number> => (await shownLabels(page, 'chat'))!.left;
         await block.locator('button[title="Zoom in"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(1.1, 2);
+        await expect.poll(async () => (await scale()) / shown.scale, again).toBeCloseTo(1.1, 2);
         await block.locator('button[title="Zoom out"]').click();
         await block.locator('button[title="Zoom out"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(0.9, 2);
+        await expect.poll(async () => (await scale()) / shown.scale, again).toBeCloseTo(0.9, 2);
         await block.locator('button[title="Reset zoom and pan"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale).toBeCloseTo(shown.scale, 3);
+        await expect.poll(scale, again).toBeCloseTo(shown.scale, 3);
         // pan: a drag moves the drawing by as much; Reset brings it back
         const a = (await area.boundingBox())!;
         await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
         await page.mouse.down();
         await page.mouse.move(a.x + a.width / 2 - 120, a.y + a.height / 2, { steps: 12 });
         await page.mouse.up();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.left - shown.left).toBeCloseTo(-120, 0);
+        await expect.poll(async () => (await left()) - shown.left, again).toBeCloseTo(-120, 0);
         await block.locator('button[title="Reset zoom and pan"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.left).toBeCloseTo(shown.left, 0);
+        await expect.poll(left, again).toBeCloseTo(shown.left, 0);
         // fullscreen: the drawing in Streamdown's own view (in the page's body), its labels at least 12 px too; Escape closes it
         await block.locator('[data-streamdown="mermaid-block-actions"] button[title="View fullscreen"]').click();
         await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Mermaid chart"] > svg')].some((s) => !s.closest('#streamdown-root')), null, { timeout: 15_000 });
@@ -865,9 +936,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(icon.headers.get('content-type'), p).toMatch(/^image\/svg\+xml/);
         const svg = await icon.text();
         expect(svg, p).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
-        // Timmy Homebrew's charcoal surface and green (src/theme/tokens.ts), and no script or other site
-        expect(svg, p).toContain('fill="#121212"');
-        expect(svg, p).toContain('stroke="#28FE14"');
+        // Timmy Homebrew's well and amber accent (src/theme/tokens.ts, B10: an icon is never green), and no script or other site
+        expect(svg, p).toContain('fill="#070707"');
+        expect(svg, p).toContain('stroke="#FFB000"');
+        expect(svg.toUpperCase(), p).not.toContain('#28FE14');
         expect(svg.replace('http://www.w3.org/2000/svg', ''), p).not.toMatch(/<script|https?:|href=/i);
       }
       expect(seen.errors).toEqual([]);

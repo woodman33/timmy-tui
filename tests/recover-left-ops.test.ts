@@ -417,7 +417,11 @@ describe.skipIf(!PYTHON3)('a /run on a pty whose REPL was killed with SIGKILL: i
     expect(new JobManager({ dir: jobsDir }).get(ready.job)).toMatchObject({ state: 'cancelled', interrupted: { step: 'long', rest: 'not run' } });
     const after = text(await ws.decisions(''));
     expect(listedRun(after, ready.job)).toEqual([`    ! workflow run ${ready.job} (WORK.md › after) was interrupted  interrupted`]);
-    expect(after).toContain('why     its job record says cancelled: interrupted: its REPL ended while long was running; its pty wrapper saw its REPL end and stopped upmd at once (SIGTERM), so after did not start');
+    // The wrapper (workers/upmd/pty_run.py) stops upmd by whichever of its two paths sees the REPL's end first: its parent
+    // gone at a turn of its loop (SIGTERM, "its parent (process N) ended"), or a write of upmd's output failing because its
+    // reader is gone (SIGHUP, "its output could not be written any more"); the second won once under load (R11's complete
+    // check). Either is the wrapper's own account, kept by /recover, and after did not start either way.
+    expect(after).toMatch(/why {5}its job record says cancelled: interrupted: its REPL ended while long was running; its pty wrapper (?:saw its REPL end and stopped upmd at once \(SIGTERM\)|stopped upmd \(SIGHUP\): its output could not be written any more), so after did not start/);
     expect(after).not.toContain('left by a Timmy session that ended');
 
     await settledByLaterRun(ws, ready.job);

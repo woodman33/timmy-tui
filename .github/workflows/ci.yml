@@ -97,7 +97,10 @@ jobs:
         run: npm run typecheck:native
 
       - name: Test gate (vitest, everything except the named known-WIP)
-        timeout-minutes: 15
+        # R6 follow-up (operator, 2026-10-16): 25 minutes, up from R4's 15. The suite took 760.93 s at 4a2e4b2 and 899.87 s
+        # at 8d17ec0 (run 38982594785, attempt 1), and attempt 2 was cut off at 15 minutes before it ended. This gives the
+        # suite time to run; it does not say its speed is fixed.
+        timeout-minutes: 25
         run: |
           args=""
           for t in $KNOWN_WIP_TESTS; do args="$args --exclude $t"; done

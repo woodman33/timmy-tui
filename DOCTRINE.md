@@ -19,10 +19,18 @@ Companion to DESIGN.md (Clearinghouse constitution) and decisions.md
 - Fixes cite receipts: every claimed fix names the seal or verify receipt
   that proves it (sha256_… / ok:true). No receipt, no claim.
 
-## 4. ANCHORING
-- At every render seal, the chain (.timmy/receipts/) and the cut docs
-  (cut/*.json, cut/*.md) are anchored to the sibling repo
-  ../timmy-anchors (dedicated, local) and to the chain-anchors branch.
+## 4. ANCHORING (PLANNED, NOT PRESENT: R11, 2026-10-23)
+- Status: no code in this tree anchors the chain anywhere. Nothing under
+  src/, scripts/ or lanes/ names ../timmy-anchors or a chain-anchors branch;
+  "cosign checkpoints" (src/utils/receipts.ts, the monitor's /verify) have
+  been "next" since v1 and do not exist. The chain is tamper-evident on this
+  machine (hash links, a self-generated ed25519 key), not externally anchored.
+  Until an anchor exists and is tested, no claim of external anchoring may be
+  made in a screen, a doc or a report.
+- The plan, kept as written: at every render seal, the chain
+  (.timmy/receipts/) and the cut docs (cut/*.json, cut/*.md) are anchored to
+  the sibling repo ../timmy-anchors (dedicated, local) and to the
+  chain-anchors branch.
 - Anchor commit messages carry the full chain-head sha256.
 - Anchoring never touches main; worktree state on main stays uncommitted.
 

@@ -1,6 +1,11 @@
 import type { HermesStoreSnapshot } from './store.js';
 import type { HermesEvent } from './events.js';
 import type { TimmyStatus } from '../tui/components/StatusGlyph.js';
+import { HOMEBREW } from '../theme/tokens.js';
+
+// R5 (DESIGN.md §10 B10): a step's color says what kind of step it is, from the shared tokens: a model's or a tool's
+// action silver, a finished step plain text (done is not verified), anything that waits on you or failed amber.
+const STEP = { model: HOMEBREW.ai, done: HOMEBREW.text, waits: HOMEBREW.attention, failed: HOMEBREW.failure } as const;
 
 // Pure view-model reducers over the Hermes mirror snapshot + log lines.
 // No React, no IO beyond what callers pass in — directly unit-testable.
@@ -64,7 +69,7 @@ export function stepTimeline(events: HermesEvent[]): RunStep[] {
       case 'tool.start': {
         const id = str(p.toolCallId, str(p.id, e.id));
         toolIndex.set(id, steps.length);
-        steps.push({ id: e.id, at: e.timestamp, glyph: '●', color: '#d2a8ff', text: `tool ${str(p.name, str(p.tool, 'call'))}` });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '●', color: STEP.model, text: `tool ${str(p.name, str(p.tool, 'call'))}` });
         break;
       }
       case 'tool.complete': {
@@ -72,51 +77,51 @@ export function stepTimeline(events: HermesEvent[]): RunStep[] {
         const i = toolIndex.get(id);
         if (i !== undefined) {
           const started = Date.parse(events.find(ev => ev.id === steps[i].id)?.timestamp || e.timestamp);
-          steps[i] = { ...steps[i], glyph: '✓', color: '#3fb950', elapsedMs: Math.max(0, Date.parse(e.timestamp) - (isFinite(started) ? started : Date.parse(e.timestamp))) };
+          steps[i] = { ...steps[i], glyph: '✓', color: STEP.done, elapsedMs: Math.max(0, Date.parse(e.timestamp) - (isFinite(started) ? started : Date.parse(e.timestamp))) };
         } else {
-          steps.push({ id: e.id, at: e.timestamp, glyph: '✓', color: '#3fb950', text: `tool ${str(p.name, 'call')} done` });
+          steps.push({ id: e.id, at: e.timestamp, glyph: '✓', color: STEP.done, text: `tool ${str(p.name, 'call')} done` });
         }
         break;
       }
       case 'tool.error': {
         const id = str(p.toolCallId, str(p.id, ''));
         const i = toolIndex.get(id);
-        if (i !== undefined) steps[i] = { ...steps[i], glyph: '×', color: '#ff6b6b', text: `${steps[i].text} failed` };
-        else steps.push({ id: e.id, at: e.timestamp, glyph: '×', color: '#ff6b6b', text: `tool ${str(p.name, 'call')} failed` });
+        if (i !== undefined) steps[i] = { ...steps[i], glyph: '×', color: STEP.failed, text: `${steps[i].text} failed` };
+        else steps.push({ id: e.id, at: e.timestamp, glyph: '×', color: STEP.failed, text: `tool ${str(p.name, 'call')} failed` });
         break;
       }
       case 'approval.request':
       case 'sudo.request':
       case 'secret.request':
-        steps.push({ id: e.id, at: e.timestamp, glyph: '⚠', color: '#f5b545', text: `APPROVAL · ${str(p.title, str(p.command, e.type))}` });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '⚠', color: STEP.waits, text: `APPROVAL · ${str(p.title, str(p.command, e.type))}` });
         break;
       case 'approval.response':
       case 'sudo.response':
       case 'secret.response': {
         const approved = str(p.decision, str(p.status)) !== 'rejected';
-        steps.push({ id: e.id, at: e.timestamp, glyph: approved ? '✓' : '⊘', color: approved ? '#3fb950' : '#8a8a94', text: approved ? 'approved by you' : 'rejected by you' });
+        steps.push({ id: e.id, at: e.timestamp, glyph: approved ? '✓' : '⊘', color: approved ? STEP.done : HOMEBREW.textSecondary, text: approved ? 'approved by you' : 'rejected by you' });
         break;
       }
       case 'clarify.request':
-        steps.push({ id: e.id, at: e.timestamp, glyph: '?', color: '#79c0ff', text: `question · ${str(p.title, str(p.question)).slice(0, 60)}` });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '?', color: STEP.waits, text: `question · ${str(p.title, str(p.question)).slice(0, 60)}` });
         break;
       case 'clarify.response':
-        steps.push({ id: e.id, at: e.timestamp, glyph: '✓', color: '#79c0ff', text: 'answered' });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '✓', color: STEP.done, text: 'answered' });
         break;
       case 'model.switch':
-        steps.push({ id: e.id, at: e.timestamp, glyph: '▸', color: '#79c0ff', text: `model → ${str(p.model, '?')}` });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '▸', color: STEP.model, text: `model → ${str(p.model, '?')}` });
         break;
       case 'provider.route': {
         const status = str(p.status);
-        if (status === 'failed') steps.push({ id: e.id, at: e.timestamp, glyph: '×', color: '#ff6b6b', text: `${str(p.provider)} failed${str(p.reason) ? ` · ${str(p.reason).slice(0, 40)}` : ''}` });
-        else if (status === 'fallback') steps.push({ id: e.id, at: e.timestamp, glyph: '▸', color: '#d29922', text: `fallback → ${str(p.model, str(p.provider))}` });
+        if (status === 'failed') steps.push({ id: e.id, at: e.timestamp, glyph: '×', color: STEP.failed, text: `${str(p.provider)} failed${str(p.reason) ? ` · ${str(p.reason).slice(0, 40)}` : ''}` });
+        else if (status === 'fallback') steps.push({ id: e.id, at: e.timestamp, glyph: '▸', color: STEP.waits, text: `fallback → ${str(p.model, str(p.provider))}` });
         break;
       }
       case 'quota.warning':
-        steps.push({ id: e.id, at: e.timestamp, glyph: '⚠', color: '#f5b545', text: 'quota warning' });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '⚠', color: STEP.waits, text: 'quota warning' });
         break;
       case 'run.error':
-        steps.push({ id: e.id, at: e.timestamp, glyph: '×', color: '#ff6b6b', text: `run error · ${str(p.message).slice(0, 60)}` });
+        steps.push({ id: e.id, at: e.timestamp, glyph: '×', color: STEP.failed, text: `run error · ${str(p.message).slice(0, 60)}` });
         break;
       default:
         break; // deltas/completes are stream noise in the timeline

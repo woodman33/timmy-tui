@@ -1,8 +1,11 @@
 import Conf from 'conf';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { readDotEnv } from './dotenv.js';
+import { chosenModel, LEGACY_DEFAULT_MODEL } from './model-choice.js';
+
+export { LEGACY_DEFAULT_MODEL };
 
 // Zero-dependency .env loader: the repo ships a .env but nothing ever loaded
 // it, so OPENROUTER_API_KEY (and friends) never reached process.env and the
@@ -21,6 +24,11 @@ loadEnvFile();
 
 export interface TuiConfig {
   apiKey: string;
+  /**
+   * R11 (H169, Phase 0 item 1; the operator's order of 2026-10-23: "Never ... silently substitute a paid model"): the OpenRouter
+   * model a person chose, or '' when none is chosen. There is no shipped default any more: a surface with a key and no chosen
+   * model refuses to send (src/agent/chat-route.ts chatRouteNow, src/agent/core.ts send) and says how to choose one.
+   */
   model: string;
   theme: 'light' | 'dark' | 'auto';
   graphics: 'auto' | 'kitty' | 'iterm2' | 'companion' | 'ansi';
@@ -36,6 +44,16 @@ export interface TuiConfig {
     port: number;
     autoOpen: boolean;
   };
+  /** R5: refuse a chat message to a model not known to be free (src/agent/model-price.ts); TIMMY_CHAT_FREE_ONLY wins */
+  freeOnly?: boolean;
+  /** R10 (H169): refuse any model call off this computer (src/agent/route-policy.ts); TIMMY_CHAT_LOCAL_ONLY wins */
+  localOnly?: boolean;
+  /**
+   * R11 (H169): the model a person chose through saveConfig (Models in the Workbench, timmy init --chat openrouter --model),
+   * kept beside `model` so that an older settings file's shipped default, which conf wrote there as a default and nobody
+   * chose, is told apart from a choice (loadConfig: that default reads as no model).
+   */
+  modelChosen?: string;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
@@ -43,7 +61,8 @@ const DEFAULT_CONFIG: TuiConfig = {
   // a key written there outlives the shell that exported it. loadConfig() applies the environment's key
   // when it reads the config. R4 (H98, journey-2): no key reaches the file now; saveApiKey() keeps it in providers.json.
   apiKey: '',
-  model: 'anthropic/claude-opus-4.7',
+  // R11 (H169): no shipped default: a model is chosen, or there is none
+  model: '',
   theme: 'dark',
   graphics: 'auto',
   modes: ['chat', 'code-review', 'dashboard', 'model-explorer'],
@@ -105,12 +124,14 @@ export function loadConfig(): TuiConfig {
   let config = store.store;
 
   let localKey = false;
+  let localModel = false;
   const localPath = resolve(process.cwd(), 'timmy-tui.config.json');
   if (existsSync(localPath)) {
     try {
       const localConfig = JSON.parse(readFileSync(localPath, 'utf-8'));
       config = { ...config, ...localConfig };
       localKey = typeof localConfig?.apiKey === 'string' && localConfig.apiKey !== '';
+      localModel = typeof localConfig?.model === 'string' && localConfig.model !== '';
     } catch (e) {
       // ignore invalid local config
     }
@@ -122,17 +143,30 @@ export function loadConfig(): TuiConfig {
     const key = providersKey();
     if (key) config.apiKey = key;
   }
+  // R11 (H169): the model chosen (./model-choice.ts): OPENROUTER_MODEL for this process; else the settings' model, unless it is
+  // the shipped default an older version wrote into the file and nobody chose (a local timmy-tui.config.json's model is a
+  // person's own entry: a choice)
   if (process.env.OPENROUTER_MODEL) {
     config.model = process.env.OPENROUTER_MODEL;
+  } else if (!localModel) {
+    config = { ...config, model: chosenModel({ settings: config, workbench: workbenchRecord(), env: {} }) };
   }
 
   return config;
 }
 
-/** Saves settings. Never a model key: a config read back from loadConfig() carries the environment's key. */
+/** The Workbench's own settings beside the settings file (src/workbench/settings.ts workbench.json), read by path; none when absent. */
+function workbenchRecord(): { openRouterModel?: unknown } | null {
+  try { return JSON.parse(readFileSync(join(dirname(store.path), 'workbench.json'), 'utf-8')) as { openRouterModel?: unknown }; } catch { return null; }
+}
+
+/**
+ * Saves settings. Never a model key: a config read back from loadConfig() carries the environment's key. R11 (H169): a model
+ * saved here is a choice (`modelChosen` records it), so loadConfig never reads it as the legacy default nobody chose.
+ */
 export function saveConfig(config: Partial<Omit<TuiConfig, 'apiKey'>>): void {
   const { apiKey: _transient, ...settings } = config as Partial<TuiConfig>;
-  store.set(settings);
+  store.set(typeof settings.model === 'string' && settings.model ? { ...settings, modelChosen: settings.model } : settings);
 }
 
 /**

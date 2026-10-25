@@ -3,16 +3,17 @@
  * in a real headless Chromium against the real servers on 127.0.0.1. Opened with the address Timmy gives (the token in the
  * fragment), a page takes the token out of its address at once, keeps it in memory, and sends it in an Authorization header
  * on each request (the log pages' event streams too) and as a WebSocket subprotocol; opened without it, a page asks for
- * nothing and says how to open it from Timmy. The model is a FAKE OpenRouter on 127.0.0.1. Every request a page makes to
- * anywhere but its server is aborted. R4 (H92): the companion page asks nothing of anywhere else (its script, style sheets
+ * nothing and says how to open it from Timmy. R11 round 4 (H169, contract C3): the page's chat is the REAL agent turn
+ * (POST /api/chat/turn, src/companion/chat-run.ts, through openChatSession({ surface: 'companion' })); the legacy raw
+ * POST /chat and its FAKE OpenRouter upstream are gone, so the model is a FAKE Ollama on 127.0.0.1 (tests/fixtures/
+ * fake-ollama-chat.ts) the setup names as the chat's local model, answering through the real turn. Every request a page
+ * makes to anywhere but its server is aborted. R4 (H92): the companion page asks nothing of anywhere else (its script, style sheets
  * and fonts are its server's: tests/companion-page-browser.test.ts). R4 (H95): nor does the `timmy logs`
  * chat mirror: its Streamdown island is the companion's own build, served by the log companion (/web/), and it draws the
  * session's turns under the page's policy (this test builds it first when it is missing or stale). Skipped, saying so,
  * where no Chromium or Chrome is found.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -22,12 +23,15 @@ import { folderWords, startManagedLogServer } from '../src/utils/logserver.js';
 import { publish } from '../src/bus/index.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
+import { landWorkspace } from './helpers/companion-page-kit.js';
+import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
 if (!browserPath) console.warn('local-servers-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
 
-const FAKE_KEY = 'FAKE-openrouter-key-for-browser-tests';
+/** FAKE: the local model the setup names (it is not a real Ollama model; the FAKE Ollama lists and answers it). */
+const MODEL = 'fake-page-test:8b';
 const OTHER = 'cd'.repeat(32);
 const tokenOf = (url: string): string => /#t=([0-9a-f]{64})$/.exec(url)?.[1] ?? '';
 
@@ -38,12 +42,13 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
   const dirs: string[] = [];
   const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
   const saved: Record<string, string | undefined> = {};
-  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME', 'TIMMY_LOGS_OPEN'];
+  // R11 (H171, step 1): the page's chat sends only to a model somebody chose: the setup's (this test's FAKE Ollama's model);
+  // R11 round 4 (H169): no OpenRouter key or model in this test's environment (they served the removed POST /chat's FAKE)
+  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME', 'TIMMY_LOGS_OPEN'];
   const originalCwd = process.cwd();
   let browser: Browser;
-  let fake: Server;
-  let fakeUrl = '';
-  const upstream: Array<{ auth: string; body: string }> = [];
+  /** FAKE Ollama: the model behind the real turn (what it is sent is in its requests; no model runs) */
+  let ollama: FakeOllama;
 
   beforeAll(async () => {
     // R4 (H95): the pages' built chat (Streamdown), built first when it is missing or stale (CI has no build)
@@ -52,31 +57,26 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
     const root = temp('h84b-root-');
     mkdirSync(join(root, '.timmy', 'runs'), { recursive: true });
     writeFileSync(join(root, '.timmy', 'runs', 'timmy-events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.browser-seeded', payload: { note: 'SYNTHETIC' } })}\n`);
+    // the project's own receipts store, pinned in its folder: the real turn seals its receipt there (src/repl/seal.ts)
+    writeFileSync(join(root, '.timmy', 'store-pin'), join(root, '.timmy', 'receipts'));
     process.env.TIMMY_REPO = root;
-    process.env.OPENROUTER_API_KEY = FAKE_KEY;
-    process.env.TIMMY_HOME = temp('h84b-home-');
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_MODEL;
+    const home = temp('h84b-home-');
+    process.env.TIMMY_HOME = home;
     process.env.TIMMY_LOGS_OPEN = '0';
     process.chdir(temp('h84b-work-'));
-    // FAKE OpenRouter: records what it is sent, streams a canned answer
-    fake = createServer((req, res) => {
-      let body = '';
-      req.on('data', (c) => { body += String(c); });
-      req.on('end', () => {
-        upstream.push({ auth: String(req.headers.authorization ?? ''), body });
-        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'FAKE streamed ' } }] })}\n\n`);
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'answer' } }], usage: { total_tokens: 5 } })}\n\n`);
-        res.end('data: [DONE]\n\n');
-      });
-    });
-    await new Promise<void>((r) => fake.listen(0, '127.0.0.1', () => r()));
-    fakeUrl = `http://127.0.0.1:${(fake.address() as AddressInfo).port}/chat/completions`;
+    // FAKE Ollama (labelled: no model behind it): streams a canned answer through the REAL turn; what reaches it is recorded
+    ollama = await startFakeOllama({ models: [{ name: MODEL, capabilities: ['completion', 'tools'] }], chat: [() => ({ chunks: textChunks(MODEL, ['FAKE streamed ', 'answer']) })] });
+    // the setup as `timmy init --chat local --model <m>` records it, at the FAKE's address: the one route every surface reads
+    writeFileSync(join(home, 'providers.json'), JSON.stringify({ ollama_host: ollama.url }));
+    writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'Sample', ollama: ollama.url, project: 'h84b-root', chat: 'local', model: MODEL } }));
     browser = await chromium.launch({ headless: true, executablePath: browserPath });
   }, 600_000);
 
   afterAll(async () => {
     await browser?.close();
-    await new Promise<void>((r) => (fake ? fake.close(() => r()) : r()));
+    await ollama?.close();
     process.chdir(originalCwd);
     for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -108,8 +108,8 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
     return { page, context, seen, sockets, errors };
   }
 
-  it('the companion page opened with its token: the token leaves the address, the socket connects, the bus shows, and a chat answer streams from the FAKE upstream', async () => {
-    const server: CompanionServer = await startCompanionServer(0, { upstream: fakeUrl });
+  it('the companion page opened with its token: the token leaves the address, the socket connects, the bus shows, and a chat answer streams through the real turn (POST /api/chat/turn) from the FAKE Ollama', async () => {
+    const server: CompanionServer = await startCompanionServer(0);
     const base = `http://127.0.0.1:${server.port}`;
     const token = tokenOf(server.url);
     const { page, context, seen, sockets } = await open(base, server.url);
@@ -124,41 +124,52 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // the socket's address carries no token (it went as a subprotocol)
       expect(sockets).toHaveLength(1);
       expect(sockets[0]).toBe(`ws://127.0.0.1:${server.port}/`);
-      // a chat answer, streamed through the page's own chat call (the model chat's: the island, /web/island/companion-chat.js)
-      const events = await page.evaluate(async () => {
-        const out: Array<[string, unknown]> = [];
-        await (window as unknown as { timmyCompanion: { chat: (m: unknown, on: (e: string, d: unknown) => void) => Promise<void> } }).timmyCompanion
-          .chat([{ role: 'user', content: 'hello from the page' }], (e, d) => { out.push([e, d]); });
-        return out;
-      });
-      expect(events.filter(([e]) => e === 'delta').map(([, d]) => d).join('')).toBe('FAKE streamed answer');
-      expect(events.some(([e]) => e === 'usage')).toBe(true);
-      expect(events.at(-1)).toEqual(['done', { ok: true }]);
-      expect(upstream).toHaveLength(1);
-      expect(upstream[0].auth).toBe(`Bearer ${FAKE_KEY}`);
-      expect(JSON.parse(upstream[0].body).messages).toEqual([{ role: 'user', content: 'hello from the page' }]);
-      // every request the page made with the token carried it in a header, never in its address
+      // R11 round 4 (H169, contract C3): a chat answer, streamed through the REAL turn — the Chat's composer sends
+      // POST /api/chat/turn (src/companion/chat-run.ts; the token in a header), the FAKE Ollama answers through the agent's
+      // loop, the answer streams as this page's turn and, sealed, folds into the project's conversation. (The legacy
+      // POST /chat and the page's `timmyCompanion.chat()` are gone: companion.js refuses in words and sends nothing.)
+      await landWorkspace(page);
+      await page.waitForSelector('#cx-input', { timeout: 30_000 });
+      await page.fill('#cx-input', 'hello from the page');
+      await page.focus('#cx-input');
+      // Send is on once the route is read (the setup's local model at the FAKE): then Enter sends
+      const state = (): Promise<string> => page.evaluate(() => `screen=${document.body.dataset.screen} dest=${document.body.dataset.dest} chat=${document.body.dataset.chatState} why="${document.getElementById('cx-send-why')?.textContent}" route="${document.getElementById('cx-route-words')?.textContent}" own=${document.querySelectorAll('#cx-own .cx-turn').length} turns=${document.querySelectorAll('#cx-turns .cx-turn').length} last="${document.querySelector('#cx-own .cx-turn.is-timmy, #cx-turns .cx-turn.is-timmy')?.textContent?.slice(0, 200)}"`);
+      await page.waitForFunction(() => !(document.getElementById('cx-send') as HTMLButtonElement | null)?.disabled, null, { timeout: 30_000 }).catch(async (e) => { throw new Error(`Send stayed off: ${await state()}: ${(e as Error).message}`); });
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => [...document.querySelectorAll('#cx-turns .cx-turn.is-timmy .cx-text, #cx-own .cx-turn.is-timmy .cx-text')].some((e) => (e.textContent ?? '').trim() === 'FAKE streamed answer'), null, { timeout: 60_000 }).catch(async (e) => { throw new Error(`no answer: ${await state()}; FAKE chats=${ollama.chats().length}: ${(e as Error).message}`); });
+      // the FAKE saw the message once, as the turn's last user message (nothing of a key: the local route has none)
+      expect(ollama.chats()).toHaveLength(1);
+      expect(ollama.chats()[0].messages.at(-1)).toMatchObject({ role: 'user', content: 'hello from the page' });
+      // every request the page made with the token carried it in a header, never in its address; the turn's request too
       for (const s of seen) expect(s.path).not.toContain(token);
-      expect(seen.find((s) => s.path === '/chat')?.auth).toBe(`Bearer ${token}`);
-      // the canvas tab reads through the token too (R4 H92: opened as a person opens it; its fade is the browser's own)
-      await page.click('[data-tab="canvas"]');
+      expect(seen.find((s) => s.path === '/api/chat/turn')?.auth).toBe(`Bearer ${token}`);
+      // the removed path was never asked for
+      expect(seen.find((s) => s.path === '/chat')).toBeUndefined();
+      // the canvas tab reads through the token too (R4 H92: opened as a person opens it; its fade is the browser's own). R10 CHAT
+      // (H171): the page opens on Chat, where the tab row is not drawn; a person opens the canvas with the left menu's Studio
+      // (or its key, 4), and from there the tab row is drawn again (Slate 3D's tab below)
+      await page.click('#rail-menu .rail-item[data-dest="studio"]');
       await page.waitForFunction(() => /Revision 0|No canvas jobs yet/.test(document.getElementById('canvas-summary')?.textContent ?? ''), null, { timeout: 15_000 });
-      expect(seen.find((s) => s.path === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
+      expect(seen.find((s) => s.path.split('?')[0] === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
       // Slate 3D's frame is given the token in its fragment, never in its address's query (R4 H92: when its tab is opened)
       expect(await page.evaluate(() => document.getElementById('slate3d-frame')?.getAttribute('src') ?? null)).toBeNull();
-      await page.click('[data-tab="slate3d"]');
+      // R11 round 7 (the lead): the legacy tab switcher is hidden under the one shell — Motion & 3D (legacy 'create', Slate 3D's
+      // panel) opens from the rail, which shows that section and lets companion.js give the frame its address
+      await page.click('#rail-menu .rail-item[data-page="motion"]');
+      await page.waitForFunction(() => Boolean((document.getElementById('slate3d-frame') as HTMLIFrameElement | null)?.getAttribute('src')), null, { timeout: 10_000 });
       const frame = await page.evaluate(() => (document.getElementById('slate3d-frame') as HTMLIFrameElement).getAttribute('src') ?? '');
       expect(frame).toBe(`/slate3d/?board=ledger#t=${token}`);
     } finally {
       await context.close();
       await server.shutdown();
     }
-  });
+  }, 180_000);
 
   it('the companion page opened without its token asks for nothing and says how to open it; with a wrong token it says so and stops', async () => {
-    const server = await startCompanionServer(0, { upstream: fakeUrl });
+    const server = await startCompanionServer(0);
     const base = `http://127.0.0.1:${server.port}`;
-    const before = upstream.length;
+    // (R11 round 4: the model is the FAKE Ollama behind the real turn; a page without the token sends it nothing)
+    const before = ollama.chats().length;
     const bare = await open(base, `${base}/`);
     try {
       await bare.page.waitForSelector('#token-note:not([hidden])');
@@ -170,7 +181,10 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       expect(bare.seen.map((s) => s.path)).toContain('/');
       // R4 (H95): and the built chat's code, its styles and the page's fonts (/web/); R4 (H97): nothing else (no theme, fonts
       // or marked of H92's page); R4 (H104, r25's D11): and the page's icon, the companion's own
-      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|favicon\.svg|[\w-]+\.(?:js|css)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
+      // R11 round 4 (H171): and the T mark's presence (GET /assets/mark.json, no token: whether the mark and its runtime are here;
+      // the runtime itself, /vendor/rive/, and the mark's .riv are asked only when it says so, never on this bare page)
+      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|favicon\.svg|assets\/mark\.json|[\w-]+\.(?:js|css)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
+      expect(bare.seen.map((s) => s.path)).not.toContain('/vendor/rive/rive.js');
       for (const s of bare.seen) expect(s.auth).toBe('');
     } finally { await bare.context.close(); }
     const wrong = await open(base, `${base}/#t=${OTHER}`);
@@ -186,11 +200,11 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       await wrong.context.close();
       await server.shutdown();
     }
-    expect(upstream.length).toBe(before);
+    expect(ollama.chats().length).toBe(before);
   });
 
   it('Slate 3D\'s bus (companion/slate3d/src/bus.js, as built into its page) takes the token from its fragment, joins the companion\'s socket with it and reads receipts with it; without it, it says so', async () => {
-    const server = await startCompanionServer(0, { upstream: fakeUrl });
+    const server = await startCompanionServer(0);
     const base = `http://127.0.0.1:${server.port}`;
     const token = tokenOf(server.url);
     // Slate 3D's own module from the repository (its three.js scene is not built here), loaded into a page this server

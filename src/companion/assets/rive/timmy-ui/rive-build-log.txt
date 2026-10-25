@@ -1,0 +1,18 @@
+[15:15:31.943] rive  verified (0 bytes, 127ms, 0 errors, 0 warnings)
+[15:15:32.099] rive  built build/timmy-ui.riv (93256 bytes, 114ms, 0 errors, 0 warnings)
+[15:15:32.504] rive  built build/timmy-ui.riv (93256 bytes, 109ms, 0 errors, 0 warnings)
+[15:15:32.508] rive  showing AgentConsole [1/7]
+[15:15:32.508] rive  viewport 640x380 @1x
+[15:15:32.532] rive  wrote ../out/shot-AgentConsole-idle.png
+[15:15:32.713] rive  built build/timmy-ui.riv (93256 bytes, 109ms, 0 errors, 0 warnings)
+[15:15:32.714] rive  showing ProviderCard [2/7]
+[15:15:32.714] rive  viewport 400x260 @1x
+[15:15:32.733] rive  wrote ../out/shot-ProviderCard-idle.png
+[15:15:32.910] rive  built build/timmy-ui.riv (93256 bytes, 107ms, 0 errors, 0 warnings)
+[15:15:32.911] rive  showing ActionButton [3/7]
+[15:15:32.911] rive  viewport 240x72 @1x
+[15:15:32.927] rive  wrote ../out/shot-ActionButton-idle.png
+[15:15:33.100] rive  built build/timmy-ui.riv (93256 bytes, 104ms, 0 errors, 0 warnings)
+[15:15:33.102] rive  showing ActionButtonGlacier [4/7]
+[15:15:33.102] rive  viewport 240x72 @1x
+[15:15:33.119] rive  wrote ../out/shot-ActionButtonGlacier-idle.png

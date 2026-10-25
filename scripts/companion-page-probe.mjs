@@ -38,10 +38,15 @@ const CONNECTED = 'COMPANION SOCKET · CONNECTED';
 /** Whether a policy is the strict one the page is served with (src/companion/page.ts pagePolicy). */
 export function strictPolicy(csp, port) {
   const d = new Map(String(csp ?? '').split(';').map((x) => x.trim()).filter(Boolean).map((x) => { const [k, ...v] = x.split(/\s+/); return [k, v.join(' ')]; }));
-  return d.get('default-src') === "'none'" && d.get('script-src') === "'self'" && d.get('style-src') === "'self' 'unsafe-inline'"
+  // R11 round 6: scripts from itself only — plus, exactly, the keyword that lets the Rive runtime compile its own WebAssembly
+  // ('wasm-unsafe-eval' is a keyword, not a host, and not 'unsafe-eval': src/companion/page.ts pagePolicy adds it only while a
+  // .riv is served beside the runtime). Anything else in script-src, 'unsafe-eval' above all, still fails the rule.
+  const script = d.get('script-src');
+  const scriptsOk = script === "'self'" || script === "'self' 'wasm-unsafe-eval'";
+  return d.get('default-src') === "'none'" && scriptsOk && d.get('style-src') === "'self' 'unsafe-inline'"
     && d.get('img-src') === "'self' data:" && d.get('font-src') === "'self'"
     && d.get('object-src') === "'none'" && d.get('frame-ancestors') === "'none'" && d.get('base-uri') === "'none'"
-    && d.get('connect-src') === `'self' ws://127.0.0.1:${port}` && !/unsafe-eval|\*|https?:|blob:/.test(String(csp));
+    && d.get('connect-src') === `'self' ws://127.0.0.1:${port}` && !/unsafe-eval|\*|https?:|blob:/.test(String(csp).replace(/'wasm-unsafe-eval'/g, ''));
 }
 
 /** Whether a log companion page's policy runs only its own scripts: by this answer's nonce, or (its chat mirror) from itself. */
@@ -75,7 +80,7 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
   let upstream;
   let browser;
   const made = [];
-  const saved = { TIMMY_REPO: process.env.TIMMY_REPO, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, cwd: process.cwd() };
+  const saved = { TIMMY_REPO: process.env.TIMMY_REPO, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, OPENROUTER_MODEL: process.env.OPENROUTER_MODEL, cwd: process.cwd() };
   try {
     // the check's own workspace: the bus the companion tails, a session the log companion's chat mirror reads
     const work = workDir ?? mkdtempSync(join(tmpdir(), 'timmy-page-probe-'));
@@ -90,6 +95,9 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     ].map((m) => JSON.stringify(m)).join('\n') + '\n');
     process.env.TIMMY_REPO = work;
     process.env.OPENROUTER_API_KEY = 'FAKE-key-for-the-page-probe';
+    // R11 (H169, Phase 0 item 2): the page's Send asks the model chosen for this process (it has no fixed model of its own):
+    // a FAKE name, so the FAKE upstream is asked and nothing is sent to a model nobody chose
+    process.env.OPENROUTER_MODEL = 'fake-maker/fake-model-for-the-page-probe';
     process.chdir(work);
     upstream = await fakeUpstream();
     server = await startCompanionServer(0, { upstream: `http://127.0.0.1:${upstream.address().port}/chat/completions` });
@@ -152,8 +160,32 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
       return w;
     };
     const until = (fn, arg) => page.waitForFunction(fn, arg, { timeout: timeoutMs });
+    // R5 (H132's layout): a panel lives under one of the workspace's ten tabs (its data-ws), and the chat's two views
+    // under Chat's view switch; a package without workspace tabs keeps its flat buttons
     const tab = async (name) => {
-      await page.click(`[data-tab="${name}"]`);
+      // R11 round 4 (H171): the page opens on the shell's landing screen (the account screen where no identity provider is
+      // configured); the workspace is the Chat screen, which the shell shows on request (as a person's click would)
+      await page.evaluate(() => { const sh = window.TimmyShell; if (sh && typeof sh.current === 'function' && sh.current() !== 'chat') sh.go('chat', 'probe'); }).catch(() => undefined);
+      const ws = await page.getAttribute(`#tab-${name}`, 'data-ws').catch(() => null);
+      // R10 CHAT (H171): the tab row is not drawn on Chat (where the page opens): there the shell's left menu opens the tab
+      if (ws && (await page.getAttribute('body', 'data-dest').catch(() => null)) !== ws) {
+        const row = page.locator(`#ws-tabs [data-ws-tab="${ws}"]`);
+        if (await row.isVisible().catch(() => false)) await row.click();
+        else {
+          // (R11 round 4: a destination the rail does not list — Home, Control Room, Fleet — is found by the rail's finder)
+          const item = page.locator(`#rail-menu .rail-item[data-dest="${ws}"]`);
+          const found = !(await item.isVisible().catch(() => false));
+          if (found) { await page.click('#rail-find-btn'); await page.fill('#rail-find', ws); }
+          await item.click();
+          // (the finder closed again, so the rail lists every destination for the next tab)
+          if (found) await page.evaluate(() => { const b = document.getElementById('rail-find-btn'); if (b && b.getAttribute('aria-expanded') === 'true') b.click(); });
+        }
+      }
+      // R11 round 7 (the lead): the Chat's older views sit behind the page's CLOSED records (D4's quiet records) — open them
+      // before a view switch, as the policy test's tab() does; a page without records is unchanged
+      await page.evaluate(() => { for (const d of document.querySelectorAll('section.page[data-page] .page-records details.records')) d.setAttribute('open', ''); });
+      if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+      else if (!ws) await page.click(`[data-tab="${name}"]`);
       await until((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p && p.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name);
     };
 
@@ -213,11 +245,13 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     });
 
     await workflow('chat send (FAKE upstream)', async () => {
+      // R11 round 4 (H169's contract C3): the legacy POST /chat is gone and the older Streamdown view sends nothing: its Send
+      // says so in words, asks nothing of the FAKE upstream (the real turn is POST /api/chat/turn under a signed-in user)
       await page.fill('#sd-input', 'SYNTHETIC: a message for the FAKE upstream');
       await page.click('#sd-send');
-      await until(() => /FAKE answer/.test([...document.querySelectorAll('#sd-messages .sd-answer')].pop()?.textContent ?? '') && document.getElementById('sd-status')?.textContent === 'IDLE');
-      const tokens = await page.textContent('#sd-tokens');
-      return /21 tokens \(reported by the provider\)/.test(tokens ?? '') ? { answer: 'drawn', tokens } : { ok: false, why: `its counter said ${tokens}` };
+      await until(() => /This older view sends nothing/.test(document.querySelector('.sd-error')?.textContent ?? '') && document.getElementById('sd-status')?.textContent === 'IDLE');
+      const said = await page.textContent('.sd-error');
+      return { answer: 'none (the older view sends nothing; it said so)', said };
     });
 
     await workflow('slate 3d', async () => {
@@ -291,7 +325,7 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     if (logs) await logs.stop().catch(() => undefined);
     if (upstream) await new Promise((r) => { upstream.close(() => r()); upstream.closeAllConnections?.(); });
     try { process.chdir(saved.cwd); } catch { /* the folder it started in is gone */ }
-    for (const [k, v] of [['TIMMY_REPO', saved.TIMMY_REPO], ['OPENROUTER_API_KEY', saved.OPENROUTER_API_KEY]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    for (const [k, v] of [['TIMMY_REPO', saved.TIMMY_REPO], ['OPENROUTER_API_KEY', saved.OPENROUTER_API_KEY], ['OPENROUTER_MODEL', saved.OPENROUTER_MODEL]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     for (const d of made) rmSync(d, { recursive: true, force: true });
   }
   return out;

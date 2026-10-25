@@ -24,7 +24,8 @@ import { gateTools, waitingApprovals, type Decision as GateDecision } from '../s
 import type { LiveState } from '../src/repl/board-live.js';
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
-import { againCommand, quoteArg } from '../src/room/decisions.js';
+import { againCommand, gatherDecisions, quoteArg } from '../src/room/decisions.js';
+import type { Receipt } from '../src/utils/receipts.js';
 import { paramsText } from '../src/recipes/params-file.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Segment } from '../src/term/theme.js';
@@ -345,4 +346,61 @@ describe.skipIf(!browserPath)('the Waiting on you part on the live board (headle
       await context.close();
     }
   }, 40_000);
+});
+
+describe('R5 lead: a setup check older than an answer the route gave asks for no setup step', () => {
+  /** FAKE /tools rows, as a check made before the chat was set up finds them: nothing was probed. */
+  const BEFORE_SETUP: CapabilityRow[] = [
+    { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'needs setup', detail: 'FAKE: chat: local · no model chosen', setup: 'timmy init --chat local --model <name>' },
+    { id: 'ollama', kind: 'adapter', name: 'Ollama (local models)', rung: 'needs setup', detail: 'FAKE: no model chosen', setup: 'ollama pull <model>' },
+  ];
+  /** SYNTHETIC receipts of chat turns, in the fields the decisions read (no chain is verified here). */
+  const turn = (ts: string, o: { answered: boolean; surface?: 'repl' | 'workbench' }): Receipt => ({
+    kind: o.surface === 'workbench' ? 'chat' : 'turn', subject: o.surface === 'workbench' ? 'chat.turn · workbench · 0 steps · qwen3:8b' : 'repl · 0 steps',
+    via: 'ollama', ts, project_id: 'p-r5', operation_id: 'o0000f00d', hash: `sha256_${'c'.repeat(64)}`,
+    status: o.answered ? 'ok' : 'failed', ...(o.answered ? { response_hash: 'd'.repeat(64) } : {}),
+  }) as unknown as Receipt;
+  const gather = (checkedAt: string, chain: Receipt[]) => gatherDecisions({
+    root: kit.temp('decisions-r5-'), projectId: 'p-r5', jobs: [], chain, approvals: [], flows: { list: [], more: 0 },
+    tools: { checkedAt, rows: BEFORE_SETUP }, scrub: (t) => t,
+  });
+  const setupTitles = (v: ReturnType<typeof gatherDecisions>): string[] => v.items.filter((d) => d.kind === 'setup').map((d) => d.title);
+
+  it("answered turns after the check (the Workbench's, then the REPL's): neither row waits on a person", () => {
+    const v = gather('2026-10-15T22:48:00.000Z', [turn('2026-10-15T22:53:49.000Z', { answered: true, surface: 'workbench' }), turn('2026-10-15T22:53:54.000Z', { answered: true })]);
+    expect(setupTitles(v)).toEqual([]);
+    expect(v.otherSetup).toBe(0);
+  });
+
+  it('the same turns before the check: the check is the newer word, and both rows still ask for their step', () => {
+    const v = gather('2026-10-15T22:55:00.000Z', [turn('2026-10-15T22:53:49.000Z', { answered: true, surface: 'workbench' }), turn('2026-10-15T22:53:54.000Z', { answered: true })]);
+    expect(setupTitles(v).sort()).toEqual(['Ollama (local models) needs setup', 'REPL (timmy) needs setup']);
+  });
+
+  it('a turn after the check that was not answered (sealed failed, no response) still asks for the step', () => {
+    const v = gather('2026-10-15T22:48:00.000Z', [turn('2026-10-15T22:53:54.000Z', { answered: false })]);
+    expect(setupTitles(v).sort()).toEqual(['Ollama (local models) needs setup', 'REPL (timmy) needs setup']);
+  });
+
+  /** SYNTHETIC receipt of a chat turn a person stopped (sealed cancelled, as src/repl/seal.ts seals it). */
+  const stopped = (ts: string, surface: 'repl' | 'workbench' = 'repl'): Receipt => ({
+    ...turn(ts, { answered: false, surface }), status: 'cancelled', cancelled_at: 'before-tools', rollback: 'none',
+    subject: surface === 'workbench' ? 'chat.turn · workbench · cancelled · 0 steps · qwen3:8b' : 'repl · cancelled · 0 steps', hash: `sha256_${'e'.repeat(64)}`,
+  }) as unknown as Receipt;
+
+  it('R6 (H140; the R5 interaction review, defect 2): turns stopped after the answered ones add no item: a stopped turn says nothing about a route or a surface', () => {
+    const answered = [turn('2026-10-15T22:53:49.000Z', { answered: true, surface: 'workbench' }), turn('2026-10-15T22:53:54.000Z', { answered: true })];
+    // before: the stopped turn was the newest "use" of the ollama, repl and workbench rows, not answered, so both rows asked again
+    const v = gather('2026-10-15T22:48:00.000Z', [...answered, stopped('2026-10-15T22:54:30.000Z'), stopped('2026-10-15T22:55:10.000Z', 'workbench')]);
+    expect(setupTitles(v)).toEqual([]);
+    expect(v.total).toBe(0);
+    expect(v.items).toEqual([]);
+  });
+
+  it('R6 (H140): stopped turns alone are no use of a row: nothing waits on a person, and the rows are counted with the others /tools lists', () => {
+    const v = gather('2026-10-15T22:48:00.000Z', [stopped('2026-10-15T22:54:30.000Z'), stopped('2026-10-15T22:55:10.000Z', 'workbench')]);
+    expect(setupTitles(v)).toEqual([]);
+    expect(v.total).toBe(0);
+    expect(v.otherSetup).toBe(2);
+  });
 });

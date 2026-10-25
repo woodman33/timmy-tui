@@ -36,9 +36,12 @@
 // the order they ran, linked by arrows bound to them; a second press adds only what ran since and leaves alone what the
 // person did (./operations.js has its rules).
 //
-// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
-// below run in Node's tests too.
+// Nothing here imports anything but ./operations.js (pure rules) and ./when.js (the one time format): canvas.js hands in React
+// and tldraw's classes, so the rules below run in Node's tests too.
 import { isTimmyArrow, OPERATION_ID, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
+import { clockOf } from './when.js';
+// R10 (H167): a card's title in words (a file by its name, no id); its whole title is the title's tip
+import { faceTitle } from './face.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -71,6 +74,9 @@ const SAFE = G.Object.freeze({
   WebSocket: typeof G.WebSocket === 'function' ? G.WebSocket : null,
   iterator: G.Symbol.iterator,
   blob: G.Response ? G.Response.prototype.blob : null,
+  // R5 (H137): a highlight's answer is an image, or (a paused session) the server's words as JSON
+  blobType: descriptor(G.Blob && G.Blob.prototype, 'type')?.get ?? null,
+  blobText: G.Blob ? G.Blob.prototype.text : null,
   objectURL: G.URL && typeof G.URL.createObjectURL === 'function' ? G.URL.createObjectURL : null,
   revokeURL: G.URL && typeof G.URL.revokeObjectURL === 'function' ? G.URL.revokeObjectURL : null,
   URL: G.URL,
@@ -183,6 +189,8 @@ export const CARD_SHAPES = { workflow: 'timmy-workflow', params: 'timmy-params',
 const KIND_TO_TYPE = { workflow: 'workflow', params: 'params', flow: 'result', vox: 'result', run: 'result' };
 const TYPE_OF_SHAPE = Object.fromEntries(Object.entries(CARD_SHAPES).map(([t, s]) => [s, t]));
 const WIDTH = { workflow: 380, params: 360, result: 380 };
+/** R7 (H151): the height a drawn card is placed with in mind (it is made 160 tall, then follows its content; canvas.js keepClear moves one that grew over a shape). */
+const PLACE_H = 240;
 
 /** The drawn card a project card kind gets ('workflow', 'params', 'result'), or null (an unreadable record has none). */
 export const drawnType = (kind) => KIND_TO_TYPE[kind] ?? null;
@@ -201,9 +209,11 @@ const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
  * /api/project?detail=1 with this page's session, or (R4 H81) the plain card list with `detail: false` and `detailWhy` when
  * the page has no session that reads the detail. `session` whether this page holds one. A result card is always a diagram.
  */
-export function cardMode(type, props, answer, session) {
+export function cardMode(type, props, answer, session, meta = null) {
   const diagram = (words, follows = false) => ({ executable: false, badge: 'diagram', words, follows });
   const name = props.project || 'its project';
+  // R5 (H133): a card Timmy proposed as a draft acts only once a person accepts it (./drafts.js; the panel's Drafts)
+  if (meta && meta.timmyDraft && typeof meta.timmyDraft === 'object') return { ...diagram('A draft proposed by Timmy: nothing on it acts until you accept it in Timmy\'s panel (Drafts).'), draft: true };
   // R4 (H83): a card of another project, its kept detail withheld from this page: it says so, and how to read it
   const withheld = withheldData(props.data);
   if (withheld) return { ...diagram(one(withheld.words)), withheld: true };
@@ -368,10 +378,9 @@ export function stillRunning(detail) {
   return detail.verdict && detail.verdict.tone === 'running';
 }
 
-/** A time as a card says it: the clock time (the full time is its tooltip). */
+/** A time as a card says it: the clock time (the full time is its tooltip). R5 (H137; QA defect 6): in the one format. */
 function clock(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso || '') : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return clockOf(iso) || String(iso || '');
 }
 
 // ── the shapes and their runtime (the browser only) ────────────────────────────
@@ -447,6 +456,13 @@ export function createCards(deps) {
   }
 
   /**
+   * R5 (H137): the server's answer to a reading this page makes by itself, when its session is paused (another project, or another
+   * REPL, holds the canvas now: src/studio/session-pause.ts): a plain 200 that says why (`session`: project or holder), with
+   * nothing of the project, so the browser logs no failed request. It pauses the session as the 401 it replaced did.
+   */
+  const pausedAnswer = (r) => !!(r && r.ok && r.body && r.body.ok === false && (r.body.session === 'project' || r.body.session === 'holder'));
+
+  /**
    * R4 (H83): a refusal the server gave this page's session. One that ended (or that the server never made, or no longer keeps)
    * is let go for good: the page then loads, saves and acts no more, and says so. Returns the words.
    */
@@ -457,7 +473,7 @@ export function createCards(deps) {
       token = null;
       session.set({ state: 'refused', words: why });
       onSession();
-    } else if (r && r.status === 401 && (said.session === 'project' || said.session === 'holder')) notNow(why); // R4 (H88)
+    } else if (r && (r.status === 401 || pausedAnswer(r)) && (said.session === 'project' || said.session === 'holder')) notNow(why); // R4 (H88)
     return why;
   }
 
@@ -476,7 +492,7 @@ export function createCards(deps) {
     if (Date.now() < notFor.until) return refusedReading(notFor.why);
     const r = await request('/api/project?detail=1', 'GET', token);
     if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; countsAgain(); return { ...r.body, detail: true }; }
-    if (r.status !== 401) throw new Error(`Timmy answered ${r.status} for the project`);
+    if (r.status !== 401 && !pausedAnswer(r)) throw new Error(`Timmy answered ${r.status} for the project`);
     const why = noted(r, 'Timmy did not let this page read the project.');
     if (token) {
       // given for another project, or by another REPL: asked again in 30 s
@@ -499,10 +515,12 @@ export function createCards(deps) {
       if (said.pinned !== true) { notFor.until = 0; countsAgain(); }
       return { ...said, detail: true, pinned: true };
     }
-    if (r.status === 401 && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none' || said.pinned !== true)) {
+    // R5 (H137): a paused session's refusal comes as a plain 200 (pausedAnswer), and reads as the 401 did
+    const refusedNow = r.status === 401 || pausedAnswer(r);
+    if (refusedNow && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none' || said.pinned !== true)) {
       return { ...refusedReading(noted(r, 'Timmy did not let this page read the project.')), pinned: true, pinnedId: id };
     }
-    if (r.status === 401 || r.status === 404) return { ...refusedReading(one(said.error) || `Timmy answered ${r.status} for this board's project.`), pinned: true, pinnedId: id };
+    if (refusedNow || r.status === 404) return { ...refusedReading(one(said.error) || `Timmy answered ${r.status} for this board's project.`), pinned: true, pinnedId: id };
     throw new Error(`Timmy answered ${r.status} for this board's project`);
   }
 
@@ -511,10 +529,17 @@ export function createCards(deps) {
   const hasSession = () => token !== null;
   /** The page's settings: the license key comes only with the session. */
   async function config() { return request('/studio-config.json', 'GET', token); }
-  /** The canvas as saved, every card of another project with its kept detail withheld (the server's part). */
-  async function loadDocument() {
+  /** R6 (H139): `?project=<id>` for a reading of the board of project `id` (the server refuses it when the canvas shows another). */
+  const forProject = (path, id) => (typeof id === 'string' && /^[0-9a-f]{16}$/.test(id) ? `${path}${path.includes('?') ? '&' : '?'}project=${id}` : path);
+  /**
+   * The canvas as saved, every card of another project with its kept detail withheld (the server's part). R6 (H139): the board of
+   * the project named now (its answer says which: `project`), or of project `projectId` when given (refused, 409, when the canvas
+   * shows another now).
+   */
+  async function loadDocument(projectId = null) {
     if (!token) return { status: 0, ok: false, body: null, why: session.get().words };
-    const r = await request('/api/canvas/document', 'GET', token);
+    const r = await request(forProject('/api/canvas/document', projectId), 'GET', token);
+    if (r.status === 409) return { ...r, why: one(r.body && r.body.error) || 'The canvas shows another project now.' };
     return r.ok ? r : { ...r, why: noted(r, `Timmy answered ${r.status} for the saved canvas.`) };
   }
   /** Saves the canvas (`text`: the document as JSON text, written by canvas.js); as the page closes, `keepalive`. */
@@ -524,26 +549,59 @@ export function createCards(deps) {
     if (r.status === 401) noted(r, 'Timmy refused this page\'s save.');
     return r;
   }
-  /** The canvas jobs, newest first; null when they cannot be read now (a session that does not count is asked again in 30 s). */
-  async function jobs() {
+  /**
+   * The canvas jobs, newest first; null when they cannot be read now (a session that does not count is asked again in 30 s). R6
+   * (H139): of the board of project `projectId` (null as well when the canvas shows another project now).
+   */
+  async function jobs(projectId = null) {
     if (!token || Date.now() < notFor.until) return null;
-    const r = await request('/api/canvas/jobs', 'GET', token, undefined, { array: true });
-    if (r.status === 401) {
+    const r = await request(forProject('/api/canvas/jobs', projectId), 'GET', token, undefined, { array: true });
+    // R5 (H137): a paused session's refusal is a plain 200 with no jobs (pausedAnswer)
+    if (r.status === 401 || pausedAnswer(r)) {
       const why = noted(r, 'Timmy did not let this page read the canvas jobs.');
       if (token) { notFor.until = Date.now() + 30_000; notFor.why = why; }
     }
     return r.ok && SAFE.isArray(r.body) ? r.body : null;
   }
   /**
+   * R5 (H133): the shared workspace frame of the project named now (GET /api/workspace), read with this page's session for the
+   * strip above the canvas (./frame.js). Not asked without a session, or with one that does not count now (asked again once a
+   * reading counts, and not sooner than 30 s), as the jobs are: the answer then says why, and no request is made.
+   */
+  async function workspace(projectId = null) {
+    const notAsked = (why) => ({ status: 0, ok: false, body: { ok: false, error: why } });
+    if (!token) return notAsked(session.get().words);
+    if (Date.now() < notFor.until || session.get().state !== 'ok') return notAsked(notFor.why || session.get().words);
+    // R6 (H139): the frame of the project whose board is on screen (refused, 409, when the canvas shows another now)
+    const r = await request(forProject('/api/workspace', projectId), 'GET', token);
+    // R5 (H137): a paused session's refusal is a plain 200 with no frame (pausedAnswer); the strip says why (./frame.js)
+    if (r.status === 401 || pausedAnswer(r)) {
+      const why = noted(r, 'Timmy did not let this page read the workspace.');
+      if (token) { notFor.until = Date.now() + 30_000; notFor.why = why; }
+    }
+    return r;
+  }
+  /**
    * A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. R4 (H109):
-   * of the card's own project (a board pinned to it reads it while the canvas shows another).
+   * of the card's own project (a board pinned to it reads it while the canvas shows another). R5 (H137): the shown project's are
+   * not asked while the session is paused (the server would refuse them), and a paused session's refusal (a plain 200 with the
+   * server's words as JSON, not an image) pauses it as a reading's does.
    */
   async function image(path, projectId = null) {
     if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL) return null;
     const of = typeof projectId === 'string' && /^[0-9a-f]{16}$/.test(projectId) ? `&project=${projectId}` : '';
+    if (!of && session.get().state !== 'ok') return null;
     const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}${of}`, requestInit('GET', token));
     if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
     const b = await SAFE.apply(SAFE.blob, r, []);
+    const type = SAFE.blobType ? String(SAFE.apply(SAFE.blobType, b, [])) : '';
+    if (!/^image\//.test(type)) {
+      let body = null;
+      try { body = SAFE.parse(await SAFE.apply(SAFE.blobText, b, [])); } catch { body = null; }
+      const answer = { status: 200, ok: true, body: body && typeof body === 'object' && !SAFE.isArray(body) ? body : null };
+      if (!of && pausedAnswer(answer)) noted(answer, 'Timmy did not let this page read the highlight.');
+      return null;
+    }
     return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
   }
   const forget = (url) => { if (url && SAFE.revokeURL) { try { SAFE.apply(SAFE.revokeURL, SAFE.URL, [url]); } catch { /* gone */ } } };
@@ -559,6 +617,97 @@ export function createCards(deps) {
     const r = await request(`/api/project/run-detail?op=${op}${of}`, 'GET', token);
     const said = r.body || {};
     if (r.status === 401 && (said.other !== true || said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) noted(r, 'Timmy did not let this page read the run detail.');
+    return r;
+  }
+  /**
+   * R5 (H133): keeps this page's version of the canvas as a copy beside the canvas file (POST /api/canvas/document/copy), when a
+   * newer version is on disk and this page may not save over it. `text`: the document as JSON text, written by canvas.js.
+   */
+  async function keepCopy(text) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/document/copy', 'POST', token, undefined, { raw: text });
+    if (r.status === 401) noted(r, 'Timmy refused to keep this page\'s copy.');
+    return r;
+  }
+  /**
+   * R6 (H139): the saved board of project `projectId`, as the server's health says it (its revision and source revision, no content),
+   * read with this page's session; refused (409) when the canvas shows another project now.
+   */
+  async function health(projectId) {
+    if (!token) return { status: 0, ok: false, body: null };
+    return request(forProject('/api/canvas/health', projectId), 'GET', token);
+  }
+  /**
+   * R6 (H139): which project the canvas shows now (GET /api/project/active, with this page's session): { project, hidden } (hidden:
+   * a project is named that this page's session does not count for, so it is not told which). Null when it cannot be read.
+   */
+  async function active() {
+    if (!token) return null;
+    const r = await request('/api/project/active', 'GET', token);
+    if (!r.ok || !r.body || r.body.ok !== true) return null;
+    // R7 (H151; H149's route): a switch pending, { project: { id, name }, since }; null: none pending; undefined: the answer does
+    // not say (a server without the field), which is never taken for none
+    const said = r.body.pending;
+    const pending = said && typeof said === 'object' && said.project && typeof said.project === 'object' ? { project: said.project, since: one(said.since) } : said === null ? null : undefined;
+    return { project: r.body.project && typeof r.body.project === 'object' ? r.body.project : null, hidden: r.body.hidden === true, words: one(r.body.words), via: one(r.body.via), pending };
+  }
+  /**
+   * R6 (H145): the shown project's artifacts (src/studio/artifacts.ts), read with this page's session for the artifact cards and the
+   * side panel's Artifacts (./artifacts.js): the list, or one VoxVision record's preview, of project `projectId` (the board on
+   * screen's: refused, 409, when the canvas shows another now). Only these routes; { status, ok, body }. A paused session's refusal
+   * (a plain 200 that says why) pauses it as the page's other readings do.
+   */
+  async function artifactRead(path, projectId) {
+    if (!/^\/api\/project\/artifact(?:s|\/vox\?id=v[0-9a-f]{8})$/.test(String(path))) return { status: 400, ok: false, body: { ok: false, error: 'Not an artifact route.' } };
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request(forProject(path, projectId), 'GET', token);
+    if (r.status === 401 || pausedAnswer(r)) noted(r, 'Timmy did not let this page read the project\'s artifacts.');
+    return r;
+  }
+  /**
+   * R6 (H145): an image VoxVision record `id` names (GET /api/project/artifact/vox-file), of project `projectId`, read with this
+   * page's session and shown from memory (an object URL); null when it is not read (refused, not an image, another project shown).
+   */
+  async function artifactImage(id, path, projectId) {
+    if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL || !/^v[0-9a-f]{8}$/.test(String(id)) || typeof projectId !== 'string' || !/^[0-9a-f]{16}$/.test(projectId)) return null;
+    const r = await SAFE.fetch(`/api/project/artifact/vox-file?id=${id}&path=${SAFE.apply(SAFE.encode, G, [String(path)])}&project=${projectId}`, requestInit('GET', token));
+    if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
+    const b = await SAFE.apply(SAFE.blob, r, []);
+    const type = SAFE.blobType ? String(SAFE.apply(SAFE.blobType, b, [])) : '';
+    if (!/^image\//.test(type)) return null;
+    return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
+  }
+  /**
+   * R6 (H145): the reference images of project `projectId` (src/studio/references.ts), with this page's session: its image files
+   * (`files`), a copy of one into its board's folder (`copy`), and a copy's bytes shown from memory (`refImage`: an object URL, null
+   * when not read). Each for the board on screen's project only (the server refuses another, 409).
+   */
+  async function referenceFiles(projectId) {
+    if (!token || !/^[0-9a-f]{16}$/.test(String(projectId))) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request(`/api/project/reference-files?project=${projectId}`, 'GET', token);
+    if (r.status === 401 || pausedAnswer(r)) noted(r, 'Timmy did not let this page read the project\'s images.');
+    return r;
+  }
+  async function referenceCopy(projectId, path) {
+    if (!token || !/^[0-9a-f]{16}$/.test(String(projectId))) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/project/reference', 'POST', token, { project: String(projectId), path: String(path) });
+    if (r.status === 401) noted(r, 'Timmy refused to copy the reference image.');
+    return r;
+  }
+  async function refImage(projectId, file) {
+    if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL || !/^[0-9a-f]{16}$/.test(String(projectId)) || !/^[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(String(file))) return null;
+    const r = await SAFE.fetch(`/api/canvas/ref/${projectId}/${file}`, requestInit('GET', token));
+    if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
+    const b = await SAFE.apply(SAFE.blob, r, []);
+    const type = SAFE.blobType ? String(SAFE.apply(SAFE.blobType, b, [])) : '';
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(type)) return null;
+    return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
+  }
+  /** R5 (H133): records a person's decision on a draft of Timmy's, once its save is on disk (POST /api/canvas/drafts). */
+  async function draftDecision(body) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/drafts', 'POST', token, body);
+    if (r.status === 401) noted(r, 'Timmy refused to record the decision.');
     return r;
   }
   /** The agent's bridge: a WebSocket joined with this page's session (null without one). */
@@ -620,7 +769,7 @@ export function createCards(deps) {
     const shape = editor ? editor.getShape(rec.shapeId) : null;
     if (!shape || !isDrawnCard(shape) || TYPE_OF_SHAPE[shape.type] !== rec.type || shape.props.card !== rec.card || shape.props.projectId !== rec.projectId) return;
     const now = live.get().answer;
-    const mode = cardMode(rec.type, shape.props, now, token !== null);
+    const mode = cardMode(rec.type, shape.props, now, token !== null, shape.meta);
     if (!mode.executable) return;
     const card = (now.cards || []).find((c) => c.id === rec.card);
     if (!offeredNow(rec.act, card && card.detail)) return;
@@ -706,18 +855,24 @@ export function createCards(deps) {
     if (!card) throw new Error(`No card ${JSON.stringify(String(id)).slice(0, 120)} in ${answer.project.name} now.`);
     const type = drawnType(card.kind);
     if (!type) throw new Error(`${card.title} has no drawn card (an unreadable record): Place on canvas makes a note of it.`);
-    // Beside the drawn cards already on this page (right of the rightmost), so cards placed one after another never cover
-    // each other; the first goes where the panel's notes go.
-    const others = editor.getCurrentPageShapes().filter(isDrawnCard).map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
-    const right = others.reduce((a, b) => (!a || b.maxX > a.maxX ? b : a), null);
-    const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor, { w: WIDTH[type], h: 160 });
+    // R11 round 7 (H176): a starter's empty slot for this kind of card takes it (made inside the slot's frame, which grows to show
+    // it: canvas.js slotFor, fitSlots); the card stays the project's own, and acts as on any board
+    const slot = deps.slotFor ? deps.slotFor(editor, CARD_SHAPES[type]) : null;
+    // R7 (H151; H147's R6 finding 5: "placed cards cover existing shapes"): where it overlaps no shape on the page (canvas.js
+    // placeAt, ./placement.js), cards placed one after another included; it had gone right of the rightmost drawn card, over
+    // whatever was there. Its height is a guess until it follows its content: once it has, it is moved clear if it grew over one.
+    const at = slot ? slot.at : deps.place(editor, { w: WIDTH[type], h: PLACE_H });
     const shapeId = deps.createShapeId();
-    editor.createShape({ id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type) });
+    editor.createShape({ id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y, ...(slot ? { parentId: slot.frame } : {}), props: propsFor(card, answer, type) });
     editor.select(shapeId);
+    if (slot && deps.fitSlots) deps.fitSlots(editor);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
     // R4 (H100): and again once it has its height, so its lower part (its buttons) is not left under tldraw's toolbar
     await revealSized(editor, [shapeId]);
-    return { placed: true, shape: shapeId, type: CARD_SHAPES[type], card: { id: card.id, title: card.title } };
+    if (slot && deps.fitSlots) deps.fitSlots(editor);
+    // (a card in a slot sits in its frame on purpose: it is never moved clear of it)
+    if (deps.keepClear && !slot) await deps.keepClear(editor, [shapeId]);
+    return { placed: true, shape: shapeId, type: CARD_SHAPES[type], card: { id: card.id, title: card.title }, slot: slot ? { frame: slot.frame, name: slot.name, words: slot.words } : null };
   }
 
   /**
@@ -763,18 +918,20 @@ export function createCards(deps) {
     const plan = placementPlan(op, cards, (kind) => drawnType(kind) !== null, kept, (id) => !!editor.getShape(id));
     if (!plan.order.length) throw new Error(`Operation ${op.id} has no card that draws: ${plan.skipped.length ? 'its records cannot be read as cards' : 'none of its cards is listed now'}.`);
     const widthOf = (id) => WIDTH[drawnType(cards.get(id).kind)];
-    // Where the new cards go: after the rightmost card of the operation still on the canvas; else below everything on this
-    // page; else where the panel's cards go (beside the panel).
+    // Where the new cards go: after the rightmost card of the operation still on the canvas, when that row is clear; else (R7
+    // H151) where the row overlaps no shape on the page (canvas.js placeAt, ./placement.js): it had gone below everything on the
+    // page, or beside the panel over whatever was there
     const present = plan.already.map((a) => editor.getShapePageBounds(a.shape)).filter(Boolean);
-    let start;
+    const width = Math.max(1, plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP));
+    let start = null;
     if (present.length) {
       const right = present.reduce((x, y) => (y.maxX > x.maxX ? y : x));
-      start = { x: right.maxX + ROW_GAP, y: right.minY };
-    } else {
-      const all = editor.getCurrentPageShapes().map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
-      const width = plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP);
-      start = all.length ? { x: Math.min(...all.map((b) => b.minX)), y: Math.max(...all.map((b) => b.maxY)) + 96 } : deps.place(editor, { w: Math.max(1, width), h: 160 });
+      const next = { x: right.maxX + ROW_GAP, y: right.minY };
+      const row = { minX: next.x, minY: next.y, maxX: next.x + width, maxY: next.y + PLACE_H };
+      const others = editor.getCurrentPageShapes().map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
+      if (!others.some((b) => !(row.maxX + ROW_GAP <= b.minX || row.minX >= b.maxX + ROW_GAP || row.maxY + ROW_GAP <= b.minY || row.minY >= b.maxY + ROW_GAP))) start = next;
     }
+    if (!start) start = deps.place(editor, { w: width, h: PLACE_H });
     // R4 (H109; r25 D9): one press is one step of tldraw's undo: the mark below, then the cards, their arrows and the page's
     // record, and nothing else (a drawn card's height and the cards' readings are written outside the history; the camera is
     // not in it). A press that adds nothing writes nothing, so it leaves no empty step behind.
@@ -807,6 +964,9 @@ export function createCards(deps) {
     // on one of them moved them all); the band offers to select what was placed (`select`)
     try { deps.reveal(editor, shown); } catch { /* showing them is a courtesy */ }
     await revealSized(editor, shown);
+    // R7 (H151): the cards placed now, once their heights have followed their content, moved clear (as one) if they grew over a
+    // shape (their arrows follow them, bound); the cards that were already on the board stay where the person left them
+    if (deps.keepClear && made.length) await deps.keepClear(editor, made.map((m) => m.shape));
     const words = placementWords(op.id, { ...plan, drawn: drawn.length });
     return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, gone: plan.gone, linked: plan.linked, words, select: made.map((m) => m.shape) };
   }
@@ -859,7 +1019,9 @@ export function createCards(deps) {
    */
   function opFace(op) {
     if (!op || typeof op !== 'object') return null;
-    if (typeof op.id === 'string' && op.id) return h('p', { className: 'tc-op' }, 'operation ', h('code', { className: 'tc-op-id' }, op.id));
+    // R10 (H167; the round's rule: ids behind a details control): the operation in words, its state as its record says; its id is
+    // the line's tip and in the card's Details (opRows: the id, its request, its state and /op), beside Run detail
+    if (typeof op.id === 'string' && op.id) return h('p', { className: 'tc-op', title: `operation ${op.id}` }, `its operation ${one(op.state) || 'is recorded'}`);
     return h('p', { className: 'tc-op tc-op-none' }, operationLine(null, op.from));
   }
 
@@ -916,7 +1078,8 @@ export function createCards(deps) {
     return h(HTMLContainer, { className: `tc tc-${type}`, 'data-timmy-card': shape.id, style: { width: p.w, height: p.h, pointerEvents: 'all' } },
       h('div', { ref, className: 'tc-inner', role: 'group', 'aria-label': `${type} card: ${p.title}` },
         h('div', { className: 'tc-head' },
-          h('strong', { className: 'tc-title' }, p.title || p.card),
+          // (R10 H167: in words; the record's whole title, with its places and ids, is the title's tip)
+          h('strong', { className: 'tc-title', title: p.title || p.card }, faceTitle(p.title) || p.title || p.card),
           span(`tc-badge tc-${mode.badge}`, mode.badge)),
         h('p', { className: `tc-mode${mode.executable ? ' tc-mode-on' : ''}` }, mode.words),
         // R4 (H100): the operation its record names (none on a withheld card: its words say how to read it)
@@ -941,7 +1104,7 @@ export function createCards(deps) {
     const own = useValue('timmy cards: this card\'s action', () => acts.get()[shape.id] ?? null, [shape.id]);
     const sess = useValue('timmy cards: session', () => session.get(), []);
     const p = shape.props;
-    const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null);
+    const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null, shape.meta);
     const card = mode.follows ? (now.cards || []).find((c) => c.id === p.card) : null;
     // R4 (H83): a withheld card has no detail here (only the words and commands its marker holds)
     const detail = mode.withheld ? null : (card && card.detail) || p.data;
@@ -1211,6 +1374,15 @@ export function createCards(deps) {
     runDetail,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
+    // R5 (H133): the shared workspace frame, for the strip above the canvas
+    workspace,
+    // R5 (H133): a copy of this page's canvas when a newer one is on disk, and a decision on a draft of Timmy's
+    keepCopy, draftDecision,
+    // R6 (H139): a board's saved revision, and which project the canvas shows now
+    health, active,
+    // R6 (H145): the shown project's artifacts and a VoxVision record's images, with this page's session (./artifacts.js); its
+    // reference images (./references.js)
+    artifactRead, artifactImage, forget, referenceFiles, referenceCopy, refImage,
     setPoll: (f) => { poll = f; },
     /** R4 (H88): told when the session's state changes (the panel's line follows it). */
     setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },

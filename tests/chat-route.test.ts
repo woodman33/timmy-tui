@@ -173,7 +173,10 @@ describe('the chat\'s route, from the setup', () => {
     ].join('\n'));
     // a cloud-backed model, and another computer's Ollama (a documentation address), each said in the header
     setUp({ chat: 'local', model: 'big:120b-cloud' });
-    expect(localRouteWords(local(resolveChatRoute()))).toBe('chat: big:120b-cloud · Ollama, cloud-backed');
+    // R11 Phase 2 (H169, item c): a ":cloud" name is Ollama's cloud route, named as such
+    expect(localRouteWords(local(resolveChatRoute()))).toBe('chat: ollama cloud · big:120b-cloud');
+    setUp({ chat: 'local', model: 'big:120b-cloud' }, 'http://192.0.2.10:11434');
+    expect(localRouteWords(local(resolveChatRoute()))).toBe('chat: ollama cloud · big:120b-cloud through the Ollama at 192.0.2.10:11434 (not this computer)');
     setUp({ chat: 'local', model: 'qwen3:8b' }, 'http://192.0.2.10:11434');
     expect(localRouteWords(local(resolveChatRoute()))).toBe('chat: local qwen3:8b · Ollama at 192.0.2.10:11434 (not this computer)');
     setUp({ chat: 'local', model: 'qwen3:8b' }, 'http://127.0.0.1:11434/ollama');
@@ -198,7 +201,8 @@ describe('/model on the local route (FAKE Ollama)', () => {
     const cloud = text(await localModelCommand('1', r, { set, glyphs }));
     expect(chosen).toBe('big:120b-cloud');
     expect(cloud).toContain('✓ Chat model qwen3:8b → big:120b-cloud for this session');
-    expect(cloud).toContain('Cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).');
+    expect(cloud).toContain('Ollama cloud: big:120b-cloud runs on Ollama\'s servers; your account\'s terms. Ollama sends the chat off this computer; no cost comes back (unknown).');
+    expect(cloud).not.toMatch(/no charge|: free/);
     const named = text(await localModelCommand('gpt-oss:20b', r, { set, glyphs }));
     expect(chosen).toBe('gpt-oss:20b');
     expect(named).toContain('local weights · 20.9B · MXFP4 · 13.8 GB · takes tool calls');

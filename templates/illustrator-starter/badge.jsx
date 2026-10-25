@@ -30,9 +30,11 @@
     c.blue = blue;
     return c;
   }
-  var CHARCOAL = rgb(18, 18, 18); // Homebrew surface, #121212
-  var OFFWHITE = rgb(232, 230, 225); // Homebrew text, #E8E6E1
-  var GREEN = rgb(40, 254, 20); // Homebrew accent, #28FE14
+  // Timmy Homebrew's tokens (DESIGN.md B10): the well, the text and the amber accent. Green is kept for
+  // observed, passed and sealed states, so a starter drawing never uses it.
+  var CHARCOAL = rgb(7, 7, 7); // Homebrew well, #070707
+  var OFFWHITE = rgb(242, 239, 233); // Homebrew text, #F2EFE9
+  var GREEN = rgb(255, 176, 0); // Homebrew accent (amber), #FFB000
 
   var layer = doc.layers[0];
   layer.name = 'Badge';

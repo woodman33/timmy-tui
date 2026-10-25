@@ -1,0 +1,510 @@
+/**
+ * R11 round 7 (H175; SHELL CONTRACT v1 — review/SHELL-CONTRACT-v1.md; DESIGN.md §10 B11; the lead's D3/D4/D5): the one shell
+ * for every destination, in a real Chromium at 1440×900 and 390×844 on this container's FAKE state (no identity provider
+ * configured, a FAKE Ollama on 127.0.0.1 with one chat model chosen: the route ready; nothing signs in, no model runs).
+ *
+ * What is pinned: the rail's groups and destinations in D3's order (each item carrying the page id and the legacy tab id the
+ * tests' helper clicks); TimmyShell.go by a page id and by a legacy id, current() the page id, body[data-page] beside the old
+ * body[data-dest]; the scaffold on every page (the kicker "NN / VERB", the title, the intro, the band's three cells read from the
+ * companion's own words, the dock holding the frame's actions, the records region); a page's registration (title, primary,
+ * state) drawn and the primary run; the theme switch persisted per viewer across a reload (never a status's colour); the phone's
+ * rail sheet and context sheet (open, Escape, the focus back on the opener, a dialog while open); Help & find (⌘K, filter,
+ * Enter opens the first, Escape returns the focus); the keys 1–9/0 still switch pages though the old row is hidden; no
+ * horizontal overflow and no shell text under 13 px at either size; no page error; the UI face Outfit and the mono face
+ * Monaspace Argon as the registry says.
+ */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Browser, BrowserContext, Page } from 'playwright';
+import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { browserPath, launchBrowser, openPage } from './helpers/companion-page-kit.js';
+import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+
+type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
+const LONG = 240_000;
+const DESK = { width: 1440, height: 900 };
+const PHONE = { width: 390, height: 844 };
+const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
+
+describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheets, Help & find (R11 round 7, H175)', () => {
+  const kept = { TIMMY_REPO: process.env.TIMMY_REPO };
+  let box = '';
+  let browser: Browser;
+  let ollama: FakeOllama;
+  let companion: CompanionServer;
+  const origin = (): string => `http://127.0.0.1:${companion.port}`;
+  const token = (): string => /#t=([0-9a-f]{64})$/.exec(companion.url)![1];
+
+  beforeAll(async () => {
+    browser = await launchBrowser();
+    box = mkdtempSync(join(tmpdir(), 'h175-r7-shell-'));
+    const home = process.env.TIMMY_HOME!;
+    ollama = await startFakeOllama({ models: [{ name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] }], chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE answer.']), delayMs: 20 })] });
+    mkdirSync(join(home, 'models'), { recursive: true });
+    writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: [] }));
+    writeFileSync(join(home, 'providers.json'), JSON.stringify({ ollama_host: ollama.host }));
+    writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'local', ollama: ollama.host, model: 'fake-qwen3:8b' } }));
+    const env = { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR };
+    const root = join(box, 'fresh');
+    mkdirSync(join(root, '.timmy'), { recursive: true });
+    process.env.TIMMY_REPO = root;
+    companion = await startCompanionServer(0, { chatEnv: env, workspace: { env } });
+    if (kept.TIMMY_REPO === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = kept.TIMMY_REPO;
+  }, LONG);
+  afterAll(async () => {
+    await companion?.shutdown();
+    await ollama?.close();
+    await browser?.close();
+    for (const [k, v] of Object.entries(kept)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    if (box) rmSync(box, { recursive: true, force: true });
+  });
+
+  /** The page opened with its token at `size`, landed and connected. */
+  async function open(size: { width: number; height: number }, storageState?: StorageState) {
+    const o = await openPage(browser, { origin: origin() }, size, storageState);
+    await o.page.goto(`${origin()}/#t=${token()}`);
+    await o.page.waitForFunction(() => Boolean(document.body.dataset.page), null, { timeout: 30_000 });
+    await o.page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+    // the frame read (the band's words, the dock's actions, the rail's keys)
+    await o.page.waitForFunction(() => document.querySelectorAll('#ws-actions li').length > 0 || /fresh/.test(document.getElementById('shell-crumb-ws')?.textContent ?? ''), null, { timeout: 30_000 });
+    return o;
+  }
+  const go = (page: Page, id: string): Promise<void> => page.evaluate((i) => { (window as unknown as { TimmyShell: { go(id: string, why?: string): void } }).TimmyShell.go(i, 'test'); }, id);
+  const shown = (page: Page) => page.evaluate(() => ({
+    page: document.body.dataset.page, dest: document.body.dataset.dest, current: (window as unknown as { TimmyShell: { current(): string } }).TimmyShell.current(),
+    visible: [...document.querySelectorAll('.page')].filter((p) => !(p as HTMLElement).hidden).map((p) => p.id),
+    title: (document.querySelector('.page:not([hidden]) .page-title')?.textContent ?? '').trim(),
+    kicker: (document.querySelector('.page:not([hidden]) .page-kicker')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    crumb: (document.getElementById('shell-crumb-page')?.textContent ?? '').trim(),
+    railCurrent: document.querySelector('#rail-menu .rail-item[aria-current="page"]')?.getAttribute('data-page') ?? null,
+    scrollW: document.documentElement.scrollWidth, innerW: window.innerWidth,
+  }));
+  /** Every text node in the shell's own regions, with its computed size (the page's floor is 13 px). */
+  const smallText = (page: Page) => page.evaluate(() => {
+    const out: string[] = [];
+    const roots = [...document.querySelectorAll('#shell-rail, #shell-top, .page:not([hidden]) > .page-head, .page:not([hidden]) > .page-band, .page:not([hidden]) > .page-dock, #shell-help-dialog')];
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      // eslint-disable-next-line no-cond-assign
+      while ((n = walker.nextNode())) {
+        const el = n.parentElement;
+        if (!el || !n.textContent?.trim() || !el.getClientRects().length) continue;
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < 13) out.push(`${el.tagName.toLowerCase()}.${el.className} "${n.textContent.trim().slice(0, 30)}" ${size}px`);
+      }
+    }
+    return out;
+  });
+
+  it('at 1440×900: the rail in D3\'s groups with the page and legacy ids, go() by either id, current() the page id, the scaffold on every page, the band from the companion\'s words, the dock holding the frame\'s actions, the keys still switching, no overflow, no small text, no error', async () => {
+    const { context, page, errors } = await open(DESK);
+    try {
+      // the rail: D3's order; each item carries the page id and the legacy tab id (what tests/helpers/companion-page-kit.ts clicks)
+      const items = await page.$$eval('#rail-menu .rail-item', (els) => els.map((e) => [e.getAttribute('data-page'), e.getAttribute('data-dest'), (e.querySelector('.rail-label')?.textContent ?? '').replace(/\s+/g, ' ').trim()]));
+      expect(items).toEqual([
+        ['chat', 'chat', 'Chat'], ['files', 'files', 'Files'], ['workflows', 'workflows', 'Workflows'], ['runs', 'logs', 'Runs & receipts'],
+        ['canvas', 'studio', 'Canvas'], ['voxvision', 'voxvision', 'VoxVision'], ['motion', 'create', 'Motion & 3D'],
+        ['connections', 'connections', 'Models & accounts'], ['tools', 'tools', 'Tools & integrations'], ['control', 'control', 'Control Room'],
+      ]);
+      expect(await page.$$eval('#rail-menu .rail-group', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Work', 'Create', 'Connect']);
+      // the old tab row is in the DOM for the keys and the switcher, never seen; Fleet & Clef and Home are not in the rail (D3)
+      expect(await page.isVisible('#ws-tabs')).toBe(false);
+      expect(await page.locator('#rail-menu .rail-item[data-page="fleet"], #rail-menu .rail-item[data-page="home"]').count()).toBe(0);
+      // the landing: Chat, the rail's current item, the crumb, the title focused is not amber-ringed (a quiet ring)
+      let s = await shown(page);
+      expect(s).toMatchObject({ page: 'chat', dest: 'chat', current: 'chat', visible: ['ws-chat'], crumb: 'Chat', railCurrent: 'chat' });
+      // (the kicker's number is the rail's order; its words are the page's — H171 registers Chat's in capitals, the sheet draws them so)
+      expect(s.kicker.toLowerCase()).toBe('01 / start a conversation');
+      expect(s.title.length).toBeGreaterThan(8);
+      expect(await text(page, '#shell-crumb-ws')).toBe('fresh');
+      // the band reads the companion's own words (the project, the route of the next turn, the records' state): nothing invented
+      const band = await page.$$eval('#ws-chat .page-band .band-cell', (els) => els.map((e) => [(e.querySelector('.band-k')?.textContent ?? '').trim(), (e.querySelector('.band-v')?.textContent ?? '').trim()]));
+      expect(band.map((c) => c[0])).toEqual(['Workspace', 'Model', 'Records']);
+      expect(band[0][1]).toBe('fresh');
+      expect(band[1][1]).toMatch(/fake-qwen3:8b/);
+      expect(band[2][1].length, 'the Records cell: the companion\'s own words (H171\'s band() once Chat registers, else the legacy state words)').toBeGreaterThan(3);
+      expect(band[2][1]).not.toMatch(/^Reading/);
+      // the live status word is the SOCKET only (the operator's 19:18 order, item 7): "Companion connected", green only while the
+      // socket is observed open; never a turn's activity — a closed socket says offline, in the muted colour, with no green
+      expect(await text(page, '#shell-status')).toBe('Companion connected');
+      expect(await page.$eval('#shell-status', (e) => e.classList.contains('is-live'))).toBe(true);
+      expect(await page.$eval('#shell-status', (e) => getComputedStyle(e).color)).toBe('rgb(40, 254, 20)');
+      expect(await page.$eval('#shell-status', (e) => (e.textContent ?? '').toLowerCase())).not.toMatch(/answer/);
+      await page.evaluate(() => { const st = document.getElementById('status-text')!; const dot = document.querySelector('#status .status-dot') as HTMLElement; st.textContent = 'COMPANION SOCKET · LOST'; dot.classList.remove('is-live'); dot.dataset.state = 'lost'; });
+      await page.waitForFunction(() => document.getElementById('shell-status')?.textContent === 'Companion offline · reconnecting', null, { timeout: 5_000 });
+      expect(await page.$eval('#shell-status', (e) => [e.classList.contains('is-live'), getComputedStyle(e).color])).toEqual([false, 'rgb(189, 202, 218)']);
+      await page.evaluate(() => { const st = document.getElementById('status-text')!; const dot = document.querySelector('#status .status-dot') as HTMLElement; st.textContent = 'COMPANION SOCKET · CONNECTED'; dot.classList.add('is-live'); delete dot.dataset.state; });
+      await page.waitForFunction(() => document.getElementById('shell-status')?.textContent === 'Companion connected', null, { timeout: 5_000 });
+      // every page: the scaffold's regions, the kicker numbered in the rail's order, a title and an intro, the dock with the frame's
+      // actions inside it (the strip moved there), the records region; by a page id and by a legacy id
+      const expectPage = async (goId: string, id: string, legacy: string, el: string, n: string) => {
+        await go(page, goId);
+        s = await shown(page);
+        expect(s, id).toMatchObject({ page: id, dest: legacy, current: id, visible: [el], railCurrent: ['home', 'fleet', 'settings', 'account'].includes(id) ? null : id });
+        expect(s.kicker, id).toMatch(new RegExp(`^${n} / \\S`, 'i'));
+        expect(s.title.length, id).toBeGreaterThan(8);
+        expect(s.scrollW, `${id}: no horizontal overflow`).toBeLessThanOrEqual(s.innerW);
+        const regions = await page.$eval(`#${el}`, (p) => ['.page-head', '.page-band', '.page-body > .page-work', '.page-body > .page-context', '.page-dock', '.page-records'].map((c) => Boolean(p.querySelector(`:scope > ${c}`))));
+        expect(regions, `${id}: head, band, work, context, dock, records`).toEqual([true, true, true, true, true, true]);
+        expect(await page.$eval(`#${el}`, (p) => p.querySelector(':scope > .page-dock #ws-strip') !== null), `${id}: the frame's actions in the dock`).toBe(true);
+        expect(await page.$eval(`#${el} .page-intro`, (e) => (e.textContent ?? '').trim().length)).toBeGreaterThan(10);
+      };
+      await expectPage('workflows', 'workflows', 'workflows', 'ws-workflows', '03');
+      await expectPage('logs', 'runs', 'logs', 'ws-logs', '04'); // (by its legacy id: Runs & receipts)
+      await expectPage('canvas', 'canvas', 'studio', 'ws-studio', '05');
+      await expectPage('voxvision', 'voxvision', 'voxvision', 'ws-voxvision', '06');
+      await expectPage('create', 'motion', 'create', 'ws-create', '07'); // (by its legacy id: Motion & 3D)
+      await expectPage('connections', 'connections', 'connections', 'screen-connections', '08');
+      await expectPage('tools', 'tools', 'tools', 'ws-tools', '09');
+      await expectPage('control', 'control', 'control', 'ws-control', '10');
+      await expectPage('files', 'files', 'files', 'ws-files', '02');
+      // the mounted connections screen draws inside the page's work region (its own cards), the rail beside it
+      await go(page, 'connections');
+      // (H170's draw writes into the scaffold's work region and registers the page: the PRIMARY is drawn by the shell — GATE 04)
+      await page.waitForSelector('#screen-connections .page-primary .ui-primary', { timeout: 15_000 });
+      expect(await page.$eval('#screen-connections .page-work', (e) => e.childElementCount)).toBeGreaterThan(0);
+      expect(await page.isVisible('#shell-rail')).toBe(true);
+      // the page's primary next action: the head's button (the page's own registration — H169's Workflows — or, unregistered, the
+      // frame's primary action: Fleet & Clef, legacy, has only the frame's). D19: the band's trailing action NEVER duplicates the
+      // primary — with no different verb registered, the band draws no action at all
+      await go(page, 'workflows');
+      const primary = await text(page, '#ws-workflows .page-primary .ui-primary span:first-child');
+      expect(primary.length).toBeGreaterThan(3);
+      expect(await page.locator('#ws-workflows .page-band .band-action').count(), 'D19: no band action twin of the primary').toBe(0);
+      // the dock on a page the frame gives no actions says nothing: companion.js's "The frame gives this tab no actions." is not seen
+      expect(await page.evaluate(() => [...document.querySelectorAll('#ws-main .page-dock li.empty')].filter((e) => e.getClientRects().length).length)).toBe(0);
+      expect(await page.evaluate(() => ((document.querySelector('.page:not([hidden]) > .page-dock') as HTMLElement | null)?.innerText ?? ''))).not.toMatch(/gives this tab no actions/);
+      await go(page, 'fleet');
+      const framePrimary = await page.$eval('#ws-fleet .page-dock #ws-actions li[data-primary="true"]', (e) => (e.textContent ?? '').replace(/^\d+\.\s*/, '').trim()).catch(() => '');
+      if (framePrimary) expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe(framePrimary);
+      // the keys of the old row still switch pages: 0 opens Runs & receipts (logs), 2 Chat
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+      await page.keyboard.press('0');
+      await page.waitForFunction(() => document.body.dataset.page === 'runs', null, { timeout: 5_000 });
+      expect((await shown(page)).railCurrent).toBe('runs');
+      await page.keyboard.press('2');
+      await page.waitForFunction(() => document.body.dataset.page === 'chat', null, { timeout: 5_000 });
+      // a page's registration: title, primary (run on click), state words with a verb-led next action; the band's own cells
+      // (on a page no owner's script registers at show — Fleet & Clef, legacy — so the test's own registration is what is drawn)
+      await page.evaluate(() => {
+        const w = window as unknown as { TimmyShell: { page(id: string, r: object): void; state(id: string, s: string, o?: object): void; band(id: string, c: object): void; go(id: string): void } };
+        (window as unknown as { __ran: string[] }).__ran = [];
+        w.TimmyShell.page('fleet', { kicker: '08 / A TEST KICKER', title: 'A test title for the fleet page.', intro: 'A test intro.', primary: { label: 'Open a test source', run: () => (window as unknown as { __ran: string[] }).__ran.push('primary') }, context: 'selection', band: [{ k: 'Sources', v: '0 files' }] });
+        w.TimmyShell.state('fleet', 'empty', { words: 'Nothing in this project yet.', next: { label: 'Add a source', run: () => (window as unknown as { __ran: string[] }).__ran.push('next') } });
+        w.TimmyShell.band('fleet', { records: 'Test records' });
+        w.TimmyShell.go('fleet');
+      });
+      s = await shown(page);
+      expect(s.title).toBe('A test title for the fleet page.');
+      expect(s.kicker).toBe('08 / A TEST KICKER'); // (a page outside the rail keeps the number it registered)
+      expect(await page.getAttribute('#ws-fleet', 'data-state')).toBe('empty');
+      expect(await text(page, '#ws-fleet .page-state')).toContain('Nothing in this project yet.');
+      await page.click('#ws-fleet .page-state-next');
+      await page.click('#ws-fleet .page-primary .ui-primary');
+      expect(await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)).toEqual(['next', 'primary']);
+      const cells = await page.$$eval('#ws-fleet .page-band .band-cell', (els) => els.map((e) => [(e.querySelector('.band-k')?.textContent ?? '').trim(), (e.querySelector('.band-v')?.textContent ?? '').trim()]));
+      expect(cells.map((c) => c[0])).toEqual(['Workspace', 'Model', 'Records', 'Sources']);
+      expect(cells[2][1]).toBe('Test records');
+      expect(cells[3][1]).toBe('0 files');
+      // approval: NEEDS YOU first in the band, amber by its class (its word says it; its colour is the focus amber, not green)
+      await page.evaluate(() => (window as unknown as { TimmyShell: { state(id: string, s: string, o?: object): void } }).TimmyShell.state('fleet', 'approval', { words: 'A test approval waits' }));
+      expect(await text(page, '#ws-fleet .page-band .band-cell.is-attn')).toContain('Needs you');
+      expect(await page.$eval('#ws-fleet .page-band .band-cell.is-attn .band-v', (e) => getComputedStyle(e).color)).toBe('rgb(255, 176, 0)');
+      // D8: the shell draws the ONE arrow; a label registered with a trailing arrow loses it (never "→ →"). D19: the band draws no
+      // action for the same words; a DIFFERENT verb registered as bandAction stays, with its ↗, and runs on click; the same words
+      // registered as bandAction draw nothing either
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { primary: { label: 'Continue to the workspace →', run: () => undefined } }));
+      expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe('Continue to the workspace');
+      expect(await page.$$eval('#ws-fleet .page-primary .ui-primary, #ws-fleet .band-action', (els) => els.map((e) => ((e.textContent ?? '').match(/[→↗]/g) ?? []).length))).toEqual([1]);
+      await page.evaluate(() => { (window as unknown as { __ran: string[] }).__ran = []; (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { bandAction: { label: 'See every source ↗', run: () => (window as unknown as { __ran: string[] }).__ran.push('band') } }); });
+      expect(await text(page, '#ws-fleet .page-band .band-action')).toBe('See every source ↗');
+      expect(await page.$$eval('#ws-fleet .page-primary .ui-primary, #ws-fleet .band-action', (els) => els.map((e) => ((e.textContent ?? '').match(/[→↗]/g) ?? []).length))).toEqual([1, 1]);
+      await page.click('#ws-fleet .page-band .band-action');
+      expect(await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)).toEqual(['band']);
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { bandAction: { label: 'Continue to the workspace', run: () => undefined } }));
+      expect(await page.locator('#ws-fleet .page-band .band-action').count(), 'D19: the same words as the primary draw no band action').toBe(0);
+      // a cell without words is never drawn (D19): a registered band cell with an empty value is left out
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { band: [{ k: 'Sources', v: '0 files' }, { k: 'Account', v: '' }, { k: '', v: 'orphan' }] }));
+      expect(await page.$$eval('#ws-fleet .page-band .band-cell .band-k', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Needs you', 'Workspace', 'Model', 'Records', 'Sources']);
+      // D11: a digit key puts the focus on the page's title (the tab button is hidden), never on the body; the ring it carries is
+      // the token ring — 2 px solid #FFB000 with its 2 px halo — never a UA or dashed box (D17 / H168's R90)
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+      await page.keyboard.press('3');
+      await page.waitForFunction(() => document.body.dataset.page === 'workflows', null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.className ?? '')).toContain('page-title');
+      const ring = await page.evaluate(() => { const c = getComputedStyle(document.activeElement as Element); return { style: c.outlineStyle, color: c.outlineColor, width: c.outlineWidth, halo: c.boxShadow }; });
+      console.info('[H175 1440 title ring]', JSON.stringify(ring));
+      expect(ring).toMatchObject({ style: 'solid', color: 'rgb(255, 176, 0)', width: '2px' });
+      expect(ring.halo).toMatch(/rgb\(8, 11, 15\) 0px 0px 0px 2px/);
+      // R94: the project is named with ONE spelling — the rail's card, the crumb and the band's Workspace cell read the same words
+      await go(page, 'chat');
+      const names = await page.evaluate(() => [document.getElementById('rail-project-name')?.textContent?.trim(), document.getElementById('shell-crumb-ws')?.textContent?.trim(), document.querySelector('#ws-chat .page-band .band-cell .band-v')?.textContent?.trim()]);
+      expect(names[0]).toBe('fresh');
+      expect(names).toEqual(['fresh', 'fresh', 'fresh']);
+      // the type: the UI face for the title and the rail, the mono face for a key
+      expect(await page.$eval('.page:not([hidden]) .page-title', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
+      expect(await page.$eval('#rail-menu .rail-item', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Outfit"?/);
+      expect(await page.$eval('#shell-help kbd', (e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Monaspace Argon"?/);
+      // no shell text under 13 px, on the pages seen
+      for (const id of ['chat', 'workflows', 'connections', 'files', 'settings']) { await go(page, id); expect(await smallText(page), id).toEqual([]); }
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  }, LONG);
+
+  it('Help & find: ⌘K / Ctrl+K and ? open one dialog over the page; typing filters the destinations, the page\'s actions and the keys; Enter opens the first; Escape closes and the focus returns to the opener', async () => {
+    const { context, page, errors } = await open(DESK);
+    try {
+      await page.focus('#rail-project');
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('#shell-help-dialog[open]', { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.className)).toBe('help-find');
+      const sections = await page.$$eval('#shell-help-dialog .help-k', (els) => els.map((e) => (e.textContent ?? '').trim()));
+      expect(sections).toEqual(['Go to', 'On this page', 'Keys']);
+      expect(await page.$$eval('#shell-help-dialog .help-list .help-item', (els) => els.map((e) => (e.querySelector('span')?.textContent ?? '').trim()))).toEqual(expect.arrayContaining(['Open Chat', 'Open Files', 'Open Settings', 'Open Account', 'Switch to Glacier']));
+      const keys = await page.$$eval('#shell-help-dialog .help-key', (els) => els.map((e) => `${(e.querySelector('kbd')?.textContent ?? '').trim()} ${(e.querySelector('span')?.textContent ?? '').trim()}`));
+      expect(keys).toEqual(expect.arrayContaining(['⌘K Help & find (this)', 'Esc Close a sheet or this overlay', '0 Open Runs & receipts']));
+      // typing filters all three lists; Enter opens the first match
+      // (a destination matches by its name, its id or its verb phrase: "work" would also find Canvas's "Shape the work")
+      await page.type('.help-find', 'workfl');
+      expect(await page.$$eval('#shell-help-dialog .help-list .help-item span:first-child', (els) => els.map((e) => (e.textContent ?? '').trim()).filter((t) => /^Open /.test(t)))).toEqual(['Open Workflows']);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.body.dataset.page === 'workflows' && !(document.getElementById('shell-help-dialog') as HTMLDialogElement).open, null, { timeout: 5_000 });
+      // ? when not typing; Escape closes it and the focus goes back where it was
+      await page.focus('#rail-project');
+      await page.keyboard.press('?');
+      await page.waitForSelector('#shell-help-dialog[open]', { timeout: 5_000 });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !(document.getElementById('shell-help-dialog') as HTMLDialogElement).open, null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('rail-project');
+      // ? while typing in a field types the character
+      await page.focus('#cx-input').catch(() => undefined);
+      if (await page.isVisible('#cx-input')) {
+        await page.keyboard.press('?');
+        expect(await page.inputValue('#cx-input')).toBe('?');
+        expect(await page.evaluate(() => (document.getElementById('shell-help-dialog') as HTMLDialogElement).open)).toBe(false);
+      }
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  }, LONG);
+
+  it('the theme: Amber by default, Glacier by the switch (html[data-theme], aria-pressed), kept per viewer across a reload (localStorage, the shell\'s key only); the focus ring and an observed live state keep their colours in both', async () => {
+    const { context, page, errors } = await open(DESK);
+    let state: StorageState;
+    try {
+      expect(await page.getAttribute('html', 'data-theme')).toBe('amber');
+      const accentAmber = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--timmy-ui-accent').trim());
+      await page.click('.theme-switch [data-theme="glacier"]');
+      expect(await page.getAttribute('html', 'data-theme')).toBe('glacier');
+      expect(await page.$$eval('.theme-switch [data-theme]', (els) => els.map((e) => `${e.getAttribute('data-theme')}=${e.getAttribute('aria-pressed')}`))).toEqual(['glacier=true', 'amber=false']);
+      const accentGlacier = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--timmy-ui-accent').trim());
+      expect(accentAmber.toUpperCase()).toBe('#D6AA64');
+      expect(accentGlacier.toUpperCase()).toBe('#8ABBE3');
+      // the statuses do not move with the family: focus and verified are the same values in both
+      for (const name of ['--timmy-ui-focus', '--timmy-ui-verified']) {
+        expect(await page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim().toUpperCase(), name)).toBe(name.endsWith('focus') ? '#FFB000' : '#28FE14');
+      }
+      expect(await page.$eval('#shell-status', (e) => getComputedStyle(e).color)).toBe('rgb(40, 254, 20)');
+      // R93 / D12: Glacier takes EVERY accent — the kicker's number, the band's action, a link, a legacy primary button and the
+      // aliased B10 names (--timmy-accent is the family's; --timmy-attention stays the exact focus amber) — no amber straggler
+      const GLACIER = { accent: 'rgb(138, 187, 227)', soft: 'rgb(190, 217, 237)' };
+      await go(page, 'workflows');
+      await page.evaluate(() => { const a = document.createElement('a'); a.href = '#'; a.id = 'test-link'; a.textContent = 'a link'; document.querySelector('#ws-workflows .page-work')!.append(a); const b = document.createElement('button'); b.className = 'act is-primary'; b.id = 'test-legacy-primary'; b.textContent = 'legacy primary'; document.querySelector('#ws-workflows .page-work')!.append(b); });
+      // (D19: the band draws an action only for a verb that differs from the primary's — one is registered here to read its colour)
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('workflows', { bandAction: { label: 'A different band verb', run: () => undefined } }));
+      await page.waitForSelector('#ws-workflows .page-band .band-action', { timeout: 5_000 });
+      const glacier = await page.evaluate(() => {
+        const c = (sel: string, prop: string) => { const e = document.querySelector(sel); return e ? (getComputedStyle(e) as unknown as Record<string, string>)[prop] : 'absent'; };
+        const root = getComputedStyle(document.documentElement);
+        return { kicker: c('#ws-workflows .page-kicker-n', 'color'), band: c('#ws-workflows .band-action', 'color'), link: c('#test-link', 'color'), legacy: c('#test-legacy-primary', 'backgroundColor'), legacyInk: c('#test-legacy-primary', 'color'),
+          railGlyph: c('#rail-menu .rail-item[aria-current="page"] .rail-glyph', 'color'), accentAlias: root.getPropertyValue('--timmy-accent').trim().toUpperCase(), attentionAlias: root.getPropertyValue('--timmy-attention').trim().toUpperCase(), mutedAlias: root.getPropertyValue('--timmy-text-secondary').trim().toUpperCase(), wellAlias: root.getPropertyValue('--timmy-surface').trim().toUpperCase() };
+      });
+      expect(glacier).toEqual({ kicker: GLACIER.accent, band: GLACIER.soft, link: GLACIER.soft, legacy: GLACIER.accent, legacyInk: 'rgb(29, 56, 72)', railGlyph: GLACIER.accent, accentAlias: '#8ABBE3', attentionAlias: '#FFB000', mutedAlias: '#9AAFC3', wellAlias: '#111A23' });
+      // nothing but a status is the focus amber in the shell's own chrome (the rail, the topbar, the head, the band, the dock):
+      // every element painted rgb(255, 176, 0) there carries a status class (what waits on you, a failure) — the focus ring aside
+      const stragglers = await page.evaluate(() => [...document.querySelectorAll('#shell-rail *, #shell-top *, .page:not([hidden]) > .page-head *, .page:not([hidden]) > .page-band *, .page:not([hidden]) > .page-dock *')].filter((e) => e.getClientRects().length).map((e) => { const c = getComputedStyle(e); const amber = c.color === 'rgb(255, 176, 0)' || c.backgroundColor === 'rgb(255, 176, 0)' || (c.borderTopStyle !== 'none' && c.borderTopColor === 'rgb(255, 176, 0)'); return amber ? `${e.tagName.toLowerCase()}.${e.className}` : ''; }).filter((w) => w && !/is-attn|rail-count|token-note|strip-note|tab-waiting|is-error|page-state|is-failed|waits/.test(w)));
+      expect(stragglers).toEqual([]);
+      await page.evaluate(() => { document.getElementById('test-link')?.remove(); document.getElementById('test-legacy-primary')?.remove(); });
+      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('timmy.')).sort())).toEqual(expect.arrayContaining(['timmy.theme']));
+      expect(await page.evaluate(() => localStorage.getItem('timmy.theme'))).toBe('glacier');
+      state = await context.storageState();
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+    const again = await open(DESK, state!);
+    try {
+      expect(await again.page.getAttribute('html', 'data-theme')).toBe('glacier');
+      expect(await again.page.$eval('.theme-switch [data-theme="glacier"]', (e) => e.getAttribute('aria-pressed'))).toBe('true');
+      expect(again.errors).toEqual([]);
+    } finally { await again.context.close(); }
+  }, LONG);
+
+  it('a page opened WITHOUT any token (an address typed by hand) keeps companion.js\'s no-token words — the shell answers every fetch with its own 401 { needs: "token" }, asks the companion nothing and never turns it into the "not the companion\'s" refusal (the lead\'s 18:01 ruling, H172\'s LEGACY 01)', async () => {
+    const o = await openPage(browser, { origin: origin() }, DESK);
+    const apiRequests: string[] = [];
+    o.page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/')) apiRequests.push(u.pathname); });
+    try {
+      await o.page.goto(`${origin()}/`);
+      await o.page.waitForFunction(() => Boolean(document.body.dataset.page), null, { timeout: 30_000 });
+      await o.page.waitForTimeout(2500); // (every script's first reads, the frame's poll: all answered in the page)
+      expect(await text(o.page, '#token-note')).toMatch(/^This page has no token from Timmy.*in the Workbench \(`timmy workbench`\), press c.*in `timmy watch`, press q on HOME/);
+      expect(await text(o.page, '#token-note')).not.toMatch(/not the companion/);
+      // (companion.js's `companion` is a script-scope const, not a window property: the refusal is read by its words, not its flag)
+      expect(await text(o.page, '#shell-status')).toBe('No token · open the page from Timmy');
+      // the shell's fetch answers in the page: a 401 that names the missing token, no request to the companion
+      const answer = await o.page.evaluate(async () => { const r = await (window as unknown as { TimmyShell: { fetch(u: string): Promise<Response> } }).TimmyShell.fetch('/api/workspace'); return { status: r.status, body: await r.json() as { needs?: string; words?: string } }; });
+      expect(answer.status).toBe(401);
+      expect(answer.body.needs).toBe('token');
+      expect(answer.body.words).toMatch(/no token from Timmy/);
+      expect(apiRequests, 'no /api/ request leaves a token-less page').toEqual([]);
+      expect(o.errors).toEqual([]);
+    } finally { await o.context.close(); }
+  }, LONG);
+
+  it('at 390×844 (D5): the rail is a top strip whose Menu opens the sheet (a dialog; Escape closes it; the focus returns to Menu; a choice closes it); a registered context opens as a sheet the same way; the band wraps; the dock stays; nothing overflows sideways; no small text', async () => {
+    const { context, page, errors } = await open(PHONE);
+    try {
+      expect(await page.isVisible('#shell-menu')).toBe(true);
+      expect(await page.isVisible('#rail-sheet')).toBe(false);
+      const s0 = await shown(page);
+      expect(s0.scrollW).toBeLessThanOrEqual(s0.innerW);
+      // R92: the theme switch says its words at this size — "Amber" and "Glacier", the active one pressed — not two dots; on the topbar's first row
+      const words = await page.$$eval('.theme-switch [data-theme]', (els) => els.map((e) => ({ words: (e.textContent ?? '').trim(), pressed: e.getAttribute('aria-pressed'), visible: e.getClientRects().length > 0, top: Math.round(e.getBoundingClientRect().top) })));
+      expect(words.map((w) => [w.words, w.pressed, w.visible])).toEqual([['Glacier', 'false', true], ['Amber', 'true', true]]);
+      expect(words[0].top).toBe(words[1].top);
+      expect(Math.abs(words[0].top - (await page.$eval('#shell-crumb-page', (e) => Math.round(e.getBoundingClientRect().top))))).toBeLessThan(12); // (the same row as the crumb)
+      // the sheet
+      await page.click('#shell-menu');
+      await page.waitForSelector('#shell-rail.is-open', { timeout: 5_000 });
+      expect(await page.isVisible('#rail-sheet')).toBe(true);
+      // R99: the list scrolls INSIDE the sheet (the one scroll area; the sheet itself does not), the foot stays put, and the last
+      // group's last item clears the foot once the list is scrolled to its end
+      const sheet = await page.evaluate(() => {
+        const list = document.querySelector('#rail-sheet .rail-scroll') as HTMLElement; const foot = document.querySelector('#rail-sheet .rail-foot') as HTMLElement; const sh = document.getElementById('rail-sheet')!;
+        list.scrollTop = list.scrollHeight;
+        const items = [...document.querySelectorAll('#rail-menu .rail-item')]; const last = items[items.length - 1].getBoundingClientRect();
+        return { listScrolls: list.scrollHeight > list.clientHeight, listOverflow: getComputedStyle(list).overflowY, sheetScrolls: sh.scrollHeight > sh.clientHeight + 1, footTop: Math.round(foot.getBoundingClientRect().top), footBottom: Math.round(foot.getBoundingClientRect().bottom), lastBottom: Math.round(last.bottom), lastLabel: (items[items.length - 1].textContent ?? '').trim(), inner: window.innerHeight };
+      });
+      console.info('[H175 390 rail sheet]', JSON.stringify(sheet));
+      expect(sheet.listOverflow).toBe('auto');
+      expect(sheet.sheetScrolls, `the sheet is not the scroll area: ${JSON.stringify(sheet)}`).toBe(false);
+      expect(sheet.lastBottom, `the last item ("${sheet.lastLabel}") clears the foot: ${JSON.stringify(sheet)}`).toBeLessThanOrEqual(sheet.footTop);
+      expect(sheet.footBottom).toBeLessThanOrEqual(sheet.inner);
+      await page.evaluate(() => { (document.querySelector('#rail-sheet .rail-scroll') as HTMLElement).scrollTop = 0; });
+      expect(await page.getAttribute('#rail-sheet', 'role')).toBe('dialog');
+      expect(await page.getAttribute('#rail-sheet', 'aria-modal')).toBe('true');
+      expect(await page.getAttribute('#shell-menu', 'aria-expanded')).toBe('true');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('data-page'))).toBe('chat'); // the current item takes the focus
+      expect(await page.isVisible('#shell-scrim')).toBe(true);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.getElementById('shell-rail')?.classList.contains('is-open'), null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('shell-menu');
+      expect(await page.getAttribute('#rail-sheet', 'aria-modal')).toBeNull();
+      // a choice closes it and opens the page
+      await page.click('#shell-menu');
+      await page.waitForSelector('#shell-rail.is-open', { timeout: 5_000 });
+      await page.click('#rail-menu .rail-item[data-page="workflows"]');
+      await page.waitForFunction(() => document.body.dataset.page === 'workflows' && !document.getElementById('shell-rail')?.classList.contains('is-open'), null, { timeout: 5_000 });
+      let s = await shown(page);
+      expect(s.scrollW).toBeLessThanOrEqual(s.innerW);
+      // D19 (the phone band): the first two facts WHOLE — each value with words, none clipped — and the rest folded behind "· more"
+      // (a disclosure that opens the remaining cells, each with its words); never a label with an empty value
+      expect(await page.$$eval('#ws-workflows .page-band .band-cell', (els) => els.length)).toBeGreaterThanOrEqual(3); // (the three standard cells; an owner may add its own — H169 does)
+      const bandFold = async (sel: string) => page.evaluate((root) => {
+        const band = document.querySelector(`${root} > .page-band`)!;
+        const shownCells = [...band.querySelectorAll(':scope > .band-cell')].map((c) => { const v = c.querySelector('.band-v') as HTMLElement; return { k: (c.querySelector('.band-k')?.textContent ?? '').trim(), v: (v?.textContent ?? '').trim(), whole: v ? v.scrollWidth <= v.clientWidth + 1 && v.clientWidth > 8 : false }; });
+        const more = band.querySelector(':scope > details.band-more');
+        const folded = more ? [...more.querySelectorAll('.band-cell')].map((c) => { const b = c.getBoundingClientRect(); return { k: (c.querySelector('.band-k')?.textContent ?? '').trim(), v: (c.querySelector('.band-v')?.textContent ?? '').trim(), visible: b.width > 0 && b.height > 0 }; }) : [];
+        return { shownCells, summary: more ? (more.querySelector('summary')?.textContent ?? '').replace(/\s+/g, ' ').trim() : null, open: more ? (more as HTMLDetailsElement).open : null, folded, bandRight: Math.round(band.getBoundingClientRect().right), bandHeight: Math.round(band.getBoundingClientRect().height) };
+      }, sel);
+      let fold = await bandFold('#ws-workflows');
+      console.info('[H175 390 band Workflows]', JSON.stringify(fold));
+      expect(fold.shownCells.length).toBe(2);
+      for (const c of fold.shownCells) { expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); expect(c.whole, `${c.k}: "${c.v}" whole, not clipped`).toBe(true); }
+      expect(fold.summary).toBe('· more');
+      expect(fold.open).toBe(false);
+      expect(fold.folded.length).toBeGreaterThanOrEqual(1);
+      for (const c of fold.folded) { expect(c.visible, `${c.k} folded`).toBe(false); expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); }
+      expect(fold.bandRight).toBeLessThanOrEqual(390);
+      await page.click('#ws-workflows > .page-band details.band-more > summary');
+      // (the word follows `open` synchronously on the click; the read still waits for it so no load can beat it — the freeze's
+      // --maxWorkers=2 read "· more" on an open details when the word followed the queued toggle event)
+      await page.waitForFunction(() => (document.querySelector('#ws-workflows > .page-band details.band-more > summary')?.textContent ?? '').includes('less'), null, { timeout: 5_000 });
+      fold = await bandFold('#ws-workflows');
+      expect(fold.open).toBe(true);
+      expect(fold.summary).toBe('· less');
+      for (const c of fold.folded) expect(c.visible, `${c.k} shown once opened`).toBe(true);
+      await page.click('#ws-workflows > .page-band details.band-more > summary');
+      await page.waitForFunction(() => { const d = document.querySelector('#ws-workflows > .page-band details.band-more') as HTMLDetailsElement | null; return Boolean(d) && !d!.open && (d!.querySelector('summary')?.textContent ?? '').includes('more'); }, null, { timeout: 5_000 });
+      // the fold is drawn, not styled: crossing 720 px redraws the band without it (every cell shown), and crossing back folds it again
+      await page.setViewportSize({ width: 800, height: 844 });
+      await page.waitForFunction(() => !document.querySelector('#ws-workflows > .page-band details.band-more') && [...document.querySelectorAll('#ws-workflows > .page-band > .band-cell')].filter((c) => c.getBoundingClientRect().width > 0).length >= 3, null, { timeout: 5_000 });
+      await page.setViewportSize(PHONE);
+      await page.waitForFunction(() => Boolean(document.querySelector('#ws-workflows > .page-band details.band-more')) && document.querySelectorAll('#ws-workflows > .page-band > .band-cell').length === 2, null, { timeout: 5_000 });
+      expect(await page.isVisible('#ws-workflows .page-dock #ws-actions')).toBe(true);
+      // the context as a sheet: a registered context with something in it shows its opener; open, Escape, the focus back
+      await page.evaluate(() => {
+        const w = window as unknown as { TimmyShell: { page(id: string, r: object): void; go(id: string): void } };
+        w.TimmyShell.page('workflows', { context: 'selection' });
+        const ctx = document.getElementById('page-context-workflows')!;
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'A test control in the context'; b.className = 'ui-btn test-ctx';
+        ctx.append(b);
+        w.TimmyShell.page('workflows', { context: 'selection' });
+      });
+      await page.waitForSelector('#ws-workflows .page-context-btn:not([hidden])', { timeout: 5_000 });
+      await page.click('#ws-workflows .page-context-btn');
+      await page.waitForSelector('#page-context-workflows.is-open', { timeout: 5_000 });
+      expect(await page.getAttribute('#page-context-workflows', 'role')).toBe('dialog');
+      expect(await page.evaluate(() => document.activeElement?.className)).toBe('ui-btn test-ctx');
+      const box = await page.$eval('#page-context-workflows', (e) => e.getBoundingClientRect().toJSON() as { left: number; right: number; bottom: number });
+      expect(box.left).toBeGreaterThanOrEqual(0);
+      expect(box.right).toBeLessThanOrEqual(390);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.getElementById('page-context-workflows')?.classList.contains('is-open'), null, { timeout: 5_000 });
+      expect(await page.evaluate(() => document.activeElement?.className.includes('page-context-btn'))).toBe(true);
+      // Help & find at this size too, its width inside the viewport
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('#shell-help-dialog[open]', { timeout: 5_000 });
+      const dlg = await page.$eval('#shell-help-dialog', (e) => e.getBoundingClientRect().toJSON() as { left: number; right: number });
+      expect(dlg.left).toBeGreaterThanOrEqual(0);
+      expect(dlg.right).toBeLessThanOrEqual(390);
+      await page.keyboard.press('Escape');
+      // every page at this size: nothing sideways, no small shell text
+      for (const id of ['chat', 'runs', 'connections', 'canvas', 'control', 'files', 'home']) {
+        await go(page, id);
+        s = await shown(page);
+        expect(s.scrollW, `${id}: no horizontal overflow at 390`).toBeLessThanOrEqual(s.innerW);
+        expect(await smallText(page), id).toEqual([]);
+        // the theme words stay on the crumb's row on every page (a long page name ellipsizes; the switch never wraps under it)
+        const rows = await page.evaluate(() => ({ crumb: Math.round(document.getElementById('shell-crumb-page')!.getBoundingClientRect().top), theme: Math.round(document.querySelector('.theme-switch')!.getBoundingClientRect().top), bar: Math.round(document.getElementById('shell-top')!.getBoundingClientRect().height) }));
+        if (id === 'connections') console.info('[H175 390 topbar on Models & accounts]', JSON.stringify(rows));
+        expect(Math.abs(rows.crumb - rows.theme), `${id}: the theme switch beside the crumb: ${JSON.stringify(rows)}`).toBeLessThan(14);
+        expect(rows.bar, `${id}: the topbar two rows at most`).toBeLessThanOrEqual(84);
+      }
+      // D19 on Models & accounts (the capture's "Model: f · Records: · Account:"): two whole facts, the rest folded; the dock never
+      // says "The frame gives this tab no actions."
+      await go(page, 'connections');
+      await page.waitForSelector('#screen-connections .page-primary .ui-primary', { timeout: 15_000 });
+      fold = await bandFold('#screen-connections');
+      console.info('[H175 390 band Models & accounts]', JSON.stringify(fold));
+      expect(fold.shownCells.length).toBe(2);
+      for (const c of fold.shownCells) { expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); expect(c.whole, `${c.k}: "${c.v}" whole`).toBe(true); }
+      expect(fold.folded.map((c) => c.k)).toEqual(expect.arrayContaining(['Records']));
+      for (const c of fold.folded) expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0);
+      expect(await page.evaluate(() => [...document.querySelectorAll('#screen-connections .page-dock li.empty')].filter((e) => e.getClientRects().length).length)).toBe(0);
+      expect(await page.evaluate(() => (document.querySelector('#screen-connections > .page-dock') as HTMLElement | null)?.innerText ?? '')).not.toMatch(/gives this tab no actions/); // (innerText: what is seen — the li stays in companion.js's DOM, not drawn)
+      // the lead's 18:29 ruling: Models & accounts' "Continue to the workspace" (H170 runs TimmyShell.land()) leaves the page for
+      // the workspace at THIS size too — a memory of Models & accounts (the landing remembered itself; the switcher's tab is it)
+      // is never a place to land; the why is 'continue'
+      await go(page, 'connections');
+      await page.evaluate(() => { localStorage.setItem('timmy.shell.screen', 'connections'); (window as unknown as { __whys: string[] }).__whys = []; (window as unknown as { TimmyShell: { on(e: string, f: (d: { id: string; why: string }) => void): void } }).TimmyShell.on('page', (d) => (window as unknown as { __whys: string[] }).__whys.push(`${d.id}:${d.why}`)); });
+      expect(await page.evaluate(() => localStorage.getItem('timmy.shell.screen'))).toBe('connections');
+      const landedOn = await page.evaluate(() => (window as unknown as { TimmyShell: { land(): Promise<string> } }).TimmyShell.land());
+      expect(landedOn).toBe('chat');
+      expect((await shown(page)).page).toBe('chat');
+      expect(await page.evaluate(() => (window as unknown as { __whys: string[] }).__whys)).toEqual(['chat:continue']);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  }, LONG);
+});
