@@ -262,10 +262,30 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
     await page.waitForFunction((r) => (document.getElementById('canvas-summary')?.textContent ?? '').includes(`Revision ${r} `), n, { timeout: 15_000 });
     expect(await text(page, '[data-studio="summary"]')).toContain(`(revision ${n}, `);
   };
-  /** Where tab 4's boxes are on screen (px): the Studio state, the canvas, the tab's actions, the board list. */
+  /**
+   * Where tab 4's parts are on screen (px): the board (the page's work), the tab's actions, and the section's two legacy cards
+   * ("Timmy Studio", "Timmy Canvas · revision and jobs"), which the panel HIDES on the scaffold (R11 round 7, H176; the lead's D20:
+   * their facts are in the records; the elements stay for the page's other readers) — a hidden card reads 0 × 0.
+   */
   const boxes = (page: Page) => page.evaluate(() => {
-    const r = (sel: string) => { const b = document.querySelector(sel)!.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom) }; };
-    return { state: r('#ws-studio section[aria-labelledby="studio-state-title"]'), canvas: r('#ws-studio #tab-canvas'), acts: r('#ws-studio section[aria-labelledby="studio-acts-title"]'), board: r('#ws-studio .sb-box') };
+    const r = (sel: string) => { const b = document.querySelector(sel)!.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom), w: Math.round(b.width), h: Math.round(b.height) }; };
+    return { state: r('#ws-studio section[aria-labelledby="studio-state-title"]'), canvas: r('#ws-studio #tab-canvas'), acts: r('#ws-studio section[aria-labelledby="studio-acts-title"]'), board: r('#ws-studio .sb-board, #ws-studio .sb-box') };
+  });
+  /**
+   * The lead's D20 on the Canvas page's work: "Open Timmy Studio" ONCE (the page primary — no second button under the empty note, no
+   * "Open Studio" of a legacy card, no "Open Timmy Canvas" link), the empty-board note once, the canvas's facts in the records.
+   */
+  const once = (page: Page) => page.evaluate(() => {
+    const shown = (e: Element): boolean => { const b = e.getBoundingClientRect(); const cs = getComputedStyle(e); return b.width > 0 && b.height > 0 && cs.visibility !== 'hidden' && !e.closest('[hidden]'); };
+    const sec = document.getElementById('ws-studio')!;
+    // (the head and the body: the dock's frame step list — "Open Studio · changes files on this computer" — is the frame's own, kept)
+    const controls = [...sec.querySelectorAll('.page-head, .page-body')].flatMap((part) => [...part.querySelectorAll('button, a')]).filter(shown);
+    const openers = controls.filter((e) => /open (timmy )?(studio|canvas)/i.test((e.textContent ?? '').replace(/\s+/g, ' ')));
+    const notes = [...sec.querySelectorAll('.page-body *')].filter((e) => shown(e) && [...e.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && /^Nothing on .*'s board yet\./.test((n.textContent ?? '').trim())));
+    const records = sec.querySelector('.page-records')!;
+    const facts = records.querySelector('[data-studio="canvas-facts"]')?.textContent ?? '';
+    return { openers: openers.map((e) => `${e.tagName.toLowerCase()} ${(e.textContent ?? '').replace(/\s+/g, ' ').trim()}`), notes: notes.length, facts, recordLinks: [...records.querySelectorAll('a')].map((a) => a.textContent ?? ''),
+      legacyShown: ['section[aria-labelledby="studio-state-title"]', '#tab-canvas'].filter((sel) => { const e = sec.querySelector(sel); return !!e && shown(e); }), legacyText: sec.querySelector('#canvas-summary')?.textContent ?? '' };
   });
   /** The thumbnails drawn: each image's path, its decoded width, and that it is a data: image. */
   const thumbs = (page: Page) => page.$$eval('[data-panel-host="studio"] .sb-thumb img', (imgs) => imgs.map((i) => ({ path: i.getAttribute('data-path'), w: (i as HTMLImageElement).complete ? (i as HTMLImageElement).naturalWidth : 0, data: (i as HTMLImageElement).src.startsWith('data:image/png;base64,') })));
@@ -438,7 +458,8 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       await headerShows(page, 'tray');
       await page.keyboard.press('4');
       await page.waitForFunction((n) => document.querySelectorAll('[data-panel-host="studio"] .sb-item').length === n, t.items.length, { timeout: 15_000 });
-      expect(await text(page, '[data-studio="title"]')).toBe("On tray's board");
+      // (the lead's D20: on the scaffold the board is the page's work — no card titles it; its one fact line stands above the map)
+      expect(await page.$$eval('[data-panel-host="studio"] [data-studio="title"], [data-panel-host="studio"] .sb-box', (ls) => ls.length)).toBe(0);
       const time = /^tray's own board, as Studio last saved it \(revision (\d+), \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\): 3 artifacts · 2 reference images · 1 with words \(notes, texts, frames\) · 1 of another project, kept apart\. 1 draft of Timmy's waiting for Accept or Discard in Studio\.$/.exec(await text(page, '[data-studio="summary"]'));
       expect(time?.[1]).toBe(String(t.board.revision));
       // each row is the route's item, in the route's order (reading order)
@@ -513,13 +534,21 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       expect(await page.$$eval('[data-panel-host="studio"] a[data-studio-open]', (ls) => ls.length)).toBe(0);
       expect(await page.$eval('#ws-studio .page-head .page-primary button', (b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim())).toMatch(/^Open Timmy Studio/);
       expect(await page.$eval('#ws-studio .page-records', (e) => e.textContent ?? '')).toContain(`${base}/`);
-      // the layout: the board list takes the right column, as tall as the left one (the Studio state, the canvas, the actions)
+      // the layout (the lead's D20): the board is the page's work — the two legacy cards are hidden (0 × 0), the board and the tab's
+      // actions are the section's visible parts
       const at = await boxes(page);
-      expect(at.board.left).toBeGreaterThan(at.state.right);
-      expect([at.canvas.left, at.acts.left]).toEqual([at.state.left, at.state.left]);
-      expect(at.state.bottom).toBeLessThanOrEqual(at.canvas.top);
-      expect(at.canvas.bottom).toBeLessThanOrEqual(at.acts.top);
-      expect(at.board.bottom - at.board.top).toBeGreaterThan(0.9 * (at.acts.bottom - at.state.top));
+      expect([at.state.w, at.state.h, at.canvas.w, at.canvas.h]).toEqual([0, 0, 0, 0]);
+      expect(at.board.h).toBeGreaterThan(100);
+      expect(at.acts.h).toBeGreaterThan(0);
+      // ONE "Open Timmy Studio" in the work (the page primary); nothing opens the Studio or the Canvas from a card or a link; the canvas's
+      // facts (whose board, its revision, its jobs) in the records without a link; the legacy card's text still fed for the page's readers
+      const one = await once(page);
+      expect(one.openers).toEqual([expect.stringMatching(/^button Open Timmy Studio/)]);
+      expect(one.legacyShown).toEqual([]);
+      expect(one.facts).toMatch(new RegExp(`^The board of tray \\(each project has its own\\) · Revision ${t.board.revision} · (source [0-9a-f]{12}|not saved yet)( · saved .*)? · (No canvas jobs yet|\\d+ canvas jobs?)\\.$`));
+      // (a job's receipt page is the one link the records may hold; never an opener)
+      expect(one.recordLinks.filter((l) => !/^receipt /.test(l))).toEqual([]);
+      expect(one.legacyText).toMatch(/Revision \d+/);
       const palette1 = await palette(page);
       expect(palette1).toEqual({ hue: [], green: [], contrast: [] });
       // the canvas's own box above names the same revision of tray's board (each refreshes on its own clock)
@@ -573,14 +602,19 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       workbench(blank);
       await named(blank);
       await headerShows(page, 'blank');
-      await page.waitForFunction(() => document.querySelector('[data-studio="title"]')?.textContent === "On blank's board", null, { timeout: 15_000 });
-      await page.waitForFunction(() => /^Nothing on blank's board yet\./.test(document.querySelector('[data-studio="summary"]')?.textContent ?? ''), null, { timeout: 15_000 });
+      // (the lead's D20: on the scaffold the empty board is the shell's state note, said ONCE; the panel's own line hides, no card titles it)
+      await page.waitForFunction(() => /^Nothing on blank's board yet\./.test(document.querySelector('#ws-studio .page-state .page-state-words')?.textContent ?? ''), null, { timeout: 15_000 });
       // tray's answer, let through now, is dropped: nothing of tray's is drawn under blank's name
       const late = page.waitForResponse((r) => r.url() === heldUrl);
       release();
       await late;
       await page.waitForTimeout(400);
-      expect(await text(page, '[data-studio="title"]')).toBe("On blank's board");
+      expect(await text(page, '#ws-studio .page-state .page-state-words')).toMatch(/^Nothing on blank's board yet\./);
+      expect(await page.$eval('[data-studio="summary"]', (e) => (e as HTMLElement).hidden)).toBe(true);
+      const empty = await once(page);
+      expect(empty.notes).toBe(1);
+      expect(empty.openers).toEqual([expect.stringMatching(/^button Open Timmy Studio/)]);
+      expect(empty.facts).toMatch(/^The board of blank \(each project has its own\) · Revision 0 · not saved yet · No canvas jobs yet\.$/);
       expect(await page.locator('[data-panel-host="studio"] .sb-item').count()).toBe(0);
       expect(await text(page, '[data-panel-host="studio"]')).not.toMatch(new RegExp(`${trayVox}|${trayOp}|photo\\.png|tray's`));
 
@@ -612,10 +646,14 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       await page.waitForTimeout(200);
       const m = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: window.innerWidth }));
       expect(Math.max(m.page, m.body)).toBeLessThanOrEqual(m.inner);
-      // one column, in the page's order: the Studio state, the canvas, the board list, the tab's actions
+      // one column, in the page's order: the board, then the tab's actions (the legacy cards hidden, D20); ONE Open Timmy Studio here too
       const narrow = await boxes(page);
-      expect([narrow.canvas.left, narrow.board.left, narrow.acts.left].every((x) => Math.abs(x - narrow.state.left) <= 1)).toBe(true);
-      expect(narrow.state.top < narrow.canvas.top && narrow.canvas.top < narrow.board.top && narrow.board.top < narrow.acts.top).toBe(true);
+      expect([narrow.state.w, narrow.canvas.w]).toEqual([0, 0]);
+      expect(Math.abs(narrow.acts.left - narrow.board.left)).toBeLessThanOrEqual(1);
+      expect(narrow.board.top).toBeLessThan(narrow.acts.top);
+      const phone = await once(page);
+      expect(phone.openers).toEqual([expect.stringMatching(/^button Open Timmy Studio/)]);
+      expect(phone.legacyShown).toEqual([]);
       expect(c.bad).toEqual([]);
       expect(c.errors).toEqual([]);
     } finally {
