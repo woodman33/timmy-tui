@@ -302,7 +302,7 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
    * hue — a test pins roles, never colour literals; what stays exact is focus #FFB000 and verified #28FE14 (and GREEN only on an
    * observed live / passed / sealed element). Each role is a list of computed rgb() strings (a token missing from the sheet is left out).
    */
-  const roles = (page: Page): Promise<{ ground: string[]; border: string[]; text: string[]; secondary: string[]; primaryFill: string[]; primaryInk: string[]; never: string[] }> => page.evaluate(() => {
+  const roles = (page: Page): Promise<{ ground: string[]; border: string[]; text: string[]; secondary: string[]; primaryFill: string[]; primaryImage: string[]; raisedFill: string[]; primaryInk: string[]; never: string[] }> => page.evaluate(() => {
     const probe = document.createElement('span');
     document.body.append(probe);
     const rgb = (name: string): string | null => {
@@ -313,13 +313,26 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       return probe.style.color ? getComputedStyle(probe).color : null;
     };
     const list = (names: string[]): string[] => [...new Set(names.map(rgb).filter((c): c is string => Boolean(c)))];
+    // an elevation token (a gradient), as the browser serialises it on an element: compared with a control's background-image
+    const image = (name: string): string | null => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      if (!v) return null;
+      probe.style.backgroundImage = '';
+      probe.style.backgroundImage = v;
+      const out = getComputedStyle(probe).backgroundImage;
+      return out && out !== 'none' ? out : null;
+    };
+    const images = (names: string[]): string[] => [...new Set(names.map(image).filter((c): c is string => Boolean(c)))];
     const out = {
       ground: ['rgba(0, 0, 0, 0)', ...list(['--timmy-ui-canvas', '--timmy-ui-surface', '--timmy-ui-raised', '--timmy-ground', '--timmy-surface'])],
       border: list(['--timmy-ui-border', '--timmy-ui-border-quiet', '--timmy-line-strong', '--timmy-line']),
       text: list(['--timmy-ui-text', '--timmy-text']),
       secondary: list(['--timmy-ui-text-secondary', '--timmy-ui-text-muted', '--timmy-text-secondary']),
-      // the primary next step's fill: B10's amber (the strip's own rule) or B11's family accent / focus
+      // the primary next step's fill: B10's amber (the strip's own rule) or B11's family accent / focus — as a colour, and as the
+      // scaffold's primary elevation (a gradient: the head's .ui-primary, D8); the raised look is the dock's step (D24)
       primaryFill: list(['--timmy-accent', '--timmy-ui-accent', '--timmy-ui-focus']),
+      primaryImage: images(['--timmy-ui-elev-primary']),
+      raisedFill: [...list(['--timmy-ui-raised', '--timmy-raised']), ...images(['--timmy-ui-elev-raised'])],
       primaryInk: list(['--timmy-accent-ink', '--timmy-ui-accent-ink']),
       // never on structure or text: the exact focus amber and the two greens (B10/B11: a state's colours, with their words)
       never: ['rgb(255, 176, 0)', 'rgb(40, 254, 20)', 'rgb(0, 215, 0)'],
@@ -427,7 +440,7 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     } finally { await context.close(); }
   });
 
-  it('the Workflow actions strip (in the page\'s dock now) is the frame\'s actions of the tab shown: at most one primary, filled with the accent and its ink; the rest unfilled with a border in a structure role and words in a text role; one not available now is aria-disabled and says why', async () => {
+  it('the Workflow actions strip (in the page\'s dock now) is the frame\'s actions of the tab shown: at most one primary — the next step, in the raised secondary look (D24; the one accent fill is the head\'s primary, D8); the rest unfilled with a border in a structure role and words in a text role; one not available now is aria-disabled and says why', async () => {
     const f = await frameNow();
     const { page, context } = await open();
     try {
@@ -441,21 +454,32 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
           return {
             label: b.querySelector('.act-label')?.textContent ?? '', command: (b as HTMLElement).dataset.act ?? '', primary: b.classList.contains('is-primary'),
             disabled: b.getAttribute('aria-disabled') === 'true', why: why ? document.getElementById(why)?.textContent ?? null : null,
-            look: [cs.backgroundColor, cs.color, cs.borderTopColor], inDock: Boolean(b.closest('.page-dock')),
+            look: [cs.backgroundColor, cs.color, cs.borderTopColor], image: cs.backgroundImage, inDock: Boolean(b.closest('.page-dock')),
           };
         }));
+        // D24 (the lead's 6c258ca0; D8): the ONE accent-filled control between the page's head and its dock is the head's primary
+        // (.page-primary .ui-primary, the primary elevation with the accent's ink); the dock's primary STEP is not filled
+        const filled = await page.$$eval('#ws-main .page:not([hidden]) .page-head button, #ws-main .page:not([hidden]) .page-band button, #ws-main .page:not([hidden]) .page-dock button', (els, accent) => els
+          .filter((e) => { const r = e.getBoundingClientRect(); if (!r.width || !r.height) return false; const cs = getComputedStyle(e); return accent.includes(cs.backgroundImage) || accent.includes(cs.backgroundColor); })
+          .map((e) => ({ where: e.closest('.page-primary') ? 'head' : e.closest('.page-dock') ? 'dock' : 'band', cls: e.className, ink: getComputedStyle(e).color })), [...role.primaryFill, ...role.primaryImage]);
         const want = f.actions[t.id];
         expect(drawn.map((d) => [d.label, d.command, d.primary, d.disabled]), t.id).toEqual(want.map((a) => [a.label, a.command, a.primary, !a.enabled]));
         expect(drawn.filter((d) => d.primary).length, t.id).toBeLessThanOrEqual(1);
         for (const [i, d] of drawn.entries()) {
           if (d.primary) primaries += 1;
           // SHELL CONTRACT v1: the strip lives in the shown page's dock; its colours are roles (the lead's 15:29 ruling), not literals:
-          // the primary is filled (the accent) with its ink; the rest carry no fill, a structure border and text-role words
+          // the primary step wears the raised look (D24: the head's primary is the page's one accent fill); the rest carry no fill, a
+          // structure border and text-role words
           expect(d.inDock, `${t.id}: ${d.label} in the page's dock`).toBe(true);
           const [fill, ink, line] = d.look;
           if (d.primary) {
-            expect(role.primaryFill, `${t.id}: ${d.label} (primary) is filled with the accent: ${fill}`).toContain(fill);
-            expect(role.primaryInk, `${t.id}: ${d.label} (primary) words in the accent's ink: ${ink}`).toContain(ink);
+            // R11 round 7, D24 (the lead's 6c258ca0, re-aimed by H169 on the freeze's read of a2ae1f45): the step that is next keeps its
+            // meaning (.is-primary, its number, words and place) in the RAISED secondary look, not the accent fill; its words in a text role
+            expect(role.raisedFill, `${t.id}: ${d.label} (the dock's primary step) in the raised look: ${d.image} / ${fill}`).toContain(d.image === 'none' ? fill : d.image);
+            expect([...role.text, ...role.secondary], `${t.id}: ${d.label} (the dock's primary step) words in a text role: ${ink}`).toContain(ink);
+            expect(filled.map((x) => x.where), `${t.id}: the one accent-filled control between the head and the dock is the head's primary`).toEqual(['head']);
+            expect(filled[0].cls).toMatch(/\bui-primary\b/);
+            expect(role.primaryInk, `${t.id}: the head's primary words in the accent's ink: ${filled[0].ink}`).toContain(filled[0].ink);
           } else {
             expect(role.ground, `${t.id}: ${d.label} has no fill: ${fill}`).toContain(fill);
             expect(role.border, `${t.id}: ${d.label} border in a structure role: ${line}`).toContain(line);
