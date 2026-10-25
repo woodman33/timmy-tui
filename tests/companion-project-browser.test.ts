@@ -297,6 +297,9 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     // where it is drawn and visible, never the row's [data-tab] button
     const own = page.locator(`.view-switch [data-tab="${name}"]`);
     const other = page.locator(`[data-tab="${name}"]:not(.ws-tab)`).filter({ visible: true });
+    // (R11 round 7, H171 d5a6f005: the Chat's older views are the Chat page's records, a details closed by default — opened as a
+    // person opens it before its switch is used)
+    if (await own.count()) await page.evaluate((sel) => { const sw = document.querySelector(sel); for (let d = sw?.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true; }, `.view-switch [data-tab="${name}"]`);
     if (await own.count()) await own.first().click();
     else if (await other.count()) await other.first().click();
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
