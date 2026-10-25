@@ -31,16 +31,18 @@
 #screen-connections .cn-card-title { margin: 0; font-size: 17px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
 #screen-connections .cn-card-sub { margin: 1px 0 0; font-size: 12px; }
 /* the native face: the host's width is the face's (the mount's size 'wide'), 152 px → 99 px tall at the artboard's 400:260; a host left
-   empty — no module, no mount API — takes no column (the words take the width). The mount's own status word is not drawn here: the
-   card's one state word is beside it (D15) — kept for assistive technology alone (the operator's 19:18 item 4: the live region on the
-   state change stays with the face), out of the layout; the mount's note (its honest absence words) stays. */
+   empty — no module, no mount API — takes no column (the words take the width). The mount's own status word (H174's .tr-status, the
+   live region) is the module's to place since item 4 (the lead's D18): mounted with `words: 'spoken'`, the module takes it off the
+   screen ONLY while the face is drawn and its headline legible, and shows it beside the face otherwise — so no rule of this sheet
+   touches it (an unconditional hide would hide the word in exactly the case D18 requires it visible). */
 #screen-connections .cn-rive { grid-area: face; width: var(--cn-face); max-width: 100%; min-width: 0; justify-self: end; }
-#screen-connections .cn-rive .tr-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 #screen-connections .cn-card:has(> .cn-rive:empty) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "state" "verb"; }
 #screen-connections .cn-rive:empty { display: none; }
-/* the face carries the provider's name and subtitle as its runs once drawn, and its headline IS the state word (H174's f165d8c7,
-   the operator's 19:18 item 4): the HTML subtitle and the status line's word then step back — the line is the sentence */
-#screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-card-sub, #screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-status > .cn-state-word, #screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-status > .cn-status-sep { display: none; }
+/* ONE word per card (the operator's 19:18 item 4): once the module has mounted a face, the state word is the module's — drawn as the
+   face's headline, or shown as its HTML status beside the face when the headline cannot be read (D18) or the file is not drawn — so
+   the status line's own word and its separator step back and the line is the sentence. (The face no longer draws the provider's name
+   or detail: the HTML subtitle stays.) Without a mounted status (no module, no mount API, a stand-in without one) the line keeps its word. */
+#screen-connections .cn-card:has(.cn-rive .tr-status) .cn-status > .cn-state-word, #screen-connections .cn-card:has(.cn-rive .tr-status) .cn-status > .cn-status-sep { display: none; }
 /* the ONE status line: the observed word (green only for "checked", the shell's .sh-state.is-live) and one plain sentence */
 #screen-connections .cn-status { grid-area: state; margin: 6px 0 0; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--timmy-text-secondary); }
 #screen-connections .cn-status .cn-state-word { font-weight: var(--timmy-weight-strong); }

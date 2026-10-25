@@ -125,7 +125,10 @@
         if (tr && typeof tr.mountProviderCard === 'function') {
           // RIVE CONTRACT v2 (H174, 14:42): providerName / detail fill the card's ProviderName and ProviderDetail runs (optional; v1 ignores them)
           // (D15: the face's detail run is the provider's subtitle — a fact; the one state word is the card's, and H174's label follows it)
-          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title, providerName: c.title, detail: c.subtitle || '' }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
+          // Item 4 (H174's 22:05, the lead's D18): a production face draws the state word alone, its aria-label "<word> · <providerName>";
+          // `words: 'spoken'` lets the module take its own HTML status off the screen (never display:none, the live region stays) ONLY
+          // while the face is drawn and the word legible — otherwise the module shows that word beside the face, so a state is never unsaid
+          try { r.handle = tr.mountProviderCard(r.host, c.id, { size: 'wide', label: c.title, providerName: c.title, detail: c.subtitle || '', words: 'spoken' }) || null; } catch { r.handle = null; /* the words beside it say the state */ }
         }
       } else if (r.handle && typeof r.handle.setProvider === 'function' && r.detail !== (c.subtitle || '')) {
         try { r.handle.setProvider({ name: c.title, detail: c.subtitle || '' }); } catch { /* the HTML words say it */ }
