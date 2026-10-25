@@ -157,10 +157,23 @@
   }
   /** The rail's number for this page (the shell's), before the kicker's verb phrase. */
   const kickerOf = (sh) => { const p = sh && sh.PAGES && sh.PAGES.find ? sh.PAGES.find((x) => x.id === 'tools') : null; return `${p && p.n ? `${p.n} / ` : ''}${PAGE_WORDS.kicker}`; };
-  /** The ONE primary next action: the inspector's next step (a real tools/list on the picked server, then the call). */
+  /** The picked server in words (the FAKE fixture named FAKE; a configured server by its name; a typed line as what it is). */
+  const serverLabel = () => (P.server.kind === 'fixture' ? 'the FAKE fixture' : P.server.kind === 'configured' ? P.server.name : 'this command line');
+  /**
+   * A row's next step in plain words for the body copy (H168's R108): the terminal's step words (inventoryNext) with no env name,
+   * command or address — those stand in the row's Details; with no step words the body says where the step is.
+   */
+  const plainStep = (card, raw) => {
+    const s = card && card.step && card.step.next ? `${String(card.step.next).replace(/\s*\([A-Z][A-Z0-9_]*\)/g, '')}${card.step.where ? `: ${card.step.where}` : ''}` : '';
+    return s || (raw ? 'the step is in its details' : '');
+  };
+  /**
+   * The ONE primary next action: the inspector's next step — a real tools/list on the picked server (named: the page already shows
+   * the inventory, so "List the tools" would name what is in view — H168's R108), then the pick, then the call.
+   */
   function primaryOf() {
     const listed = Boolean(P.listing && P.listing.ok && P.listing.key === serverKey(P.server));
-    if (!listed) return { label: 'List the tools', run: () => { const b = P.el.listCtl && P.el.listCtl.querySelector('[data-tools-action="list"]'); if (b && !b.disabled) b.click(); }, why: '' };
+    if (!listed) return { label: P.server.kind === 'stdio' ? 'Check the typed line for Timmy’s terminal' : `List ${serverLabel()}’s tools`, run: () => { const b = P.el.listCtl && P.el.listCtl.querySelector('[data-tools-action="list"]'); if (b && !b.disabled) b.click(); }, why: '' };
     if (!P.tool) return { label: 'Pick a tool', run: () => { const b = P.el.tools && P.el.tools.querySelector('button'); if (b) b.focus(); }, why: '' };
     return { label: `Call ${P.tool.name}`, run: () => { const b = P.el.callCtl && P.el.callCtl.querySelector('[data-tools-action]'); if (b && !b.disabled) b.click(); }, why: '' };
   }
@@ -196,6 +209,7 @@
     if (!inv) { put(el, h('p', { class: 'empty' }, P.inventoryBusy ? 'Reading this computer: files, settings and this project’s receipts (no model runs)…' : P.inventoryError ? `The inventory could not be read: ${P.inventoryError}` : 'Not read yet.')); return; }
     const byId = new Map(inv.inventory.rows.map((r) => [r.id, r]));
     const standing = new Map(inv.cards.map((c) => [c.id, c.standing]));
+    const cardOf = new Map(inv.cards.map((c) => [c.id, c]));
     const routes = (P.state && P.state.routes) || [];
     const goTo = (w) => h('button', { type: 'button', class: 'tools-where-page', 'data-tools-go': w.page, 'data-dest': w.legacy, title: w.how }, `${w.name} →`);
     const groups = inv.inventory.groups.map((g) => {
@@ -208,7 +222,8 @@
         h('ul', { class: 'tools-where-rows' }, ...rows.map((r) => { const s = standing.get(r.id) || 'none'; return h('li', { class: 'tools-where-row', 'data-tools-where-row': r.id, 'data-state': s },
           h('span', { class: 'tools-where-name' }, r.name), ' ',
           s === 'none' ? h('span', { class: 'tools-dim' }, 'none of the three') : h('span', { class: `tl-chip is-${s}${s === 'exercised' ? ' is-verified' : ''}`, 'data-tl-word': s }, `● ${s}`),
-          r.next ? h('span', { class: 'tools-where-next' }, ` · next: ${r.next}`) : null); })),
+          // (R108: the step in plain words; the raw sentence — a command, an env name, an address — is the directory card's Details)
+          r.next ? h('span', { class: 'tools-where-next' }, ` · next: ${plainStep(cardOf.get(r.id), r.next)}`) : null); })),
         g === 'Integrations' && routes.length ? h('p', { class: 'tools-where-routes', 'data-tools-routes': '' }, 'MCP ↔ CLI routes: ', ...routes.map((r, i) => h('span', { 'data-tools-where-route': r.id }, `${i ? ' · ' : ''}${r.id === 'sdk' ? 'the SDK route' : 'the mcporter route'} — ${r.rung}${r.version ? ` ${r.version}` : ''}`))) : null);
     });
     put(el, ...groups);
@@ -249,17 +264,19 @@
     const fact = (k, f) => h('li', { class: 'tl-fact', 'data-tl-fact': k, 'data-tl-ok': f.ok ? '1' : '0' },
       h('span', { class: `tl-mark ${f.ok ? (k === 'exercised' ? 'is-ok is-verified' : 'is-ok') : 'is-no'}`, 'aria-hidden': 'true' }, f.ok ? '✓' : '–'), h('span', { class: 'tl-fact-w' }, f.words));
     const facts = h('ul', { class: 'tl-facts' }, fact('available', r.available), fact('configured', r.configured), fact('exercised', r.exercised));
-    // the next step in the terminal's words (H167's inventoryNext, sent as r.step: the step and where it is set, no command,
-    // no address: the same words the terminal's row shows); the inventory's sentence whole beneath it as the detail
-    const step = r.step && r.step.next ? `${r.step.next}${r.step.where ? `: ${r.step.where}` : ''}` : r.next;
+    // the next step in the terminal's words (H167's inventoryNext, sent as r.step: the step and where it is set) in PLAIN words — no
+    // command, env name or address in the body copy (H168's R108); the inventory's sentence whole behind Details (the exact step)
+    const step = plainStep(r, r.next);
     const next = r.next
       ? h('p', { class: 'tl-next', 'data-tl-next': r.nextIsCredential ? 'terminal' : 'step' }, h('span', { class: 'tl-next-k' }, 'Next'), ` ${step}`,
-        step !== r.next ? h('span', { class: 'tl-next-detail' }, ` ${r.next}`) : null,
         r.nextIsCredential ? h('span', { class: 'tl-next-where' }, ' Set in Models & accounts, the environment or the .env file: nothing is set from this card.') : null)
       : h('p', { class: 'tl-next is-none', 'data-tl-next': 'none' }, h('span', { class: 'tl-next-k' }, 'Next'), ' nothing: it is exercised here.');
+    const exact = r.next && step !== r.next
+      ? h('details', { class: 'tl-next-details', 'data-tl-next-details': r.id }, h('summary', { class: 'tl-next-summary' }, 'Details · the exact step'), h('p', { class: 'tl-next-detail' }, r.next))
+      : null;
     // data-inventory-row and data-state: what H172's capability-words check reads (one element per row, its standing word)
     return h('article', { class: 'tl-card', 'data-inventory-row': r.id, 'data-state': r.standing },
-      h('div', { class: 'tl-card-head' }, h('h4', { class: 'tl-name' }, r.name), chip), facts, next);
+      h('div', { class: 'tl-card-head' }, h('h4', { class: 'tl-name' }, r.name), chip), facts, next, exact);
   }
 
   function renderInventory() {
@@ -477,7 +494,7 @@
     // after a typed line's NEEDS YOU, its copy is the one primary (renderTools draws it)
     const primary = next === 2 && !refusedListing();
     const typed = P.server.kind === 'stdio';
-    const label = P.server.kind === 'fixture' ? 'the FAKE fixture' : P.server.kind === 'configured' ? P.server.name : 'this command line';
+    const label = serverLabel();
     const btn = h('button', { type: 'button', class: `tools-go${primary ? ' is-primary' : ''}`, 'data-tools-action': 'list', disabled: P.listBusy || !serverPool().length },
       typed ? (P.listBusy ? 'Checking the command line…' : 'Check the line for Timmy\'s terminal') : P.listBusy ? `Listing ${label}'s tools…` : `List ${label}'s tools via ${routeName(P.listRoute)}`);
     btn.addEventListener('click', () => list());

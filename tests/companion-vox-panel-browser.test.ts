@@ -238,7 +238,13 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(await text(page, '#ws-voxvision .page-head .page-kicker')).toMatch(/^\d+ \/ OBSERVE & COMPARE$/);
       expect(await text(page, '#ws-voxvision .page-head .page-title')).toBe('See the detail. Keep the evidence.');
       expect(await text(page, '#ws-voxvision .page-head .page-intro')).toBe('Choose a source, ask a precise question, and inspect what the tools observed.');
-      expect(await text(page, '#ws-voxvision .page-head .page-primary')).toMatch(/: copy \/(?:vox|detect|measure|inspect)/);
+      // (H168's R107, the lead's D22: the primary is a verb phrase without syntax; the command itself stands in the record's Commands box)
+      const primaryLabel = await text(page, '#ws-voxvision .page-head .page-primary');
+      expect(primaryLabel).toMatch(/^Copy the command to (?:open in Rerun|measure it|observe it|do it again|open the record)/);
+      expect(primaryLabel).not.toMatch(/[/<>]/);
+      expect(await page.$$eval('[data-vox="actions"] .vox-act-cmd', (els) => els.map((e) => e.textContent ?? ''))).toEqual(expect.arrayContaining([expect.stringMatching(/^\/(?:vox view|measure|observe|open|detect)/)]));
+      // (R102's pin on this page: no text node reading "null" or "undefined")
+      expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-voxvision') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
       // the rule said on the page: the commands box's own line, and every dock button's title
       expect(await text(page, '[data-vox="acts-how"]')).toContain('nothing runs from this page');
       const dockTitles = await page.$$eval('#ws-voxvision .page-dock .dock-tools [data-vox-dock]', (els) => els.map((e) => e.getAttribute('title') ?? ''));
@@ -293,6 +299,8 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(new Set(cols.map((c) => c.left)).size).toBe(1);
       for (let i = 1; i < cols.length; i += 1) expect(cols[i].top).toBeGreaterThan(cols[i - 1].top);
       for (const c of cols) expect(c.right).toBeLessThanOrEqual(390);
+      // (R102's pin at 390 on this page: no text node reading "null" or "undefined")
+      expect(await page.evaluate(() => { const out: string[] = []; const w = document.createTreeWalker(document.getElementById('ws-voxvision') ?? document.body, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) { const t = (n.textContent ?? '').trim(); if (t === 'null' || t === 'undefined') out.push(`${n.parentElement?.className ?? ''}: ${t}`); } return out; })).toEqual([]);
       expect(errors).toEqual([]);
     } finally { await page.close(); }
   });

@@ -27,7 +27,8 @@ if (!browserPath) console.warn('companion-tools-panel-browser: no Chromium or Ch
 
 const CAPS = process.env.TIMMY_R6_CAPS;
 const LONG = 180_000;
-const AMBER = 'rgb(255, 176, 0)';
+// (the ONE primary's fill is the family accent — B11, H175's D12: --timmy-accent is an alias of --timmy-ui-accent (Amber #D6AA64) — read
+// from the page itself in amberFills(); B10's exact #FFB000 is the focus token now, not a fill)
 const GREENS = ['rgb(40, 254, 20)', 'rgb(0, 215, 0)'];
 
 describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers, tools, schema, request, calls through both routes, receipts (R6 H142)', () => {
@@ -83,7 +84,12 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     .filter((el) => { const s = getComputedStyle(el); return (greens as string[]).some((g) => s.color === g || s.backgroundColor === g || s.borderTopColor === g); })
     .filter((el) => !el.closest('.is-live, .is-verified'))
     .map((el) => `${el.tagName.toLowerCase()}.${el.className}`), GREENS);
-  const amberFills = (): Promise<string[]> => page.$$eval('#ws-tools *', (els, amber) => els.filter((el) => getComputedStyle(el).backgroundColor === amber).map((el) => (el.textContent ?? '').trim()), AMBER);
+  /** The controls filled with the page's own accent (the family accent, resolved on the page through a probe): the ONE primary, and nothing else. */
+  const amberFills = (): Promise<string[]> => page.$$eval('#ws-tools *', (els) => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--timmy-ui-accent, var(--timmy-accent))'; document.body.append(probe);
+    const amber = getComputedStyle(probe).color; probe.remove();
+    return els.filter((el) => getComputedStyle(el).backgroundColor === amber).map((el) => (el.textContent ?? '').trim());
+  });
 
   it('opens on tab 9 with the ingest modes as Timmy has them, both routes\' rungs, and the FAKE fixture as a stdio server not contacted yet', async () => {
     await page.keyboard.press('9');

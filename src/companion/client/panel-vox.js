@@ -34,7 +34,9 @@
     kicker: 'OBSERVE & COMPARE',
     title: 'See the detail. Keep the evidence.',
     intro: 'Choose a source, ask a precise question, and inspect what the tools observed.',
-    emptyNext: 'Copy /detect <image> for Timmy’s terminal',
+    // (H168's R107: the primary is a verb phrase without syntax; the command itself stands in the Records box and the record's
+    // Commands box, each a copy button)
+    emptyNext: 'Copy the detect command',
     nothingRuns: 'A press copies the command for Timmy’s terminal; nothing runs from this page.',
   });
   /** The evidence rows' names (the order's six quantities, kept apart), then the receipt and the admission rule. */
@@ -101,11 +103,15 @@
   }
   /** The rail's number for this page (the shell's), before the kicker's verb phrase. */
   const kickerOf = (sh) => { const p = sh && sh.PAGES && sh.PAGES.find ? sh.PAGES.find((x) => x.id === 'voxvision') : null; return `${p && p.n ? `${p.n} / ` : ''}${PAGE_WORDS.kicker}`; };
-  /** The ONE primary next action: the record's own next command, copied for the terminal; with no record, the command that makes one. */
+  /**
+   * The ONE primary next action: the record's own next command, copied for the terminal; with no record, the command that makes
+   * one. The label is a verb phrase without syntax (H168's R107): "Copy the command to measure it" — the command itself is drawn in
+   * the record's Commands box beside its label, and in the Records box's empty note.
+   */
   function primaryOf() {
     const p = S.preview;
     const a = p ? p.actions.find((x) => x.primary) : null;
-    if (a) return { label: `${a.label}: copy ${a.command}`, run: () => copyText(a.enabled ? a.command : ''), disabled: !a.enabled, why: a.enabled ? '' : (a.why || 'not available now') };
+    if (a) return { label: `Copy the command to ${String(a.label).charAt(0).toLowerCase()}${String(a.label).slice(1)}`, run: () => copyText(a.enabled ? a.command : ''), disabled: !a.enabled, why: a.enabled ? '' : (a.why || 'not available now') };
     return { label: PAGE_WORDS.emptyNext, run: () => copyText('/detect <image>'), disabled: false, why: '' };
   }
   function copyText(text) {
