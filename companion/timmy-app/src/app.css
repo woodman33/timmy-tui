@@ -420,6 +420,8 @@ li.ta-turn.ta-tool { align-self: flex-start; opacity: .85; }
   .ta-turns { padding: 14px 12px; }
   .ta-turn { max-width: 94%; }
   .ta-composer { position: sticky; bottom: var(--ta-kb); margin: 0 8px 8px; }
+  .ta-route { display: none; }
+  .ta-composer-row { justify-content: flex-end; }
   .ta-input { font-size: 16px; } /* 16 px: the phone does not zoom the page when the composer takes focus */
   .ta-toolsrow { overflow-x: auto; flex-wrap: nowrap; }
   .ta-tool-why { display: none; }
