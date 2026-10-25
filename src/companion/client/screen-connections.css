@@ -15,14 +15,15 @@
 #screen-connections .cn-title:focus-visible { outline: none; }
 
 /* the work (the shell's .page-work holds this host; its .page-context the context).
-   R11 round 7 (the lead's D15 on H168's R85/R86): a card is a compact cell — a grid whose face column (the native ProviderCard, ≤ 160 px
-   tall) sits BESIDE the head and the state word, never over the words; the body, the verb and the other controls span the card below,
-   so every card's buttons are above the fold at 1440×900 (two columns beside the shell's 320 px context); ONE state word per card
-   (the glyph beside it says the kind), no frame by colour alone. */
+   R11 round 7 (the lead's D15 on H168's R85/R86; the operator's 19:18 order, item 5): a card is a compact cell — a grid whose face
+   column (the native ProviderCard, ≤ 160 px tall) sits BESIDE the title and the ONE status line (the observed word + one plain
+   sentence), never over the words; the ONE verb spans the card below, so every card's button is above the fold at 1440×900 (two
+   columns beside the shell's 320 px context); no frame by colour alone. The other controls, the forms, the facts and the mechanics
+   are the context column's, for the selected card. */
 #screen-connections .cn-work { min-width: 0; }
 #screen-connections .cn-work-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 8px; font-size: 12px; }
 #screen-connections .cn-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-#screen-connections .cn-card { --cn-face: 152px; display: grid; grid-template-columns: minmax(0, 1fr) var(--cn-face); grid-template-areas: "head face" "state face" "verb verb" "acts acts" "pull pull" "foot foot"; column-gap: 14px; row-gap: 0; align-items: start; padding: 14px 16px 12px; border-radius: 12px; }
+#screen-connections .cn-card { --cn-face: 152px; display: grid; grid-template-columns: minmax(0, 1fr) var(--cn-face); grid-template-areas: "head face" "state face" "verb verb"; column-gap: 14px; row-gap: 0; align-items: start; padding: 14px 16px 12px; border-radius: 12px; }
 /* (no row gap: an empty region takes no room; each region carries its own margin) */
 #screen-connections .cn-card.is-chosen { box-shadow: inset 0 0 0 1px var(--timmy-ui-accent, var(--timmy-accent)); } /* (D12: the selection's ring is the accent; accent-soft is an 18 % tint now) */
 #screen-connections .cn-card:focus-within { border-color: var(--timmy-ui-focus, var(--timmy-accent)); }
@@ -31,17 +32,20 @@
 #screen-connections .cn-card-sub { margin: 1px 0 0; font-size: 12px; }
 /* the native face: the host's width is the face's (the mount's size 'wide'), 152 px → 99 px tall at the artboard's 400:260; a host left
    empty — no module, no mount API — takes no column (the words take the width). The mount's own status word is not drawn here: the
-   card's one state word is beside it (D15); the mount's note (its honest absence words) stays. */
+   card's one state word is beside it (D15) — kept for assistive technology alone (the operator's 19:18 item 4: the live region on the
+   state change stays with the face), out of the layout; the mount's note (its honest absence words) stays. */
 #screen-connections .cn-rive { grid-area: face; width: var(--cn-face); max-width: 100%; min-width: 0; justify-self: end; }
-#screen-connections .cn-rive .tr-status { display: none; }
-#screen-connections .cn-card:has(> .cn-rive:empty) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "state" "verb" "acts" "pull" "foot"; }
+#screen-connections .cn-rive .tr-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+#screen-connections .cn-card:has(> .cn-rive:empty) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "state" "verb"; }
 #screen-connections .cn-rive:empty { display: none; }
-/* the face carries the provider's name and subtitle as its runs once drawn: the HTML subtitle then steps back */
-#screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-card-sub { display: none; }
-#screen-connections .cn-card-state { grid-area: state; display: flex; flex-direction: column; gap: 2px; min-width: 0; margin-top: 6px; }
-#screen-connections .cn-state { margin: 0; display: flex; align-items: baseline; gap: 6px; }
-#screen-connections .cn-words { font-size: 12px; line-height: 1.4; }
-#screen-connections .cn-words, #screen-connections .cn-say { margin: 0; }
+/* the face carries the provider's name and subtitle as its runs once drawn, and its headline IS the state word (H174's f165d8c7,
+   the operator's 19:18 item 4): the HTML subtitle and the status line's word then step back — the line is the sentence */
+#screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-card-sub, #screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-status > .cn-state-word, #screen-connections .cn-card:has(.tr-component[data-rive="drawn"]) .cn-status > .cn-status-sep { display: none; }
+/* the ONE status line: the observed word (green only for "checked", the shell's .sh-state.is-live) and one plain sentence */
+#screen-connections .cn-status { grid-area: state; margin: 6px 0 0; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--timmy-text-secondary); }
+#screen-connections .cn-status .cn-state-word { font-weight: var(--timmy-weight-strong); }
+#screen-connections .cn-status-words { color: var(--timmy-text); }
+#screen-connections .cn-say { margin: 0; }
 #screen-connections .cn-verb-row { grid-area: verb; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
 #screen-connections .cn-verb-waiting { color: var(--timmy-accent); }
 /* Cloudflare's optional settings, folded (the card's verb opens the fold) */
@@ -52,22 +56,26 @@
 #screen-connections .cn-fold[open] .cn-fold-summary::before { content: '▾'; }
 #screen-connections .cn-fold-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 6px; }
 #screen-connections .cn-fold > .cn-form { margin-top: 6px; }
-#screen-connections .cn-actions { grid-area: acts; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--timmy-line); }
-#screen-connections .cn-actions:empty { display: none; }
-#screen-connections .cn-actions .cn-form { flex-basis: 100%; }
-#screen-connections .cn-link { margin-left: auto; }
-#screen-connections .cn-card-foot { grid-area: foot; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12px; }
-#screen-connections .cn-card-foot:empty, #screen-connections .cn-card-foot:not(:has(.cn-say:not(:empty))) { display: none; }
+/* the selected card's other controls and forms, in the context column */
+#screen-connections .cn-context-tools { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--timmy-line); gap: 8px; }
+#screen-connections .cn-context-tools:empty { display: none; }
+#screen-connections .cn-context-tools .cn-form { flex-basis: 100%; }
+#screen-connections .cn-context-tools .cn-link { margin-left: 0; }
+/* the context's live line: what an action on the selected card just said (plain words; the card itself carries its one status line) */
 #screen-connections .cn-say:empty { display: none; }
 #screen-connections .cn-say[data-kind="failed"] { color: var(--timmy-accent); }
 #screen-connections .cn-say[data-kind="step"] { color: var(--timmy-text); }
+/* what the check found (the local card: the models this computer's Ollama holds), in view — a fact the person chooses by */
+#screen-connections .cn-found { margin: 0; }
+#screen-connections .cn-found-label { margin: 0; font-size: 11px; }
+#screen-connections .cn-found .cn-context-lines { margin-top: 4px; }
 #screen-connections .cn-form { display: flex; flex-direction: column; gap: 6px; }
 #screen-connections .cn-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 #screen-connections .cn-form-row .sh-input, #screen-connections .cn-form-row .sh-select { flex: 1 1 180px; width: auto; min-height: 34px; padding: 5px 10px; font-size: 13px; }
 #screen-connections .cn-label { font-size: 12px; }
 #screen-connections .cn-label, #screen-connections .cn-check { display: block; }
 #screen-connections .cn-check input { margin-right: 6px; accent-color: var(--timmy-accent); }
-#screen-connections .cn-pull { grid-area: pull; display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
+#screen-connections .cn-pull { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid var(--timmy-line); border-radius: 8px; }
 #screen-connections .cn-pull-status { margin: 0; }
 #screen-connections .cn-offer-words { margin: 0; }
 #screen-connections .cn-progress { width: 100%; height: 6px; accent-color: var(--timmy-accent); }
@@ -89,7 +97,14 @@
 #screen-connections .cn-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 #screen-connections .cn-facts dt { color: var(--timmy-text-secondary); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 #screen-connections .cn-facts dd { margin: 2px 0 0; color: var(--timmy-text); overflow-wrap: anywhere; }
-#screen-connections .cn-context-lines { margin: 2px 0 0; padding-left: 16px; font-size: 12px; color: var(--timmy-text-secondary); display: flex; flex-direction: column; gap: 3px; }
+#screen-connections .cn-context-details { margin-top: 4px; }
+#screen-connections .cn-details-summary { cursor: pointer; margin: 0; padding: 4px 0; list-style: none; display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+#screen-connections .cn-details-summary::-webkit-details-marker { display: none; }
+#screen-connections .cn-details-summary::before { content: '▸'; color: var(--timmy-text-secondary); }
+#screen-connections .cn-context-details[open] .cn-details-summary::before { content: '▾'; }
+#screen-connections .cn-details-summary:focus-visible { outline: 2px solid var(--timmy-ui-focus, var(--timmy-accent)); outline-offset: 2px; border-radius: 6px; }
+#screen-connections .cn-facts-details { margin-top: 6px; }
+#screen-connections .cn-context-lines { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--timmy-text-secondary); display: flex; flex-direction: column; gap: 3px; }
 #screen-connections .cn-context-lines li { overflow-wrap: anywhere; }
 #screen-connections .cn-context-links { margin-top: 2px; }
 #screen-connections .cn-context-links .cn-link { margin-left: 0; }

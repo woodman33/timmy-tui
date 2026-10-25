@@ -104,6 +104,36 @@ export const SITUATION_WORDS: Readonly<Record<Situation, string>> = Object.freez
   existing: 'Existing setup', 'no-account': 'No account', unreachable: 'Unreachable', 'no-model': 'No downloaded model', pending: 'Under way', refused: 'Refused',
 });
 
+/**
+ * R11 round 7 (the operator's 19:18 order, item 5): the card's ONE status sentence — the observed state in plain words, no
+ * address, no path, no endpoint, no command (those are the context's Details and the records). The probe's full words stay in
+ * `words` for the records and the Details.
+ */
+export function statusSentence(s: { id: ProviderId; state: ProviderState['state']; situation: Situation }, local?: { installed: boolean }): string {
+  const st = s.state;
+  if (s.id === 'ollama-local') {
+    if (st === 'pending') return 'A download is under way.';
+    if (st === 'checked') return s.situation === 'no-model' ? 'Ollama answered, and holds no local model Timmy can use yet.' : 'Ollama answered with local models.';
+    if (st === 'installed, stopped') return 'Ollama is installed but did not answer; start it.';
+    if (st === 'installed, not checked') return 'Ollama is installed; not checked yet.';
+    if (st === 'unreachable') return 'Ollama did not answer when checked.';
+    return local?.installed ? 'Ollama is installed; not checked yet.' : 'Ollama is not installed on this computer.';
+  }
+  if (s.id === 'cloudflare') {
+    if (st === 'not set up') return 'Optional; nothing set up yet.';
+    if (st === 'checked') return 'The settings are saved and the Worker answered.';
+    return 'The settings are saved; nothing is sent to check them.';
+  }
+  const name = s.id === 'openrouter' ? 'OpenRouter' : 'Ollama Cloud';
+  if (st === 'pending') return 'Waiting for the sign-in to finish.';
+  if (st === 'checked') return `${name} took the key.`;
+  if (st === 'saved, not checked') return 'A key is saved; not checked yet.';
+  if (st === 'refused') return s.id === 'openrouter' ? 'The key was refused; sign in again.' : 'The key was refused; save a new one.';
+  if (st === 'unreachable') return `${name} did not answer when checked.`;
+  // ("connected" is never said of a card: a selection is not a connection, and the state words are the provider's)
+  return s.id === 'openrouter' ? 'No OpenRouter account yet.' : 'No Ollama key saved yet.';
+}
+
 /** What a provider costs to use, in words this computer can stand behind (never a price it does not know). */
 export const COST_WORDS: Readonly<Record<ProviderId, string>> = Object.freeze({
   openrouter: 'Billed by OpenRouter per token at each model’s listed price (shown beside the model in Chat); a check asks the key endpoint and runs no model, so it charges nothing.',
@@ -157,6 +187,8 @@ export interface ConnectionCard extends CardWords {
   situation: Situation;
   situationWords: string;
   verb: string;
+  /** the card's ONE status sentence: plain words, no address, path, endpoint or command (statusSentence) */
+  status: string;
   /** what using this provider costs, in words this computer can stand behind */
   cost: string;
   /** whether this provider can carry the chat's route (Cloudflare cannot: it is a gateway and sync, not a model) */
@@ -251,7 +283,7 @@ function cards(deps: ConnectionsDeps, env: Env, pending: ProviderId[]): Connecti
     const sit = situationOf(s, inst ?? undefined);
     const base: ConnectionCard = {
       ...CARD_WORDS[s.id], state: s.state, words: s.words, ...(s.next ? { next: s.next } : {}), ...(s.at ? { at: s.at } : {}), ...(s.lines ? { lines: s.lines } : {}), ...(s.links ? { links: s.links } : {}),
-      situation: sit.situation, situationWords: SITUATION_WORDS[sit.situation], verb: sit.verb, cost: COST_WORDS[s.id], model: s.id !== 'cloudflare',
+      situation: sit.situation, situationWords: SITUATION_WORDS[sit.situation], verb: sit.verb, status: statusSentence({ id: s.id, state: s.state, situation: sit.situation }, inst ?? undefined), cost: COST_WORDS[s.id], model: s.id !== 'cloudflare',
     };
     if (s.id === 'openrouter' || s.id === 'ollama-cloud') {
       const k = keyInUse(s.id, env, cwdOf(env));
