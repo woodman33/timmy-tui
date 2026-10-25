@@ -287,8 +287,10 @@
     }
   }
 
+  /** The head's primary by what runs; before the first read there is none of ours (the shell draws the frame's primary action meanwhile). No arrow in a label (D8). */
   function primaryOf(room) {
-    const a = room && room.activity;
+    if (!room) return null;
+    const a = room.activity;
     if (a && a.chatTurn && a.chatTurn.id) return { label: 'Stop the turn', run: () => stopTurn(a.chatTurn.id) };
     if (a && a.stop && a.stop.command) return { label: 'Copy the stop command', run: () => copyWords(a.stop.command, document.querySelector(`#${SECTION} [data-room="said"]`)) };
     if (a && a.waitingOnYou > 0) return { label: 'Answer in Chat', run: () => goTo('chat') };
