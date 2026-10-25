@@ -428,11 +428,20 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       for (const c of fold.folded) { expect(c.visible, `${c.k} folded`).toBe(false); expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); }
       expect(fold.bandRight).toBeLessThanOrEqual(390);
       await page.click('#ws-workflows > .page-band details.band-more > summary');
+      // (the word follows `open` synchronously on the click; the read still waits for it so no load can beat it — the freeze's
+      // --maxWorkers=2 read "· more" on an open details when the word followed the queued toggle event)
+      await page.waitForFunction(() => (document.querySelector('#ws-workflows > .page-band details.band-more > summary')?.textContent ?? '').includes('less'), null, { timeout: 5_000 });
       fold = await bandFold('#ws-workflows');
       expect(fold.open).toBe(true);
       expect(fold.summary).toBe('· less');
       for (const c of fold.folded) expect(c.visible, `${c.k} shown once opened`).toBe(true);
       await page.click('#ws-workflows > .page-band details.band-more > summary');
+      await page.waitForFunction(() => { const d = document.querySelector('#ws-workflows > .page-band details.band-more') as HTMLDetailsElement | null; return Boolean(d) && !d!.open && (d!.querySelector('summary')?.textContent ?? '').includes('more'); }, null, { timeout: 5_000 });
+      // the fold is drawn, not styled: crossing 720 px redraws the band without it (every cell shown), and crossing back folds it again
+      await page.setViewportSize({ width: 800, height: 844 });
+      await page.waitForFunction(() => !document.querySelector('#ws-workflows > .page-band details.band-more') && [...document.querySelectorAll('#ws-workflows > .page-band > .band-cell')].filter((c) => c.getBoundingClientRect().width > 0).length >= 3, null, { timeout: 5_000 });
+      await page.setViewportSize(PHONE);
+      await page.waitForFunction(() => Boolean(document.querySelector('#ws-workflows > .page-band details.band-more')) && document.querySelectorAll('#ws-workflows > .page-band > .band-cell').length === 2, null, { timeout: 5_000 });
       expect(await page.isVisible('#ws-workflows .page-dock #ws-actions')).toBe(true);
       // the context as a sheet: a registered context with something in it shows its opener; open, Escape, the focus back
       await page.evaluate(() => {
