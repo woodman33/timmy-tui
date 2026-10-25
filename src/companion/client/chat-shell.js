@@ -770,8 +770,9 @@ function conversationTitle() {
 }
 
 /**
- * The ONE primary next action — Send / Choose a model / Answer / Stop / Sign in — the one that applies now (D4: every state has a
- * verb-led next action). `go` names what it does on the page; the composer's button and the page head's button both draw it.
+ * The ONE primary next action — Continue the conversation / Start a conversation / Retry / Choose a model / Answer / Stop / Sign in
+ * — the one that applies now (D4: every state has a verb-led next action). `go` names what it does on the page; the page head's
+ * button and the band's text action draw it. Never "Send": Send is the composer's alone (the operator's 19:18 order, item 3).
  */
 function primaryAction() {
   const st = centerState();
@@ -788,11 +789,9 @@ function primaryAction() {
   if (!cx.view) return { id: 'reading', words: 'Reading…', go: 'none', off: true };
   if (!(r && r.ready)) return { id: 'choose-model', words: 'Choose a model', go: 'models' };
   if (!signedIn()) return { id: 'sign-in', words: 'Sign in', go: 'account' };
-  // R79 (H168's pass 1; the lead's D13 rulings): "Send" is the step only while a draft exists — a Send with nothing typed is not
-  // a step, and the composer keeps its own Send; with nothing typed the step is to send the failed message again (R80), else to
-  // write: the head's button puts the keyboard in the composer
-  const input = $('cx-input');
-  if (input && input.value.trim()) return { id: 'send', words: 'Send', go: 'send' };
+  // R79 (H168's pass 1) → the operator's 19:18 order, item 3: SEND LIVES ONLY IN THE COMPOSER — the head's primary is never
+  // "Send" (the band's action, its text twin, never is either): with a failed turn the step is to send that message again (R80);
+  // otherwise it is to write, and the head's button puts the keyboard in the composer, draft or no draft
   if (own && own.state === 'failed') return { id: 'retry', words: 'Retry', go: 'retry', own: cx.own.indexOf(own) };
   const conv = cx.view && cx.view.conversation;
   const n = (conv ? conv.turns.filter((t) => t.kind !== 'tool').length : 0) + cx.own.length;
@@ -813,6 +812,16 @@ function pageWords() {
   if (!companion.token || companion.refused) return { kicker: '01 / CHAT', title: 'Open this page from Timmy.', line: 'Nothing is read without the companion’s token; the note above says how.', state: 'error' };
   if (st === 'reading') return { kicker: '01 / CHAT', title: 'Reading the project’s conversation…', line: cx.viewFailed || 'The companion is asked for the conversation and the next turn’s route.', state: cx.viewFailed ? 'error' : 'reading' };
   if (st === 'first-run' || st === 'setup') return { kicker: '01 / START A CONVERSATION', title: 'How would you like to run chat?', line: 'Choose one; you can add the others later. No account is needed to explore.', state: 'empty' };
+  // (the operator's 19:18 order, item 3: an ESTABLISHED conversation — one with a message of the person's, saved or this page's own
+  // — has a COMPACT head: the kicker and the conversation's title on ONE row, no intro; the turn's state is said by the shell's
+  // error box (R80) or its Needs-you cell, the console band's word and the band's Records cell, never by a second title. The first
+  // use keeps the full head. On the shell only: the older page has no box or band to carry the state, so its head keeps saying it.)
+  if (title && shell()) {
+    if (own && own.state === 'streaming' && own.needs && !own.needs.answered) return { kicker: kick, title, line: '', words: 'A tool asks before it runs', state: 'approval', compact: true };
+    if (own && own.state === 'streaming') return { kicker: kick, title, line: '', state: 'running', compact: true };
+    if (own && own.state === 'failed') return { kicker: kick, title, line: '', words: own.words || 'No answer came.', state: 'error', compact: true };
+    return { kicker: kick, title, line: '', state: 'content', compact: true };
+  }
   if (own && own.state === 'streaming' && own.needs && !own.needs.answered) return { kicker: kick, title: 'Timmy needs you.', line: own.needs.words || 'A tool asks before it runs: answer below.', words: 'A tool asks before it runs', state: 'approval' };
   if (own && own.state === 'streaming') return { kicker: kick, title: own.stopping ? 'Stop requested.' : 'Timmy is answering.', line: own.stopping ? 'Not confirmed yet: the turn’s receipt comes as it stops.' : `${own.model || 'the model'} · ${own.where || 'where it runs is not known yet'} · Stop keeps what was written so far.`, state: 'running' };
   if (own && own.state === 'failed') return { kicker: kick, title: 'The turn did not finish.', line: 'What was written stays below. Retry sends the same message again; Change model picks another route first.', words: own.words || 'No answer came.', state: 'error' };
@@ -889,9 +898,17 @@ function drawHead() {
     const conv = cx.view && cx.view.conversation;
     const withReceipt = conv ? conv.turns.filter((t) => t.kind === 'timmy' && t.receipt && t.receipt.id) : [];
     const verified = withReceipt.filter((t) => t.receipt.verified).length;
-    const records = !cx.view ? 'not read yet' : !withReceipt.length ? 'no receipt yet · local' : `${withReceipt.length} receipt${withReceipt.length === 1 ? '' : 's'}${verified ? ` · ${verified} verified` : ''} · local`;
+    // (the operator's 19:18 order, item 7: the TURN's activity is this cell's first word and the console band's — never the topbar's,
+    // which is the socket's alone: working · needs you · stopped · failed, nothing while idle)
+    const latest = cx.own[cx.own.length - 1];
+    const activity = cx.running ? (latest && latest.needs && !latest.needs.answered ? 'needs you' : 'working') : otherTurn() ? 'working' : latest && latest.state === 'failed' ? 'failed' : latest && latest.state === 'stopped' ? 'stopped' : '';
+    const kept = !cx.view ? 'not read yet' : !withReceipt.length ? 'no receipt yet · local' : `${withReceipt.length} receipt${withReceipt.length === 1 ? '' : 's'}${verified ? ` · ${verified} verified` : ''} · local`;
+    const records = activity ? `${activity} · ${kept}` : kept;
     // (the contract's five states: reading is said as content — nothing claimed until the view is read)
     const state = w.state === 'reading' ? 'content' : w.state;
+    // (item 3: an established conversation's head is one row — the class carries the form, chat-shell.css draws it)
+    const page = $('ws-chat');
+    if (page) page.classList.toggle('cx-compact', Boolean(w.compact));
     const said = JSON.stringify([w.kicker, w.title, w.line, w.words || '', state, a.id, a.words, Boolean(a.off), Boolean(a.pending), model, records]);
     if (said !== headSaid) {
       headSaid = said;
@@ -924,14 +941,13 @@ function drawHead() {
     btn.dataset.act = a.id;
     btn.classList.toggle('is-pending', Boolean(a.pending));
     btn.classList.toggle('is-stop', a.go === 'stop');
-    btn.hidden = a.id === 'send' && !$('cx-send'); // (Send is the composer's: the head's says it only while the composer is away)
   }
 }
 
 /** The primary action acted on: what each one does on this page. */
 function actPrimary(a) {
   switch (a.go) {
-    case 'send': { const input = $('cx-input'); if (input && !input.value.trim()) { input.focus(); return; } sendNow(); return; }
+    // (no 'send' here: the head's primary never sends — the composer's own button does, the one Send on the page)
     case 'compose': { const input = $('cx-input'); if (input) input.focus(); return; }
     case 'retry': retryTurn(a.own); return;
     case 'stop': { if (cx.running) stopNow(); else { const other = otherTurn(); if (other) { const b = h('button', { 'data-stop-turn': other.id }); stopOther(b); } } return; }
@@ -984,7 +1000,9 @@ function drawChat() {
   const socket = $('cx-socket');
   if (socket) {
     const live = typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1;
-    socket.textContent = live ? '● companion answering' : 'companion not connected';
+    // (the operator's 19:18 order, item 7: the SOCKET's word is connectivity, never activity — "answering" is the turn's, said by the
+    // console band and the band's Records cell)
+    socket.textContent = live ? '● companion connected' : 'companion offline · reconnecting';
     socket.classList.toggle('is-live', Boolean(live));
   }
   // a panel (the first run, a provider's setup) opens at its top; the conversation follows its end while the person is there,
@@ -1317,7 +1335,8 @@ function fitInput(input) {
   input.rows = Math.min(8, Math.max(1, lines, fits));
 }
 
-/** The composer drawn, then the head: its primary follows the draft (R79 — "Send" only while one exists; drawHead says only what changed). */
+/** The composer drawn, then the head (the route and the running state the composer reads are the head's too; drawHead says only
+ *  what changed — the head's primary no longer follows the draft: it is never "Send", item 3 of the operator's 19:18 order). */
 function drawComposer() {
   drawComposerBody();
   drawHead();
@@ -2528,14 +2547,17 @@ $('cx-scroll')?.addEventListener('scroll', () => {
       const box = $('rail-account');
       if (!box) return;
       box.dataset.signed = user ? 'yes' : 'no';
-      // (the lead's ruling of 21:48: with no identity provider configured the page is this computer's operator, and the block
-      // names the dependency; configured and not signed in → "Not signed in")
+      // (the lead's ruling of 21:48: with no identity provider configured the page is this computer's operator; configured and not
+      // signed in → "Not signed in". R95, H173's half + mine (the lead's 18:18): the block's second line is GET /api/identity's
+      // `brief` — "Sign-in is not set up" / "Sign-in through Clerk at <host>" — plain words with no environment name; the names
+      // (CLERK_*) are the account page's, behind its blocker and Details. An identity answer without a brief — an older companion,
+      // a 404, a failed read — gets the plain unconfigured words, never a name)
       const idc = typeof TimmyShell.identity === 'function' ? TimmyShell.identity() : null;
       const configured = Boolean(idc && idc.configured);
-      const needs = idc && Array.isArray(idc.needs) && idc.needs.length ? idc.needs.join(', ') : 'CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY';
+      const brief = idc && typeof idc.brief === 'string' && idc.brief.trim() ? idc.brief.trim() : 'Sign-in is not set up';
       const name = user ? String(user.username || user.email || user.id || 'Signed in') : configured ? 'Not signed in' : 'This computer’s operator';
       $('rail-account-name').textContent = name;
-      $('rail-account-sub').textContent = user ? 'your Timmy home' : configured ? 'this companion’s own workspace' : `no identity provider configured (${needs})`;
+      $('rail-account-sub').textContent = user ? 'your Timmy home' : configured ? 'this companion’s own workspace' : brief;
       $('rail-avatar').textContent = user ? (name.trim()[0] || 'T').toUpperCase() : 'T';
       $('rail-signout').hidden = !user;
     };
