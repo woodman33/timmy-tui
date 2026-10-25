@@ -3,6 +3,7 @@
 // page's kicker, what it is for and what to do on it). Every cell reads the companion's answers through the store.
 import { PAGES, activityOf, goTo, newConversation, setTheme, stop, useApp } from './store.js';
 import { Button, StateWord, clock } from './ui.jsx';
+import { surfaceWord } from './cards.jsx';
 
 export function TopStrip({ onFit, onReset, board }) {
   const page = useApp((s) => s.page);
@@ -48,6 +49,7 @@ export function SummaryBand() {
   const turns = view && view.conversation && Array.isArray(view.conversation.turns) ? view.conversation.turns : [];
   const last = [...turns].reverse().find((t) => t.kind === 'timmy' && t.receipt);
   const running = turn && ['running', 'stopping'].includes(turn.phase);
+  const elsewhere = view && view.conversation && Array.isArray(view.conversation.running) ? view.conversation.running : [];
   const where = view && view.route ? (view.route.kind === 'local' ? (view.route.cloud ? 'Ollama cloud' : 'this computer') : view.route.kind === 'openrouter' ? 'OpenRouter' : 'no route') : '';
   return (
     <section className="ta-band" aria-label="Summary">
@@ -57,7 +59,7 @@ export function SummaryBand() {
       </div>
       <div className="ta-cell">
         <p className="ta-cell-k">AGENT</p>
-        <p className="ta-cell-v"><StateWord word={activityOf(turn)} /> {turn && turn.tools && turn.tools.length ? <span className="ta-muted">· {turn.tools.length} tool event{turn.tools.length === 1 ? '' : 's'}</span> : null}{turn && turn.startedAt ? <span className="ta-muted"> · since {clock(turn.startedAt)}</span> : null}</p>
+        <p className="ta-cell-v">{elsewhere.length && !running ? <><StateWord word="working" /> <span className="ta-muted">in {surfaceWord(elsewhere[0].surface)} · since {clock(elsewhere[0].since)}</span></> : <StateWord word={activityOf(turn)} />} {turn && turn.tools && turn.tools.length ? <span className="ta-muted">· {turn.tools.length} tool event{turn.tools.length === 1 ? '' : 's'}</span> : null}{turn && turn.startedAt ? <span className="ta-muted"> · since {clock(turn.startedAt)}</span> : null}</p>
       </div>
       <div className="ta-cell">
         <p className="ta-cell-k">PROOF</p>

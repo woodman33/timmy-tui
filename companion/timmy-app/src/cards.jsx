@@ -8,6 +8,7 @@ import {
   newConversation, send, setSearch, startPull, stop, useApp,
 } from './store.js';
 import { Button, Card, Empty, Facts, Out, StateWord, clock, day } from './ui.jsx';
+import { Markdown } from './md.jsx';
 
 /** Brings a card into view: the board's camera on it, or (a column) the page scrolled to it. */
 export function showCard(id) {
@@ -224,6 +225,9 @@ export function CatalogCard() {
   );
 }
 
+const SURFACES = { repl: 'the REPL', workbench: 'the Workbench', monitor: 'the monitor', companion: 'another page', studio: 'the Studio' };
+export const surfaceWord = (s) => SURFACES[s] || String(s || 'another surface');
+
 // ── 02 · CHAT ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function Turn({ t }) {
@@ -233,7 +237,7 @@ function Turn({ t }) {
   return (
     <li className={`ta-turn ta-timmy${t.stopped ? ' is-stopped' : ''}`}>
       <p className="ta-who">Timmy {t.model ? <span className="ta-model-tag">{t.model}</span> : null} <span className="ta-when">{clock(t.at)}</span></p>
-      <p className="ta-text">{t.text || (t.stopped ? '(stopped before it answered)' : '')}</p>
+      {t.text ? <Markdown text={t.text} /> : <p className="ta-text">{t.stopped ? '(stopped before it answered)' : ''}</p>}
       {t.stopped ? <p className="ta-muted">Stopped{t.stopped.by ? ` by ${t.stopped.by}` : ''}.</p> : null}
       {r ? <p className="ta-receipt"><span className={r.verified ? 'ta-verified' : 'ta-unverified'}>{r.verified ? '✓ receipt' : '✕ receipt'}</span> <code>{r.id}</code> · {r.where}{r.ms ? ` · ${(r.ms / 1000).toFixed(1)} s` : ''}</p> : null}
     </li>
@@ -247,7 +251,7 @@ function LiveTurn({ turn, theme, saved }) {
       {saved ? null : <li className="ta-turn ta-you is-live"><p className="ta-who">You</p><p className="ta-text">{turn.message}</p></li>}
       <li className={`ta-turn ta-timmy is-live`} data-phase={turn.phase}>
         <p className="ta-who">Timmy {turn.route && turn.route.model ? <span className="ta-model-tag">{turn.route.model}</span> : null} <StateWord word={activityOf(turn) === 'idle' ? turn.phase : activityOf(turn)} /></p>
-        {turn.text ? <p className="ta-text">{turn.text}</p> : turn.phase === 'running' ? <p className="ta-muted">{turn.route ? `Asking ${turn.route.where}…` : 'Opening the turn…'}</p> : null}
+        {turn.text ? <Markdown text={turn.text} /> : turn.phase === 'running' ? <p className="ta-muted">{turn.route ? `Asking ${turn.route.where}…` : 'Opening the turn…'}</p> : null}
         {turn.tools.length ? <ul className="ta-tools">{turn.tools.map((x) => <li key={x.call}><StateWord word={x.status} /> {x.words}</li>)}</ul> : null}
         {turn.needsYou ? (
           <div className="ta-needs" role="alertdialog" aria-label="NEEDS YOU">
@@ -277,6 +281,7 @@ export function ChatCard({ theme }) {
   const route = view ? view.route : null;
   const ready = route ? route.ready === true : false;
   const saved = view && view.conversation && Array.isArray(view.conversation.turns) ? view.conversation.turns : [];
+  const elsewhere = view && view.conversation && Array.isArray(view.conversation.running) ? view.conversation.running : [];
   // the saved conversation, without the live turn's own two messages once the view has them (the live turn ends, the view reads again)
   const shown = useMemo(() => saved.slice(-60), [saved]);
   useEffect(() => { const el = list.current; if (el) el.scrollTop = el.scrollHeight; }, [shown.length, turn && turn.text, turn && turn.tools.length, turn && turn.needsYou]);
@@ -296,6 +301,7 @@ export function ChatCard({ theme }) {
         {shown.map((t, i) => <Turn key={`${t.at}-${i}`} t={t} />)}
         {live ? <LiveTurn turn={turn} theme={theme} saved={messageSaved} /> : null}
       </ol>
+      {elsewhere.length ? <p className="ta-elsewhere" role="status">A turn of this project is running in {elsewhere.map((r) => `${surfaceWord(r.surface)} (since ${clock(r.since)})`).join(', ')}: this page’s Send waits for it.</p> : null}
       <div className="ta-composer">
         <textarea className="ta-input" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey}
           placeholder={ready ? 'Message Timmy  (⌘/Ctrl + Enter sends)' : 'Send is off until a model is chosen'} aria-label="Message Timmy" disabled={!view} />
