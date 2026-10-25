@@ -696,6 +696,11 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const { page, context, errors } = await open({ viewport: { width: 1376, height: 768 } });
     try {
       await openTab(page, 'logs');
+      // R11 round 7 (H169 on SHELL CONTRACT v1): the page's older boxes (the socket log, the events, the latest receipt) sit in the
+      // page's records, a closed details — opened here as a person opens it, then the sentence read where it is drawn
+      const records = page.locator('#ws-logs .page-records details').filter({ has: page.locator('#proof-none') }).first();
+      await records.waitFor({ state: 'attached', timeout: 15_000 }).catch(() => undefined);
+      if (await records.count()) await records.locator('summary').first().click();
       await page.waitForSelector('#proof-none', { state: 'visible', timeout: 15_000 });
       expect(await page.$eval('#proof-none', (e) => (e.textContent || '').trim())).toBe('No receipt has been sent to this page since it opened. The project\'s sealed receipts so far are in Structured events, as the frame read them.');
       expect(await page.$eval('#proof-box', (e) => getComputedStyle(e).display)).toBe('none');
