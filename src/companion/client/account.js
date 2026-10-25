@@ -304,8 +304,17 @@
     if (!regions.context.getAttribute('aria-label')) regions.context.setAttribute('aria-label', 'About your account');
   }
 
-  // the return path: where the person was going before the account page (kept per tab across the OAuth round trip)
+  // the return path: where the person was going before the account page (kept per tab across the OAuth round trip).
+  // RULING D7 (the lead, 2026-10-24 17:35): the page before Account is honoured only when the person had CHOSEN it — left it
+  // through a go() whose reason is neither the boot's ('load': the tab companion.js showed as it loaded, Chat by default)
+  // nor the landing's ('landing', 'no-token') nor none at all; otherwise Continue / a sign-in applies THE LANDING RULE
+  // (TimmyShell.land(): signed in + no usable route → Models & accounts; a usable route → Chat). GATE 05 found 4 of 5 fresh
+  // sign-ins landing on Chat because the boot default was remembered as "the page before Account".
+  const UNCHOSEN_WHYS = ['', 'load', 'landing', 'no-token'];
+  const chosen = (why) => !UNCHOSEN_WHYS.includes(typeof why === 'string' ? why : '');
   function rememberReturn(id) { if (!id || id === PAGE) return; returnTo = id; try { sessionStorage.setItem(RETURN_KEY, id); } catch (e) { /* no storage */ } }
+  function peekReturn() { let id = returnTo; try { id = id || sessionStorage.getItem(RETURN_KEY) || ''; } catch (e) { /* no storage */ } return id && id !== PAGE ? id : ''; }
+  function forgetReturn() { returnTo = ''; try { sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } }
   function takeReturn() { let id = returnTo; try { id = id || sessionStorage.getItem(RETURN_KEY) || ''; sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } returnTo = ''; return id && id !== PAGE ? id : ''; }
   async function continueOn() {
     const back = takeReturn();
@@ -604,10 +613,23 @@
     if (!shell) return;
     shell.mount(PAGE, draw);
     register();
-    // the page the person came from, for the return path after a sign-in
+    // the page the person came from, for the return path after a sign-in: only a page they CHOSE (D7, above). Reached from
+    // the boot default or by the landing, nothing is remembered and a stale memory is dropped — except on /account/callback,
+    // where the memory IS the page chosen before the OAuth round trip (the provider's page reloads this one).
     if (typeof shell.on === 'function') {
       let last = '';
-      const seen = (d) => { const id = d && d.id; if (!id) return; if (id === PAGE) { if (last && last !== PAGE) rememberReturn(last); } last = id; };
+      let lastWhy = '';
+      const callback = () => location.pathname.replace(/\/$/, '') === '/account/callback';
+      const seen = (d) => {
+        const id = d && d.id;
+        if (!id) return;
+        if (id === PAGE && last !== PAGE) { // entering this page (a screen's second event for the same showing changes nothing)
+          if (last && chosen(lastWhy)) rememberReturn(last);
+          else if (!callback()) forgetReturn();
+        }
+        last = id;
+        lastWhy = d && typeof d.why === 'string' ? d.why : '';
+      };
       shell.on('page', seen);
       shell.on('screen', seen);
     }
@@ -624,8 +646,8 @@
     clerkState: (state) => onClerkState(state),
     // module: Clerk's module imported from /vendor/clerk/ (its code ran here); clerk: load() reached the instance;
     // clerkSession: the page holds a session CLERK gave it (only that one is let go when Clerk's goes)
-    state: () => ({ view: configured() ? (signedIn() ? 'signedin' : view) : 'blocker', configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession), social: (identity() && identity().social) || [], returnTo: returnTo || '' }),
+    state: () => ({ view: configured() ? (signedIn() ? 'signedin' : view) : 'blocker', configured: configured(), module: Boolean(clerkModule), clerk: Boolean(clerk), loading: Boolean(loading), words: loadWords, verified, clerkSession: Boolean(clerkSession), social: (identity() && identity().social) || [], returnTo: peekReturn() }),
     meta: pageMeta,
-    forgetReturn: () => { returnTo = ''; try { sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* no storage */ } },
+    forgetReturn,
   };
 })();
