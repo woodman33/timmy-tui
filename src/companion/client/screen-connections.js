@@ -220,7 +220,10 @@
           h('span', { class: `${mark.cls} cn-state-word` }, c.state), h('span', { class: 'cn-status-sep', 'aria-hidden': 'true' }, ' · '), h('span', { class: 'cn-status-words' }, c.status || firstSentence(c.words))),
         riveHost(c),
         h('div', { class: 'cn-verb-row' },
-          act ? h('button', { type: 'button', class: `${isPrimary ? 'sh-btn-primary' : 'sh-btn'} is-small cn-verb`, 'data-cn-verb': c.id, onClick: act }, verbLabel(c)) : h('span', { class: 'sh-note cn-verb-waiting', 'data-cn-verb': c.id }, c.verb)));
+          // (D24, the lead's 00:47: the recommended card's verb and the head's "Set up a model" are one action — the head selects this
+          // card and focuses this verb — so the verb draws the .sh-btn look with the accent RING, never a second fill: D15's "amber on
+          // the recommended card only" is the ring now)
+          act ? h('button', { type: 'button', class: `sh-btn is-small cn-verb${isPrimary ? ' is-recommended' : ''}`, 'data-cn-verb': c.id, onClick: act }, verbLabel(c)) : h('span', { class: 'sh-note cn-verb-waiting', 'data-cn-verb': c.id }, c.verb)));
       // (no footer: what an action says goes to the context's live line for the selected card — say())
     }
 
