@@ -286,6 +286,28 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
     } finally { await again.context.close(); }
   }, LONG);
 
+  it('a page opened WITHOUT any token (an address typed by hand) keeps companion.js\'s no-token words — the shell answers every fetch with its own 401 { needs: "token" }, asks the companion nothing and never turns it into the "not the companion\'s" refusal (the lead\'s 18:01 ruling, H172\'s LEGACY 01)', async () => {
+    const o = await openPage(browser, { origin: origin() }, DESK);
+    const apiRequests: string[] = [];
+    o.page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/')) apiRequests.push(u.pathname); });
+    try {
+      await o.page.goto(`${origin()}/`);
+      await o.page.waitForFunction(() => Boolean(document.body.dataset.page), null, { timeout: 30_000 });
+      await o.page.waitForTimeout(2500); // (every script's first reads, the frame's poll: all answered in the page)
+      expect(await text(o.page, '#token-note')).toMatch(/^This page has no token from Timmy.*in the Workbench \(`timmy workbench`\), press c.*in `timmy watch`, press q on HOME/);
+      expect(await text(o.page, '#token-note')).not.toMatch(/not the companion/);
+      // (companion.js's `companion` is a script-scope const, not a window property: the refusal is read by its words, not its flag)
+      expect(await text(o.page, '#shell-status')).toBe('No token · open the page from Timmy');
+      // the shell's fetch answers in the page: a 401 that names the missing token, no request to the companion
+      const answer = await o.page.evaluate(async () => { const r = await (window as unknown as { TimmyShell: { fetch(u: string): Promise<Response> } }).TimmyShell.fetch('/api/workspace'); return { status: r.status, body: await r.json() as { needs?: string; words?: string } }; });
+      expect(answer.status).toBe(401);
+      expect(answer.body.needs).toBe('token');
+      expect(answer.body.words).toMatch(/no token from Timmy/);
+      expect(apiRequests, 'no /api/ request leaves a token-less page').toEqual([]);
+      expect(o.errors).toEqual([]);
+    } finally { await o.context.close(); }
+  }, LONG);
+
   it('at 390×844 (D5): the rail is a top strip whose Menu opens the sheet (a dialog; Escape closes it; the focus returns to Menu; a choice closes it); a registered context opens as a sheet the same way; the band wraps; the dock stays; nothing overflows sideways; no small text', async () => {
     const { context, page, errors } = await open(PHONE);
     try {
