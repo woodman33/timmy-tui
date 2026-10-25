@@ -4,20 +4,15 @@
 import { useSyncExternalStore } from 'react';
 import { call, getJson, postJson, postSse } from './api.js';
 import { riveFeed } from './rive.jsx';
+import { PAGES, isPage } from './nav.js';
 
-/** The three pages of the app (the Card Lab's numbered step path: 01 · 02 · 03). */
-export const PAGES = Object.freeze([
-  { id: 'connect', n: '01', title: 'Connect', kicker: 'STEP 01 · CONNECT', lead: 'Choose where Timmy’s model runs: on this computer, or a cloud account you connect.',
-    steps: ['Let Timmy look for the models on this computer (you are asked first).', 'Pick one model for the chat.', 'Or connect OpenRouter / Ollama cloud for cloud models.'] },
-  { id: 'chat', n: '02', title: 'Chat', kicker: 'STEP 02 · CHAT', lead: 'Work with Timmy. Every turn runs the real agent, its tools wait for you, and each answer is sealed with a receipt.',
-    steps: ['Write a message and press Send (⌘/Ctrl + Enter).', 'Answer NEEDS YOU when a tool asks.', 'Stop a turn at any time.'] },
-  { id: 'review', n: '03', title: 'Review', kicker: 'STEP 03 · REVIEW', lead: 'What happened, with proof: each answer, the model that answered it and its sealed receipt.',
-    steps: ['Read the turns of this conversation.', 'Check each answer’s receipt.', 'Start a new conversation when you are done.'] },
-]);
+/** Timmy's pages (./nav.js): the permanent rail's order and each page's purpose. */
+export { PAGES };
 
 const LOCAL_PERMISSION = 'timmy-app:local-models';
 const THEME = 'timmy-app:theme';
 const PAGE = 'timmy-app:page';
+const DOCK = 'timmy-app:dock';
 const read = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* the choice holds for this visit */ } };
 
@@ -26,7 +21,14 @@ const initial = {
   view: null, // GET /api/chat/view
   viewAt: null,
   viewError: '',
-  page: PAGES.some((p) => p.id === read(PAGE, '')) ? read(PAGE, '') : 'connect',
+  page: isPage(read(PAGE, '')) ? read(PAGE, '') : 'chat',
+  /** the rail on a phone (a drawer) and the records dock (folded by default) */
+  drawer: false,
+  dock: read(DOCK, '') === 'open',
+  projects: null, // GET /api/projects (accounts) — null until asked
+  projectId: null,
+  license: null, // the canvas SDK's own licence readout (pages/canvas.jsx, license-state.js), once the Canvas opened
+  canvasIo: null, // { export(), import() } while the Canvas is open
   theme: read(THEME, 'amber') === 'glacier' ? 'glacier' : 'amber',
   /** 'unasked' | 'granted' | 'declined': whether this page may ask the Ollama on this computer for its list of models */
   localPermission: ['granted', 'declined'].includes(read(LOCAL_PERMISSION, '')) ? read(LOCAL_PERMISSION, '') : 'unasked',
@@ -51,8 +53,11 @@ export function useApp(select = (s) => s) { return useSyncExternalStore(subscrib
 
 // ── reads ──
 
+/** The project this page asked for by id (the rail's switcher), or null for the one the companion follows. */
+export const projectQuery = (join = '?') => (state.projectId ? `${join}project=${encodeURIComponent(state.projectId)}` : '');
+
 export async function loadConfig() {
-  const c = await getJson('/api/app/config');
+  const c = await getJson(`/api/app/config${projectQuery()}`);
   set({ config: c });
   return c;
 }
@@ -60,7 +65,8 @@ export async function loadConfig() {
 /** The Chat's view of the project (route, choice, providers, the saved conversation); the local Ollama only with permission. */
 export async function refreshView(o = {}) {
   const skip = state.localPermission !== 'granted';
-  const v = await getJson(`/api/chat/view${skip ? '?local=skip' : o.fresh ? '?fresh=1' : ''}`);
+  const q = [skip ? 'local=skip' : o.fresh ? 'fresh=1' : '', projectQuery('').trim()].filter(Boolean).join('&');
+  const v = await getJson(`/api/chat/view${q ? `?${q}` : ''}`);
   if (v.ok) set({ view: v, viewAt: new Date().toISOString(), viewError: '' });
   else set({ viewError: v.error || 'The companion did not answer the Chat’s view.' });
   return v;
@@ -84,7 +90,23 @@ export function setSearch(source, text) { set((s) => ({ search: { ...s.search, [
 
 // ── the person's choices ──
 
-export function goTo(page) { if (PAGES.some((p) => p.id === page)) { set({ page }); write(PAGE, page); } }
+export function goTo(page) { if (isPage(page)) { set({ page, drawer: false }); write(PAGE, page); try { window.scrollTo(0, 0); } catch { /* no window */ } } }
+export function setDrawer(open) { set({ drawer: !!open }); }
+export function setDock(open) { set({ dock: !!open }); write(DOCK, open ? 'open' : 'folded'); }
+
+/** The person's projects (GET /api/projects: only a companion with accounts answers it; else the one project the page shows). */
+export async function switchProject(id) {
+  if (state.turn && ['running', 'stopping'].includes(state.turn.phase)) { set({ note: 'A turn is running: stop it before switching projects.' }); return; }
+  set({ projectId: id || null, turn: null, view: null });
+  await loadConfig();
+  await refreshView();
+}
+
+export async function loadProjects() {
+  const r = await getJson('/api/projects');
+  set({ projects: r });
+  return r;
+}
 export function setTheme(theme) {
   const t = theme === 'glacier' ? 'glacier' : 'amber';
   set({ theme: t });
@@ -208,4 +230,6 @@ export async function newConversation() {
 }
 
 export function say(note) { set({ note }); }
+export function setLicense(license) { set({ license }); }
+export function setCanvasIo(canvasIo) { set({ canvasIo }); }
 export { call };

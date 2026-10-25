@@ -21,11 +21,29 @@ export const refusal = () => refused;
 export function onRefused(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function refuse(words) { if (refused) return; refused = words; for (const fn of listeners) { try { fn(words); } catch { /* the listener's own */ } } }
 
+// ── the records dock's own log: every request this page made to the companion (method, path, status, time), newest last; the
+// token is never in a path (it rides in the header), so a line shows nothing secret ──
+const LOG_MAX = 120;
+const log = [];
+const logSubs = new Set();
+function record(method, path, status, t0, error) {
+  const line = { at: new Date().toISOString(), method, path: String(path).split('#')[0], status, ms: Math.round(performance.now() - t0), error };
+  log.push(line);
+  if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+  for (const fn of logSubs) { try { fn(line); } catch { /* the listener's own */ } }
+}
+/** This page's requests so far (a copy) and a way to hear the next ones. */
+export const requestLog = () => log.slice();
+export function onRequest(fn) { logSubs.add(fn); return () => logSubs.delete(fn); }
+
 /** Every request to the companion: the token in a header, never in the address. */
 export async function call(path, init = {}) {
   if (!TOKEN) { refuse(`This page has no token, so it reads nothing. ${OPEN_FROM_TIMMY}`); throw new Error('no token'); }
   const o = { ...init, credentials: 'omit', cache: 'no-store', headers: { ...(init.headers || {}), Authorization: `Bearer ${TOKEN}` } };
-  const r = await fetch(path, o);
+  const t0 = performance.now();
+  let r;
+  try { r = await fetch(path, o); } catch (e) { record(o.method || 'GET', path, 0, t0, e instanceof Error ? e.message : String(e)); throw e; }
+  record(o.method || 'GET', path, r.status, t0, '');
   if (r.status === 401) {
     let body = null;
     try { body = await r.clone().json(); } catch { body = null; }

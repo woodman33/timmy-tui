@@ -1,97 +1,251 @@
-// R12: the Card Lab composition around the board — the top strip (the mark, the project, the numbered step path 01 · 02 · 03,
-// Sources & models, the theme switch), the summary band (three labelled cells and one quiet action) and the step column (the
-// page's kicker, what it is for and what to do on it). Every cell reads the companion's answers through the store.
-import { PAGES, activityOf, goTo, newConversation, setTheme, stop, useApp } from './store.js';
-import { Button, StateWord, clock } from './ui.jsx';
-import { surfaceWord } from './cards.jsx';
+// R12 (the finish brief): one shell for every page of the Timmy app — Timmy's permanent left rail (the mark, the project, the
+// grouped pages), the top bar (where you are and the theme), the page frame (the head: its kicker, title, lead and one primary
+// action; a summary band; the work area with the contextual column on its right; the page's tools row), the quiet records dock
+// (this page's own requests to the companion) and the status footer (the workspace, the canvas licence as the SDK read it, and
+// Export / Import of the canvas). The Card Lab's composition with Timmy's hierarchy: Timmy → project → current task → primary
+// next action → work area → contextual tools and details → progress and evidence.
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { onRequest, requestLog } from './api.js';
+import { GROUPS, PAGES, pageOf } from './nav.js';
+import { goTo, loadProjects, setDock, setDrawer, setTheme, switchProject, useApp } from './store.js';
+import { Button, clock } from './ui.jsx';
 
-export function TopStrip({ onFit, onReset, board }) {
-  const page = useApp((s) => s.page);
-  const theme = useApp((s) => s.theme);
+// ── the rail ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+function ProjectSwitcher() {
   const config = useApp((s) => s.config);
-  const project = config && config.project ? config.project.name : null;
+  const projects = useApp((s) => s.projects);
+  const turn = useApp((s) => s.turn);
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const project = config && config.project ? config.project : null;
+  useEffect(() => {
+    if (!open) return undefined;
+    if (!projects) loadProjects();
+    const off = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', off);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', off); document.removeEventListener('keydown', esc); };
+  }, [open, projects]);
+  const list = projects && projects.ok !== false && Array.isArray(projects.projects) ? projects.projects : [];
+  const running = turn && ['running', 'stopping'].includes(turn.phase);
   return (
-    <header className="ta-top" role="banner">
-      <div className="ta-brand">
-        <span className="ta-mark" aria-hidden="true">T</span>
-        <strong className="ta-name">TIMMY</strong>
-        {project ? <><span className="ta-sep" aria-hidden="true">/</span><span className="ta-project" title={config.project.root}>{project}</span></> : null}
-      </div>
-      <nav className="ta-steps" aria-label="Steps">
-        <ol>
-          {PAGES.map((p) => (
-            <li key={p.id}>
-              <button type="button" className="ta-step" aria-current={page === p.id ? 'step' : undefined} onClick={() => goTo(p.id)}>
-                <span className="ta-step-n">{p.n}</span><span className="ta-step-t">{p.title}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </nav>
-      <div className="ta-top-tools">
-        {board ? <Button onClick={onFit} title="Show this page's cards">Fit</Button> : null}
-        {board ? <Button onClick={onReset} title="Put this page's cards back where Timmy puts them">Reset layout</Button> : null}
-        <Button onClick={() => goTo('connect')} className="ta-sources">Sources &amp; models</Button>
-        <div className="ta-theme" role="group" aria-label="Theme">
-          {['amber', 'glacier'].map((t) => <button key={t} type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{t === 'amber' ? 'Amber' : 'Glacier'}</button>)}
+    <div className="ta-project-switch" ref={box}>
+      <button type="button" className="ta-project-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}
+        title={project ? project.root : 'The companion named no project'}>
+        <span className="ta-project-k">PROJECT</span>
+        <span className="ta-project-name">{project ? project.name : config ? 'none named' : 'reading…'}</span>
+        <span className="ta-project-caret" aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <div className="ta-project-menu" role="listbox" aria-label="Projects">
+          {list.length ? list.map((p) => (
+            <button key={p.id} type="button" role="option" aria-selected={!!project && project.root === p.root} disabled={running}
+              className="ta-project-opt" onClick={() => { setOpen(false); switchProject(p.id); }}>
+              <span>{p.name}</span>
+            </button>
+          )) : (
+            <p className="ta-project-none">
+              {!projects ? 'Asking the companion for your projects…'
+                : projects.status === 401 || projects.status === 403 || projects.status === 404 || projects.ok === false
+                  ? 'This companion follows one project (the folder Timmy was started in). Start Timmy in another folder to show another.'
+                  : 'No other project.'}
+            </p>
+          )}
+          {running ? <p className="ta-project-none">A turn is running: stop it before switching.</p> : null}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function Rail() {
+  const page = useApp((s) => s.page);
+  const drawer = useApp((s) => s.drawer);
+  return (
+    <nav className={`ta-rail${drawer ? ' is-open' : ''}`} aria-label="Timmy">
+      <div className="ta-rail-brand">
+        <span className="ta-mark" aria-hidden="true">T</span>
+        <span className="ta-rail-name">TIMMY</span>
+        <button type="button" className="ta-rail-close" aria-label="Close the menu" onClick={() => setDrawer(false)}>✕</button>
+      </div>
+      <ProjectSwitcher />
+      {GROUPS.map((g) => {
+        const pages = PAGES.filter((p) => p.group === g.id);
+        if (!pages.length) return null;
+        return (
+          <div key={g.id} className={`ta-rail-group ta-rail-${g.id}`} role="group" aria-label={g.label || (g.id === 'start' ? 'Start' : 'More')}>
+            {g.label ? <p className="ta-rail-label">{g.label}</p> : null}
+            {pages.map((p) => (
+              <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id}>
+                <span className="ta-rail-glyph" aria-hidden="true">{p.glyph}</span>
+                <span className="ta-rail-title">{p.title}</span>
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+// ── the top bar ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export function ThemeSwitch() {
+  const theme = useApp((s) => s.theme);
+  return (
+    <div className="ta-theme" role="group" aria-label="Theme">
+      {['amber', 'glacier'].map((t) => <button key={t} type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{t === 'amber' ? 'Amber' : 'Glacier'}</button>)}
+    </div>
+  );
+}
+
+export function Topbar() {
+  const page = useApp((s) => s.page);
+  const config = useApp((s) => s.config);
+  const p = pageOf(page);
+  return (
+    <header className="ta-topbar">
+      <button type="button" className="ta-menu" aria-label="Open the menu" onClick={() => setDrawer(true)}><span aria-hidden="true">☰</span></button>
+      <p className="ta-crumb"><span className="ta-crumb-root">{config && config.project ? config.project.name : 'Workspace'}</span><span className="ta-crumb-sep" aria-hidden="true">/</span><span className="ta-crumb-page">{p.title}</span></p>
+      <div className="ta-topbar-tools">
+        <ThemeSwitch />
       </div>
     </header>
   );
 }
 
-export function SummaryBand() {
-  const view = useApp((s) => s.view);
-  const turn = useApp((s) => s.turn);
-  const viewError = useApp((s) => s.viewError);
-  const choice = view && view.choice;
-  const ready = view && view.route && view.route.ready;
-  const turns = view && view.conversation && Array.isArray(view.conversation.turns) ? view.conversation.turns : [];
-  const last = [...turns].reverse().find((t) => t.kind === 'timmy' && t.receipt);
-  const running = turn && ['running', 'stopping'].includes(turn.phase);
-  const elsewhere = view && view.conversation && Array.isArray(view.conversation.running) ? view.conversation.running : [];
-  const where = view && view.route ? (view.route.kind === 'local' ? (view.route.cloud ? 'Ollama cloud' : 'this computer') : view.route.kind === 'openrouter' ? 'OpenRouter' : 'no route') : '';
+// ── the page frame ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One page. `actions` (the head's buttons: the primary first), `band` (cells: [label, value]… or null), `context` (the right
+ * column; its heading is the page's `context` word), `tools` (the page's tools row, under the work), `fill` (the work area
+ * takes the page's height: the Chat, the Canvas), `children` (the work area).
+ */
+export function Page({ id, actions, band, context, contextTitle, tools, fill = false, compact = fill, children, note }) {
+  const p = pageOf(id);
   return (
-    <section className="ta-band" aria-label="Summary">
-      <div className="ta-cell">
-        <p className="ta-cell-k">MODEL</p>
-        <p className="ta-cell-v">{!view ? (viewError || 'Reading…') : choice && choice.chosen ? <>{choice.model} <span className="ta-muted">· {where}</span></> : <span className="ta-muted">none chosen · Send is off</span>}</p>
+    <div className={`ta-page${fill ? ' is-fill' : ''}${compact ? ' is-compact' : ''}`} data-page={p.id}>
+      <header className="ta-head">
+        <div className="ta-head-words">
+          <p className="ta-kicker">{p.kicker}</p>
+          <h1 className="ta-title">{p.title}</h1>
+          <p className="ta-lead">{p.lead}</p>
+        </div>
+        {actions ? <div className="ta-head-actions">{actions}</div> : null}
+      </header>
+      {band && band.length ? (
+        <section className="ta-band" aria-label="Summary">
+          {band.map(([k, v], i) => (
+            <div key={`${k}-${i}`} className="ta-cell"><p className="ta-cell-k">{k}</p><div className="ta-cell-v">{v}</div></div>
+          ))}
+        </section>
+      ) : null}
+      {note ? <p className="ta-page-note" role="status">{note}</p> : null}
+      <div className={`ta-body${context ? ' has-context' : ''}`}>
+        <section className="ta-work" aria-label={p.title}>{children}</section>
+        {context ? (
+          <aside className="ta-context" aria-label={contextTitle || p.context}>
+            <p className="ta-context-k">{(contextTitle || p.context).toUpperCase()}</p>
+            {context}
+          </aside>
+        ) : null}
       </div>
-      <div className="ta-cell">
-        <p className="ta-cell-k">AGENT</p>
-        <p className="ta-cell-v">{elsewhere.length && !running ? <><StateWord word="working" /> <span className="ta-muted">in {surfaceWord(elsewhere[0].surface)} · since {clock(elsewhere[0].since)}</span></> : <StateWord word={activityOf(turn)} />} {turn && turn.tools && turn.tools.length ? <span className="ta-muted">· {turn.tools.length} tool event{turn.tools.length === 1 ? '' : 's'}</span> : null}{turn && turn.startedAt ? <span className="ta-muted"> · since {clock(turn.startedAt)}</span> : null}</p>
-      </div>
-      <div className="ta-cell">
-        <p className="ta-cell-k">PROOF</p>
-        <p className="ta-cell-v">{last ? <><span className={last.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{last.receipt.verified ? '✓ verified' : '✕ not verified'}</span> <code>{last.receipt.id}</code> <span className="ta-muted">· {clock(last.at)}</span></> : <span className="ta-muted">no sealed answer yet</span>}</p>
-      </div>
-      <div className="ta-band-act">
-        {running ? <Button onClick={stop} disabled={turn.phase === 'stopping'}>{turn.phase === 'stopping' ? 'Stopping…' : 'Stop the turn'}</Button>
-          : !ready ? <Button onClick={() => goTo('connect')}>Choose a model</Button>
-            : <Button onClick={newConversation}>New conversation</Button>}
-      </div>
+      {tools ? <div className="ta-toolsrow" role="toolbar" aria-label={`${p.title} tools`}>{tools}</div> : null}
+    </div>
+  );
+}
+
+/** A section of a page's work area (a panel in the Card Lab's dark material). */
+export function Panel({ title, kicker, tools, children, className = '', id }) {
+  return (
+    <section className={`ta-panel ${className}`} data-panel={id} aria-label={title}>
+      {title || tools ? (
+        <header className="ta-panel-head">
+          <div className="ta-panel-titles">{kicker ? <p className="ta-kicker">{kicker}</p> : null}{title ? <h2 className="ta-panel-title">{title}</h2> : null}</div>
+          {tools ? <div className="ta-panel-tools">{tools}</div> : null}
+        </header>
+      ) : null}
+      <div className="ta-panel-body">{children}</div>
     </section>
   );
 }
 
-export function StepColumn() {
-  const page = useApp((s) => s.page);
-  const note = useApp((s) => s.note);
-  const i = PAGES.findIndex((p) => p.id === page);
-  const p = PAGES[i] || PAGES[0];
-  const next = PAGES[i + 1];
+/** A tool on a tools row: a real action, or (no `onClick`) a named one that is not available here, said so. */
+export function Tool({ glyph, label, onClick, disabled, why, pressed, icon = false }) {
+  const off = !onClick || disabled;
   return (
-    <aside className="ta-column" aria-label={`Step ${p.n}`}>
-      <p className="ta-kicker">{p.kicker}</p>
-      <h1 className="ta-column-title">{p.title}</h1>
-      <p className="ta-lead">{p.lead}</p>
-      <ol className="ta-checklist">{p.steps.map((s) => <li key={s}>{s}</li>)}</ol>
-      {next ? <button type="button" className="ta-next" onClick={() => goTo(next.id)}>Next · {next.n} {next.title} →</button> : null}
-      <div className="ta-board-help">
-        <p className="ta-kicker">THE BOARD</p>
-        <p>Drag a card by its head; resize it from a corner. Draw, write and add notes beside the cards with the tools at the bottom. Your layout stays in this browser.</p>
-      </div>
-      {note ? <p className="ta-note" role="status">{note}</p> : null}
-    </aside>
+    <button type="button" className={`ta-tool${icon ? ' is-icon' : ''}`} onClick={onClick} disabled={off} aria-pressed={pressed} title={off && why ? `${label}: ${why}` : label} aria-label={label} data-tool={label}>
+      {glyph ? <span className="ta-tool-glyph" aria-hidden="true">{glyph}</span> : null}
+      <span className="ta-tool-label">{label}</span>
+      {off && why ? <span className="ta-tool-why">{why}</span> : null}
+    </button>
+  );
+}
+
+// ── the records dock ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const subscribeLog = (fn) => onRequest(fn);
+let logVersion = 0;
+onRequest(() => { logVersion += 1; });
+const useLogVersion = () => useSyncExternalStore(subscribeLog, () => logVersion);
+
+export function Dock() {
+  const open = useApp((s) => s.dock);
+  useLogVersion();
+  const [source, setSource] = useState('local');
+  const lines = requestLog();
+  const last = lines[lines.length - 1];
+  const failed = lines.filter((l) => l.status === 0 || l.status >= 400).length;
+  return (
+    <section className={`ta-dock${open ? ' is-open' : ''}`} aria-label="Records">
+      <button type="button" className="ta-dock-bar" aria-expanded={open} onClick={() => setDock(!open)}>
+        <span className="ta-dock-k">RECORDS</span>
+        <span className="ta-dock-sum">{lines.length} request{lines.length === 1 ? '' : 's'} to the companion{failed ? ` · ${failed} not ok` : ''}</span>
+        {last ? <span className="ta-dock-last"><code>{last.method} {last.path.split('?')[0]}</code> {last.status || 'no answer'} · {last.ms} ms · {clock(last.at)}</span> : null}
+        <span className="ta-dock-caret" aria-hidden="true">{open ? '▾' : '▴'}</span>
+      </button>
+      {open ? (
+        <div className="ta-dock-body">
+          <div className="ta-dock-head">
+            <div className="ta-seg" role="group" aria-label="Which records">
+              <button type="button" aria-pressed={source === 'local'} onClick={() => setSource('local')}>Local</button>
+              <button type="button" aria-pressed={source === 'cloudflare'} onClick={() => setSource('cloudflare')}>Cloudflare</button>
+            </div>
+            <p className="ta-muted">{source === 'local' ? 'This page’s own requests to the companion on this computer, newest last. The token rides in a header, never in these paths.' : 'Not connected here: this build reads no Cloudflare logs. Nothing below is from Cloudflare.'}</p>
+          </div>
+          {source === 'local' ? (
+            <ol className="ta-dock-lines">
+              {lines.slice(-60).map((l, i) => (
+                <li key={`${l.at}-${i}`} className={l.status === 0 || l.status >= 400 ? 'is-bad' : ''}>
+                  <span className="ta-when">{clock(l.at)}</span><code>{l.method}</code><code className="ta-dock-path">{l.path}</code><span>{l.status || 'no answer'}</span><span className="ta-muted">{l.ms} ms</span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+// ── the status footer ───────────────────────────────────────────────────────────────────────────────────────────────────
+
+export function Footer() {
+  const config = useApp((s) => s.config);
+  const license = useApp((s) => s.license);
+  const canvasIo = useApp((s) => s.canvasIo);
+  const project = config && config.project ? config.project.name : null;
+  return (
+    <footer className="ta-footer">
+      <span>Local workspace{project ? ` · ${project}` : ''}</span>
+      <span className="ta-footer-sep" aria-hidden="true">·</span>
+      <span title={license ? license.words : ''}>Canvas licence: {license ? license.state : 'read when the Canvas opens'}</span>
+      <span className="ta-footer-sep" aria-hidden="true">·</span>
+      <button type="button" className="ta-footer-btn" disabled={!canvasIo} onClick={() => canvasIo && canvasIo.export()} title={canvasIo ? 'Save this project’s canvas as a file' : 'Open the Canvas first'}>Export canvas</button>
+      <button type="button" className="ta-footer-btn" disabled={!canvasIo} onClick={() => canvasIo && canvasIo.import()} title={canvasIo ? 'Open a canvas file into this project’s canvas' : 'Open the Canvas first'}>Import</button>
+      <span className="ta-footer-right">tldraw {config && config.tldrawVersion ? config.tldrawVersion : ''}</span>
+    </footer>
   );
 }

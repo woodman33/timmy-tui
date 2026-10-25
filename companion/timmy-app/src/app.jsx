@@ -1,21 +1,24 @@
-// R12 (the operator's order of 2026-10-25, 03:04 PT): the Timmy app — Timmy's main UI on a tldraw board with the Rive faces.
-// Served by the browser companion at /app (src/companion/timmy-app.ts), opened by `timmy app` with the companion's token, and
-// bundled on this machine by scripts/canvas/build-app.mjs. It reads and acts only through the companion's own routes (./store.js).
+// R12 (the operator's order of 2026-10-25, 03:04 PT, and the finish brief): the Timmy app — Timmy's main UI in one shell (the
+// permanent left rail, the top bar, the page, the records dock and the status footer: ./shell.jsx), its pages (./pages/*), the
+// Canvas a licensed tldraw desk with Timmy's native Rive components. Served by the browser companion at /app
+// (src/companion/timmy-app.ts), opened by `timmy app` with the companion's token, bundled on this machine by
+// scripts/canvas/build-app.mjs. It reads and acts only through the companion's own routes (./store.js).
 import { createRoot } from 'react-dom/client';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { OPEN_FROM_TIMMY, TOKEN, call, onRefused, refusal } from './api.js';
-import { Board, fitPage, resetLayout } from './board.jsx';
-import { cardsOf } from './cards.jsx';
-import { StepColumn, SummaryBand, TopStrip } from './shell.jsx';
-import { getState, loadConfig, loadModels, refreshView, setTheme, useApp } from './store.js';
+import { pageOf } from './nav.js';
+import { Dock, Footer, Rail, Topbar } from './shell.jsx';
+import { getState, loadConfig, loadModels, refreshView, setDrawer, setTheme, useApp } from './store.js';
+import ChatPage from './pages/chat.jsx';
+import ModelsPage from './pages/models.jsx';
+import CanvasPage from './pages/canvas.jsx';
+import { PAGE_PARTS } from './pages/index.js';
 import './app.css';
 
 // the Rive bindings read the page's requests through TimmyShell.fetch (the launch token rides; rive-bindings.js listing())
 window.TimmyShell = { fetch: (path, init) => call(path, init) };
 
-const NARROW = '(max-width: 760px)';
-const subscribeNarrow = (fn) => { const m = matchMedia(NARROW); m.addEventListener('change', fn); return () => m.removeEventListener('change', fn); };
-const useNarrow = () => useSyncExternalStore(subscribeNarrow, () => matchMedia(NARROW).matches);
+const DRAWN = { chat: ChatPage, models: ModelsPage, canvas: CanvasPage, ...PAGE_PARTS };
 
 function Refused({ words }) {
   return (
@@ -28,24 +31,12 @@ function Refused({ words }) {
   );
 }
 
-function Column() {
-  const page = useApp((s) => s.page);
-  const theme = useApp((s) => s.theme);
-  return (
-    <div className="ta-stack">
-      {cardsOf(page).map(({ id, C }) => <div key={id} className="ta-stack-card"><C theme={theme} /></div>)}
-    </div>
-  );
-}
-
 function App() {
-  const config = useApp((s) => s.config);
-  const narrow = useNarrow();
+  const page = useApp((s) => s.page);
+  const drawer = useApp((s) => s.drawer);
   const [refused, setRefused] = useState(refusal());
-  const [editor, setEditor] = useState(null);
   useEffect(() => onRefused(setRefused), []);
-  // (a column has no board: a card is brought into view by scrolling, ./cards.jsx showCard)
-  useEffect(() => { if (narrow && window.timmyApp) window.timmyApp = null; }, [narrow]);
+  useEffect(() => { document.title = `${pageOf(page).title} · Timmy`; }, [page]);
   useEffect(() => {
     let stopped = false;
     let timer = 0;
@@ -67,15 +58,18 @@ function App() {
     return () => { stopped = true; clearTimeout(timer); };
   }, []);
   if (refused) return <Refused words={refused} />;
+  const Current = DRAWN[page] || ChatPage;
   return (
-    <div className={`ta-app${narrow ? ' is-narrow' : ''}`}>
-      <TopStrip board={!narrow} onFit={() => editor && fitPage(editor, getState().page)} onReset={() => editor && resetLayout(editor, getState().page)} />
-      <SummaryBand />
+    <div className={`ta-app${drawer ? ' has-drawer' : ''}`}>
+      <Rail />
+      {drawer ? <button type="button" className="ta-scrim" aria-label="Close the menu" onClick={() => setDrawer(false)} /> : null}
       <div className="ta-main">
-        <StepColumn />
-        <main className="ta-stage" aria-label="Timmy's board">
-          {narrow ? <Column /> : config && config.ok ? <Board licenseKey={config.licenseKey} onEditor={setEditor} /> : <p className="ta-empty ta-pad">{config ? config.error || 'The companion did not answer.' : 'Opening the board…'}</p>}
+        <Topbar />
+        <main className="ta-pagewrap" id="ta-page">
+          <Suspense fallback={<p className="ta-pad ta-muted">Opening…</p>}><Current key={page} /></Suspense>
         </main>
+        <Dock />
+        <Footer />
       </div>
     </div>
   );
@@ -84,3 +78,4 @@ function App() {
 setTheme(getState().theme);
 const root = createRoot(document.getElementById('app'));
 root.render(TOKEN ? <App /> : <Refused words={`This page has no token, so it reads nothing. ${OPEN_FROM_TIMMY}`} />);
+export { lazy };
