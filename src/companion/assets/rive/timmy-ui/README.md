@@ -58,6 +58,22 @@ success value), `Hover`, `Pressed`, `ReducedMotion` Bool.
 Every binding event records the word AND the native input it set; the Inspect view lists them with the backend source
 that set each state, the identity the feed named (project / session / turn), and the receipt a `done` event attached.
 
+## The production face carries one thing (round 7, the operator's item 4 of 2026-10-24 19:18)
+
+A face a screen mounts through `TimmyRive.mountConsole` / `mountProviderCard` is a PRODUCTION face (`handle.mounted`). It carries
+the state and nothing else: the HTML state word is its headline in every pose (`Headline{Idle|Working|Approval|Stopped|Failed}`
+all read the same string the status label beside the face reads — "checked", "awaiting approval" — never a capitalised twin or a
+second vocabulary) and the mark the state animates; `Title`, `Tag`, `Caption`, a card's `ProviderName` / `ProviderState` /
+`ProviderDetail` and the console's `Line{pose}` read `""` at every size. The HTML beside it keeps the accessible semantics: the
+face is `role="img"` with `aria-label` = the state word (+ ` · ` + the provider's name on a card), the status span is the live
+region (`aria-live="polite"`); a screen whose own words sit beside the face asks the mount for `words: 'spoken'`, which keeps the
+status in the accessibility tree and off the screen while the face is drawn (never `display: none`, which silences it) and beside
+the fallback glyph while it is not. This is a runtime rule (runs and labels: `rive-bindings.js applyRuns`), not a rebuild — the
+artboards are unchanged. The Inspect view's faces (the preview artboards) and the Studio's `timmy-rive` shape are not mounts and
+draw the artboard as authored: the Inspect view is the place to read a face; the shape's `AS SAVED / NOT A LIVE JOB` caption is a
+truth marker. The ActionButton is untouched (its `Caption` is its own label; its HTML twin stands). `CONTRACT.json
+consumers.production` is the rule in full; `inspect().runs.production` reports it per face.
+
 ## The feed's identity (round 7)
 
 A `turn` event names the console's current turn (`data.id`); a `needs-you` or `done` whose `data.turn` is another turn's

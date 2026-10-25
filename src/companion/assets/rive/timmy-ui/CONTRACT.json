@@ -1,7 +1,7 @@
 {
   "name": "timmy-ui",
   "version": 2,
-  "status": "served: the v2 build of commit 44c4605f's source — this folder's source (R11 round 7, H174)",
+  "status": "served: the v2 build of commit 44c4605f's source — this folder's source (R11 round 7, H174); the consumers' rule `production` (the operator's item 4 of 2026-10-24 19:18) is runtime-only — no rebuild",
   "asset": {
     "file": "timmy-ui.riv",
     "contractOfTheServedFile": 2,
@@ -65,11 +65,11 @@
       ],
       "role": "the turn's activity",
       "runs": {
-        "Title": "TIMMY  /  AGENT CONSOLE",
-        "Tag": "NATIVE RIVE UI → the page sets the turn's identity words",
-        "Caption": "'' → the page sets LIVE  /  THE TURN’S EVENTS",
-        "HeadlineIdle…HeadlineFailed": "the authored headline per state (baked in its state group)",
-        "LineIdle…LineFailed": "the authored line per state"
+        "Title": "TIMMY  /  AGENT CONSOLE (baked; '' on a production mount — consumers.production)",
+        "Tag": "NATIVE RIVE UI → the turn's identity words on an Inspect face; '' on a production mount",
+        "Caption": "'' → LIVE  /  THE TURN’S EVENTS on a non-mount face the feed set; PREVIEW on the preview artboard; '' on a production mount",
+        "HeadlineIdle…HeadlineFailed": "the authored headline per state (baked in its state group); on a production mount every one reads the HTML state word",
+        "LineIdle…LineFailed": "the authored line per state; '' on a production mount"
       },
       "listeners": []
     },
@@ -80,13 +80,13 @@
       ],
       "role": "one provider's connection",
       "runs": {
-        "Title": "TIMMY  /  PROVIDERS",
-        "Tag": "NATIVE RIVE UI → the page's words",
-        "Caption": "'' → the page sets LIVE  /  GET /api/connections",
-        "ProviderName": "Provider → OpenRouter · Ollama · local · Ollama · cloud · Cloudflare (ONE run, outside the state groups: v1's five same-named subtitle runs are gone)",
-        "ProviderState": "'' → the state word",
-        "ProviderDetail": "'' → the page's one line",
-        "HeadlineIdle…HeadlineFailed": "the authored headline per state"
+        "Title": "TIMMY  /  PROVIDERS (baked; '' on a production mount — consumers.production)",
+        "Tag": "NATIVE RIVE UI → the page's words on an Inspect face; '' on a production mount",
+        "Caption": "'' → LIVE  /  GET /api/connections on a non-mount face the feed set; PREVIEW on the preview artboard; '' on a production mount",
+        "ProviderName": "Provider → OpenRouter · Ollama · local · Ollama · cloud · Cloudflare on an Inspect face (ONE run, outside the state groups: v1's five same-named subtitle runs are gone); '' on a production mount — the name is in the face's aria-label",
+        "ProviderState": "'' → the observed state word on an Inspect face; '' on a production mount (the headline carries it)",
+        "ProviderDetail": "'' → the page's one line on an Inspect face; '' on a production mount (the screen's HTML carries it)",
+        "HeadlineIdle…HeadlineFailed": "the authored headline per state; on a production mount every one reads the HTML state word"
       },
       "listeners": []
     },
@@ -183,15 +183,23 @@
     }
   },
   "consumers": {
-    "mountApi": "window.TimmyRive.mountConsole(host, { size, label, heading, name, place, identity: { project, session }, caption }) · mountProviderCard(host, providerId, { size, label, name, place, providerName, detail }) · mountActionButton(host, { label, action, disabled, name, place, theme })",
-    "handle": "root, unmount(), setLabel(words) (writes Caption), setDisabled(bool), setProvider({ name, detail }) on a card, place",
+    "mountApi": "window.TimmyRive.mountConsole(host, { size, words, label, heading, name, place, identity: { project, session }, caption }) · mountProviderCard(host, providerId, { size, words, label, name, place, providerName, detail }) · mountActionButton(host, { label, action, disabled, name, place, theme }); `words`: 'beside' (the default: the HTML status word beside the face) | 'spoken' (the status in the accessibility tree and off the screen while the face is drawn — a screen whose own words sit beside the face); a console's or card's `label`, `caption`, `identity` and `detail` are accepted and kept on the handle (the Inspect view reads them) — a production face draws none of them (consumers.production)",
+    "handle": "root, unmount(), setLabel(words) (an ActionButton's Caption; a console's or card's state word and headline), setDisabled(bool), setProvider({ name, detail }) on a card (the name goes to the face's aria-label), place, mounted",
     "feeds": "fromSse(event, data, source) · fromProviderState(id, word, source) · stopping(source) · reconcile(word, { turn, source })",
     "identity": "a 'turn' event names the feed's current turn (data.id); 'needs-you' / 'done' of another turn are ignored as stale (recorded, never applied); 'done'.receipt is attached to the handle; stopping = STOP REQUESTED until 'done' cancelled",
     "shape": "timmy-rive props { w, h, component, state, label, provider } unchanged; AS SAVED / NOT A LIVE JOB until a feed event reaches it on its page",
     "versions": "the bindings tell v1 from v2 by the runs present (v2: Caption on every production artboard); v1's runtime workarounds (the caption overwrite, the scaled pill) apply to a v1 file only",
-    "label": "the face's HTML label shows the OBSERVED word the feed gave (fromProviderState's stateWord: H170's \"checked\" / \"pending\" / …; the derivation's data-state), never the vocabulary's word beside it (R86: one word per card); the vocabulary word stays the State mapping (data-state, the shape's saved prop, inspect().word); inspect().shown and the label's data-observed say the observed word when it differs",
-    "headline": "no success pose is authored (connected = the Idle pose), so a connected card's Idle headline run (HeadlineIdle, v2's named run — no new run needed) is set to the observed word as a headline (\"Checked\") while connected and back to its baked \"Choose your connection\" otherwise (R86)",
-    "smallFace": "under 320 CSS px of face (measured by the mount's ResizeObserver) the small runs Title / Tag / Caption of a production AgentConsole or ProviderCard are set to \"\" and restored above it (R97: 5–6 px of type at the band's 300 px); the Inspect view's faces keep theirs; inspect().runs.small says { below: 320, faceWidth, hidden }"
+    "label": "the face's HTML label (span.tr-status, aria-live=polite: the live region) shows the OBSERVED word the feed gave (fromProviderState's stateWord: H170's \"checked\" / \"pending\" / …; the derivation's data-state), never the vocabulary's word beside it (R86: one word per card); the vocabulary word stays the State mapping (data-state, the shape's saved prop, inspect().word); inspect().shown and the label's data-observed say the observed word when it differs",
+    "production": {
+      "rule": "the operator's item 4 (2026-10-24 19:18; the lead's ruling of 19:24): a PRODUCTION face — one a screen mounts through mountConsole / mountProviderCard (handle.mounted; inspect().mounted) — carries ONE thing, the state: the HTML state word as its headline in EVERY pose and the mark the state animates. Runtime-only (runs and labels): no rebuild; the artboards are unchanged",
+      "headline": "Headline{Idle|Working|Approval|Stopped|Failed} all read labelWord(handle) — the IDENTICAL string the HTML status reads (\"checked\", \"pending\", \"not set up\", \"idle\", \"working\", \"awaiting approval\", \"stopping\", \"stopped\", \"failed\"): no capitalised twin, no second vocabulary; a pose change keeps the word and moves the mark (f165d8c7's \"Checked\" on HeadlineIdle only is superseded)",
+      "hidden": "Title, Tag, Caption read \"\" at EVERY size (f165d8c7's 320-px threshold is superseded); on a ProviderCard ProviderName, ProviderState, ProviderDetail read \"\" too (the state is the headline; the provider's name is the card's HTML title and the face's aria-label); on the AgentConsole Line{pose} reads \"\"; the ActionButton is untouched (its Caption is its own label)",
+      "accessibleName": "a mounted role=img face's aria-label is the state word (the console: \"working\"), with the provider's name after it on a card (\"checked · OpenRouter\" — mountProviderCard's providerName / setProvider({ name }), else the id's own words); it follows every state change; a mounted ActionButton keeps its own label as its name (a button's name is its action; its HTML twin is unchanged)",
+      "liveRegion": "the status span beside the face stays the live region (aria-live=polite, the same word as the headline); with `words: 'spoken'` it is off the screen while the face is drawn and beside the fallback glyph while it is not (rive-components.css: .tr-mount[data-words=spoken][data-rive=drawn] .tr-status) — a screen must never display:none it (that silences the announcement)",
+      "sameString": "the face's headline run and the HTML status word are compared equal by the suite (tests/companion-rive-browser.test.ts): one word, drawn once legibly — on the face where it is large enough, in the HTML where the screen keeps it",
+      "notProduction": "the Inspect view's faces (the preview artboards) and the Studio's timmy-rive shape are not mounts: they draw the artboard as authored — Title / Tag / Caption (PREVIEW · AS SAVED / NOT A LIVE JOB · LIVE), ProviderName / ProviderState / ProviderDetail, the baked headlines and lines; the Inspect view is the place to read a face",
+      "inspect": "inspect().runs.production = { headline, hidden: [the run names set to \"\"], faceWidth, note }; inspect().runs.headline.poses and .line.poses read every pose's run back; inspect().faceName is the face's aria-label; inspect().mounted / .words"
+    }
   },
   "meta": {
     "name": "timmy-ui",
