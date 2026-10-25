@@ -314,9 +314,11 @@
     const raw = (st.textContent || '').trim();
     const live = Boolean(dot && dot.classList.contains('is-live'));
     const state = dot ? dot.dataset.state || '' : '';
-    let words = 'Companion: connecting…';
-    if (/CONNECTED/.test(raw) || live) words = 'Companion answering';
-    else if (/LOST|CLOSED|RECONNECT/i.test(raw) || state === 'lost') words = 'Companion not answering · reconnecting';
+    // the operator's 19:18 order (7): the live word is the SOCKET only — connected (green only while it is observed open) or
+    // offline — never a turn's activity ("answering"): that is the Chat's console band word and the band's Records cell
+    let words = 'Companion connecting…';
+    if (/CONNECTED/.test(raw) || live) words = 'Companion connected';
+    else if (/LOST|CLOSED|RECONNECT/i.test(raw) || state === 'lost') words = 'Companion offline · reconnecting';
     else if (/NEEDS ITS TOKEN/i.test(raw)) words = launchToken() ? 'Token refused · open the page from Timmy again' : 'No token · open the page from Timmy';
     else if (/REFUSED/i.test(raw)) words = 'Companion refused this page';
     else if (raw) words = raw.replace(/^COMPANION SOCKET · /, 'Companion: ').toLowerCase().replace(/^companion: /, 'Companion: ');
