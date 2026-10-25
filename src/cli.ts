@@ -48,6 +48,8 @@ Usage: timmy <command> [options]
        timmy            with no command, opens the REPL
 
 Commands:
+  app             Timmy's main UI in your browser: a board of cards (tldraw) with live faces (Rive): models, chat, receipts
+                  (starts the companion on 127.0.0.1 and opens it with its token; o opens it again, q stops; --port, --no-open)
   repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
   watch           The full-screen monitor (the Command Post); its browser companion is on 127.0.0.1 (q on HOME shows its address
                   with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust);
@@ -162,7 +164,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'workspace', 'connect', 'cloud', 'fleet', 'decide'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['app', 'vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'workspace', 'connect', 'cloud', 'fleet', 'decide'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -516,6 +518,13 @@ if (command === 'studio') {
   // Plan F-4: Timmy Canvas, the tldraw canvas the agent drives through the bridge.
   const { runStudio } = await import('./studio/cli.js');
   process.exit(await runStudio(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [])));
+}
+
+if (command === 'app') {
+  // R12 (the operator's 03:04 order): Timmy's main UI — the Timmy app, a tldraw board of cards with the Rive faces — opened from
+  // the terminal: the companion starts on this computer and the browser opens /app with its token (src/app/launch.ts)
+  const { runApp } = await import('./app/launch.js');
+  process.exit(await runApp(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [])));
 }
 
 if (command === 'watch') {

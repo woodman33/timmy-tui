@@ -557,7 +557,11 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
     if (!project) { answer(res, { ok: false, error: sc.unknown }, 404); return; }
     try {
       const env = sc.env;
-      const local = await companionCatalog('ollama-local', env, { fresh: req.query.fresh === '1' });
+      // R12 (the operator's 02:34 answer: "offer users ollama models and cloud models … by detecting on their computers with
+      // permissions"): ?local=skip — a page that has not been given that permission yet (the Timmy app) asks Ollama nothing here
+      const local: CatalogRead = req.query.local === 'skip'
+        ? { rows: [], from: 'none', words: 'Not asked: this page has not been given permission to look for models on this computer yet.' }
+        : await companionCatalog('ollama-local', env, { fresh: req.query.fresh === '1' });
       const providers = companionProviders(env, sc.cwd, local.observed);
       const { route, choice } = pageChoice(env, pageRoute(env, sc.cwd), local, providers);
       answer(res, {

@@ -152,6 +152,7 @@ import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
 import { mountChatRun } from './chat-run.js';
+import { mountTimmyApp } from './timmy-app.js';
 import { tildePath } from '../utils/home-scrub.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -873,6 +874,16 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R11 round 5 (H174, contract 23:52): the Rive components' listing (GET /api/rive/assets: each component's .riv when it is
   // here, its editable source beside it) and their files (/assets/rive/<component>/<file>), for the page's Inspect animation view
   mountRiveAssets(app, { withToken, withUser: withUserOrOperator });
+  // R12 (the operator's 03:04 order): the Timmy app — the main UI as a tldraw board of cards with the Rive faces — at /app; it
+  // reads and acts through the routes above with the same token (src/companion/timmy-app.ts)
+  mountTimmyApp(app, {
+    withToken, withUser: withUserOrOperator, env: chatEnv(),
+    projectOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const p = u && !u.operator ? userProjectOf(req) : projectFor(req);
+      return p ? { name: p.name, root: p.root } : null;
+    },
+  });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.

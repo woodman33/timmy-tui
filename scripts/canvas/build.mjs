@@ -58,11 +58,11 @@ function bundledPackages(root, metafile, licenses) {
   }).sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
 }
 
-function notices(root, packages) {
+function notices(root, packages, title = 'Timmy Canvas', files = 'dist/canvas.js and dist/canvas.css') {
   const out = [
-    '# Third-party notices for Timmy Canvas',
+    `# Third-party notices for ${title}`,
     '',
-    'Timmy Canvas (dist/canvas.js and dist/canvas.css) bundles the packages below. Each section is the',
+    `${title} (${files}) bundles the packages below. Each section is the`,
     "package's own license file, as it ships in the package. tldraw's packages point to the tldraw",
     'license, whose full text is LICENSE-tldraw.md beside this file.',
     '',
@@ -83,7 +83,7 @@ function notices(root, packages) {
  * that ships none. Without them the build is not distributable, and `missing` says why. The license
  * key is never read here: the server hands it to the page at run time.
  */
-export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR, 'dist'), { licenses = join(root, CANVAS_DIR) } = {}) {
+export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR, 'dist'), { licenses = join(root, CANVAS_DIR), entry = join(root, CANVAS_DIR, 'src', 'canvas.js'), name = 'canvas', title = 'Timmy Canvas' } = {}) {
   const modules = join(root, 'node_modules');
   const versions = {
     tldraw: readJson(join(modules, 'tldraw', 'package.json')).version,
@@ -102,7 +102,7 @@ export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR
   mkdirSync(out, { recursive: true });
   const result = await build({
     absWorkingDir: root,
-    entryPoints: { canvas: join(root, CANVAS_DIR, 'src', 'canvas.js') },
+    entryPoints: { [name]: entry },
     outdir: out,
     bundle: true,
     format: 'esm',
@@ -112,6 +112,8 @@ export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR
     legalComments: 'eof',
     metafile: true,
     logLevel: 'error',
+    // R12 (the Timmy app, companion/timmy-app): its .jsx files use React's automatic runtime (canvas.js has none)
+    jsx: 'automatic',
     // React's production build. tldraw still treats http://127.0.0.1 as development (no tracking,
     // every feature), by its own check of the page's address.
     define: { 'process.env.NODE_ENV': '"production"', __TLDRAW_VERSION__: JSON.stringify(versions.tldraw) },
@@ -126,7 +128,7 @@ export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR
   for (const p of packages) {
     if (p.licenseFile === null) missing.push(`${keptLicenseName(p.name)}: ${p.name} ${p.version} ships no license file; its repository's, verbatim`);
   }
-  writeFileSync(join(out, 'THIRD-PARTY-NOTICES.md'), notices(root, packages));
+  writeFileSync(join(out, 'THIRD-PARTY-NOTICES.md'), notices(root, packages, title, `dist/${name}.js and dist/${name}.css`));
   const listed = packages.map(({ dir, licenseFile, ...p }) => ({ ...p, licenseFile: licenseFile && licenseFile.slice(licenseFile.lastIndexOf('/') + 1) }));
   const distributable = missing.length === 0;
   writeFileSync(join(out, 'versions.json'), `${JSON.stringify({ ...versions, distributable, missing, packages: listed }, null, 2)}\n`);
