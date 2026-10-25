@@ -681,10 +681,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     ensureOpenRouterApiKey();
     return process.env;
   };
-  // R4 (H104, second part): the chat's route, as the page shows it beside Send (src/companion/chat-route.ts; never a key)
-  app.get('/api/chat/route', withToken, (_req, res) => {
-    res.set('Cache-Control', 'no-store').json(pageRoute(chatEnv(), process.cwd()));
-  });
+  // R4 (H104, second part): the chat's route, as the page shows it beside Send (src/companion/chat-route.ts; never a key).
+  // R11 round 7 (the lead; GATE 06 on 1c9bbebb, the operator's 19:18 item 2 — the mobile Continue): the route is the
+  // PRINCIPAL's, so it is registered below, once withUserOrOperator and the user's project exist (see "the shell's route").
 
   // R11 round 4 (H169; the operator's order of 2026-10-23 19:17, contract C3): the page's raw POST /chat stream (a fetch to
   // OpenRouter's chat/completions, streamLocalChat for Ollama: no tools, no NEEDS YOU gate, no turn hold, no receipt) is
@@ -845,6 +844,17 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     const u = (req as express.Request & { user?: Principal }).user;
     return !u || u.operator ? projectFor(req) : userProjectOf(req);
   };
+  // R11 round 7 (the lead; GATE 06 on 1c9bbebb — the operator's 19:18 item 2, the mobile Continue): the shell's route.
+  // GET /api/chat/route answered the COMPANION's own route (chatEnv(), this process's cwd) whoever asked, so a signed-in
+  // user whose own route was ready (a model chosen on the user's project) read { ready: false } from the companion's env
+  // and shell.js land() kept the page on Models & accounts. The route is the PRINCIPAL's, exactly as /api/chat/view reads
+  // it (chat-view scopeOf): a user's project under the user's env; the operator's the companion's own.
+  app.get('/api/chat/route', withToken, withUserOrOperator, (req, res) => {
+    const u = (req as express.Request & { user?: Principal }).user;
+    const own = u && !u.operator ? userProjectOf(req) : null;
+    const env = u && !u.operator ? identity.envOf(req) : chatEnv();
+    res.set('Cache-Control', 'no-store').json(pageRoute(env, own ? own.root : process.cwd()));
+  });
   // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models,
   // /choose) — for the user's project under the user's env when the request carries a session
   mountChatView(app, {

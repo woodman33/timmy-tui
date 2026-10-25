@@ -78,7 +78,8 @@ describe.skipIf(!browserPath)('Studio in small and ordinary windows, and its unf
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}/#code=${await grant(port, server.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
-    await page.waitForFunction(() => document.querySelectorAll('#frame-tabs li').length === 10 && Boolean(document.getElementById('frame')?.dataset.revision), null, { timeout: 30_000 });
+    // (R11 round 7, H176 / D14 R75: the strip draws no tabs; the frame is drawn once it carries a revision and its steps, in the panel)
+    await page.waitForFunction(() => document.querySelectorAll('#frame-acts li').length > 0 && Boolean(document.getElementById('frame')?.dataset.revision), null, { timeout: 30_000 });
     await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
     // the strip and the canvas settle (the canvas follows the strip's height a frame later)
     await page.waitForFunction(() => Math.abs(document.getElementById('root')!.getBoundingClientRect().top - document.getElementById('frame')!.getBoundingClientRect().bottom) <= 1, null, { timeout: 5_000 });
@@ -103,14 +104,16 @@ describe.skipIf(!browserPath)('Studio in small and ordinary windows, and its unf
     };
     const shown = (e: Element): boolean => { const s = getComputedStyle(e); const b = e.getBoundingClientRect(); return s.display !== 'none' && s.visibility !== 'hidden' && b.width > 0 && b.height > 0; };
     const lineHeight = (e: Element): number => parseFloat(getComputedStyle(e).lineHeight) || 18;
-    // every tab whole, with its key, on one line (never broken inside its label)
-    const tabs = [...document.querySelectorAll('#frame-tabs li')].map((li) => ({
-      text: (li.textContent ?? '').replace(/\s+/g, ' ').trim(), key: li.querySelector('.fr-key')?.textContent ?? '',
-      whole: inside(li.getBoundingClientRect()) && unclipped(li), oneLine: li.getBoundingClientRect().height <= lineHeight(li) + 4,
+    // R11 round 7 (H176; D14 R75): the strip is one row — the mark, ← Back to Timmy, the crumb, the theme switch — and no tabs;
+    // each of its parts whole, on one line
+    const stripParts = [...document.querySelectorAll('#frame-back, #frame-brand, #frame-theme')].map((e) => ({
+      id: e.id, whole: inside(e.getBoundingClientRect()) && unclipped(e), oneLine: e.getBoundingClientRect().height <= lineHeight(e) + 10,
     }));
+    const tabs = document.querySelectorAll('#frame-tabs li, #frame-unf, #frame-unf-toggle').length;
     // every action whole: its number, its label, and its Copy (or the draft's Go to the draft). R10 (H167; the round's rule: raw
     // commands in a secondary inspector): its command is shown only while the strip's Commands is open, never on its face
-    const acts = [...document.querySelectorAll('#frame-acts li')].map((li) => ({
+    // (R11 round 7, H176: the next step shows alone at first — the ones shown are measured)
+    const acts = [...document.querySelectorAll('#frame-acts li')].filter((li) => shown(li)).map((li) => ({
       text: (li.textContent ?? '').replace(/\s+/g, ' ').trim(),
       whole: [...li.querySelectorAll('.fr-n, .fr-label, button.fr-copy, button.fr-go')].every((x) => inside(x.getBoundingClientRect()) && unclipped(x))
         && [...li.querySelectorAll('code.fr-cmd')].every((x) => !shown(x)),
@@ -141,24 +144,25 @@ describe.skipIf(!browserPath)('Studio in small and ordinary windows, and its unf
         if (hit && hit.closest('.tl-canvas') && !hit.closest('.tlui-layout')) board += 1;
       }
     }
-    return { tabs, acts, counts, shortened, lineInside: inside(line.getBoundingClientRect()) || line.getBoundingClientRect().right <= vw + 0.5, small, overToolbar, guideOver, guide: !!guide,
+    return { tabs, stripParts, acts, counts, shortened, lineInside: inside(line.getBoundingClientRect()) || line.getBoundingClientRect().right <= vw + 0.5, small, overToolbar, guideOver, guide: !!guide,
       boardShare: Math.round((board / all) * 1000) / 1000, folded: document.getElementById('side')!.dataset.folded, toolbar: !!toolbar,
       strip: Math.round(document.getElementById('frame')!.getBoundingClientRect().height) };
   });
 
   for (const size of SIZES) {
-    it(`at ${size.width} x ${size.height}: every tab whole on one line with its key, every action whole, the activity inside the window, no panel over the board's toolbar, Timmy's text 11 px or more, and the board at least ${BOARD_FLOOR * 100}% of the window`, async () => {
+    it(`at ${size.width} x ${size.height}: the strip one row without tabs, every action whole, the activity inside the window, no panel over the board's toolbar, Timmy's text 11 px or more, and the board at least ${BOARD_FLOOR * 100}% of the window`, async () => {
       const { page, context, errors } = await open(size);
       const where = `${size.width}x${size.height}`;
       try {
         const m = await measure(page);
         console.info(`studio-small-window ${where}: board ${Math.round(m.boardShare * 100)}% of the window, strip ${m.strip} px, lists ${m.folded === 'true' ? 'folded' : 'open'}`);
         await shoot(page, `small-window-${where}.png`);
-        expect(m.tabs.map((t) => t.key), where).toEqual(TABS.map((t) => t.key));
-        expect(m.tabs.filter((t) => !t.whole || !t.oneLine).map((t) => t.text), where).toEqual([]);
-        // each tab's whole label, from the frame (the unfinished ones with their mark)
-        expect(m.tabs.map((t) => t.text), where).toEqual(TABS.map((t) => `${t.key} ${t.label}${t.unfinished ? ' ◌' : ''}`));
-        expect(m.acts.length, where).toBe(4);
+        // the strip: no tabs' row (D14 R75), its parts whole on one row, and the row at most 48 px
+        expect(m.tabs, where).toBe(0);
+        expect(m.stripParts.map((x) => x.id), where).toEqual(['frame-back', 'frame-brand', 'frame-theme']);
+        expect(m.stripParts.filter((x) => !x.whole || !x.oneLine).map((x) => x.id), where).toEqual([]);
+        expect(m.strip, where).toBeLessThanOrEqual(48);
+        expect(m.acts.length, where).toBeGreaterThanOrEqual(1);
         expect(m.acts.filter((a) => !a.whole).map((a) => a.text), where).toEqual([]);
         expect(m.counts.every((c) => c.whole), where).toBe(true);
         expect(m.lineInside, where).toBe(true);
@@ -245,49 +249,25 @@ describe.skipIf(!browserPath)('Studio in small and ordinary windows, and its unf
     }
   }, 120_000);
 
-  it('the unfinished tabs (6, 7, 8 and 0) carry a mark that is not colour alone, and the strip\'s own description says, in the frame\'s words, what works on each now and what does not yet', async () => {
+  it('R11 round 7 (H176; D14 R75): the strip carries no tabs and no unfinished-tabs words any more (the companion\'s rail holds the destinations); the frame still names the unfinished tabs, so nothing of the contract is lost', async () => {
     for (const size of [{ width: 1440, height: 900 }, { width: 800, height: 600 }]) {
       const { page, context, errors } = await open(size);
       const where = `${size.width}x${size.height}`;
       try {
-        const marks = await page.$$eval('#frame-tabs li', (ls) => ls.map((l) => ({
-          key: l.querySelector('.fr-key')?.textContent, mark: l.querySelector('.fr-unf-mark')?.textContent ?? null, described: l.getAttribute('aria-describedby'),
-          style: getComputedStyle(l).borderTopStyle, color: getComputedStyle(l).color, title: l.getAttribute('title'),
-        })));
-        const unfinished = TABS.filter((t) => t.unfinished);
-        expect(marks.filter((m) => m.mark).map((m) => m.key), where).toEqual(unfinished.map((t) => t.key));
-        expect(marks.filter((m) => m.mark).every((m) => m.mark === '◌' && m.style === 'dashed' && m.color !== AMBER), where).toBe(true);
-        // their colour is the other tabs' (structure and text colours only): the mark and the dashed edge say it, not a colour
-        expect(new Set(marks.filter((m) => m.key !== '4').map((m) => m.color)).size, where).toBe(1);
-        // the description: closed at first, its button says how many; open, every unfinished tab's words, as the frame gives them
-        expect(await page.textContent('#frame-unf-toggle'), where).toBe('▸ ◌ 4 unfinished');
-        expect(await page.isHidden('#frame-unf'), where).toBe(true);
-        await page.click('#frame-unf-toggle');
-        await page.waitForSelector('#frame-unf', { state: 'visible' });
-        expect(await page.getAttribute('#frame-unf-toggle', 'aria-expanded'), where).toBe('true');
-        const entries = await page.$$eval('#frame-unf li', (ls) => ls.map((l) => {
-          const b = l.getBoundingClientRect();
-          return { id: l.id, tab: l.querySelector('.fr-unf-tab')?.textContent, works: l.querySelector('.fr-unf-works')?.textContent, missing: l.querySelector('.fr-unf-missing')?.textContent,
-            text: (l.textContent ?? '').replace(/\s+/g, ' ').trim(), inside: b.left >= 0 && b.right <= innerWidth + 0.5 && b.top >= 0 && b.bottom <= innerHeight, size: parseFloat(getComputedStyle(l).fontSize) };
-        }));
-        expect(entries.map((e) => [e.tab, e.works, e.missing]), where).toEqual(unfinished.map((t) => [`◌ ${t.key} ${t.label}`, t.unfinished!.works, t.unfinished!.missing]));
-        expect(entries.map((e) => e.text), where).toEqual(unfinished.map((t) => `◌ ${t.key} ${t.label} unfinished. Works now: ${t.unfinished!.works}. Not yet: ${t.unfinished!.missing}.`));
-        expect(entries.every((e) => e.inside && e.size >= 11), where).toBe(true);
-        // each marked tab names its own entry (aria-describedby)
-        expect(marks.filter((m) => m.mark).map((m) => m.described), where).toEqual(entries.map((e) => e.id));
-        // the canvas starts under the opened strip; Escape in the strip closes the description, the focus back on its button
-        await page.waitForFunction(() => Math.abs(document.getElementById('root')!.getBoundingClientRect().top - document.getElementById('frame')!.getBoundingClientRect().bottom) <= 1, null, { timeout: 5_000 });
-        await shoot(page, `unfinished-tabs-${where}.png`);
-        await page.focus('#frame-unf-toggle');
-        await page.keyboard.press('Escape');
-        await page.waitForSelector('#frame-unf', { state: 'hidden' });
-        expect(await page.evaluate(() => document.activeElement?.id), where).toBe('frame-unf-toggle');
+        expect(await page.$$eval('#frame-tabs, #frame-tabs li, #frame-unf, #frame-unf-toggle, .fr-tab, .fr-unf-mark', (ls) => ls.length), where).toBe(0);
+        // the frame the page read (its revision is on the strip) still carries the ten tabs with the unfinished ones' words
+        // (src/contracts/workspace.ts TABS: the companion's rail and the Workbench say them); this page says where it is and how to go back
+        expect(await page.getAttribute('#frame', 'data-revision'), where).toBeTruthy();
+        expect(await page.textContent('#frame .fr-here'), where).toBe('Studio');
+        expect((await page.textContent('#frame-back'))?.replace(/\s+/g, ' ').trim(), where).toBe('← Back to Timmy');
+        expect(TABS.filter((t) => t.unfinished).map((t) => t.key), where).toEqual(['6', '7', '8', '0']);
+        await shoot(page, `strip-no-tabs-${where}.png`);
         expect(errors, where).toEqual([]);
       } finally {
         await context.close();
       }
     }
-  }, 180_000);
+  }, 120_000);
 
   /** A screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder (a run leaves nothing behind otherwise). */
   async function shoot(page: Page, name: string): Promise<void> {

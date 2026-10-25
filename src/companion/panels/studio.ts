@@ -28,6 +28,7 @@ import { boardItems, type BoardItem } from '../../studio/board-items.js';
 import { boardDir, boardOfFolder, oldLayoutWords } from '../../studio/boards.js';
 import { studioBaseUrl } from '../../studio/config.js';
 import { canvasDir } from '../../studio/document.js';
+import { readProjectToken } from '../../studio/project-link.js';
 import { readBoardRef, REF_FILE, REF_HEADERS } from '../../studio/references.js';
 import { starterTemplates } from '../../studio/templates.js';
 import { readChain, type Receipt } from '../../utils/receipts.js';
@@ -37,7 +38,32 @@ import { VOX_PANEL } from './vox.js';
 export const STUDIO_PANEL = {
   board: '/api/panel/studio/board',
   ref: '/api/panel/studio/ref',
+  /** R11 round 7 (H176; the lead's D14 R88): POST — a one-time grant for the Studio page, so Open Timmy Studio opens a page that LOADS */
+  open: '/api/panel/studio/open',
 } as const;
+
+/** R11 round 7 (H176): how long a POST to the Studio for a grant may take. */
+export const GRANT_WAIT_MS = 2_500;
+/**
+ * The Studio page loads only with a one-time grant in its address (#code=…, traded for the page's session; canvas.js). The REPL's
+ * /canvas open mints one with the Studio's token; so does this route, for the companion's Open Timmy Studio — WHEN the Studio
+ * that answers at `studio` left its token file in this Timmy home (a Studio a REPL serves writes it; src/studio/project-link.ts
+ * readProjectToken, honoured only while that process runs). Without the file nothing is minted, and the answer says what to do.
+ */
+export async function studioOpenTarget(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch): Promise<{ ok: true; url: string } | { ok: false; url: string; why: string }> {
+  const studio = studioBaseUrl(env);
+  const port = Number(new URL(studio).port) || 0;
+  const token = port ? readProjectToken(canvasDir(env), port) : null;
+  if (!token) return { ok: false, url: `${studio}/`, why: `No grant could be made for Studio at ${studio}: its token file is not in this Timmy home (a Studio that a Timmy REPL serves writes it while it runs). Open Studio from Timmy: /studio, then /canvas open.` };
+  try {
+    const r = await fetchFn(`${studio}/api/project/grant`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(GRANT_WAIT_MS) });
+    const body = await r.json().catch(() => null) as { ok?: unknown; grant?: unknown; error?: unknown } | null;
+    if (r.ok && body && body.ok === true && typeof body.grant === 'string' && /^[0-9a-f]{32}$/.test(body.grant)) return { ok: true, url: `${studio}/#code=${body.grant}` };
+    return { ok: false, url: `${studio}/`, why: `Studio at ${studio} gave no grant (${body && typeof body.error === 'string' ? body.error : `HTTP ${r.status}`}). Open it from Timmy: /canvas open.` };
+  } catch (e) {
+    return { ok: false, url: `${studio}/`, why: `Studio at ${studio} did not answer for a grant (${e instanceof Error ? e.message : String(e)}). Is it running? Open it from Timmy: /studio.` };
+  }
+}
 
 /** How many VoxVision records' thumbnails one answer names (each is a preview read). */
 export const THUMBS_MAX = 24;
@@ -116,6 +142,14 @@ export function mountStudioPanel(app: express.Express, ctx: PanelContext): void 
     } catch { res.status(500).json({ ok: false, error: FAILED }); }
   });
 
+  // R11 round 7 (H176; D14 R88): the address Open Timmy Studio opens — with a one-time grant when one can be made here (the page
+  // then LOADS the shown project's board), else the Studio's plain address with why (the page says what to type in Timmy)
+  app.post(STUDIO_PANEL.open, ctx.withToken, (req, res) => {
+    const project = ctx.projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: ctx.projectUnknown }); return; }
+    void studioOpenTarget(ctx.env).then((t) => { res.set('Cache-Control', 'no-store').json({ ok: true, project: { id: projectId(project.root), name: project.name }, target: t }); })
+      .catch(() => { res.status(500).set('Cache-Control', 'no-store').json({ ok: false, error: FAILED }); });
+  });
   app.get(STUDIO_PANEL.ref, ctx.withToken, (req, res) => {
     const file = typeof req.query.file === 'string' ? req.query.file : '';
     if (!REF_FILE.test(file)) { res.status(400).set('Cache-Control', 'no-store').json({ ok: false, error: 'Name one reference image of the board: ?file=<sha256>.<png|jpg|gif|webp>.' }); return; }

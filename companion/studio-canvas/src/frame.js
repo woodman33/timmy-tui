@@ -55,8 +55,11 @@ export const LOG_MAX = 8;
 export const DRAFT_STEP = /\bAccept or Discard on the draft\b/;
 /** R7 (H151): whether a frame's action is the draft step (its Accept or Discard, done on the draft on this page). */
 export const isDraftStep = (a) => !!a && typeof a.command === 'string' && DRAFT_STEP.test(a.command);
-/** R7 (H151): the mark an unfinished tab carries beside its label (its words are in the strip's description, #frame-unf). */
+/** R7 (H151): the mark an unfinished tab carried beside its label (frameView still names an unfinished tab; the strip draws no tabs since D14 R75). */
 export const UNFINISHED_MARK = '◌';
+/** R11 round 7 (H176): the theme families and the companion shell's storage key for a viewer's choice (src/companion/client/shell.js). */
+export const THEMES = ['amber', 'glacier'];
+export const THEME_KEY = 'timmy.theme';
 
 const one = (v) => (typeof v === 'string' ? v : '');
 const count = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
@@ -132,12 +135,15 @@ export function frameView(frame, local = null) {
     waiting = Math.max(0, waiting - 1);
     for (const t of tabs) if (t.waiting > 0) t.waiting -= 1;
   }
+  // R11 round 7 (H176; D14 R75): where the companion answers on this computer (the frame's surfaces), for ← Back to Timmy
+  const companion = f.surfaces && typeof f.surfaces === 'object' && f.surfaces.companion && typeof f.surfaces.companion === 'object' ? f.surfaces.companion : null;
   return {
     revision: one(f.revision),
     project: { name: one(f.project.name), shown: one(f.project.shown) },
     tabs,
     actions,
     decided,
+    companion: { url: companion && typeof companion.url === 'string' && /^https?:\/\/[^/\s]+$/.test(companion.url) ? companion.url : '', state: companion ? one(companion.state) : '' },
     activity: {
       running: count(act.running),
       waiting,
@@ -190,48 +196,31 @@ const GO_DOES = 'shows the draft on the board and puts the focus on its Accept';
 /** R7 (H151): what a draft step the page itself just decided says, until the frame read next (at once) names the next step. */
 export const DECIDED_WORDS = 'decided on this page: reading Studio\'s next step…';
 
-/** R7 (H151): the id of an unfinished tab's entry in the strip's description (#frame-unf), for its aria-describedby. */
-const unfId = (t) => `fr-unf-${t.id || t.key}`;
+/** Draws `view` (frameView) into the frame's parts: the strip under `root` (index.html #frame) and the panel's #frame-work. */
+/**
+ * R11 round 7 (H176; D14 R75): the frame's parts sit in two places — the strip above the board (#frame: the mark, ← Back to
+ * Timmy, the crumb, the theme switch) and the panel's work section (#frame-work: the steps, the activity, its entries): a part
+ * is looked for in the strip, else in the page.
+ */
+export const partOf = (root, id) => (root && root.querySelector ? root.querySelector(`#${id}`) : null) || ((root && root.ownerDocument) || (typeof document !== 'undefined' ? document : null))?.getElementById(id) || null;
+/** The companion's Canvas page for a project (its tab id studio; the companion asks for its own token there). */
+export const BACK_TO = (companionUrl) => (companionUrl ? `${companionUrl.replace(/\/+$/, '')}/?tab=studio` : '');
+export const BACK_WORDS = { to: 'Back to Timmy: the companion\'s Canvas page on this computer (it asks for its own token, which the Workbench\'s c carries)', none: 'Back to Timmy: the companion is not running on this computer now, so there is no page to go back to' };
 
-/** Draws `view` (frameView) into the strip's parts under `root` (index.html #frame). */
 export function drawFrame(root, view) {
-  const project = root.querySelector('#frame-project');
-  project.textContent = view.project.name || 'a project';
-  project.title = view.project.shown ? `The project's folder: ${view.project.shown}` : '';
-  root.querySelector('#frame-tabs').replaceChildren(...view.tabs.map((t) => {
-    const li = el('li', `fr-tab${t.active ? ' is-active' : ''}${t.unfinished ? ' is-unfinished' : ''}`, null, { 'data-tab': t.id, title: t.title });
-    if (t.active) li.setAttribute('aria-current', 'page');
-    li.append(el('span', 'fr-key', t.key), ` ${t.label}`);
-    // R7 (H151): an unfinished tab's mark is a glyph, never colour alone; its words are the strip's description entry it names
-    if (t.unfinished) {
-      li.append(' ', el('span', 'fr-unf-mark', UNFINISHED_MARK, { 'aria-hidden': 'true' }));
-      li.setAttribute('aria-describedby', unfId(t));
-    }
-    if (t.waiting) li.append(' ', el('span', 'fr-count', `${t.waiting} waiting`));
-    return li;
-  }));
-  // R7 (H151): the strip's own description of the unfinished tabs, in the frame's words (TabDef.unfinished), where it is read:
-  // under the tabs, opened by its button (#frame-unf-toggle, which says how many); every word is the frame's
-  const unfinished = view.tabs.filter((t) => t.unfinished);
-  const unfList = root.querySelector('#frame-unf');
-  const unfToggle = root.querySelector('#frame-unf-toggle');
-  if (unfList) {
-    unfList.replaceChildren(...unfinished.map((t) => {
-      const li = el('li', 'fr-unf-entry', null, { id: unfId(t), 'data-tab': t.id });
-      li.append(el('strong', 'fr-unf-tab', `${UNFINISHED_MARK} ${t.key} ${t.label}`), ' ', el('span', 'fr-unf-word', 'unfinished.'), ' ',
-        el('span', 'fr-unf-k', 'Works now:'), ' ', el('span', 'fr-unf-works', t.unfinished.works), el('span', 'fr-unf-sep', '. '),
-        el('span', 'fr-unf-k', 'Not yet:'), ' ', el('span', 'fr-unf-missing', t.unfinished.missing), '.');
-      return li;
-    }));
+  const project = partOf(root, 'frame-project');
+  if (project) {
+    project.textContent = view.project.name || 'a project';
+    project.title = view.project.shown ? `The project's folder: ${view.project.shown}` : '';
   }
-  if (unfToggle) {
-    unfToggle.hidden = unfinished.length === 0;
-    unfToggle.dataset.count = String(unfinished.length);
-    const open = unfToggle.getAttribute('aria-expanded') === 'true';
-    unfToggle.textContent = `${open ? '▾' : '▸'} ${UNFINISHED_MARK} ${unfinished.length} unfinished`;
-    if (!unfinished.length && unfList) unfList.hidden = true;
+  // ← Back to Timmy: the companion's Canvas page while the frame says where the companion answers; else said, not a link
+  const back = partOf(root, 'frame-back');
+  if (back) {
+    const to = BACK_TO(view.companion ? view.companion.url : '');
+    if (to) { back.href = to; back.removeAttribute('aria-disabled'); back.title = BACK_WORDS.to; back.dataset.state = 'to'; }
+    else { back.setAttribute('href', '#'); back.setAttribute('aria-disabled', 'true'); back.title = BACK_WORDS.none; back.dataset.state = 'none'; }
   }
-  root.querySelector('#frame-acts').replaceChildren(...view.actions.map((a) => {
+  partOf(root, 'frame-acts')?.replaceChildren(...view.actions.map((a) => {
     const li = el('li', `fr-act${a.primary ? ' is-primary' : ''}${a.enabled ? '' : ' is-off'}${a.draft ? ' is-draft' : ''}${a.decided ? ' is-done' : ''}`, null, { 'data-n': a.n });
     // R5 (H137): the number stays with its label (the label wraps under itself on a narrow window), the command with Copy
     const head = el('span', 'fr-head');
@@ -251,8 +240,19 @@ export function drawFrame(root, view) {
     if (a.primary) li.title = 'The next step';
     return li;
   }));
+  // the steps behind "N more steps" while the list is folded (the primary shows alone; index.html #frame-acts[data-folded])
+  const more = partOf(root, 'frame-more-toggle');
+  if (more) {
+    const rest = view.actions.filter((a) => !a.primary).length;
+    more.hidden = rest === 0;
+    more.dataset.count = String(rest);
+    const open = more.getAttribute('aria-expanded') === 'true';
+    more.textContent = `${open ? '▾' : '▸'} ${rest} more step${rest === 1 ? '' : 's'}`;
+    more.title = open ? 'Shows the next step alone' : `Shows the other ${rest} step${rest === 1 ? '' : 's'} too`;
+  }
   const act = view.activity;
-  const line = root.querySelector('#frame-activity');
+  const line = partOf(root, 'frame-activity');
+  if (!line) return;
   const running = el('span', 'fr-running', `${act.running} running`);
   const parts = [running];
   // R7 (H151): a part the line may shorten (with an ellipsis, on a narrow window) says itself whole in its title
@@ -277,7 +277,7 @@ export function drawFrame(root, view) {
   parts.push(el('span', 'fr-note', '', { id: 'frame-note' }));
   line.replaceChildren(...parts);
   // R5 (H137): the open activity's entries (drawn whether it is open or not, so opening it shows them at once)
-  const list = root.querySelector('#frame-log');
+  const list = partOf(root, 'frame-log');
   if (list) {
     list.replaceChildren(...(view.log.length ? view.log.map(logItem) : [el('li', 'fr-entry is-neutral fr-empty', `Nothing in the log yet${act.noLog ? `: ${act.noLog}` : ''}.`)]));
   }
@@ -360,21 +360,20 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
     if (!words) return false;
     root.dataset.switching = 'true';
     root.dataset.stale = 'false';
-    root.querySelector('#frame-project').textContent = words;
-    root.querySelector('#frame-project').title = '';
-    for (const t of root.querySelectorAll('#frame-tabs .fr-count')) t.remove();
-    root.querySelector('#frame-acts').replaceChildren();
-    const line = root.querySelector('#frame-activity');
-    line.replaceChildren(el('span', 'fr-log is-neutral', `${words} The workspace of the project Studio shows next is read once its board is loaded.`), el('span', 'fr-note', '', { id: 'frame-note' }));
-    const list = root.querySelector('#frame-log');
+    const project = partOf(root, 'frame-project');
+    if (project) { project.textContent = words; project.title = ''; }
+    partOf(root, 'frame-acts')?.replaceChildren();
+    const line = partOf(root, 'frame-activity');
+    if (line) line.replaceChildren(el('span', 'fr-log is-neutral', `${words} The workspace of the project Studio shows next is read once its board is loaded.`), el('span', 'fr-note', '', { id: 'frame-note' }));
+    const list = partOf(root, 'frame-log');
     if (list) list.replaceChildren();
     drawn = '';
     return true;
   };
   const note = (words) => {
-    const n = root.querySelector('#frame-note');
+    const n = partOf(root, 'frame-note');
     if (n) n.textContent = words ? ` · ${words}` : '';
-    else if (words) root.querySelector('#frame-activity').textContent = words;
+    else if (words) { const line = partOf(root, 'frame-activity'); if (line) line.textContent = words; }
   };
   const stale = (why) => {
     root.dataset.stale = 'true';
@@ -420,55 +419,92 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
       if (again) { again = false; void tick(); } else schedule(pace);
     }
   }
-  root.addEventListener('click', (e) => {
+  // R11 round 7 (H176; D14 R75): the frame's two places — the strip (root) and the panel's work section — listen alike
+  const work = partOf(root, 'frame-work');
+  const places = [root, work].filter((p, i, all) => p && all.indexOf(p) === i && !(i === 1 && root.contains(p)));
+  const within = (node) => places.some((p) => p.contains(node));
+  const onClick = (e) => {
     const target = e.target instanceof Element ? e.target : null;
     // R7 (H151): the draft step's control takes you to the draft (canvas.js goToDraft); a person's press only, as Accept is
     const goes = target ? target.closest('button[data-go]') : null;
-    if (goes && root.contains(goes)) {
+    if (goes && within(goes)) {
       if (e.isTrusted === true) { try { go?.(goes.dataset.go); } catch { /* the page says why, in its band */ } }
       return;
     }
-    // R7 (H151): the unfinished tabs' description opens and closes under the tabs
-    const unf = target ? target.closest('#frame-unf-toggle') : null;
-    if (unf && root.contains(unf)) { setUnfinished(unf.getAttribute('aria-expanded') !== 'true'); return; }
-    // R10 (H167): the steps' commands, shown or not (the strip's inspector of them)
+    // R11 round 7 (H176; D14 R75): ← Back to Timmy — said, not a link, while the companion is not running; opened from the
+    // companion's Canvas page (window.open), closing this tab returns to it; else the link is followed (the companion's page asks
+    // for its own token there: this page never holds it)
+    const back = target ? target.closest('#frame-back') : null;
+    if (back && within(back)) {
+      if (back.getAttribute('aria-disabled') === 'true') { e.preventDefault(); return; }
+      let opened = false;
+      try { opened = Boolean(window.opener) && !window.opener.closed; } catch { opened = false; }
+      if (opened) {
+        e.preventDefault();
+        const to = back.href;
+        try { window.close(); } catch { /* the link below */ }
+        setTimeout(() => { if (!window.closed) location.href = to; }, 150);
+      }
+      return;
+    }
+    // R11 round 7 (H176): the theme switch (the two families; the companion's shell keeps the same key, so both pages agree)
+    const sw = target ? target.closest('#frame-theme [data-theme]') : null;
+    if (sw && within(sw)) { setTheme(sw.dataset.theme); return; }
+    // R11 round 7 (H176; D14 R75): the other steps, shown or not (the next step alone while folded)
+    const moreBtn = target ? target.closest('#frame-more-toggle') : null;
+    if (moreBtn && within(moreBtn)) { setMore(moreBtn.getAttribute('aria-expanded') !== 'true'); return; }
+    // R10 (H167): the steps' commands, shown or not (the inspector of them)
     const cmds = target ? target.closest('#frame-cmds-toggle') : null;
-    if (cmds && root.contains(cmds)) { setCommands(cmds.getAttribute('aria-expanded') !== 'true'); return; }
+    if (cmds && within(cmds)) { setCommands(cmds.getAttribute('aria-expanded') !== 'true'); return; }
     const b = target ? target.closest('button[data-copy]') : null;
-    if (!b || !root.contains(b)) return;
+    if (!b || !within(b)) return;
     const command = b.dataset.copy;
     void copy(command).then((ok) => {
       b.textContent = ok ? 'Copied' : 'Not copied';
       setTimeout(() => { if (b.isConnected) b.textContent = b.dataset.label || 'Copy'; }, 1500);
     });
-  });
+  };
+  for (const p of places) p.addEventListener('click', onClick);
   /**
-   * R10 (H167): the steps' commands for Timmy's terminal (each step's code.fr-cmd, and Stop current's), shown or not by the
-   * strip's Commands (#frame-cmds-toggle): hidden at first, so the strip says each step in words; Copy copies either way.
+   * R10 (H167): the steps' commands for Timmy's terminal (each step's code.fr-cmd, and Stop current's), shown or not by
+   * Commands (#frame-cmds-toggle): hidden at first, so each step is said in words; Copy copies either way.
    */
   const setCommands = (open) => {
-    const t = root.querySelector('#frame-cmds-toggle');
+    const t = partOf(root, 'frame-cmds-toggle');
     root.dataset.commands = open ? 'shown' : 'hidden';
+    if (work) work.dataset.commands = root.dataset.commands;
     if (!t) return;
     t.setAttribute('aria-expanded', String(open));
     t.textContent = `${open ? '▾' : '▸'} Commands`;
     t.title = open ? "Hides the steps' commands (Copy still copies each)" : "Shows each step's command for Timmy's terminal beside its Copy";
   };
-  /** R7 (H151): the unfinished tabs' description (#frame-unf), opened or closed by its button (#frame-unf-toggle) */
-  const setUnfinished = (open) => {
-    const t = root.querySelector('#frame-unf-toggle');
-    const list = root.querySelector('#frame-unf');
-    if (!t || !list) return;
+  /** R7 (H151): the unfinished tabs' description is no longer drawn (D14 R75: the companion's rail holds the destinations); kept as a no-op for callers. */
+  const setUnfinished = () => {};
+  /** R11 round 7 (H176): the other steps shown (open) or the next step alone (folded, the start); the toggle says how many wait. */
+  const setMore = (open) => {
+    const acts = partOf(root, 'frame-acts');
+    const t = partOf(root, 'frame-more-toggle');
+    if (acts) acts.dataset.folded = open ? 'false' : 'true';
+    if (!t) return;
+    const rest = Number(t.dataset.count) || 0;
     t.setAttribute('aria-expanded', String(open));
-    const n = Number(t.dataset.count) || list.children.length;
-    t.textContent = `${open ? '▾' : '▸'} ${UNFINISHED_MARK} ${n} unfinished`;
-    t.title = open ? 'Hides what works on the unfinished tabs and what does not yet' : 'Shows what works on each unfinished tab now and what does not yet, in the frame\'s words';
-    list.hidden = !open;
+    t.textContent = `${open ? '▾' : '▸'} ${rest} more step${rest === 1 ? '' : 's'}`;
+    t.title = open ? 'Shows the next step alone' : `Shows the other ${rest} step${rest === 1 ? '' : 's'} too`;
+  };
+  /**
+   * R11 round 7 (H176): the theme family (amber, the default; glacier) on html[data-theme], kept per viewer under the companion's
+   * own key (localStorage timmy.theme — shell.js THEME_KEY), so a person's choice holds across the two pages; cosmetic only.
+   */
+  const setTheme = (name) => {
+    const next = THEMES.includes(name) ? name : 'amber';
+    document.documentElement.dataset.theme = next;
+    for (const b of document.querySelectorAll('#frame-theme [data-theme]')) b.setAttribute('aria-pressed', b.dataset.theme === next ? 'true' : 'false');
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* no storage here */ }
   };
   // R5 (H137): the activity's disclosure: collapsed at first; its button opens and closes the newest entries, and Escape closes
-  // them while the focus is in the strip (tldraw's own Escape, on the canvas, is left alone), the focus then on the button
-  const toggle = root.querySelector('#frame-activity-toggle');
-  const entries = root.querySelector('#frame-log');
+  // them while the focus is in the frame's parts (tldraw's own Escape, on the canvas, is left alone), the focus then on the button
+  const toggle = partOf(root, 'frame-activity-toggle');
+  const entries = partOf(root, 'frame-log');
   const setOpen = (open) => {
     if (!toggle || !entries) return;
     toggle.setAttribute('aria-expanded', String(open));
@@ -478,31 +514,29 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
   };
   const isOpen = () => toggle?.getAttribute('aria-expanded') === 'true';
   toggle?.addEventListener('click', () => setOpen(!isOpen()));
-  root.addEventListener('keydown', (e) => {
+  const onKey = (e) => {
     if (e.key !== 'Escape') return;
-    // R7 (H151): Escape in the strip closes what is open there: the activity's entries first, else the unfinished tabs' words
-    const unf = root.querySelector('#frame-unf-toggle');
-    const cmds = root.querySelector('#frame-cmds-toggle');
+    // R7 (H151): Escape in the frame's parts closes what is open there: the activity's entries first, else the commands
+    const cmds = partOf(root, 'frame-cmds-toggle');
     if (isOpen()) {
       e.preventDefault();
       e.stopPropagation();
       setOpen(false);
       toggle.focus();
-    } else if (unf && unf.getAttribute('aria-expanded') === 'true') {
-      e.preventDefault();
-      e.stopPropagation();
-      setUnfinished(false);
-      unf.focus();
     } else if (cmds && cmds.getAttribute('aria-expanded') === 'true') {
       e.preventDefault();
       e.stopPropagation();
       setCommands(false);
       cmds.focus();
-    }
-  });
+    } else { const more = partOf(root, 'frame-more-toggle'); if (more && more.getAttribute('aria-expanded') === 'true') { e.preventDefault(); e.stopPropagation(); setMore(false); more.focus(); } }
+  };
+  for (const p of places) p.addEventListener('keydown', onKey);
   setOpen(false);
-  setUnfinished(false);
   setCommands(false);
+  // the theme as this viewer last chose it (the companion's key), amber else
+  let kept = '';
+  try { kept = localStorage.getItem(THEME_KEY) || ''; } catch { kept = ''; }
+  setTheme(kept);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void tick(); });
   void tick();
   /** R6 (H139): Studio began a switch: the header says so at once, and reads no frame until it ends. */
@@ -512,9 +546,10 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
     drawn = '';
     last = null;
     root.dataset.switching = 'false';
-    root.querySelector('#frame-project').textContent = name || 'a project';
-    const line = root.querySelector('#frame-activity');
-    line.replaceChildren(el('span', 'fr-log is-neutral', `reading the workspace of ${name || 'the project'}…`), el('span', 'fr-note', '', { id: 'frame-note' }));
+    const project = partOf(root, 'frame-project');
+    if (project) project.textContent = name || 'a project';
+    const line = partOf(root, 'frame-activity');
+    if (line) line.replaceChildren(el('span', 'fr-log is-neutral', `reading the workspace of ${name || 'the project'}…`), el('span', 'fr-note', '', { id: 'frame-note' }));
     void tick();
   };
   /**
@@ -529,5 +564,5 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
   /** R7 (H151): read the frame now (after the reading on its way, if one is), not at the next turn of the timer. */
   const soon = () => { void tick(); };
   const stop = () => { stopped = true; clearTimeout(timer); };
-  return { tick, soon, redraw, hold, release, stop, open: setOpen, openUnfinished: setUnfinished, showCommands: setCommands, get revision() { return root.dataset.revision ?? ''; } };
+  return { tick, soon, redraw, hold, release, stop, open: setOpen, openUnfinished: setUnfinished, showCommands: setCommands, showMore: setMore, get revision() { return root.dataset.revision ?? ''; } };
 }

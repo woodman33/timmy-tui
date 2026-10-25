@@ -23,105 +23,96 @@
      panel (#side, 299) instead of over it (the page never scrolls, so the two place the box alike) */
   :root { --frame-h: 0px; }
   #root { position: absolute; left: 0; right: 0; bottom: 0; top: var(--frame-h, 0px); }
-  /* R5 (H133): the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 Layouts), as a compact strip: TIMMY and the
-     project, the ten tabs (Studio active, a 1px amber border; the others are labels, not links), the Studio tab's actions (the one
-     primary amber, each with its command to copy) and one line of activity. Green only for what the frame says is live (.is-live).
-     R5 (H137): the tabs' row and the activity's line are 20px and scroll sideways on a narrow window; the actions never do: they
-     wrap onto more rows, each whole (its number, its label wrapped under itself where the window is narrower than it, its command,
-     shortened with an ellipsis there, and Copy). The activity opens (its button) to the frame's newest entries, under the line. */
-  /* under tldraw's UI layer (300) and the panel (299), which never reach into it: a tldraw menu that opens upward covers the strip,
-     never the other way round */
-  #frame { position: fixed; top: 0; left: 0; right: 0; z-index: 298; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "top" "acts" "activity" "unf" "log"; gap: 2px 14px; padding: 3px 10px;
+  /* R11 round 7 (H176; the lead's D14 R75, H168 pass 1: "the Studio page is a second shell"): the strip above the board is the B11
+     TOP STRIP ONLY — the mark, ← Back to Timmy (the companion's Canvas page), the crumb TIMMY / the project / Studio, the theme
+     switch — nothing else above the board (the ten tabs' row and the unfinished tabs' words are gone: the companion's rail holds
+     the destinations). The frame's WORK — Studio's next steps with their commands to copy, the one primary amber, and the activity
+     line with its entries — moved into Timmy's panel (#frame-work, under the save line), where the person works. Green only for
+     what the frame says is live (.is-live). */
+  #frame { position: fixed; top: 0; left: 0; right: 0; z-index: 298; box-sizing: border-box; display: block; margin: 0; padding: 0 12px;
     background: var(--timmy-ui-elev-top, #0E151D); border-bottom: 1px solid var(--timmy-ui-border-quiet, #1E2A36); color: var(--timmy-ui-text, #ECF1F5);
     font: var(--timmy-ui-weight-body, 400) 13px/18px var(--timmy-ui-font, "Outfit", "Monaspace Argon", system-ui, sans-serif); }
   #frame[hidden] { display: none; }
-  /* R10 (H167; the round's rule: raw commands in a secondary inspector): each step says itself in words with its Copy; its
-     command shows while the strip's Commands is open (frame.js setCommands), and Copy's tip and name say it whole */
-  #frame:not([data-commands="shown"]) .fr-cmd { display: none; }
-  #frame-top { grid-area: top; }
-  #frame .fr-row { display: flex; align-items: center; gap: 4px 8px; margin: 0; padding: 0; min-height: 20px; white-space: nowrap; overflow-x: auto; overflow-y: hidden;
-    scrollbar-width: thin; scrollbar-color: var(--timmy-ui-border, #44586B) transparent; }
-  /* R7 (H151; H147's R6 finding 3: at 800 x 600 the tabs were cut at "7 Contro"): the tabs' row wraps between whole tabs, never inside
-     one, so every tab keeps its key and its whole label at any width (it scrolled sideways, cut at the window's edge) */
-  /* the brand and the tabs flow as one line of words that wraps between whole tabs (inline, so the tabs follow the brand on its row) */
-  #frame #frame-top { display: block; white-space: normal; overflow: visible; line-height: 20px; }
-  #frame-brand { display: inline; margin: 0 8px 0 0; white-space: nowrap; }
+  #frame #frame-top { display: flex; align-items: center; gap: 6px 14px; min-height: 40px; margin: 0; padding: 0; white-space: nowrap; overflow: hidden; }
+  #frame .fr-back { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: var(--timmy-ui-radius-control, 10px);
+    color: var(--timmy-ui-accent-soft, #EAD0A3); text-decoration: none; border: 1px solid transparent; }
+  #frame .fr-back:hover { background: var(--timmy-ui-raised, #1C2936); }
+  #frame .fr-back:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 1px; }
+  #frame .fr-back[aria-disabled="true"] { color: var(--timmy-ui-text-muted, #9AAFC3); cursor: default; }
+  #frame .fr-back[hidden] { display: none; }
+  #frame-brand { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; overflow: hidden; }
   #frame-brand strong { font-weight: var(--timmy-ui-weight-heading, 600); letter-spacing: .08em; }
-  #frame-tabs, #frame-acts, #frame-log, #frame-unf { list-style: none; }
-  #frame-tabs { display: inline; margin: 0; padding: 0; }
-  /* (R10 H167: a little closer, so the ten tabs keep one row at 1280 px with the strip's 13 px text) */
-  #frame .fr-tab { display: inline-block; margin: 1px 2px 1px 0; line-height: 16px; vertical-align: top; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-ui-text-secondary, #BDCADA); cursor: default; white-space: nowrap; }
-  #frame .fr-tab.is-active { border-color: var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-text, #ECF1F5); font-weight: var(--timmy-ui-weight-strong, 600); }
-  #frame .fr-key { color: var(--timmy-ui-text-secondary, #BDCADA); font-weight: var(--timmy-ui-weight-body, 400); }
-  /* R7 lead (DESIGN.md §10 B10 "Amber is exact": things waiting for you are amber, as the Workbench and the companion draw them):
-     a waiting count is amber, said in words and weight beside the one primary next step; H151 had it in the text colour, from the
-     lead's brief, which named only focus, the active tab and the primary */
-  #frame .fr-count, #frame .is-waiting { color: var(--timmy-ui-focus, #FFB000); font-weight: var(--timmy-ui-weight-strong, 600); }
-  /* R7 (H151; "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts visibly unfinished"): an unfinished tab carries a mark, never
-     colour alone (src/contracts/workspace.ts TabDef.unfinished: structure and text colours only), and the strip's own description
-     (#frame-unf, opened by its button) says in the frame's words what works on each now and what does not yet */
-  #frame .fr-unf-mark { color: inherit; font-weight: var(--timmy-ui-weight-body, 400); }
-  #frame .fr-tab.is-unfinished { border-style: dashed; border-color: var(--timmy-ui-border, #44586B); }
-  #frame-unf { grid-area: unf; display: grid; gap: 2px; margin: 0; padding: 3px 0 2px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
-    border-top: 1px solid var(--timmy-ui-border-quiet, #1E2A36); scrollbar-width: thin; scrollbar-color: var(--timmy-ui-border, #44586B) transparent; }
-  #frame-unf[hidden] { display: none; }
-  #frame .fr-unf-entry { overflow-wrap: anywhere; color: var(--timmy-ui-text, #ECF1F5); }
-  #frame .fr-unf-tab { font-weight: var(--timmy-ui-weight-strong, 600); }
-  #frame .fr-unf-word, #frame .fr-unf-k { color: var(--timmy-ui-text-secondary, #BDCADA); }
-  #frame-unf-toggle[hidden] { display: none; }
-  /* R5 (H137): the actions' rows: as many as the window needs, nothing past its edge */
-  #frame-acts { grid-area: acts; display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px 8px; margin: 0; padding: 0; min-width: 0; }
+  #frame .fr-mark { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--timmy-ui-elev-primary, var(--timmy-ui-accent, #D6AA64));
+    color: var(--timmy-ui-accent-ink, #402E14); font: var(--timmy-ui-weight-heading, 600) 13px/1 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); }
+  #frame .fr-crumb-sep { color: var(--timmy-ui-text-muted, #9AAFC3); }
+  #frame #frame-project { overflow: hidden; text-overflow: ellipsis; color: var(--timmy-ui-text-secondary, #BDCADA); }
+  #frame .fr-here { color: var(--timmy-ui-text, #ECF1F5); font-weight: var(--timmy-ui-weight-medium, 500); }
+  #frame .fr-theme { flex: none; display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); border-radius: var(--timmy-ui-radius-pill, 999px); background: var(--timmy-ui-surface, #111A23); }
+  #frame .fr-theme button { font: inherit; line-height: 18px; padding: 1px 10px; border: 0; border-radius: var(--timmy-ui-radius-pill, 999px); background: none; color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; }
+  #frame .fr-theme button[aria-pressed="true"] { background: var(--timmy-ui-raised, #1C2936); color: var(--timmy-ui-text, #ECF1F5); }
+  #frame .fr-theme button:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 1px; }
+  @media (max-width: 700px) { #frame .fr-back-word, #frame .fr-crumb-sep, #frame .fr-here, #frame .fr-theme .fr-theme-word { display: none; } #frame #frame-top { gap: 6px 8px; } }
+  /* the frame's work, in Timmy's panel: Studio's next steps (the one primary amber, each with Copy; its command while Commands is
+     open — frame.js setCommands, R10 H167) and the activity line with its entries (a disclosure, collapsed at first; R5 H137) */
+  /* compact: the next step (amber) alone at first, one row of toggles, the activity's line; it keeps its height whole (the lists
+     below give way first: #side-scroll shrinks to nothing before this does), and the panel itself never scrolls */
+  #frame-work { flex: none; display: grid; gap: 3px; margin: 0; padding: 5px 8px 5px; border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); border-radius: var(--timmy-ui-radius-control, 10px);
+    background: var(--timmy-ui-elev-surface, #111A23); color: var(--timmy-ui-text, #ECF1F5);
+    font: var(--timmy-ui-weight-body, 400) 13px/18px var(--timmy-ui-font, "Outfit", "Monaspace Argon", system-ui, sans-serif); }
+  #frame-work[hidden] { display: none; }
+  #frame-work:not([data-commands="shown"]) .fr-cmd { display: none; }
+  #frame-acts, #frame-log { list-style: none; }
+  #frame-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px 8px; margin: 0; padding: 0; min-width: 0; }
+  /* folded: the one primary step (the next step) alone; the others wait behind "N more steps" */
+  #frame-acts[data-folded="true"] > li:not(.is-primary) { display: none; }
+  #frame-more-toggle[hidden] { display: none; }
   /* an action's words flow as a line of text: its label wraps under itself, and its command with Copy follows on the line where
      they fit, else on the next, kept together (shortened with an ellipsis only where a whole line is narrower than they are) */
-  #frame .fr-act { box-sizing: border-box; display: block; max-width: 100%; min-width: 0; min-height: 20px; overflow-wrap: break-word;
+  #frame-work .fr-act { box-sizing: border-box; display: block; max-width: 100%; min-width: 0; min-height: 20px; overflow-wrap: break-word;
     padding: 0 6px; border: 1px solid var(--timmy-ui-border, #44586B); border-radius: 4px; }
-  #frame .fr-do { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: top; }
-  /* a narrow window: a long command is shown shortened (Copy copies it whole; it is the command's title and in Copy's name), so
-     two actions share a row where they can */
-  @media (max-width: 1000px) { #frame .fr-cmd { max-width: 18ch; } }
-  #frame .fr-act.is-primary { border-color: var(--timmy-ui-focus, #FFB000); }
-  #frame .fr-act.is-primary .fr-label { color: var(--timmy-ui-focus, #FFB000); font-weight: var(--timmy-ui-weight-strong, 600); }
-  #frame .fr-n, #frame .fr-why { color: var(--timmy-ui-text-secondary, #BDCADA); }
-  #frame .fr-act.is-off .fr-label { color: var(--timmy-ui-text-secondary, #BDCADA); }
-  #frame .fr-cmd { box-sizing: border-box; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  #frame-work .fr-do { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: top; }
+  #frame-work .fr-cmd { max-width: 18ch; }
+  #frame-work .fr-act.is-primary { border-color: var(--timmy-ui-focus, #FFB000); }
+  #frame-work .fr-act.is-primary .fr-label { color: var(--timmy-ui-focus, #FFB000); font-weight: var(--timmy-ui-weight-strong, 600); }
+  #frame-work .fr-n, #frame-work .fr-why { color: var(--timmy-ui-text-secondary, #BDCADA); }
+  /* R7 lead (B10): what waits on you is amber — the line's count while something waits */
+  #frame-work .fr-count, #frame-work .is-waiting { color: var(--timmy-ui-focus, #FFB000); font-weight: var(--timmy-ui-weight-strong, 600); }
+  #frame-work .fr-act.is-off .fr-label { color: var(--timmy-ui-text-secondary, #BDCADA); }
+  #frame-work .fr-cmd { box-sizing: border-box; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font: inherit; line-height: 16px; color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-canvas, #080B0F); border: 1px solid var(--timmy-ui-border-quiet, #1E2A36); border-radius: 3px; padding: 0 4px; user-select: all; }
-  #frame .fr-copy { flex: none; font: inherit; padding: 0 2px; border: 0; background: none; color: var(--timmy-ui-accent-soft, #EAD0A3); text-decoration: underline; cursor: pointer; white-space: nowrap; }
-  #frame .fr-copy:focus-visible, #frame .fr-toggle:focus-visible, #frame .fr-go:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 1px; }
+  #frame-work .fr-copy { flex: none; font: inherit; padding: 0 2px; border: 0; background: none; color: var(--timmy-ui-accent-soft, #EAD0A3); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+  #frame-work .fr-copy:focus-visible, #frame-work .fr-toggle:focus-visible, #frame-work .fr-go:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 1px; }
   /* R7 (H151): the draft step's control (Go to the draft): the step is the amber primary around it; the control itself is neutral */
-  #frame .fr-go { font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-raised, #1C2936);
+  #frame-work .fr-go { font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-raised, #1C2936);
     border: 1px solid var(--timmy-ui-border, #44586B); border-radius: 4px; cursor: pointer; white-space: nowrap; }
   /* R7 (H151): a draft step this page just decided: no longer the step, in structure grey, said in words until the next frame */
-  #frame .fr-act.is-done { border-color: var(--timmy-ui-border-quiet, #1E2A36); }
-  #frame .fr-act.is-done .fr-label { color: var(--timmy-ui-text-secondary, #BDCADA); text-decoration: line-through; }
-  /* R5 (H137): the activity's line and the button that opens its entries */
-  #frame-activity-row { grid-area: activity; display: flex; align-items: center; gap: 8px; min-width: 0; }
-  #frame-activity { flex: 1 1 auto; min-width: 0; color: var(--timmy-ui-text-secondary, #BDCADA); }
-  /* R7 (H151; "no clipped label" at 800 x 600): the line never runs past the window's edge: its counts stay whole, and the long
-     parts (the turn, Stop current, the newest entry) are shortened with an ellipsis where the window is narrower than they are; each
-     says itself whole in its title, and the open activity lists the entries whole */
-  #frame #frame-activity { overflow: hidden; }
-  #frame #frame-activity > span { flex: none; }
-  #frame #frame-activity > .fr-turn, #frame #frame-activity > .fr-stop, #frame #frame-activity > .fr-log, #frame #frame-activity > .fr-note { flex: 0 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
-  #frame #frame-activity > .fr-note:empty { min-width: 0; }
-  /* R10 (H167): the newest entry gives up its room first, so Stop current's words stay whole beside the strip's toggles */
-  #frame #frame-activity > .fr-stop { flex-shrink: 0.1; }
-  #frame #frame-activity > .fr-sep { flex: none; }
-  #frame .fr-toggle { flex: none; font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-ui-text, #ECF1F5); background: none;
+  #frame-work .fr-act.is-done { border-color: var(--timmy-ui-border-quiet, #1E2A36); }
+  #frame-work .fr-act.is-done .fr-label { color: var(--timmy-ui-text-secondary, #BDCADA); text-decoration: line-through; }
+  /* two rows of 20 px: the toggles (more steps, Commands), then Activity with its one line — every count whole, the long parts
+     (the turn, Stop current, the newest entry) shortened with an ellipsis where the panel is narrower than they are; each says
+     itself whole in its title, and the open activity lists them whole */
+  #frame-activity-row { display: grid; gap: 3px; min-width: 0; }
+  #frame-work .fr-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; }
+  /* the line alone on its row: its counts (N running, N waiting on you) never shrink, so the row's width is theirs first */
+  #frame-activity { min-width: 0; margin: 0; display: flex; flex-wrap: nowrap; align-items: baseline; gap: 0 4px; overflow: hidden; white-space: nowrap; color: var(--timmy-ui-text-secondary, #BDCADA); }
+  #frame-work #frame-activity > span { flex: none; }
+  #frame-work #frame-activity > .fr-turn, #frame-work #frame-activity > .fr-stop, #frame-work #frame-activity > .fr-log, #frame-work #frame-activity > .fr-note { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
+  #frame-work #frame-activity > .fr-log { flex-shrink: 2; }
+  #frame-work #frame-activity > .fr-note:empty { display: none; }
+  #frame-work .fr-toggle { flex: none; font: inherit; line-height: 16px; padding: 0 4px; color: var(--timmy-ui-text, #ECF1F5); background: none;
     border: 1px solid var(--timmy-ui-border, #44586B); border-radius: 4px; cursor: pointer; white-space: nowrap; }
-  #frame .fr-toggle[aria-expanded="true"] { border-color: var(--timmy-ui-text-secondary, #BDCADA); }
-  #frame .fr-sep { color: var(--timmy-ui-border, #44586B); }
-  #frame .fr-log.is-live { color: var(--timmy-ui-verified, #28FE14); }
-  #frame .fr-log.is-attention, #frame .fr-log.is-failure { color: var(--timmy-ui-focus, #FFB000); }
-  /* R5 (H137): the open activity: the frame's newest entries, one a row (its words wrapped under themselves), scrolled in place
-     on a low window */
-  #frame-log { grid-area: log; display: grid; gap: 1px; margin: 0; padding: 3px 0 2px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
+  #frame-work .fr-toggle[aria-expanded="true"] { border-color: var(--timmy-ui-text-secondary, #BDCADA); }
+  #frame-work .fr-sep { color: var(--timmy-ui-border, #44586B); }
+  #frame-work .fr-log.is-live { color: var(--timmy-ui-verified, #28FE14); }
+  #frame-work .fr-log.is-attention, #frame-work .fr-log.is-failure { color: var(--timmy-ui-focus, #FFB000); }
+  /* R5 (H137): the open activity: the frame's newest entries, one a row (its words wrapped under themselves), scrolled in place */
+  #frame-log { display: grid; gap: 1px; margin: 0; padding: 3px 0 2px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
     border-top: 1px solid var(--timmy-ui-border-quiet, #1E2A36); scrollbar-width: thin; scrollbar-color: var(--timmy-ui-border, #44586B) transparent; }
   #frame-log[hidden] { display: none; }
-  #frame .fr-entry { overflow-wrap: anywhere; color: var(--timmy-ui-text, #ECF1F5); }
-  #frame .fr-time, #frame .fr-op, #frame .fr-tag, #frame .fr-empty { color: var(--timmy-ui-text-secondary, #BDCADA); }
-  #frame .fr-tag.is-live { color: var(--timmy-ui-verified, #28FE14); }
-  #frame .fr-tag.is-attention, #frame .fr-tag.is-failure { color: var(--timmy-ui-focus, #FFB000); }
+  #frame-work .fr-entry { overflow-wrap: anywhere; color: var(--timmy-ui-text, #ECF1F5); }
+  #frame-work .fr-time, #frame-work .fr-op, #frame-work .fr-tag, #frame-work .fr-empty { color: var(--timmy-ui-text-secondary, #BDCADA); }
+  #frame-work .fr-tag.is-live { color: var(--timmy-ui-verified, #28FE14); }
+  #frame-work .fr-tag.is-attention, #frame-work .fr-tag.is-failure { color: var(--timmy-ui-focus, #FFB000); }
   /* R5 (H133), B10: tldraw's own chrome (its menus, toolbar, panels, tooltips, dialogs and the canvas behind the drawing) on the
      same tokens. tldraw 5.5.2 colors that chrome only through these variables (its Themes guide: the canvas's background is
      --tl-color-background); the canvas's own UI colors (the selection, its brush, snap lines, handles) come from the same
@@ -179,6 +170,17 @@
   .timmy-draft-words { width: max-content; max-width: 56ch; padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere;
     background: var(--timmy-ui-canvas, #080B0F); border: 1px solid var(--timmy-ui-border, #44586B); color: var(--timmy-ui-text, #ECF1F5);
     font: var(--timmy-ui-weight-body, 400) 11px/1.4 var(--timmy-ui-font, "Outfit", "Monaspace Argon", system-ui, sans-serif); }
+  /* R11 round 7 (H176; the operator's 19:18 order, item 6): a starter step's one verb and its state line, under the step's frame in
+     front of the canvas (src/steps.js): the verb a raised control (it takes the click; the canvas under it does not), the state the
+     project's own words, muted, shortened with an ellipsis to the frame's width; 12 px at every zoom (a control, not a drawing) */
+  .timmy-step-verbs { position: absolute; box-sizing: border-box; display: flex; align-items: center; gap: 8px; min-width: 0; pointer-events: all;
+    font: var(--timmy-ui-weight-body, 400) 12px/16px var(--timmy-ui-font, "Outfit", "Monaspace Argon", system-ui, sans-serif); }
+  .timmy-step-do { flex: none; font: inherit; font-weight: var(--timmy-ui-weight-medium, 500); color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-raised, #1C2936);
+    border: 1px solid var(--timmy-ui-border, #44586B); border-radius: var(--timmy-ui-radius-control, 10px); padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+  .timmy-step-do:hover { border-color: var(--timmy-ui-text-secondary, #BDCADA); }
+  .timmy-step-do:disabled { opacity: .5; cursor: default; }
+  .timmy-step-do:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 1px; }
+  .timmy-step-state { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--timmy-ui-text-muted, #9AAFC3); }
   /* R10 (H167): Timmy's own text 13 px (the companion's too); tldraw's chrome keeps its own sizes */
   body { background: var(--timmy-ui-canvas, #080B0F); color: var(--timmy-ui-text, #ECF1F5); font: var(--timmy-ui-weight-body, 400) 13px/1.45 var(--timmy-ui-font, "Outfit", "Monaspace Argon", system-ui, sans-serif); }
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
@@ -642,13 +644,12 @@
 <body>
 <!-- R5 (H133): the shared workspace frame, drawn by src/frame.js from GET /api/workspace (this page's session); shown on a page Timmy
      opened, never on one opened without a grant -->
-<header id="frame" hidden aria-label="Timmy's workspace: this project, its tabs, Studio's next steps and what runs">
-  <div class="fr-row" id="frame-top"><p id="frame-brand"><strong>TIMMY</strong> <span aria-hidden="true">·</span> <span id="frame-project">reading the workspace…</span></p><ol id="frame-tabs" aria-label="The ten tabs; this page is Studio"></ol></div>
-  <!-- R7 (H151): the strip's own description of the unfinished tabs, in the frame's words (src/contracts/workspace.ts TabDef.unfinished) -->
-  <ol id="frame-unf" hidden aria-label="The unfinished tabs: what works on each now, and what does not yet"></ol>
-  <ol id="frame-acts" aria-label="Studio's workflow actions; the next step first"></ol>
-  <div id="frame-activity-row"><button type="button" id="frame-activity-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-log">▸ Activity</button><button type="button" id="frame-unf-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-unf" hidden>▸ ◌ unfinished</button><button type="button" id="frame-cmds-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-acts">▸ Commands</button><p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p></div>
-  <ol id="frame-log" hidden aria-label="The frame's newest entries, the newest first"></ol>
+<header id="frame" hidden aria-label="Timmy: back to the companion, this project, the theme">
+  <div class="fr-row" id="frame-top">
+    <a id="frame-back" class="fr-back" href="#" aria-disabled="true" title="Back to Timmy: the companion's Canvas page, once the frame says where the companion answers"><span aria-hidden="true">←</span> <span class="fr-back-word">Back to Timmy</span></a>
+    <p id="frame-brand"><span class="fr-mark" aria-hidden="true">T</span> <strong>TIMMY</strong> <span class="fr-crumb-sep" aria-hidden="true">/</span> <span id="frame-project">reading the workspace…</span> <span class="fr-crumb-sep" aria-hidden="true">/</span> <span class="fr-here">Studio</span></p>
+    <div class="fr-theme" id="frame-theme" role="group" aria-label="Theme"><button type="button" data-theme="amber" aria-pressed="true" title="The amber family"><span class="fr-theme-word">Amber</span><span class="fr-theme-dot" aria-hidden="true"></span></button><button type="button" data-theme="glacier" aria-pressed="false" title="The glacier family"><span class="fr-theme-word">Glacier</span></button></div>
+  </div>
 </header>
 <div id="root"></div>
 <!-- R6 (H139): while Studio switches from one project's board to another's, or cannot show the project the canvas shows -->
@@ -657,9 +658,20 @@
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
     <p id="save" role="status" aria-live="polite" data-state="saved" data-needs-you="false"><span id="save-glyph" aria-hidden="true">■</span><span id="save-words">Saved.</span><button id="save-retry" type="button" hidden title="Saves this page's canvas now">Retry</button></p>
-    <!-- R10 (H167; the round's rule: diagnostics in a details control): the canvas's own facts (tldraw's version, its license's
-         verdict) and the folder Timmy saves this board in, which the status line and the blank board's guide name in words -->
-    <details id="side-about"><summary title="tldraw's version, its license, and the folder Timmy saves this board in">Details</summary><p id="side-about-canvas">tldraw, its license: read once the canvas starts</p><p id="side-about-dir">Saved in <code id="guide-dir">its canvas folder</code></p></details>
+    <!-- R11 round 7 (H176; the lead's D14 R75): the frame's work, moved here from the strip above the board — Studio's next steps
+         (the one primary amber, each with Copy; its command while Commands is open) and the activity line with its entries;
+         src/companion/studio-canvas/src/frame.js draws it, shown with the strip (canvas.js showFrame); it stays in view while the
+         lists scroll, and shows on a small window whose lists are folded -->
+    <section id="frame-work" class="fr-work" hidden aria-label="The workspace: Studio's next steps and what runs">
+      <!-- folded at first (data-folded): the one primary step shows; "N more steps" (#frame-more-toggle) opens the rest, so the panel keeps its room on a low window -->
+      <ol id="frame-acts" data-folded="true" aria-label="Studio's workflow actions; the next step first"></ol>
+      <div id="frame-activity-row">
+        <!-- the toggles on one row; the activity line alone on the next, so its counts stay whole at the panel's width (280 px) -->
+        <div class="fr-toggles"><button type="button" id="frame-more-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-acts" hidden>▸ more steps</button><button type="button" id="frame-cmds-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-acts">▸ Commands</button><button type="button" id="frame-activity-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-log">▸ Activity</button></div>
+        <p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p>
+      </div>
+      <ol id="frame-log" hidden aria-label="The frame's newest entries, the newest first"></ol>
+    </section>
     <section id="conflict" hidden aria-labelledby="conflict-title" role="alert">
       <p id="conflict-title"><strong>A newer version is on disk.</strong> This page will not save over it.</p>
       <div class="conflict-acts"><button id="conflict-reload" class="primary" type="button" title="Loads the newer canvas from disk. This page's unsaved changes are kept as a copy first.">Reload the newer version</button><button id="conflict-keep" type="button" title="Keeps this page's version as a copy beside the canvas file. The canvas on disk is unchanged.">Keep a copy</button></div>
@@ -722,6 +734,11 @@
         </div>
         <div id="project-groups"></div>
       </details>
+      <!-- R10 (H167; the round's rule: diagnostics in a details control): the canvas's own facts (tldraw's version, its license's
+           verdict) and the folder Timmy saves this board in, which the status line and the blank board's guide name in words. At the end
+           of the one region that scrolls: opened, its lines take room from the lists' scroll, not from the lists (a low window with
+           the Details open and a draft waiting kept 6 px for the lists when it sat above the region) -->
+      <details id="side-about"><summary title="tldraw's version, its license, and the folder Timmy saves this board in">Details</summary><p id="side-about-canvas">tldraw, its license: read once the canvas starts</p><p id="side-about-dir">Saved in <code id="guide-dir">its canvas folder</code></p></details>
     </div>
     <p id="project-said" role="status"></p>
     <div id="project-said-acts" hidden></div>

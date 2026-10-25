@@ -76,8 +76,10 @@ describe('what tab 4 reads of a board (R6 H145)', () => {
     expect([at('drafted').draft, at('drafted2').draft, at('vox').draft]).toEqual(['draft-0011aabb', 'draft-0011aabb', null]);
     expect(b.drafts).toEqual(['draft-0011aabb']);
     // kept apart: named by its project, nothing of it read (no title, words, target or file)
-    for (const id of ['theirs', 'theirs-placed']) expect(at(id)).toEqual({ shape: `shape:${id}`, page: 'Page 1', kind: 'other-project', title: 'a card of blank', excerpt: "kept apart: shown on blank's own board only, so nothing of it is read here", draft: null });
-    expect(at('their-img')).toEqual({ shape: 'shape:their-img', page: 'Page 1', kind: 'other-project', title: 'a reference image of blank', excerpt: "kept apart: shown on blank's own board only, so nothing of it is read here", draft: null });
+    // (R11 round 7, H176: `box` is where it sits on the page — its place, no content — so the Canvas page can draw the board's map)
+    const box = { x: expect.any(Number), y: expect.any(Number), w: expect.any(Number), h: expect.any(Number) };
+    for (const id of ['theirs', 'theirs-placed']) expect(at(id)).toEqual({ shape: `shape:${id}`, page: 'Page 1', kind: 'other-project', title: 'a card of blank', excerpt: "kept apart: shown on blank's own board only, so nothing of it is read here", draft: null, box });
+    expect(at('their-img')).toEqual({ shape: 'shape:their-img', page: 'Page 1', kind: 'other-project', title: 'a reference image of blank', excerpt: "kept apart: shown on blank's own board only, so nothing of it is read here", draft: null, box });
     expect(JSON.stringify(b)).not.toMatch(/blank's (title|words|placed)|vfeedbeef|green\.png/);
     // a reference's caption, a group, an arrow and a shape with no words are not listed apart
     expect(b.items.some((i) => ['shape:cap', 'shape:group', 'shape:arrow', 'shape:empty-geo'].includes(i.shape))).toBe(false);

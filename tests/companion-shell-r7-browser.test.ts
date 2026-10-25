@@ -167,12 +167,16 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.waitForSelector('#screen-connections .page-primary .ui-primary', { timeout: 15_000 });
       expect(await page.$eval('#screen-connections .page-work', (e) => e.childElementCount)).toBeGreaterThan(0);
       expect(await page.isVisible('#shell-rail')).toBe(true);
-      // the page's primary next action: the head's button and the band's text action carry the same words (the page's own
-      // registration — H169's Workflows — or, unregistered, the frame's primary action: Fleet & Clef, legacy, has only the frame's)
+      // the page's primary next action: the head's button (the page's own registration — H169's Workflows — or, unregistered, the
+      // frame's primary action: Fleet & Clef, legacy, has only the frame's). D19: the band's trailing action NEVER duplicates the
+      // primary — with no different verb registered, the band draws no action at all
       await go(page, 'workflows');
       const primary = await text(page, '#ws-workflows .page-primary .ui-primary span:first-child');
       expect(primary.length).toBeGreaterThan(3);
-      expect(await text(page, '#ws-workflows .band-action')).toContain(primary);
+      expect(await page.locator('#ws-workflows .page-band .band-action').count(), 'D19: no band action twin of the primary').toBe(0);
+      // the dock on a page the frame gives no actions says nothing: companion.js's "The frame gives this tab no actions." is not seen
+      expect(await page.evaluate(() => [...document.querySelectorAll('#ws-main .page-dock li.empty')].filter((e) => e.getClientRects().length).length)).toBe(0);
+      expect(await page.evaluate(() => ((document.querySelector('.page:not([hidden]) > .page-dock') as HTMLElement | null)?.innerText ?? ''))).not.toMatch(/gives this tab no actions/);
       await go(page, 'fleet');
       const framePrimary = await page.$eval('#ws-fleet .page-dock #ws-actions li[data-primary="true"]', (e) => (e.textContent ?? '').replace(/^\d+\.\s*/, '').trim()).catch(() => '');
       if (framePrimary) expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe(framePrimary);
@@ -209,10 +213,22 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.evaluate(() => (window as unknown as { TimmyShell: { state(id: string, s: string, o?: object): void } }).TimmyShell.state('fleet', 'approval', { words: 'A test approval waits' }));
       expect(await text(page, '#ws-fleet .page-band .band-cell.is-attn')).toContain('Needs you');
       expect(await page.$eval('#ws-fleet .page-band .band-cell.is-attn .band-v', (e) => getComputedStyle(e).color)).toBe('rgb(255, 176, 0)');
-      // D8: the shell draws the ONE arrow; a label registered with a trailing arrow loses it (never "→ →")
+      // D8: the shell draws the ONE arrow; a label registered with a trailing arrow loses it (never "→ →"). D19: the band draws no
+      // action for the same words; a DIFFERENT verb registered as bandAction stays, with its ↗, and runs on click; the same words
+      // registered as bandAction draw nothing either
       await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { primary: { label: 'Continue to the workspace →', run: () => undefined } }));
       expect(await text(page, '#ws-fleet .page-primary .ui-primary span:first-child')).toBe('Continue to the workspace');
+      expect(await page.$$eval('#ws-fleet .page-primary .ui-primary, #ws-fleet .band-action', (els) => els.map((e) => ((e.textContent ?? '').match(/[→↗]/g) ?? []).length))).toEqual([1]);
+      await page.evaluate(() => { (window as unknown as { __ran: string[] }).__ran = []; (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { bandAction: { label: 'See every source ↗', run: () => (window as unknown as { __ran: string[] }).__ran.push('band') } }); });
+      expect(await text(page, '#ws-fleet .page-band .band-action')).toBe('See every source ↗');
       expect(await page.$$eval('#ws-fleet .page-primary .ui-primary, #ws-fleet .band-action', (els) => els.map((e) => ((e.textContent ?? '').match(/[→↗]/g) ?? []).length))).toEqual([1, 1]);
+      await page.click('#ws-fleet .page-band .band-action');
+      expect(await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)).toEqual(['band']);
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { bandAction: { label: 'Continue to the workspace', run: () => undefined } }));
+      expect(await page.locator('#ws-fleet .page-band .band-action').count(), 'D19: the same words as the primary draw no band action').toBe(0);
+      // a cell without words is never drawn (D19): a registered band cell with an empty value is left out
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('fleet', { band: [{ k: 'Sources', v: '0 files' }, { k: 'Account', v: '' }, { k: '', v: 'orphan' }] }));
+      expect(await page.$$eval('#ws-fleet .page-band .band-cell .band-k', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Needs you', 'Workspace', 'Model', 'Records', 'Sources']);
       // D11: a digit key puts the focus on the page's title (the tab button is hidden), never on the body; the ring it carries is
       // the token ring — 2 px solid #FFB000 with its 2 px halo — never a UA or dashed box (D17 / H168's R90)
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
@@ -296,6 +312,9 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       const GLACIER = { accent: 'rgb(138, 187, 227)', soft: 'rgb(190, 217, 237)' };
       await go(page, 'workflows');
       await page.evaluate(() => { const a = document.createElement('a'); a.href = '#'; a.id = 'test-link'; a.textContent = 'a link'; document.querySelector('#ws-workflows .page-work')!.append(a); const b = document.createElement('button'); b.className = 'act is-primary'; b.id = 'test-legacy-primary'; b.textContent = 'legacy primary'; document.querySelector('#ws-workflows .page-work')!.append(b); });
+      // (D19: the band draws an action only for a verb that differs from the primary's — one is registered here to read its colour)
+      await page.evaluate(() => (window as unknown as { TimmyShell: { page(id: string, r: object): void } }).TimmyShell.page('workflows', { bandAction: { label: 'A different band verb', run: () => undefined } }));
+      await page.waitForSelector('#ws-workflows .page-band .band-action', { timeout: 5_000 });
       const glacier = await page.evaluate(() => {
         const c = (sel: string, prop: string) => { const e = document.querySelector(sel); return e ? (getComputedStyle(e) as unknown as Record<string, string>)[prop] : 'absent'; };
         const root = getComputedStyle(document.documentElement);
@@ -389,8 +408,31 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
       await page.waitForFunction(() => document.body.dataset.page === 'workflows' && !document.getElementById('shell-rail')?.classList.contains('is-open'), null, { timeout: 5_000 });
       let s = await shown(page);
       expect(s.scrollW).toBeLessThanOrEqual(s.innerW);
-      // the band wraps to two by two; the dock is on the page with the frame's actions
+      // D19 (the phone band): the first two facts WHOLE — each value with words, none clipped — and the rest folded behind "· more"
+      // (a disclosure that opens the remaining cells, each with its words); never a label with an empty value
       expect(await page.$$eval('#ws-workflows .page-band .band-cell', (els) => els.length)).toBeGreaterThanOrEqual(3); // (the three standard cells; an owner may add its own — H169 does)
+      const bandFold = async (sel: string) => page.evaluate((root) => {
+        const band = document.querySelector(`${root} > .page-band`)!;
+        const shownCells = [...band.querySelectorAll(':scope > .band-cell')].map((c) => { const v = c.querySelector('.band-v') as HTMLElement; return { k: (c.querySelector('.band-k')?.textContent ?? '').trim(), v: (v?.textContent ?? '').trim(), whole: v ? v.scrollWidth <= v.clientWidth + 1 && v.clientWidth > 8 : false }; });
+        const more = band.querySelector(':scope > details.band-more');
+        const folded = more ? [...more.querySelectorAll('.band-cell')].map((c) => { const b = c.getBoundingClientRect(); return { k: (c.querySelector('.band-k')?.textContent ?? '').trim(), v: (c.querySelector('.band-v')?.textContent ?? '').trim(), visible: b.width > 0 && b.height > 0 }; }) : [];
+        return { shownCells, summary: more ? (more.querySelector('summary')?.textContent ?? '').replace(/\s+/g, ' ').trim() : null, open: more ? (more as HTMLDetailsElement).open : null, folded, bandRight: Math.round(band.getBoundingClientRect().right), bandHeight: Math.round(band.getBoundingClientRect().height) };
+      }, sel);
+      let fold = await bandFold('#ws-workflows');
+      console.info('[H175 390 band Workflows]', JSON.stringify(fold));
+      expect(fold.shownCells.length).toBe(2);
+      for (const c of fold.shownCells) { expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); expect(c.whole, `${c.k}: "${c.v}" whole, not clipped`).toBe(true); }
+      expect(fold.summary).toBe('· more');
+      expect(fold.open).toBe(false);
+      expect(fold.folded.length).toBeGreaterThanOrEqual(1);
+      for (const c of fold.folded) { expect(c.visible, `${c.k} folded`).toBe(false); expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); }
+      expect(fold.bandRight).toBeLessThanOrEqual(390);
+      await page.click('#ws-workflows > .page-band details.band-more > summary');
+      fold = await bandFold('#ws-workflows');
+      expect(fold.open).toBe(true);
+      expect(fold.summary).toBe('· less');
+      for (const c of fold.folded) expect(c.visible, `${c.k} shown once opened`).toBe(true);
+      await page.click('#ws-workflows > .page-band details.band-more > summary');
       expect(await page.isVisible('#ws-workflows .page-dock #ws-actions')).toBe(true);
       // the context as a sheet: a registered context with something in it shows its opener; open, Escape, the focus back
       await page.evaluate(() => {
@@ -431,6 +473,18 @@ describe.skipIf(!browserPath)('the one shell: rail, topbar, page scaffold, sheet
         expect(Math.abs(rows.crumb - rows.theme), `${id}: the theme switch beside the crumb: ${JSON.stringify(rows)}`).toBeLessThan(14);
         expect(rows.bar, `${id}: the topbar two rows at most`).toBeLessThanOrEqual(84);
       }
+      // D19 on Models & accounts (the capture's "Model: f · Records: · Account:"): two whole facts, the rest folded; the dock never
+      // says "The frame gives this tab no actions."
+      await go(page, 'connections');
+      await page.waitForSelector('#screen-connections .page-primary .ui-primary', { timeout: 15_000 });
+      fold = await bandFold('#screen-connections');
+      console.info('[H175 390 band Models & accounts]', JSON.stringify(fold));
+      expect(fold.shownCells.length).toBe(2);
+      for (const c of fold.shownCells) { expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0); expect(c.whole, `${c.k}: "${c.v}" whole`).toBe(true); }
+      expect(fold.folded.map((c) => c.k)).toEqual(expect.arrayContaining(['Records']));
+      for (const c of fold.folded) expect(c.v.length, `${c.k}: a value with words`).toBeGreaterThan(0);
+      expect(await page.evaluate(() => [...document.querySelectorAll('#screen-connections .page-dock li.empty')].filter((e) => e.getClientRects().length).length)).toBe(0);
+      expect(await page.evaluate(() => (document.querySelector('#screen-connections > .page-dock') as HTMLElement | null)?.innerText ?? '')).not.toMatch(/gives this tab no actions/); // (innerText: what is seen — the li stays in companion.js's DOM, not drawn)
       // the lead's 18:29 ruling: Models & accounts' "Continue to the workspace" (H170 runs TimmyShell.land()) leaves the page for
       // the workspace at THIS size too — a memory of Models & accounts (the landing remembered itself; the switcher's tab is it)
       // is never a place to land; the why is 'continue'

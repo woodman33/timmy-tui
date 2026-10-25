@@ -66,7 +66,9 @@ button.tr-face:hover, .tr-face:focus-visible { outline: 2px solid var(--timmy-ui
    words sit beside the face asks the mount for `words: 'spoken'`: while the face is DRAWN the HTML status stays in the accessibility
    tree (the live region announces each state change; the face's aria-label is the state word) and off the screen — never display:none,
    which would silence it. While the face is NOT drawn (the words path) the status shows beside the fallback glyph: the canvas is never
-   the only carrier of a state. */
+   the only carrier of a state. data-words is the EFFECTIVE mode (rive-bindings.js placeWords): 'spoken' only while the face's headline
+   reaches the 13-px floor (fitHeadline scales it up within the artboard's room; the Chat band's 40-px face cannot) — else 'beside',
+   whatever was asked (data-words-asked), so a 3–7-px word is never the only carrier. */
 .tr-mount[data-words="spoken"] .tr-words { position: relative; }
 .tr-mount[data-words="spoken"][data-rive="drawn"] .tr-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 button.tr-face[disabled] { opacity: .55; cursor: not-allowed; }

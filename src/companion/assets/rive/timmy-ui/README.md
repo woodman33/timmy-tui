@@ -74,6 +74,15 @@ draw the artboard as authored: the Inspect view is the place to read a face; the
 truth marker. The ActionButton is untouched (its `Caption` is its own label; its HTML twin stands). `CONTRACT.json
 consumers.production` is the rule in full; `inspect().runs.production` reports it per face.
 
+**Legibility (the lead's ruling of 22:12; D2's 13-px floor).** The one word a production face draws must be readable where it
+is drawn. At mount and on every resize `fitHeadline` computes the headline's drawn size (19 px × faceWidth / 400 on a card,
+28 px × faceHeight / 380 on the console) and, where the artboard's room allows, scales every pose's `Headline` Text node
+(`artboard.node('Headline<pose>')`, a runtime transform like v1's pill — no rebuild) up to the floor, capped so the word stays
+inside the face and never shrunk. Where the floor cannot be reached (the Chat band's 40-px-tall face reaches ≈ 8 px at the
+room's ×2.69) `words: 'spoken'` is not honoured: the HTML status stays visible beside the face (`data-words` is the effective
+mode, `data-words-asked` the ask, `inspect().wordsWhy` the reason), so a 3–7-px word is never a state's only carrier.
+`inspect().headline` reports the measure (`drawn`, `scale`, `px`, `reached`, `room`).
+
 ## The feed's identity (round 7)
 
 A `turn` event names the console's current turn (`data.id`); a `needs-you` or `done` whose `data.turn` is another turn's

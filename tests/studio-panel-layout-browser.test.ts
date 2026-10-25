@@ -97,7 +97,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
   type Read = {
     side: Box; region: Box; said: Box; foot: Box; under: Array<{ sel: string; b: Box | null }>; sideScrolls: boolean; regionScrolls: boolean;
     ownScroll: string[]; reach: Record<string, boolean>; card: string | null; row: Box | null; open: { top: number; bottom: number };
-    whole: number; covered: number; target: Box | null;
+    whole: number; covered: number; target: Box | null; tail: Box | null;
   };
   let calls = 0;
   /**
@@ -167,7 +167,8 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         const row = s.kind === 'end' ? target : null;
         return {
           side: box(side)!, region: box(region)!, said: box(q('#project-said'))!, foot: box(q('#boards'))!,
-          under: ['.tlui-main-toolbar__inner', '.tlui-navigation-panel'].map((sel) => ({ sel, b: box(q(sel)) })),
+          // (R11 round 7, H176: the desk's bar sits in tldraw's navigation-panel slot)
+          under: ['.tlui-main-toolbar__inner', '.tlui-navigation-panel', '.timmy-desk-dock'].map((sel) => ({ sel, b: box(q(sel)) })),
           sideScrolls: side.scrollHeight > side.clientHeight + 1, regionScrolls: region.scrollHeight > region.clientHeight,
           ownScroll: ['#job-list', '#project-groups'].filter((sel) => q(sel)!.scrollHeight > q(sel)!.clientHeight + 1),
           reach: Object.fromEntries<boolean>([
@@ -176,6 +177,8 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
             ...(s.kind === 'reach' ? [[s.sel, reach(target)]] as Array<[string, boolean]> : []),
           ]),
           card: row ? row.getAttribute('data-card') : null, row: box(row), open, whole: inOpen.length, covered: inOpen.filter((b) => !reach(b)).length, target: box(target),
+          // (R11 round 7, H176: the canvas's Details, one closed line, end the region after the last row)
+          tail: box(q('#side-about')),
         };
       }, { s: step, id }, { polling: 'raf', timeout: 20_000 });
       return (await h.jsonValue()) as Read;
@@ -238,8 +241,11 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         expect(end.card).not.toBeNull();
         const row = end.row!;
         expect(row.bottom, 'the last row ends inside the region, above the band').toBeLessThanOrEqual(end.region.bottom + 0.5);
-        // a region taller than a row shows it whole (on a short window a row may be taller than the region: its end shows)
-        if (row.h <= end.region.h) expect(row.top).toBeGreaterThanOrEqual(end.region.top - 0.5);
+        // a region taller than a row shows it whole (on a short window a row may be taller than the region: its end shows). R11 round 7
+        // (H176): the canvas's Details (#side-about, one closed line) end the region after the last row, so at the end the row and that
+        // line are shown together when the two fit
+        const tail = end.tail && end.tail.top >= row.bottom - 0.5 ? end.tail.bottom - row.bottom : 0;
+        if (row.h + tail <= end.region.h) expect(row.top).toBeGreaterThanOrEqual(end.region.top - 0.5);
         // (R10 H167: a row's command is under its Details, whose control is reachable beside Place on canvas)
         for (const sel of ['.pcard-place', '.pcard-more > summary']) expect(end.reach[sel], `the last row's ${sel} (${end.card})`).toBe(true);
         expect(end.reach['.pcard-cmd in its Details']).toBe(true);
