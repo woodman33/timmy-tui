@@ -2252,6 +2252,9 @@ function hookProjectRoute() {
     if (workspace.tab === 'chat') readProjectRoute(); else drawProjectRoute();
   });
 }
+// shell.js loads after this file: the hook is taken at the first read that finds TimmyShell, and once the document is parsed
+// (a session that arrives while the Chat is the landing page re-asks even when nothing has re-shown the tab)
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', hookProjectRoute);
 function readProjectRoute() {
   hookProjectRoute();
   if (!companion.token || companion.refused || projectRoute.asking || Date.now() - projectRoute.at < HOME_WORK_EVERY_MS) return;
