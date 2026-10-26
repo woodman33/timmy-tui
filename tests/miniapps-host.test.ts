@@ -128,6 +128,7 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     // the app's frame-ancestors 'none' names Timmy's origin instead
     expect(String(pageRes.headers['content-security-policy'])).toContain(`frame-ancestors http://127.0.0.1:${new URL(timmy).port} http://localhost:${new URL(timmy).port}`);
     expect(String(pageRes.headers['content-security-policy'])).not.toContain("frame-ancestors 'none'");
+    expect(pageRes.headers['x-frame-options']).toBeUndefined();
 
     // the app's own Origin check still passes for its own page's requests, and another origin is refused at the gateway
     const echoed = await get(`${gateway}/api/echo`, { cookie, origin: gateway, 'content-type': 'application/json' }, 'POST', '{"a":1}');

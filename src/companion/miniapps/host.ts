@@ -154,7 +154,10 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
     const up = http.request({ host: '127.0.0.1', port: workerPort, method: req.method, path: req.url, headers }, (upRes) => {
       const out: http.OutgoingHttpHeaders = { ...upRes.headers };
       const csp = upRes.headers['content-security-policy'];
-      if (typeof csp === 'string') out['content-security-policy'] = framedPolicy(csp, o.ancestors);
+      // only Timmy's own page may frame the app (added when the app sends no policy of its own)
+      out['content-security-policy'] = typeof csp === 'string' ? framedPolicy(csp, o.ancestors) : `frame-ancestors ${o.ancestors.join(' ')}`;
+      // (an app that refuses every frame with X-Frame-Options, as Card Lab's SAMEORIGIN does: the CSP above says who may)
+      delete out['x-frame-options'];
       res.writeHead(upRes.statusCode ?? 502, out);
       upRes.pipe(res);
     });

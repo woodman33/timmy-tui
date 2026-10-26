@@ -11,7 +11,7 @@ mkdirSync(data, { recursive: true });
 writeFileSync(join(data, 'started.json'), JSON.stringify({ pid: process.pid, at: Date.now() }));
 const page = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'dist', 'index.html'));
 const server = http.createServer((req, res) => {
-  const send = (status, body, type = 'application/json') => { res.writeHead(status, { 'content-type': type, 'content-security-policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'none'" }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
+  const send = (status, body, type = 'application/json') => { res.writeHead(status, { 'content-type': type, 'content-security-policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'none'", 'x-frame-options': 'SAMEORIGIN' }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
   if (req.headers.host !== `127.0.0.1:${port}`) return send(403, { error: 'Unrecognized local host' });
   if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${port}`) return send(403, { error: 'Cross-origin requests are not allowed' });
   if (req.url === '/api/state') return send(200, { fake: true, dataDir: data });
