@@ -35,13 +35,23 @@ export const DESK = Object.freeze({ x: -56, y: -56, w: 1032, h: 744 });
 export const ZOOM_STEPS = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]);
 const quick = () => (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
 
+/**
+ * The desk's bounds: DESK, grown to hold every shape on it with the same margin — a desk saved with a larger layout (an earlier
+ * build's, or a shape moved past the edge) is never partly out of reach of the camera.
+ */
+export function deskBounds(editor) {
+  let x0 = DESK.x; let y0 = DESK.y; let x1 = DESK.x + DESK.w; let y1 = DESK.y + DESK.h;
+  const b = editor ? editor.getCurrentPageBounds() : null;
+  if (b) { x0 = Math.min(x0, b.x - 56); y0 = Math.min(y0, b.y - 56); x1 = Math.max(x1, b.x + b.w + 56); y1 = Math.max(y1, b.y + b.h + 56); }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
 /** The camera held on the desk (tldraw's own constraints: contain, fit at most 100 %, the wheel pans). */
 export function holdDesk(editor) {
   const vp = editor.getViewportScreenBounds();
   const padding = { x: vp.w < 650 ? 12 : 24, y: 24 };
   editor.setCameraOptions({
     isLocked: false, panSpeed: 1, zoomSpeed: 0.8, wheelBehavior: 'pan', zoomSteps: [...ZOOM_STEPS],
-    constraints: { bounds: { ...DESK }, padding, origin: { x: 0.5, y: 0.5 }, initialZoom: 'fit-max-100', baseZoom: 'default', behavior: 'contain' },
+    constraints: { bounds: deskBounds(editor), padding, origin: { x: 0.5, y: 0.5 }, initialZoom: 'fit-max-100', baseZoom: 'default', behavior: 'contain' },
   });
 }
 export function fitDesk(editor, animate = true) {
@@ -127,9 +137,12 @@ const cssVar = (name, fallback) => { try { return getComputedStyle(document.docu
 /** Behind the shapes: the desk's edge, its caption and its corners (page space: it moves with the camera). */
 function DeskEdge() {
   const config = useApp((s) => s.config);
+  const editor = useEditor();
   const name = config && config.project ? config.project.name : 'this project';
+  // the edge follows the desk's bounds (DESK, or larger when the shapes on it reach past it)
+  const d = useValue('timmy desk: bounds', () => deskBounds(editor), [editor]);
   return (
-    <div className="ta-desk" aria-hidden="true" style={{ left: DESK.x, top: DESK.y, width: DESK.w, height: DESK.h }}>
+    <div className="ta-desk" aria-hidden="true" style={{ left: d.x, top: d.y, width: d.w, height: d.h }}>
       <span className="ta-desk-caption">{name} · Canvas</span>
       <i className="ta-desk-corner is-tl" /><i className="ta-desk-corner is-tr" /><i className="ta-desk-corner is-bl" /><i className="ta-desk-corner is-br" />
     </div>
