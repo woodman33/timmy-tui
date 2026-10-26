@@ -144,6 +144,12 @@ export interface JobSpec {
   command: string; args: string[];
   /** added to this process's environment */
   env?: NodeJS.ProcessEnv;
+  /**
+   * R13 (the 2026-10-26 integration order): `env` is the child's whole environment, nothing of this process's added (a hosted
+   * mini-app, src/companion/miniapps/host.ts, sees only the variables its registry entry allows: never a provider key or a
+   * token of the companion's). Absent: `env` is added to this process's environment, as before.
+   */
+  envExact?: boolean;
   /** whole-job limit: stop the group, end 'failed' with error 'timed out' */
   timeoutMs?: number;
   /** servers: 'ready' once an HTTP request to url gets ANY response (timeoutMs: how long to wait, default 60 s) */
@@ -468,7 +474,7 @@ export class JobManager {
     try {
       started = spawnProcess(job.command, job.args, {
         // Round R4 (H51): TIMMY_OPERATION is the job's own operation, or absent (never one inherited from elsewhere).
-        cwd: job.root, env: jobEnvironment(process.env, spec.env, job.operation), detached: true, capture: false,
+        cwd: job.root, env: jobEnvironment(spec.envExact ? {} : process.env, spec.env, job.operation), detached: true, capture: false,
         onStdout: (text) => this.output(entry, entry.out, text),
         onStderr: (text) => this.output(entry, entry.err, text),
       });

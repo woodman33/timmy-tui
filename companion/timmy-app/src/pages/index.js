@@ -10,8 +10,14 @@ import RunsPage from './runs.jsx';
 import ControlPage from './control.jsx';
 import FilesPage from './files.jsx';
 import WorkflowsPage from './workflows.jsx';
+import { AnimatePage, CardLabPage, FilmRoomPage, ModelStudioPage, StreamStudioPage } from './miniapp.jsx';
 
 export const PAGE_PARTS = {
+  'card-lab': CardLabPage,
+  'film-room': FilmRoomPage,
+  'model-studio': ModelStudioPage,
+  'stream-studio': StreamStudioPage,
+  animate: AnimatePage,
   files: FilesPage,
   workflows: WorkflowsPage,
   runs: RunsPage,

@@ -1,0 +1,8 @@
+/* R13: a hosted mini-app inside the page: a thin bar (its name, state, Stop) over the app's own frame, which takes the rest. */
+.ta-miniapp { display: flex; flex-direction: column; min-height: 0; height: 100%; flex: 1 1 auto; }
+.ta-miniapp-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--ta-line, rgba(255, 255, 255, .08)); }
+.ta-miniapp-name { font-weight: 600; font-size: 14px; }
+.ta-miniapp-gap { flex: 1 1 auto; }
+.ta-miniapp-frame { flex: 1 1 auto; width: 100%; min-height: 480px; border: 0; background: #0a0e12; display: block; }
+.ta-miniapp-lead { font-size: 15px; margin: 0 0 12px; }
+@media (max-width: 640px) { .ta-miniapp-frame { min-height: 70vh; } }

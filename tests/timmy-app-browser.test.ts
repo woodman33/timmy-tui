@@ -97,8 +97,9 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     const page = await open(1440, 900);
     await page.waitForSelector('.ta-page[data-page="chat"] .ta-title', { timeout: 60_000 });
     expect(page.url()).toBe(`${origin}/app`);
-    expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['WORK', 'CREATE', 'CONNECT']);
-    expect(await page.locator('.ta-rail-item').count()).toBe(12);
+    // R13: the APPS group (the four launch mini-apps) above WORK, and Timmy Animate in CREATE: 12 → 17 pages
+    expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['APPS', 'WORK', 'CREATE', 'CONNECT']);
+    expect(await page.locator('.ta-rail-item').count()).toBe(17);
     expect(await page.locator('.ta-rail-item[aria-current="page"]').innerText()).toContain('Chat');
     expect(await page.locator('.ta-page[data-page="chat"] .ta-band .ta-cell-k').allInnerTexts()).toEqual(['WORKSPACE', 'MODEL', 'AGENT', 'RECORDS']);
     // one Send (in the composer), and the chat's tools on its tools row

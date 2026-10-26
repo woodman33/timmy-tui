@@ -55,7 +55,8 @@ export function appPolicy(host: string | undefined): string {
     "media-src 'self' blob:",
     `connect-src 'self'${socket}`,
     "worker-src 'self' blob:",
-    "frame-src 'none'",
+    // R13: the hosted mini-apps' gateways (src/companion/miniapps/host.ts), loopback only; nothing else may be framed
+    "frame-src http://127.0.0.1:* http://localhost:*",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",

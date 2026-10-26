@@ -147,7 +147,8 @@ import { IDENTITY_NO_PROJECT, mountIdentity, type IdentityDeps } from './identit
 import { connectSrcFor } from './identity/config.js';
 // R11 round 4 (H171, the wiring): a user's own project and env for a request or a socket hello that carries a session
 // (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
-import { isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
+import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
+import { mountMiniApps } from './miniapps/routes.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
@@ -886,6 +887,19 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       return p ? { name: p.name, root: p.root, ...(own ? { env: identity.envOf(req) } : {}) } : null;
     },
   });
+  // R13 (the 2026-10-26 integration order): the owners' mini-apps, each hosted unchanged as a worker per principal and
+  // project behind a gateway the app page frames (src/companion/miniapps/); stopped with the companion
+  const miniApps = mountMiniApps(app, {
+    withToken, withUser: withUserOrOperator, env: options.workspace?.env ?? process.env,
+    projectOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = u && !u.operator;
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p) return null;
+      const env = own ? identity.envOf(req) : { ...(options.workspace?.env ?? process.env) };
+      return { name: p.name, root: p.root, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+  });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
@@ -1080,6 +1094,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         // R4 (H84): a chat still streaming ends with the server
         httpServer.closeAllConnections();
       });
+      await miniApps.stopAll();
       await noteSelf('stopped');
     },
     setState: (state: string) => {
