@@ -185,7 +185,11 @@ function twinActionButton(htmlBtn, label, action, o = {}) {
     const root = host.querySelector('[data-rive]');
     const st = root ? root.dataset.rive : handle.state;
     if (st === 'drawn') {
+      // the twin held the focus (a keyboard user, or a test, was on it): the face takes it before the twin hides, so an Enter
+      // already on its way reaches the one control instead of the page body (the R12 failure diagnosis)
+      const hadFocus = typeof document !== 'undefined' && document.activeElement === htmlBtn;
       host.classList.remove('is-loading'); htmlBtn.hidden = true; wrap.dataset.rive = 'drawn';
+      if (hadFocus) { const face = host.querySelector('button.tr-face, .tr-face'); if (face && typeof face.focus === 'function') { try { face.focus(); } catch (e) { /* the focus stays where it is */ } } }
       // (the face was laid out while hidden from view: the runtime draws to its size now; an ask's box grows as its faces come,
       // so it is brought into view again then — H168's R65)
       try { if (handle.rive && typeof handle.rive.resizeDrawingSurfaceToCanvas === 'function') requestAnimationFrame(() => handle.rive.resizeDrawingSurfaceToCanvas()); } catch (e) { /* drawn at its size */ }
