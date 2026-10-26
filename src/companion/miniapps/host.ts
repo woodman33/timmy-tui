@@ -18,7 +18,7 @@
  * check in the app's server is the owner's change to make.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -59,6 +59,13 @@ export function freePort(): Promise<number> {
 /** The folder a principal's project's copy of an app keeps its data in. */
 export function appDataDir(home: string, appId: string, projectKey: string): string {
   return join(home, 'apps', appId, projectKey);
+}
+
+/** The revision the installed copy names (its .timmy-source.json, written by the review package builder), null when none. */
+export function installedRevision(spec: MiniAppSpec, env: Env): string | null {
+  const dir = spec.host ? env[spec.host.sourceEnv] : undefined;
+  if (!dir) return null;
+  try { const r = JSON.parse(readFileSync(join(dir, '.timmy-source.json'), 'utf8')).revision; return typeof r === 'string' && /^[0-9a-f]{7,40}$/.test(r) ? r : null; } catch { return null; }
 }
 
 /** The words for a hostable app that cannot start here: not installed (no folder named), or not built. */

@@ -72,7 +72,27 @@ run() {
     ${CLERK_PUBLISHABLE_KEY:+CLERK_PUBLISHABLE_KEY="$CLERK_PUBLISHABLE_KEY"} ${CLERK_JWT_KEY:+CLERK_JWT_KEY="$CLERK_JWT_KEY"} \
     ${CLERK_SECRET_KEY:+CLERK_SECRET_KEY="$CLERK_SECRET_KEY"} \
     ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} \
+    ${TIMMY_MODEL_STUDIO_DIR:+TIMMY_MODEL_STUDIO_DIR="$TIMMY_MODEL_STUDIO_DIR"} \
+    ${STUDIO_BLENDER:+STUDIO_BLENDER="$STUDIO_BLENDER"} ${STUDIO_OPENSCAD:+STUDIO_OPENSCAD="$STUDIO_OPENSCAD"} \
+    ${STUDIO_FREECAD:+STUDIO_FREECAD="$STUDIO_FREECAD"} ${STUDIO_CAD_PYTHON:+STUDIO_CAD_PYTHON="$STUDIO_CAD_PYTHON"} \
+    ${STUDIO_BUILD123D_PYTHON:+STUDIO_BUILD123D_PYTHON="$STUDIO_BUILD123D_PYTHON"} \
     "$@"
+}
+
+# R13 (the 2026-10-26 integration order): the mini-apps this package carries (apps/<app>/, each its owner's source at the
+# revision its .timmy-source.json names), installed and built inside the package on first use (npm ci --ignore-scripts: no
+# install script runs), then named to Timmy, which hosts them (src/companion/miniapps/). Model Studio's native engines are
+# the ones on this computer: STUDIO_BLENDER, STUDIO_OPENSCAD, STUDIO_FREECAD, STUDIO_CAD_PYTHON and STUDIO_BUILD123D_PYTHON
+# pass from your shell when you set them (its own defaults find the /Applications installs).
+mini_apps() {
+  local ms="$HERE/apps/model-studio"
+  [ -f "$ms/server.mjs" ] || return 0
+  if [ ! -f "$ms/dist/index.html" ]; then
+    echo "Installing and building Model Studio inside the package (its own dependencies; nothing global)..."
+    # (its build copies public/, an empty folder git does not keep)
+    ( cd "$ms" && mkdir -p public && npm ci --ignore-scripts --no-audit --no-fund && npm run build ) || { echo "Model Studio did not build (above): Timmy shows it as not built."; return 0; }
+  fi
+  export TIMMY_MODEL_STUDIO_DIR="$ms"
 }
 
 # the active project's folder, as Timmy records it (<Timmy home>/state/active-project.json), when it is still there
@@ -216,6 +236,7 @@ HELP
   app)
     need_install
     license_key
+    mini_apps
     ( cd "$(start_dir)" && run timmy app "$@" )
     ;;
   workbench|repl|watch)

@@ -80,6 +80,16 @@ if [ -n "${UPMD_BIN:-}" ]; then
   if [ -n "${UPMD_LICENSE:-}" ]; then cp "$UPMD_LICENSE" "$pkg/bin/upmd-LICENSE.txt"; fi
 fi
 if [ -n "${EXTRA_DIR:-}" ]; then cp -R "$EXTRA_DIR"/. "$pkg/"; fi
+# R13: the owners' mini-apps, each from its own git repository at an exact revision (MODEL_STUDIO_GIT=<repo>,
+# MODEL_STUDIO_REV=<commit>): its tracked files only (git archive: no node_modules, data, venvs or untracked files), with a
+# .timmy-source.json naming the revision; review.sh installs and builds it inside the package on first use
+if [ -n "${MODEL_STUDIO_GIT:-}" ]; then
+  msrev=$(git -C "$MODEL_STUDIO_GIT" rev-parse "${MODEL_STUDIO_REV:-HEAD}")
+  mkdir -p "$pkg/apps"
+  git -C "$MODEL_STUDIO_GIT" archive --format=tar --prefix=model-studio/ "$msrev" | tar -x -C "$pkg/apps"
+  printf '{"app":"model-studio","revision":"%s","owner":"Codex: timmy-new-1","from":"git archive"}\n' "$msrev" > "$pkg/apps/model-studio/.timmy-source.json"
+  echo "build-review: Model Studio $msrev (git archive)"
+fi
 
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 sums="$out/SHA256SUMS.$rev.tmp"
