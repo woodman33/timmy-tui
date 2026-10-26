@@ -184,25 +184,28 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     const page = await open(1440, 900);
     await go(page, 'canvas');
     await page.waitForSelector('.ta-stage .tl-container .ta-desk', { timeout: 60_000 });
-    await page.waitForFunction(() => document.querySelectorAll('.tr-shape .tr-component[data-artboard]').length >= 2, null, { timeout: 30_000 });
-    expect(await page.locator('.ta-desk-card').count()).toBeGreaterThanOrEqual(2);
+    // the first desk: the three native Rive components (ActionButton, ProviderCard, AgentConsole) and the receipt card, joined by
+    // three arrows bound to them
+    await page.waitForFunction(() => document.querySelectorAll('.tr-shape .tr-component[data-artboard]').length >= 3, null, { timeout: 30_000 });
+    expect(await page.locator('.ta-desk-card').count()).toBeGreaterThanOrEqual(1);
+    for (const a of ['ActionButton', 'ProviderCard', 'AgentConsole']) expect(await page.locator(`.tr-shape .tr-component[data-artboard="${a}"]`).count(), a).toBe(1);
     // a saved Rive shape never claims to be live before an event of this page moved it
     expect(await page.locator('.tr-shape-source').first().innerText()).toContain('as saved');
     // the licence as the SDK's own manager says it (no key in this test: unlicensed on a development address)
     await page.waitForSelector('.ta-license[data-license]:not([data-license="unread"])', { timeout: 30_000 });
     expect(await page.locator('.ta-footer').innerText()).toContain('Canvas licence:');
-    const count = async (): Promise<number> => page.evaluate(() => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1));
+    const count = async (): Promise<number> => page.evaluate(() => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1));
     const n0 = await count();
     expect(n0).toBeGreaterThanOrEqual(4);
     await page.click('.ta-tool[data-tool="Nodes"]');
     await page.click('.ta-popover-item[data-node="card:conversation"]');
-    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0);
+    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0);
     expect(await page.locator('.ta-inspect-title').innerText()).toContain('This conversation');
     await page.click('.ta-tool[data-tool="Undo"]');
-    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n, n0);
+    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1) === n, n0);
     await page.click('.ta-tool[data-tool="Nodes"]');
     await page.click('.ta-popover-item[data-node="card:receipt"]');
-    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0);
+    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0);
     // kept in Timmy's project storage, not the browser: saved at a revision as the person works
     const file = join(process.env.TIMMY_HOME!, 'canvas', 'projects', projectId(join(box, 'project')), DESK_FOLDER, 'canvas.json');
     const shapesIn = (): number => { try { return Object.values((JSON.parse(readFileSync(file, 'utf8')) as { snapshot: { store: Record<string, { typeName?: string }> } }).snapshot.store).filter((r) => r.typeName === 'shape').length; } catch { return -1; } };
@@ -218,7 +221,7 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     const again = await open(1440, 900);
     await go(again, 'canvas');
     await again.waitForSelector('.ta-page[data-page="canvas"] .ta-stage .tl-container .ta-desk', { timeout: 60_000 });
-    await again.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0, { timeout: 30_000 });
+    await again.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0, { timeout: 30_000 });
     // opening it wrote nothing: the desk on disk is the one left, at the same revision (no viewer's record is the project's)
     await again.waitForTimeout(2000);
     expect((JSON.parse(readFileSync(file, 'utf8')) as { revision: number }).revision).toBe(saved.revision);
@@ -257,6 +260,28 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     }
     await page.context().close();
   }, 120_000);
+
+  // the operator's 18:39 screenshot: in a short window the Canvas stage ran over its tools row (the fill page's body shrank
+  // below the stage's own minimum and the stage overflowed). The stage and the Chat now end above their tools row at any height.
+  it('a short window: the Canvas stage and the Chat never run over their tools row; at 1440 × 900 nothing scrolls', async () => {
+    for (const [w, h] of [[1440, 900], [1280, 720], [1100, 640]] as const) {
+      const page = await open(w, h);
+      for (const id of ['canvas', 'chat']) {
+        await go(page, id);
+        if (id === 'canvas') await page.waitForSelector('.ta-stage .tl-container', { timeout: 60_000 });
+        await page.waitForTimeout(600);
+        const r = await page.evaluate((id) => {
+          const a = document.querySelector(id === 'canvas' ? '.ta-stage' : '.ta-work')!.getBoundingClientRect();
+          const t = document.querySelector('.ta-toolsrow')!.getBoundingClientRect();
+          const wrap = document.querySelector('.ta-pagewrap')!;
+          return { over: a.bottom - t.top, scrolls: wrap.scrollHeight > wrap.clientHeight + 1 };
+        }, id);
+        expect(r.over, `${id} at ${w} × ${h}: its stage ends ${r.over} px below the tools row's top`).toBeLessThanOrEqual(0);
+        if (w === 1440) expect(r.scrolls, `${id} at 1440 × 900 scrolls`).toBe(false);
+      }
+      await page.context().close();
+    }
+  }, 180_000);
 
   it('asked nothing of another host, broke no policy, threw nothing', () => {
     expect(outside).toEqual([]);

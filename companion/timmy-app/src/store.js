@@ -141,6 +141,8 @@ export async function checkProvider(id) {
   const r = await postJson(`/api/connections/${id}/check`, {});
   const st = r && r.state && typeof r.state === 'object' ? r.state : { state: 'failed', words: r.error || 'The check did not answer.' };
   set((s) => ({ check: { ...s.check, [id]: { ...st, at: new Date().toISOString() } } }));
+  // the provider's Rive faces (the Models card's, the Canvas desk's) move with this page's own check
+  if (r && r.state && typeof r.state.state === 'string') riveFeed.provider(id, r.state.state, `POST /api/connections/${id}/check`);
   return st;
 }
 

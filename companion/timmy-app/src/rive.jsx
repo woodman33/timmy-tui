@@ -75,5 +75,7 @@ export function ActionFace({ label, onPress, disabled = false, name, size = 'car
 /** The bindings' feeds, for the store (null when the runtime script is absent). */
 export const riveFeed = {
   sse(event, data) { const rive = R(); if (rive) try { rive.fromSse(event, data, `POST /api/chat/turn (SSE ${event})`); } catch { /* the face keeps its word */ } },
+  /** A provider's check answered on this page: every face bound to that provider (the Models card, the desk's) takes it, LIVE. */
+  provider(id, word, source) { const rive = R(); if (rive && typeof word === 'string' && word) try { rive.fromProviderState(id, word, source); } catch { /* the face keeps its word */ } },
   stopping(source = 'Stop taken (POST /api/chat/stop)') { const rive = R(); if (rive) try { rive.stopping(source); } catch { /* the face keeps its word */ } },
 };

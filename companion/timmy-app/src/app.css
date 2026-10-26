@@ -78,6 +78,8 @@ button { font: inherit; }
 
 /* ── the page ── */
 .ta-page { display: flex; flex-direction: column; gap: 18px; padding: 30px var(--ta-gutter) 22px; box-sizing: border-box; min-height: 100%; }
+/* a fill page (Chat, Canvas) fills the window; its body never shrinks below what its stage needs (440 px), so in a short window
+   the tools row moves down and the page scrolls, and the stage never runs over the tools row (the operator's 18:39 screenshot) */
 .ta-page.is-fill { height: 100%; min-height: 560px; }
 .ta-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex: none; }
 .ta-head-words { min-width: 0; max-width: 760px; }
@@ -97,7 +99,7 @@ button { font: inherit; }
 
 .ta-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-height: 0; }
 .ta-body.has-context { grid-template-columns: minmax(0, 1fr) 340px; }
-.ta-page.is-fill .ta-body { flex: 1 1 auto; }
+.ta-page.is-fill .ta-body { flex: 1 1 auto; min-height: 440px; }
 .ta-work { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 18px; }
 .ta-context { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px; box-sizing: border-box; border-radius: 16px; border: 1px solid var(--ta-edge);
   background: var(--ta-wash), var(--timmy-ui-elev-surface, #111A23); box-shadow: var(--timmy-ui-shadow-raised, none); }
@@ -278,43 +280,60 @@ li.ta-turn.ta-tool { align-self: flex-start; opacity: .85; }
 .ta-desk-corner.is-bl { left: -1px; bottom: -1px; border-left-width: 2px; border-bottom-width: 2px; border-bottom-left-radius: 24px; }
 .ta-desk-corner.is-br { right: -1px; bottom: -1px; border-right-width: 2px; border-bottom-width: 2px; border-bottom-right-radius: 24px; }
 .ta-desk-shape { overflow: visible; }
-.ta-desk-card { box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; color: var(--timmy-ui-ink, #1C3043);
+/* a desk card reads at the desk's Fit (about 75 % on a 1440 × 900 screen): its type is set in desk units, larger than a panel's */
+.ta-desk-card { box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden; color: var(--timmy-ui-ink, #1C3043);
   border: 1px solid var(--timmy-ui-paper, #E8EFF5); background: var(--timmy-ui-elev-paper, #E8EFF5);
-  box-shadow: var(--timmy-ui-shadow-paper, none); font: 400 13px/1.45 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); }
-.ta-desk-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid color-mix(in srgb, var(--timmy-ui-ink-soft, #3B5168) 30%, transparent); background: linear-gradient(110deg, color-mix(in srgb, var(--timmy-ui-paper, #E8EFF5) 60%, transparent), transparent); cursor: grab; }
-.ta-desk-card-head strong { font-weight: 600; font-size: 13px; }
+  box-shadow: var(--timmy-ui-shadow-paper, none); font: 400 17px/1.45 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); }
+.ta-desk-card-head { display: flex; align-items: baseline; gap: 12px; padding: 16px 22px 12px; border-bottom: 1px solid color-mix(in srgb, var(--timmy-ui-ink-soft, #3B5168) 22%, transparent); background: linear-gradient(110deg, color-mix(in srgb, var(--timmy-ui-paper, #E8EFF5) 60%, transparent), transparent); cursor: grab; }
+.ta-desk-card-head strong { font-weight: 600; font-size: 19px; }
+.ta-desk-kicker { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ta-on-paper-muted); }
 .ta-desk-card-head .tr-badge { color: var(--ta-on-paper-muted); border-color: var(--ta-on-paper-muted); }
-.ta-desk-card-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 14px 12px; display: grid; gap: 6px; align-content: start; cursor: default; user-select: text; }
+.ta-desk-card-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 22px 16px; display: grid; gap: 8px; align-content: start; cursor: default; user-select: text; }
+.ta-desk-sub { margin: 0; font-size: 15px; color: var(--ta-on-paper-muted); }
 .ta-desk-card .ta-muted { color: var(--ta-on-paper-muted); }
 .ta-desk-card .ta-facts dt { color: var(--ta-on-paper-muted); }
 .ta-desk-card .ta-verified { color: var(--ta-on-paper-verified); }
 .ta-desk-card .ta-unverified { color: var(--ta-on-paper-attention); }
 .ta-desk-card .ta-link { color: var(--ta-on-paper-link); }
-.ta-desk-big { margin: 0; font-size: 18px; font-weight: 500; overflow-wrap: anywhere; }
-.ta-desk-big code { font-size: 13px; }
-.ta-desk-live { margin: 0; font-size: 11px; color: var(--ta-on-paper-muted); }
+.ta-desk-big { margin: 0; font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.ta-desk-big.is-quiet { font-size: 26px; font-weight: 500; }
+.ta-desk-big code { font-size: 20px; font-weight: 500; }
+.ta-desk-live { margin: 0; font-size: 13px; color: var(--ta-on-paper-muted); }
 .ta-desk-live.is-not { color: var(--ta-on-paper-attention); }
 /* the Studio's timmy-rive shape (companion/studio-canvas/src/rive-shape.js), in this app's materials */
-.tr-shape { box-sizing: border-box; overflow: hidden; border-radius: 14px; border: 1px solid var(--ta-edge-lit); color: var(--timmy-ui-text, #ECF1F5);
+.tr-shape { box-sizing: border-box; overflow: hidden; border-radius: 20px; border: 1px solid var(--ta-edge-lit); color: var(--timmy-ui-text, #ECF1F5);
   background: var(--ta-wash), var(--timmy-ui-elev-surface, #111A23);
-  box-shadow: var(--timmy-ui-shadow-raised, none); font: 400 12.5px/1.45 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); }
+  box-shadow: var(--timmy-ui-shadow-raised, none); font: 400 15px/1.45 var(--timmy-ui-font, "Outfit", system-ui, sans-serif); }
 .tr-shape.is-selected { border-color: var(--timmy-ui-focus, #FFB000); }
-.tr-shape-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
+.tr-shape-inner { box-sizing: border-box; padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.tr-shape-head > * { min-width: 0; }
+.tr-shape-head .tr-shape-title { flex: 1 1 auto; }
 .tr-shape p { margin: 0; }
 .tr-shape-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; cursor: grab; }
-.tr-shape-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-shape-title { font-weight: 600; font-size: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tr-badge { flex: none; letter-spacing: .08em; font-size: 10px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-ui-border, #44586B); color: var(--timmy-ui-text-secondary, #BDCADA); }
 .tr-shape-pick { display: inline-flex; }
-.tr-shape-select { font: inherit; font-size: 11px; color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-canvas, #080B0F); border: 1px solid var(--timmy-ui-border, #44586B); border-radius: 4px; padding: 1px 4px; }
+.tr-shape-select { font: inherit; font-size: 13px; color: var(--timmy-ui-text, #ECF1F5); background: var(--timmy-ui-canvas, #080B0F); border: 1px solid var(--timmy-ui-border, #44586B); border-radius: 4px; padding: 1px 4px; }
 .tr-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.tr-shape .tr-component[data-artboard] { display: grid; width: 100%; grid-template-columns: 1fr; gap: 4px; }
-.tr-shape .tr-component[data-artboard] .tr-face { width: 100%; height: auto; border-radius: 10px; }
+.tr-shape .tr-component[data-artboard] { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.tr-shape .tr-component[data-artboard] .tr-face { width: 100%; max-width: 100%; min-width: 0; height: auto; border-radius: 10px; }
+.tr-shape .tr-component[data-artboard] .tr-face canvas { max-width: 100%; }
 .tr-shape .tr-component[data-artboard="AgentConsole"] .tr-face { aspect-ratio: 640 / 380; }
 .tr-shape .tr-component[data-artboard="ProviderCard"] .tr-face { aspect-ratio: 400 / 260; }
 .tr-shape .tr-component[data-artboard="ActionButton"] .tr-face { aspect-ratio: 240 / 72; font-size: 14px; }
-.tr-note, .tr-shape-source, .tr-shape-foot, .tr-shape-more { font-size: 11.5px; color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.tr-note, .tr-shape-source, .tr-shape-foot, .tr-shape-more { font-size: 13px; color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+/* on the app's desk: the face and one line of where its state came from; the shape's size and selection words stay in the
+   context column (the shape still carries them for a screen reader through its group label) */
+.ta-stage .tr-shape-foot, .ta-stage .tr-shape-more { display: none; }
+.ta-stage .tr-shape .tr-words .tr-heading { font-size: 12px; }
 .tr-note:empty { display: none; }
 /* the selection and the licence (the context column on the Canvas) */
+@media (min-width: 900px) { .ta-page[data-page="canvas"] .ta-toolsrow { flex-wrap: nowrap; } }
+.ta-toolsrow-note { margin-left: auto; padding: 0 10px; font-size: 12px; color: var(--timmy-ui-text-muted, #9AAFC3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ta-turnpanel { display: grid; gap: 10px; }
+.ta-turnpanel-head, .ta-turnpanel-ask { margin: 0; }
+.ta-turnpanel-ask { color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
+.ta-fields textarea { font: inherit; color: var(--timmy-ui-text, #ECF1F5); background: var(--ta-field); border: 1px solid var(--ta-edge-lit); border-radius: 10px; padding: 8px 10px; resize: vertical; }
 .ta-inspect { display: grid; gap: 12px; }
 .ta-inspect-title { margin: 0; font-size: 16px; font-weight: 500; }
 .ta-fields { display: grid; gap: 10px; }
@@ -447,3 +466,4 @@ li.ta-turn.ta-tool { align-self: flex-start; opacity: .85; }
   .ta-page[data-page="canvas"] .ta-stage { flex: none; min-height: 0; height: calc(100dvh - 300px); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.ta-stage .tr-shape-head .tr-badge { display: none; }

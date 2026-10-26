@@ -20,13 +20,18 @@ import { timmyThemes } from '../../../studio-canvas/src/theme.js';
 import { chosenOf, providerName, whereOf } from '../models-parts.jsx';
 import { Page, Tool } from '../shell.jsx';
 import { getJson, postJson } from '../api.js';
-import { getState, goTo, projectQuery, say, setCanvasIo, setLicense, useApp } from '../store.js';
+import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, useApp } from '../store.js';
+import { ActionFace } from '../rive.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
 // ── the desk ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** The desk in page units: a 1248 × 652 work area inside a 64-unit margin (what Fit shows, and the camera's bounds). */
-export const DESK = Object.freeze({ x: -64, y: -64, w: 1376, h: 780 });
+/**
+ * The desk in page units: a 920 × 632 work area inside a 56-unit margin (what Fit shows, and the camera's bounds). Sized, as the
+ * Card Lab's inspection desk is, so that Fit shows its objects at about three quarters of their size on a 1440 × 900 screen:
+ * a few large, readable objects rather than many small panels.
+ */
+export const DESK = Object.freeze({ x: -56, y: -56, w: 1032, h: 744 });
 export const ZOOM_STEPS = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]);
 const quick = () => (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
 
@@ -58,9 +63,9 @@ export const deskKeyOf = (config) => `timmy-desk-${keyOf(`${config && config.pri
 export const CARD_SHAPE = 'timmy-card';
 /** The cards a person can put on the desk: each reads the store (the companion's answers on this page). */
 export const DESK_CARDS = Object.freeze({
-  model: { title: 'The chosen model', w: 340, h: 196 },
-  receipt: { title: 'The last receipt', w: 340, h: 196 },
-  conversation: { title: 'This conversation', w: 340, h: 196 },
+  model: { title: 'The chosen model', kicker: 'Model', w: 380, h: 220 },
+  receipt: { title: 'The last receipt', kicker: 'Proof', w: 560, h: 200 },
+  conversation: { title: 'This conversation', kicker: 'Conversation', w: 380, h: 220 },
 });
 
 function LiveLine({ at }) {
@@ -78,13 +83,13 @@ function DeskCard({ shape }) {
   const last = sealed[sealed.length - 1];
   const chosen = chosenOf(view);
   let content = null;
-  if (!view) content = <p className="ta-muted">{shape.props.saved || 'Nothing to show until the companion answers.'}</p>;
-  else if (kind === 'model') content = chosen ? <><p className="ta-desk-big">{chosen.model}</p><p className="ta-muted">{whereOf(view.route)} · {view.route && view.route.ready ? 'Send is on' : 'Send is off'}</p></> : <p className="ta-muted">No model chosen · Send is off.</p>;
-  else if (kind === 'receipt') content = last ? <><p className="ta-desk-big"><span className={last.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{last.receipt.verified ? '✓ verified' : '✕ not verified'}</span> <code>{last.receipt.id}</code></p><p className="ta-muted">{last.model || 'a model'} · {last.receipt.where} · {clock(last.at)}</p></> : <p className="ta-muted">No sealed answer in this conversation yet.</p>;
-  else content = <Facts rows={[['messages', String(view.conversation ? view.conversation.total : 0)], ['answers', String(turns.filter((t) => t.kind === 'timmy').length)], ['sealed', String(sealed.length)]]} />;
+  if (!view) content = <p className="ta-desk-big is-quiet">{shape.props.saved || 'Waiting for the companion.'}</p>;
+  else if (kind === 'model') content = chosen ? <><p className="ta-desk-big">{chosen.model}</p><p className="ta-desk-sub">{whereOf(view.route)} · {view.route && view.route.ready ? 'Send is on' : 'Send is off'}</p></> : <><p className="ta-desk-big is-quiet">No model yet.</p><p className="ta-desk-sub">Choose one in Models &amp; accounts; Send stays off until then.</p></>;
+  else if (kind === 'receipt') content = last ? <><p className="ta-desk-big"><span className={last.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{last.receipt.verified ? '✓ Verified' : '✕ Not verified'}</span> <code>{last.receipt.id}</code></p><p className="ta-desk-sub">{last.model || 'a model'} · {last.receipt.where} · {clock(last.at)}</p></> : <><p className="ta-desk-big is-quiet">No sealed answer yet.</p><p className="ta-desk-sub">Each answer of this conversation is sealed with a receipt; the last one shows here.</p></>;
+  else content = <><p className="ta-desk-big">{turns.filter((t) => t.kind === 'timmy').length} answers</p><p className="ta-desk-sub">{view.conversation ? view.conversation.total : 0} messages · {sealed.length} sealed with a receipt</p></>;
   return (
     <div className="ta-desk-card" data-desk-card={kind}>
-      <header className="ta-desk-card-head"><strong>{DESK_CARDS[kind].title}</strong><span className="tr-badge">TIMMY</span></header>
+      <header className="ta-desk-card-head"><span className="ta-desk-kicker">{DESK_CARDS[kind].kicker}</span><strong>{DESK_CARDS[kind].title}</strong></header>
       <div className="ta-desk-card-body" ref={body} onPointerDown={keepPointer} {...keepKeys}>
         {content}
         <LiveLine at={view ? viewAt : null} />
@@ -98,7 +103,7 @@ function DeskCard({ shape }) {
 class DeskCardUtil extends BaseBoxShapeUtil {
   static type = CARD_SHAPE;
   static props = { w: T.number, h: T.number, kind: T.string, saved: T.string };
-  getDefaultProps() { return { w: 340, h: 196, kind: 'model', saved: '' }; }
+  getDefaultProps() { return { w: 380, h: 220, kind: 'model', saved: '' }; }
   hideRotateHandle() { return true; }
   canEdit() { return false; }
   canBind() { return true; }
@@ -165,7 +170,7 @@ function placeFor(editor, w, h) {
 export const NODES = Object.freeze([
   { id: 'activity', label: 'Agent console (Rive)', glyph: '>_' },
   { id: 'connection', label: 'Provider connection (Rive)', glyph: '○' },
-  { id: 'welcome', label: 'Action button (Rive)', glyph: '▶' },
+  { id: 'welcome', label: 'Action button (Rive): sends a request', glyph: '▶' },
   { id: 'card:model', label: 'The chosen model', glyph: '◉' },
   { id: 'card:receipt', label: 'The last receipt', glyph: '✓' },
   { id: 'card:conversation', label: 'This conversation', glyph: '☰' },
@@ -179,9 +184,9 @@ export function addNode(editor, node) {
   let id = createShapeId();
   editor.run(() => {
     if (RIVE_COMPONENTS[node]) {
-      const props = riveProps(node, node === 'connection' ? { provider, label: `${providerName(provider)} connection` } : {});
+      const props = riveProps(node, node === 'connection' ? { provider, label: `${providerName(provider)} connection` } : node === 'welcome' ? { label: ACTION.label } : {});
       const at = placeFor(editor, props.w, 260);
-      editor.createShape({ id, type: RIVE_SHAPE, x: at.x, y: at.y, props });
+      editor.createShape({ id, type: RIVE_SHAPE, x: at.x, y: at.y, props, ...(node === 'welcome' ? { meta: { request: ACTION.request } } : {}) });
     } else if (node.startsWith('card:')) {
       const kind = node.slice(5);
       const d = DESK_CARDS[kind] || DESK_CARDS.model;
@@ -198,18 +203,47 @@ export function addNode(editor, node) {
   return id;
 }
 
-/** The desk a project starts with (only when its desk is empty): the agent's console, the chosen model and the last receipt. */
+/** A new action button's words and the request it sends (the person changes both in the context column). */
+export const ACTION = Object.freeze({ label: 'Ask Timmy', request: 'List the files in this project and say in one line what each is for.' });
+/** The request an action button sends: its own (the shape's meta), else its label. */
+export const requestOf = (shape) => (shape && shape.meta && typeof shape.meta.request === 'string' && shape.meta.request.trim() ? shape.meta.request.trim() : shape ? String(shape.props.label || '').trim() : '');
+
+/** An arrow from one shape to another, bound at both ends (tldraw's own arrow and bindings: it follows them when they move). */
+export function connect(editor, from, to) {
+  const a = editor.getShapePageBounds(from);
+  const b = editor.getShapePageBounds(to);
+  if (!a || !b) return null;
+  const id = createShapeId();
+  const start = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
+  const end = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  editor.createShape({ id, type: 'arrow', x: start.x, y: start.y, props: { start: { x: 0, y: 0 }, end: { x: end.x - start.x, y: end.y - start.y }, dash: 'dashed', size: 's' } });
+  const at = (terminal, toId) => ({ type: 'arrow', fromId: id, toId, props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false } });
+  editor.createBindings([at('start', from), at('end', to)]);
+  return id;
+}
+
+/**
+ * The desk a project starts with (only when its desk is empty), as the Card Lab's desk holds its viewer and its identity card:
+ * a few large objects joined by what flows between them — the action button that sends a request → the agent's console (its
+ * state the turn's own events) ← the provider's connection; the console → the last receipt.
+ */
 function firstDesk(editor) {
   if (editor.getCurrentPageShapeIds().size) return;
   editor.run(() => {
     const view = getState().view;
     const chosen = chosenOf(view);
     const provider = chosen ? chosen.source : 'ollama-local';
-    editor.createShape({ id: createShapeId(), type: RIVE_SHAPE, x: 0, y: 0, props: riveProps('activity', { w: 480 }) });
-    editor.createShape({ id: createShapeId(), type: RIVE_SHAPE, x: 520, y: 0, props: riveProps('connection', { w: 320, provider, label: `${providerName(provider)} connection` }) });
-    editor.createShape({ id: createShapeId(), type: CARD_SHAPE, x: 880, y: 0, props: { w: 340, h: 196, kind: 'model', saved: '' } });
-    editor.createShape({ id: createShapeId(), type: CARD_SHAPE, x: 880, y: 232, props: { w: 340, h: 196, kind: 'receipt', saved: '' } });
-    editor.createShape({ id: createShapeId(), type: 'note', x: 0, y: 380, props: { richText: toRichText('Notes for this project: write here, draw beside the cards, connect them with arrows.') } });
+    const action = createShapeId();
+    const console = createShapeId();
+    const link = createShapeId();
+    const receipt = createShapeId();
+    editor.createShape({ id: action, type: RIVE_SHAPE, x: 0, y: 24, props: riveProps('welcome', { w: 340, label: ACTION.label }), meta: { request: ACTION.request } });
+    editor.createShape({ id: link, type: RIVE_SHAPE, x: 0, y: 264, props: riveProps('connection', { w: 340, provider, label: providerName(provider) }) });
+    editor.createShape({ id: console, type: RIVE_SHAPE, x: 400, y: 0, props: riveProps('activity', { w: 520, label: 'Agent / tool activity' }) });
+    editor.createShape({ id: receipt, type: CARD_SHAPE, x: 400, y: 412, props: { w: 520, h: 200, kind: 'receipt', saved: '' } });
+    connect(editor, action, console);
+    connect(editor, link, console);
+    connect(editor, console, receipt);
   }, { history: 'ignore' });
 }
 
@@ -278,6 +312,15 @@ export function keptWords(kept, project) {
   if (kept.phase === 'saving') return `${where} · saving…`;
   if (kept.phase === 'saved') return `${where} · revision ${kept.revision}${kept.savedAt ? ` · ${clock(kept.savedAt)}` : ''}`;
   return `not saved: ${kept.words}`;
+}
+/** The tools row's few words of the same: how many shapes, and whether the desk is saved. */
+export function deskWord(kept) {
+  if (!kept || kept.phase === 'loading') return 'reading the desk…';
+  if (kept.phase === 'new') return 'not saved yet';
+  if (kept.phase === 'pending') return 'unsaved changes';
+  if (kept.phase === 'saving') return 'saving…';
+  if (kept.phase === 'saved') return `saved · revision ${kept.revision}${kept.savedAt ? ` · ${clock(kept.savedAt)}` : ''}`;
+  return kept.phase === 'conflict' ? 'not saved: another window saved first' : 'not saved';
 }
 let keeper = null;
 
@@ -419,7 +462,79 @@ function DeskTools({ editor }) {
 
 const PROVIDERS = ['ollama-local', 'openrouter', 'ollama-cloud', 'cloudflare'];
 
+/** Sends an action button's request as a real turn of this project (the Chat's own POST /api/chat/turn), when none runs. */
+export function runAction(shape) {
+  const request = requestOf(shape);
+  const t = getState().turn;
+  if (!request) { say('This action button has no request yet: write one in the context column.'); return false; }
+  if (t && ['running', 'stopping'].includes(t.phase)) { say('A turn is running: answer it or stop it first (the agent console’s controls, here or in Chat).'); return false; }
+  if (!(getState().view && getState().view.route && getState().view.route.ready)) { say('No model is chosen for this project yet, so nothing was sent: choose one in Models & accounts.'); return false; }
+  say(`Sent from the canvas: “${request}”. The agent console follows the turn; Chat shows it in full.`);
+  send(request);
+  return true;
+}
+
+/**
+ * The current turn, wherever it was started (the canvas's action button or the Chat): its state, the tool it waits on with the
+ * answers (Timmy's native ActionButton), Stop, and the receipt it was sealed with. The same store and routes as the Chat's.
+ */
+function TurnPanel({ theme }) {
+  const turn = useApp((s) => s.turn);
+  if (!turn) return <p className="ta-muted">No turn on this page yet. Press an action button on the desk, or write in Chat.</p>;
+  const running = ['running', 'stopping'].includes(turn.phase);
+  return (
+    <div className="ta-turnpanel" data-phase={turn.phase}>
+      <p className="ta-turnpanel-head"><StateWord word={activityOf(turn) === 'idle' ? turn.phase : activityOf(turn)} /> <span className="ta-muted">{turn.route && turn.route.model ? turn.route.model : 'the chosen model'}</span></p>
+      <p className="ta-turnpanel-ask">“{String(turn.message || '').slice(0, 180)}”</p>
+      {turn.tools.length ? <ul className="ta-tools">{turn.tools.map((x) => <li key={x.call}><StateWord word={x.status} /> {x.words}</li>)}</ul> : null}
+      {turn.needsYou ? (
+        <div className="ta-needs" role="alertdialog" aria-label="NEEDS YOU">
+          <p className="ta-needs-head"><strong>NEEDS YOU</strong> · {turn.needsYou.tool}</p>
+          <p>{turn.needsYou.words}</p>
+          <div className="ta-row ta-answers">
+            {(turn.needsYou.options || ['once', 'deny']).map((o) => (
+              <ActionFace key={o} theme={theme} name={`desk-needs-you:${o}`} label={o === 'once' ? 'Allow once' : o === 'session' ? 'Allow for this session' : 'Deny'} onPress={() => answerNeedsYou(o)} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {running ? <Button kind="primary" onClick={stop} disabled={turn.phase === 'stopping'}>{turn.phase === 'stopping' ? 'Stopping…' : '■ Stop the turn'}</Button> : null}
+      {turn.stopWords && running ? <p className="ta-muted" role="status">{turn.stopWords}</p> : null}
+      {turn.error ? <p className="ta-result" role="status">{turn.error}</p> : null}
+      {turn.done ? <p className="ta-receipt">{turn.done.receipt ? <>receipt <code>{String(turn.done.receipt).replace(/^sha256_/, '').slice(0, 12)}</code> · </> : null}{turn.done.status}</p> : null}
+      <button type="button" className="ta-link" onClick={() => goTo('chat')}>Open in Chat →</button>
+    </div>
+  );
+}
+
+/** What a Rive shape does, in the context column: an action button's request, a connection's check, the console's turn. */
+function RiveOps({ editor, one, theme }) {
+  const check = useApp((s) => s.check);
+  const meta = one.meta || {};
+  if (one.props.component === 'welcome') {
+    return (
+      <div className="ta-fields">
+        <label>Request it sends<textarea rows={3} value={typeof meta.request === 'string' ? meta.request : ''} placeholder={one.props.label} onChange={(e) => editor.updateShape({ id: one.id, type: one.type, meta: { ...meta, request: e.target.value } })} /></label>
+        <Button kind="primary" onClick={() => runAction(one)}>▶ Send it now</Button>
+        <p className="ta-muted">Pressing the button on the desk sends the same request: a real turn of this project, with its tools, their approvals and a receipt.</p>
+      </div>
+    );
+  }
+  if (one.props.component === 'connection') {
+    const id = one.props.provider || 'ollama-local';
+    const c = check && check[id];
+    return (
+      <div className="ta-fields">
+        <Button kind="primary" onClick={() => checkProvider(id)} disabled={c && c.state === 'checking'}>{c && c.state === 'checking' ? 'Checking…' : `Check ${providerName(id)}`}</Button>
+        <p className="ta-muted">{c ? <><StateWord word={c.state} /> {c.words}{c.at ? ` · ${clock(c.at)}` : ''}</> : 'Not checked on this page yet: the face shows the state as saved until a check answers.'}</p>
+      </div>
+    );
+  }
+  return <TurnPanel theme={theme} />;
+}
+
 function Selection({ editor, kept }) {
+  const theme = useApp((s) => s.theme);
   const selected = useValue('timmy desk: selection', () => (editor ? editor.getSelectedShapes() : []), [editor]);
   const count = useValue('timmy desk: shapes', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
   const lic = useApp((s) => s.license);
@@ -438,13 +553,15 @@ function Selection({ editor, kept }) {
             ['on the desk', `${count} shape${count === 1 ? '' : 's'}`],
             ['kept', keptWords(kept, config && config.project)],
           ]} />
+          <p className="ta-context-k">THE TURN</p>
+          <TurnPanel theme={theme} />
         </>
       ) : one ? (
         <>
           <p className="ta-inspect-title">{one.type === RIVE_SHAPE ? `Rive · ${RIVE_COMPONENTS[one.props.component] ? RIVE_COMPONENTS[one.props.component].artboard : one.props.component}` : one.type === CARD_SHAPE ? `Timmy card · ${(DESK_CARDS[one.props.kind] || DESK_CARDS.model).title}` : `tldraw · ${one.type}`}</p>
           {one.type === RIVE_SHAPE ? (
             <div className="ta-fields">
-              <label>Label<input value={one.props.label} onChange={(e) => update({ label: e.target.value })} /></label>
+              <label>{one.props.component === 'welcome' ? 'Words on the button' : 'Label'}<input value={one.props.label} onChange={(e) => update({ label: e.target.value })} /></label>
               <label>Component<select value={one.props.component} onChange={(e) => { const f = riveProps(e.target.value, { w: one.props.w, provider: one.props.provider }); update({ component: e.target.value, state: f.state, label: f.label }); }}>
                 {Object.keys(RIVE_COMPONENTS).map((k) => <option key={k} value={k}>{RIVE_COMPONENTS[k].artboard}</option>)}
               </select></label>
@@ -453,7 +570,8 @@ function Selection({ editor, kept }) {
                   {PROVIDERS.map((p) => <option key={p} value={p}>{providerName(p)}</option>)}
                 </select></label>
               ) : null}
-              <p className="ta-muted">State word: <StateWord word={one.props.state} /> — {SAVED_WORDS} until an event of this page moves it.</p>
+              {one.props.component === 'welcome' ? null : <p className="ta-muted">State word: <StateWord word={one.props.state} /> — {SAVED_WORDS} until an event of this page moves it.</p>}
+              <RiveOps editor={editor} one={one} theme={theme} />
             </div>
           ) : one.type === CARD_SHAPE ? (
             <div className="ta-fields">
@@ -472,10 +590,6 @@ function Selection({ editor, kept }) {
           <Button onClick={del}>Delete</Button>
         </div>
       ) : null}
-      <div className="ta-row">
-        <Button onClick={() => exportDesk(editor, config && config.project)}>Export canvas</Button>
-        <Button onClick={() => importDesk(editor)}>Import…</Button>
-      </div>
       <div className="ta-license" data-license={lic ? lic.state : 'unread'}>
         <p className="ta-context-k">CANVAS LICENCE</p>
         <p>{lic ? <><StateWord word={lic.state} live={lic.state === 'licensed'} /> <span className="ta-muted">{lic.words}</span></> : <span className="ta-muted">Reading the SDK’s licence state…</span>}</p>
@@ -488,7 +602,6 @@ function Selection({ editor, kept }) {
 export default function CanvasPage() {
   const config = useApp((s) => s.config);
   const note = useApp((s) => s.note);
-  const count = useApp((s) => s.license);
   const [editor, setEditor] = useState(null);
   const [desk, setDesk] = useState(null);
   const [kept, setKept] = useState({ phase: 'loading' });
@@ -514,20 +627,27 @@ export default function CanvasPage() {
     setCanvasIo({ export: () => exportDesk(editor, config && config.project), import: () => importDesk(editor) });
     return () => setCanvasIo(null);
   }, [editor, config]);
+  // the desk's action buttons: a person's press on the native ActionButton (a trusted click, Enter or Space: the bindings'
+  // trigger, never automatic) sends that button's request as a real turn of this project
+  useEffect(() => {
+    const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+    if (!R || !editor) return undefined;
+    return R.on((hd, ev) => {
+      if (!ev || ev.input !== 'welcome' || !/^user /.test(String(ev.source || ''))) return;
+      const el = hd && hd.hostEl && hd.hostEl.closest ? hd.hostEl.closest('[data-timmy-rive-shape]') : null;
+      const shape = el ? editor.getShape(el.getAttribute('data-timmy-rive-shape')) : null;
+      if (shape && shape.type === RIVE_SHAPE) runAction(shape);
+    });
+  }, [editor]);
   const shapes = useValue('timmy desk: count', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
   return (
     <Page id="canvas" fill note={note}
-      actions={<>
-        {kept.phase === 'conflict' ? <Button onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
-        <Button onClick={() => editor && fitDesk(editor)} disabled={!editor}>Fit workspace</Button>
-      </>}
-      band={[
-        ['DESK', editor ? `${shapes} shape${shapes === 1 ? '' : 's'}` : <span className="ta-muted">opening…</span>],
-        ['KEPT', <span key="k" data-kept={kept.phase}>{keptWords(kept, config && config.project)}</span>],
-        ['LICENCE', count ? <StateWord word={count.state} live={count.state === 'licensed'} /> : <span className="ta-muted">reading…</span>],
-      ]}
+      actions={kept.phase === 'conflict' ? <Button kind="primary" onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
       context={<Selection editor={editor} kept={kept} />}
-      tools={<DeskTools editor={editor} />}>
+      tools={<>
+        <DeskTools editor={editor} />
+        <span className="ta-toolsrow-note" data-kept={kept.phase} title={keptWords(kept, config && config.project)}>{editor ? `${shapes} shape${shapes === 1 ? '' : 's'} · ` : ''}{deskWord(kept)}</span>
+      </>}>
       <div className="ta-stage" aria-label="The desk">
         {ready && desk ? <Board key={`${deskKey}:${opening}`} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
           : ready ? <p className="ta-empty ta-pad">Reading the project’s desk…</p>

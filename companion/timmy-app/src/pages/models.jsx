@@ -37,7 +37,6 @@ export default function ModelsPage() {
           ]} />
           {!chosen ? <Empty>No model is chosen. Use one below; the Chat sends with it.</Empty> : null}
           <ChooseResult />
-          {ready ? <Button kind="primary" onClick={() => goTo('chat')}>Continue to workspace →</Button> : null}
         </>
       )}>
       <div className="ta-grid-2">
