@@ -57,6 +57,23 @@ if [ "$stamped" != "$revfull false" ]; then
 fi
 echo "build-review: the packed build carries its revision ($rev, dist/build-info.json)"
 
+# R13 (the owner checkpoints packet, step 6): a reproducible install. The sandbox's dependency tree is resolved ONCE, here,
+# into install-lock/package-lock.json (every package's version, its registry address and integrity hash), for the sandbox
+# layout review.sh installs into (sandbox/prefix, the packed Timmy two folders up); review.sh then runs `npm ci` from it, so
+# the Mac gets exactly that tree or a refusal, never a newer release published since. The node and npm that resolved it are
+# recorded beside it.
+lockdir="$out/lock-$rev"
+rm -rf "$lockdir"; mkdir -p "$lockdir/sandbox/prefix"
+cp "$pkg/$tgz" "$lockdir/$tgz"
+printf '{\n  "name": "timmy-review-sandbox",\n  "private": true,\n  "dependencies": { "timmy-tui": "file:../../%s" }\n}\n' "$tgz" > "$lockdir/sandbox/prefix/package.json"
+( cd "$lockdir/sandbox/prefix" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund --loglevel=error ) || { echo "build-review: resolving the install lock failed" >&2; exit 1; }
+mkdir -p "$pkg/install-lock"
+cp "$lockdir/sandbox/prefix/package.json" "$lockdir/sandbox/prefix/package-lock.json" "$pkg/install-lock/"
+printf '{"node":"%s","npm":"%s","resolvedAt":"%s","packages":%s}\n' "$(node --version)" "$(npm --version)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "$(node -e 'const l=require(process.argv[1]);process.stdout.write(String(Object.keys(l.packages||{}).length-1))' "$pkg/install-lock/package-lock.json")" > "$pkg/install-lock/resolved-with.json"
+echo "build-review: install lock: $(cat "$pkg/install-lock/resolved-with.json")"
+rm -rf "$lockdir"
+
 # R9 lead (after the R9 independent review, its F2): the README's branch is the checkout's, never a fixed round's ("|", not
 # "/", as sed's delimiter: a branch name holds slashes)
 branch=$(git branch --show-current 2>/dev/null); branch=${branch:-a detached revision}
@@ -80,16 +97,35 @@ if [ -n "${UPMD_BIN:-}" ]; then
   if [ -n "${UPMD_LICENSE:-}" ]; then cp "$UPMD_LICENSE" "$pkg/bin/upmd-LICENSE.txt"; fi
 fi
 if [ -n "${EXTRA_DIR:-}" ]; then cp -R "$EXTRA_DIR"/. "$pkg/"; fi
-# R13: the owners' mini-apps, each from its own git repository at an exact revision (MODEL_STUDIO_GIT=<repo>,
-# MODEL_STUDIO_REV=<commit>): its tracked files only (git archive: no node_modules, data, venvs or untracked files), with a
-# .timmy-source.json naming the revision; review.sh installs and builds it inside the package on first use
-if [ -n "${MODEL_STUDIO_GIT:-}" ]; then
-  msrev=$(git -C "$MODEL_STUDIO_GIT" rev-parse "${MODEL_STUDIO_REV:-HEAD}")
+# R13: the owners' mini-apps, each from its owner's source at an exact revision: <APP>_GIT=<repo> <APP>_REV=<commit> (its
+# tracked files only: git archive, no node_modules, data, venvs or untracked files), or for an app with no commit (Timmy
+# Animate) <APP>_DIR=<folder> <APP>_LABEL=<what the owner's archive is called>. Each gets a .timmy-source.json naming its
+# source; an app with no committed lockfile gets one resolved here (install-lock), so review.sh can npm ci it too.
+add_app_git() { # <id> <repo> <rev> <owner> [<owner's commit, when the repo's is an import of it>]
+  local id=$1 repo=$2 r ownerrev=${5:-}
+  r=$(git -C "$repo" rev-parse "$3")
   mkdir -p "$pkg/apps"
-  git -C "$MODEL_STUDIO_GIT" archive --format=tar --prefix=model-studio/ "$msrev" | tar -x -C "$pkg/apps"
-  printf '{"app":"model-studio","revision":"%s","owner":"Codex: timmy-new-1","from":"git archive"}\n' "$msrev" > "$pkg/apps/model-studio/.timmy-source.json"
-  echo "build-review: Model Studio $msrev (git archive)"
-fi
+  git -C "$repo" archive --format=tar --prefix="$id/" "$r" | tar -x -C "$pkg/apps"
+  printf '{"app":"%s","revision":"%s","owner":"%s","from":"git archive"%s}\n' "$id" "${ownerrev:-$r}" "$4" "${ownerrev:+,\"imported_as\":\"$r\",\"tree\":\"$(git -C "$repo" rev-parse "$r^{tree}")\"}" > "$pkg/apps/$id/.timmy-source.json"
+  echo "build-review: $id ${ownerrev:-$r} (git archive)"
+}
+add_app_dir() { # <id> <folder> <owner> <label>
+  local id=$1
+  mkdir -p "$pkg/apps/$id"
+  tar -C "$2" --exclude=./node_modules --exclude=./dist --exclude=./verification --exclude='._*' -cf - . | tar -x -C "$pkg/apps/$id"
+  printf '{"app":"%s","revision":null,"label":"%s","owner":"%s","from":"owner archive"}\n' "$id" "$4" "$3" > "$pkg/apps/$id/.timmy-source.json"
+  echo "build-review: $id $4 (owner archive)"
+}
+lock_app() { # <id>: resolve a lockfile for an app that ships none (recorded as resolved here, not the owner's)
+  local d="$pkg/apps/$1"
+  [ -f "$d/package-lock.json" ] && return 0
+  ( cd "$d" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund --loglevel=error ) || { echo "build-review: $1: resolving its lock failed" >&2; exit 1; }
+  printf '{"lock":"resolved by the review package build, not committed by the owner","node":"%s","npm":"%s"}\n' "$(node --version)" "$(npm --version)" > "$d/.timmy-lock.json"
+}
+if [ -n "${MODEL_STUDIO_GIT:-}" ]; then add_app_git model-studio "$MODEL_STUDIO_GIT" "${MODEL_STUDIO_REV:-HEAD}" "Codex: timmy-new-1"; fi
+if [ -n "${CARD_LAB_GIT:-}" ]; then add_app_git card-lab "$CARD_LAB_GIT" "${CARD_LAB_REV:-HEAD}" "Codex: Timmy Card Lab" "${CARD_LAB_OWNER_REV:-}"; fi
+if [ -n "${FILM_ROOM_GIT:-}" ]; then add_app_git film-room "$FILM_ROOM_GIT" "${FILM_ROOM_REV:-HEAD}" "Codex: Analyze NFL footage with AI"; fi
+if [ -n "${ANIMATE_DIR:-}" ]; then add_app_dir animate "$ANIMATE_DIR" "Codex: Assess a 2D animator mini app" "${ANIMATE_LABEL:-owner archive}"; lock_app animate; fi
 
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 sums="$out/SHA256SUMS.$rev.tmp"

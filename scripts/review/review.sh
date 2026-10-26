@@ -72,7 +72,9 @@ run() {
     ${CLERK_PUBLISHABLE_KEY:+CLERK_PUBLISHABLE_KEY="$CLERK_PUBLISHABLE_KEY"} ${CLERK_JWT_KEY:+CLERK_JWT_KEY="$CLERK_JWT_KEY"} \
     ${CLERK_SECRET_KEY:+CLERK_SECRET_KEY="$CLERK_SECRET_KEY"} \
     ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} \
-    ${TIMMY_MODEL_STUDIO_DIR:+TIMMY_MODEL_STUDIO_DIR="$TIMMY_MODEL_STUDIO_DIR"} \
+    ${TIMMY_MODEL_STUDIO_DIR:+TIMMY_MODEL_STUDIO_DIR="$TIMMY_MODEL_STUDIO_DIR"} ${TIMMY_CARD_LAB_DIR:+TIMMY_CARD_LAB_DIR="$TIMMY_CARD_LAB_DIR"} \
+    ${TIMMY_FILM_ROOM_DIR:+TIMMY_FILM_ROOM_DIR="$TIMMY_FILM_ROOM_DIR"} ${TIMMY_ANIMATE_DIR:+TIMMY_ANIMATE_DIR="$TIMMY_ANIMATE_DIR"} \
+    ${ANIMATE_BLENDER:+ANIMATE_BLENDER="$ANIMATE_BLENDER"} ${FILMROOM_FFMPEG:+FILMROOM_FFMPEG="$FILMROOM_FFMPEG"} ${FILMROOM_PYTHON:+FILMROOM_PYTHON="$FILMROOM_PYTHON"} \
     ${STUDIO_BLENDER:+STUDIO_BLENDER="$STUDIO_BLENDER"} ${STUDIO_OPENSCAD:+STUDIO_OPENSCAD="$STUDIO_OPENSCAD"} \
     ${STUDIO_FREECAD:+STUDIO_FREECAD="$STUDIO_FREECAD"} ${STUDIO_CAD_PYTHON:+STUDIO_CAD_PYTHON="$STUDIO_CAD_PYTHON"} \
     ${STUDIO_BUILD123D_PYTHON:+STUDIO_BUILD123D_PYTHON="$STUDIO_BUILD123D_PYTHON"} \
@@ -85,14 +87,20 @@ run() {
 # the ones on this computer: STUDIO_BLENDER, STUDIO_OPENSCAD, STUDIO_FREECAD, STUDIO_CAD_PYTHON and STUDIO_BUILD123D_PYTHON
 # pass from your shell when you set them (its own defaults find the /Applications installs).
 mini_apps() {
-  local ms="$HERE/apps/model-studio"
-  [ -f "$ms/server.mjs" ] || return 0
-  if [ ! -f "$ms/dist/index.html" ]; then
-    echo "Installing and building Model Studio inside the package (its own dependencies; nothing global)..."
-    # (its build copies public/, an empty folder git does not keep)
-    ( cd "$ms" && mkdir -p public && npm ci --ignore-scripts --no-audit --no-fund && npm run build ) || { echo "Model Studio did not build (above): Timmy shows it as not built."; return 0; }
-  fi
-  export TIMMY_MODEL_STUDIO_DIR="$ms"
+  # each app the package carries: installed from its lockfile (npm ci) and built inside the package on first use, then named
+  build_app() { # <folder> <built file> <commands...>
+    local d=$1 built=$2; shift 2
+    [ -f "$d/$built" ] && return 0
+    echo "Installing and building $(basename "$d") inside the package (npm ci from its lockfile; nothing global)..."
+    ( cd "$d" && "$@" ) || { echo "$(basename "$d") did not build (above): Timmy shows it as not built."; return 1; }
+  }
+  local a="$HERE/apps"
+  # (Model Studio's build copies public/, an empty folder git does not keep, before its owner's a5264eb5 fix)
+  if [ -f "$a/model-studio/server.mjs" ] && build_app "$a/model-studio" dist/index.html sh -c 'mkdir -p public && npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_MODEL_STUDIO_DIR="$a/model-studio"; fi
+  if [ -f "$a/card-lab/bin/timmy-card-lab.mjs" ] && build_app "$a/card-lab" frontend/dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && (cd frontend && npm ci --ignore-scripts --no-audit --no-fund) && npm run build'; then export TIMMY_CARD_LAB_DIR="$a/card-lab"; fi
+  if [ -f "$a/film-room/server.mjs" ] && build_app "$a/film-room" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_FILM_ROOM_DIR="$a/film-room"; fi
+  if [ -f "$a/animate/server.mjs" ] && build_app "$a/animate" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_ANIMATE_DIR="$a/animate"; fi
+  return 0
 }
 
 # the active project's folder, as Timmy records it (<Timmy home>/state/active-project.json), when it is still there
@@ -165,8 +173,18 @@ HELP
     command -v npm >/dev/null 2>&1 || die "npm is not on PATH" 3
     [ -f "$TGZ" ] || die "the package file is missing: $TGZ" 3
     mkdir -p "$PREFIX"
-    say "Installing $(basename "$TGZ") into $PREFIX (npm fetches its dependencies; --ignore-scripts: no install script runs)..."
-    npm install --prefix "$PREFIX" --no-audit --no-fund --ignore-scripts --loglevel=error "$TGZ" || die "npm install failed (above)" 1
+    if [ -f "$HERE/install-lock/package-lock.json" ]; then
+      # R13: the exact tree resolved when this package was built (install-lock/), installed with npm ci: the same versions and
+      # integrity hashes, or a refusal; the node and npm used here are recorded beside the build's
+      say "Installing $(basename "$TGZ") into $PREFIX from the package's lock (npm ci: the exact dependency tree it was built with; --ignore-scripts: no install script runs)..."
+      cp "$HERE/install-lock/package.json" "$HERE/install-lock/package-lock.json" "$PREFIX/"
+      ( cd "$PREFIX" && npm ci --no-audit --no-fund --ignore-scripts --loglevel=error ) || die "npm ci failed (above): the lock and this computer's npm disagree, or a locked package could not be fetched" 1
+      printf '{"node":"%s","npm":"%s","installedAt":"%s","via":"npm ci"}\n' "$(node --version)" "$(npm --version)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BOX/installed-with.json"
+      say "Installed with $(cat "$BOX/installed-with.json"); the lock was resolved with $(cat "$HERE/install-lock/resolved-with.json")"
+    else
+      say "Installing $(basename "$TGZ") into $PREFIX (npm fetches its dependencies; --ignore-scripts: no install script runs)..."
+      npm install --prefix "$PREFIX" --no-audit --no-fund --ignore-scripts --loglevel=error "$TGZ" || die "npm install failed (above)" 1
+    fi
     # the node itself (its real file, not a version manager's shim): every later command runs Timmy on it
     node -p 'process.execPath' > "$NODE_FILE" || die "could not record the node in use ($NODE_FILE)" 1
     say "Timmy runs on $(cat "$NODE_FILE") ($(node --version)) in every ./review.sh command, whatever node a shell puts first."
