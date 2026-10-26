@@ -11,7 +11,7 @@
 //   node scripts/canvas/build.mjs --check [dir]    exit 1 when the build cannot ship (prepack runs it)
 import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -83,7 +83,29 @@ function notices(root, packages, title = 'Timmy Canvas', files = 'dist/canvas.js
  * that ships none. Without them the build is not distributable, and `missing` says why. The license
  * key is never read here: the server hands it to the page at run time.
  */
-export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR, 'dist'), { licenses = join(root, CANVAS_DIR), entry = join(root, CANVAS_DIR, 'src', 'canvas.js'), name = 'canvas', title = 'Timmy Canvas' } = {}) {
+/**
+ * Build into a folder of its own and swap it in whole (R13; the R12 failure diagnosis: this build removed `out` and wrote it
+ * file by file, so a companion serving it, and the tests reading it, saw no canvas for the length of a build, as
+ * companion-web-build.mjs did before buildCompanionWebInPlace). The old folder is renamed aside, the new one renamed in, the
+ * old one removed: a reader sees the whole old build or the whole new one.
+ */
+export async function buildCanvas(root = repository, out = join(root, CANVAS_DIR, 'dist'), options = {}) {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const tmp = `${out}.tmp-${stamp}`;
+  const old = `${out}.old-${stamp}`;
+  mkdirSync(join(out, '..'), { recursive: true });
+  try {
+    const result = await buildCanvasInto(root, tmp, options);
+    if (existsSync(out)) renameSync(out, old);
+    renameSync(tmp, out);
+    return result;
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(old, { recursive: true, force: true });
+  }
+}
+
+async function buildCanvasInto(root, out, { licenses = join(root, CANVAS_DIR), entry = join(root, CANVAS_DIR, 'src', 'canvas.js'), name = 'canvas', title = 'Timmy Canvas' } = {}) {
   const modules = join(root, 'node_modules');
   const versions = {
     tldraw: readJson(join(modules, 'tldraw', 'package.json')).version,
