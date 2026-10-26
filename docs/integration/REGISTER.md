@@ -74,4 +74,11 @@ to this public repository.
   the file's full run.
 - REAL Model Studio aabe7c1a (built in the container, no native engines there) opened framed through Timmy in Chromium at
   1440 × 900 and 390 × 844 and stopped through its job.
-- Not yet: a full suite on one unchanged candidate, the Mac package run, native engines through the hosted app, receipts.
+- **Full suite on dd2c1350** (frozen worktree, 2 workers, under the heavy lock, 11:41–12:43 PT): **exit 0**, 779 files passed /
+  16 skipped, 6416 tests passed / 136 skipped, 0 failed, no runner errors, 3731 s. One lock-free 3 s run of
+  `miniapps-host` overlapped it at 11:47.
+- **Mac, installed package 66fc3e4** (fresh home): Model Studio opened from the rail inside Timmy's frame; its 5 engines
+  available (Blender, OpenSCAD, FreeCAD, build123d, CadQuery; C4D and Houdini not); a real OpenSCAD parametric box
+  40 × 30 × 10 mm succeeded in 2 s and stays parametric; phone layout; stopped through its job.
+- Receipts adapter (07d2c599): `miniapps-host` 5/5 (FAKE app); not yet in a full suite or on the Mac.
+- Not yet: Card Lab, Film Room and Animate (owner checkpoints), Stream Studio (no owner), the Control Room relay.
