@@ -25,6 +25,7 @@ import { listLanes } from '../utils/dispatch.js';
 import { currentCapabilities, liveSize, type TerminalCapabilities } from '../term/capabilities.js';
 import { LiveRegion } from '../term/live-region.js';
 import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
+import { endTurnKeys, keepTurnKeys } from './turn-keys.js';
 import { measureTerminal } from '../term/probe.js';
 import { EXIT, TerminalSession } from '../term/session.js';
 import { buildTheme, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
@@ -754,14 +755,27 @@ export function watchCtrlC(stdin: NodeJS.ReadStream, session: Pick<TerminalSessi
   const onKey = (_s: string | undefined, key: Key = {}): void => {
     if (key.ctrl && key.name === 'c') onCtrlC();
   };
+  // R13 (found classifying the 030d0942 full suite's REPL failure): the keys typed during the turn (the next message, a
+  // "/exit") were read here and dropped; they are kept, Ctrl+C aside, and handed back to stdin for the next prompt
+  // (src/repl/turn-keys.ts: an approval during the turn discards them)
+  const typed = keepTurnKeys(stdin);
+  const onData = (chunk: Buffer | string): void => {
+    const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const rest = Buffer.from(b.filter((x) => x !== 0x03));
+    if (rest.length) typed.push(rest);
+  };
+  stdin.prependListener('data', onData);
   stdin.on('keypress', onKey);
   stdin.resume();
   // R4 lead: `keepRaw` when the next prompt follows at once (the REPL's loop): what is typed between the turn's end and the
   // prompt waits raw (src/repl/input.ts PromptDeps.keepRaw: in a cooked terminal its Enter became a new line in the prompt)
   return (o = {}) => {
+    stdin.off('data', onData);
     stdin.off('keypress', onKey);
     if (!o.keepRaw) session.setRaw(false);
     stdin.pause();
+    const back = endTurnKeys(stdin);
+    if (back && typeof stdin.unshift === 'function') { try { stdin.unshift(back); } catch { /* not readable */ } }
   };
 }
 
@@ -776,6 +790,11 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   // indented continuation rows (src/repl/notice-wrap.ts), no longer cut: a cut lost the ids and reasons at the end.
   const size = liveSize(process.stdout, caps);
   const say = (segments: Segment[]): void => void region.commit(wrapSegments(segments, size.columns).map((row) => serialize(row, theme)));
+  // R13 (classified from the 030d0942 full suite, src/repl/input.ts PromptDeps.typedAhead): raw from here on, so keys typed
+  // while the header and its checks draw keep their Enter; what was typed before (cooked) reaches the first prompt as one line
+  const typedAhead = interactive && d.stdin.isTTY === true && d.stdin.isRaw === false;
+  if (typedAhead) session.setRaw(true);
+  let firstPrompt = true;
   if (interactive) {
     say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${d.chat ? d.chat() : agent.getModel()}`, role: 'secondary' }]);
     // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
@@ -804,7 +823,8 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   for (;;) {
     // R4 lead: the terminal stays raw from the prompt into a chat turn and back (keepRaw: keys typed in between keep their
     // Enter); a slash command gets it cooked, as before
-    const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text), keepRaw: interactive });
+    const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text), keepRaw: interactive, typedAhead: typedAhead && firstPrompt });
+    firstPrompt = false;
     if (r.kind === 'cancel') {
       session.restore();
       return EXIT.cancelled;

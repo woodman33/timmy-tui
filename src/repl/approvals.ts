@@ -13,6 +13,7 @@ import { keySet } from '../utils/keys.js';
 import type { TerminalSession } from '../term/session.js';
 import { serialize, type Role, type Segment, type Theme } from '../term/theme.js';
 import { truncate, visibleWidth } from '../term/width.js';
+import { discardTurnKeys } from './turn-keys.js';
 
 /** Past this many characters, or with a newline in it, the box shows the whole argument, not one line of it. */
 const DETAIL_OVER = 60;
@@ -404,6 +405,8 @@ export function readDecision(stdin: NodeJS.ReadStream, session: TerminalSession,
         : k === 'y' ? 'once' : k === 'a' && opts.session !== false ? 'session' : k === 'n' || k === 'escape' || k === 'return' || k === 'enter' ? 'deny' : null;
       if (!decision) return;
       stdin.off('keypress', onKey);
+      // (R13: what a running turn kept of the keys is this box's, not a message for the next prompt)
+      discardTurnKeys(stdin);
       session.setRaw(wasRaw);
       if (!wasFlowing) stdin.pause();
       resolve(decision);

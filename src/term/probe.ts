@@ -11,7 +11,7 @@ import { rgbToHex } from './color.js';
 import { measuredFromPalette, namedPalette, type MeasuredColors } from './palettes.js';
 
 export interface ProbeStreams {
-  stdin: Pick<NodeJS.ReadStream, 'on' | 'off' | 'resume' | 'pause' | 'setRawMode'> & { isTTY?: boolean; isRaw?: boolean };
+  stdin: Pick<NodeJS.ReadStream, 'on' | 'off' | 'resume' | 'pause' | 'setRawMode'> & { isTTY?: boolean; isRaw?: boolean; unshift?: (chunk: Buffer) => void };
   stdout: Pick<NodeJS.WriteStream, 'write'> & { isTTY?: boolean };
 }
 
@@ -34,6 +34,15 @@ export function parseColorReplies(text: string): MeasuredColors {
   return result;
 }
 
+/**
+ * R13 (found classifying the 030d0942 full suite's REPL failure): what the probe read that is not the terminal's answer —
+ * keys typed before or while it asked (a message typed as `timmy repl` starts) — is the person's, and goes back to stdin for
+ * the prompt; it was dropped before.
+ */
+export function notReplies(text: string): string {
+  return text.replace(REPLY, '').replace(new RegExp(DA1.source, 'g'), '');
+}
+
 export function probeTerminalColors(io: ProbeStreams, caps: { interactive: boolean }, timeoutMs = 200): Promise<MeasuredColors> {
   if (!caps.interactive || !io.stdin.isTTY || !io.stdout.isTTY) return Promise.resolve({ background: null, slots: {} });
   const { stdin } = io;
@@ -50,6 +59,8 @@ export function probeTerminalColors(io: ProbeStreams, caps: { interactive: boole
         stdin.setRawMode(wasRaw);
       } finally {
         stdin.pause();
+        const typed = notReplies(buffer);
+        if (typed && typeof stdin.unshift === 'function') { try { stdin.unshift(Buffer.from(typed)); } catch { /* not a readable stream */ } }
         resolve(parseColorReplies(buffer));
       }
     };
