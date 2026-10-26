@@ -251,6 +251,8 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     expect((JSON.parse(readFileSync(file, 'utf8')) as { revision: number }).revision).toBe(saved.revision);
     expect(Object.values((JSON.parse(readFileSync(file, 'utf8')) as typeof saved).snapshot.store).some((r) => r.typeName === 'user')).toBe(false);
     expect(await again.locator('[data-kept]').innerText()).toContain(`revision ${saved.revision}`);
+    // the console was saved as the turn left it (idle), never as it was while the turn ran
+    expect(await again.locator('.tr-shape-activity').getAttribute('data-state')).toBe('idle');
     // a save over a newer desk is refused, and its version kept beside it (two windows on one project)
     const stale = await fetch(`${origin}/api/app/desk`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot: saved.snapshot, baseRevision: 1, revision: 2 }) });
     expect(stale.status).toBe(409);

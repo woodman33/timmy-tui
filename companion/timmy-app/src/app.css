@@ -593,3 +593,4 @@ html[data-theme="glacier"] {
   .ta-layer-head { cursor: default; }
   .ta-stage-note { position: static; transform: none; max-width: none; margin-top: 10px; }
 }
+.ta-stage .tr-shape-welcome .tr-status { display: none; }
