@@ -11,18 +11,8 @@
  * record of the owner's source (docs/integration/REGISTER.md), shown on the app's page as it was recorded.
  */
 
-/** One of an app's own jobs that has ended, as the app's state reports it (never upgraded here). */
-export interface FinishedAppJob {
-  id: string;
-  kind: string;
-  /** the app's own word: succeeded, failed, cancelled or interrupted */
-  status: string;
-  label: string;
-  error?: string;
-  files: Array<{ assetId: string; filename: string }>;
-  /** the app's record of the job, exactly as it reported it (its hash is sealed; the record is not) */
-  raw: unknown;
-}
+import { APP_JOBS, type AppJobSource, type FinishedAppJob } from './app-jobs.js';
+export type { FinishedAppJob } from './app-jobs.js';
 
 export type MiniAppKind = 'image' | 'video' | 'spatial' | 'stream' | 'motion';
 
@@ -58,11 +48,11 @@ export interface MiniAppSpec {
     /** the app's own variables: its port and data folder, and which of the companion's variables it may see */
     env: (a: { port: number; dataDir: string; base: Record<string, string | undefined> }) => Record<string, string>;
     /**
-     * How Timmy reads the app's finished jobs for its canonical receipts (./receipts.ts): the path of the app's state, and
-     * each finished job in it with the files it made (an asset id and file name the app serves at /api/assets/<id>/<file>).
+     * How Timmy reads the app's ended jobs for its canonical receipts (./receipts.ts, ./app-jobs.ts): from the app's own
+     * HTTP state or its own job files in the data folder Timmy gave it, each with the files it made as paths the app serves.
      * Absent: the app's jobs are not sealed by Timmy.
      */
-    receipts?: { statePath: string; finished: (state: unknown) => FinishedAppJob[] };
+    receipts?: { finished: (source: AppJobSource) => Promise<FinishedAppJob[]> };
   };
 }
 
@@ -80,8 +70,6 @@ function envOf(base: Record<string, string | undefined>, extra: readonly string[
   return { ...out, ...set };
 }
 
-const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
-
 export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
   {
     id: 'card-lab', title: 'Card Lab', kind: 'image',
@@ -91,7 +79,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       owner: 'Codex: Timmy Card Lab (private standalone release)',
       revision: 'codex/card-lab-checkpoint 7176ad97 (owner checkpoint of 6431f8fb + its working tree)',
       observedAt: '2026-10-26',
-      next: 'Hosted in local mode as its owner built it. Its own app suite timed out at the owner (120 s, 90 s); shared jobs, assets, approvals and receipts are still to map.',
+      next: 'Hosted in local mode as its owner built it. Its own app suite timed out at the owner (120 s, 90 s). Each ended launch is sealed as a Timmy receipt; shared assets and approvals are still to map.',
     },
     host: {
       sourceEnv: 'TIMMY_CARD_LAB_DIR',
@@ -102,6 +90,8 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       env: ({ port, dataDir, base }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL'], {
         CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1',
       }),
+      // each launch of a run's stages (its run.json events), with the run's served artifacts
+      receipts: { finished: APP_JOBS['card-lab'] },
     },
   },
   {
@@ -112,7 +102,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       owner: 'Codex: Analyze NFL footage with AI',
       revision: 'codex/film-room-checkpoint f9db9fe0 (131/131 app tests at the owner)',
       observedAt: '2026-10-26',
-      next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here; shared jobs, assets and receipts are still to map.',
+      next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here. Its ended jobs are sealed as Timmy receipts; shared assets are still to map.',
     },
     host: {
       sourceEnv: 'TIMMY_FILM_ROOM_DIR',
@@ -122,6 +112,8 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       env: ({ port, dataDir, base }) => envOf(base, ['FILMROOM_TLDRAW_LICENSE_FILE', 'FILMROOM_FFMPEG', 'FILMROOM_PYTHON', 'FILMROOM_MAX_UPLOAD_BYTES'], {
         PORT: String(port), FILMROOM_DATA_DIR: dataDir,
       }),
+      // its jobs/<id>.json: renders with their accepted outputs, ingests with their managed asset
+      receipts: { finished: APP_JOBS['film-room'] },
     },
   },
   {
@@ -144,23 +136,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
         STUDIO_PORT: String(port), STUDIO_DATA_DIR: dataDir,
       }),
       // Model Studio's state (docs/CONTRACT.md): jobs {id,kind,status,engine,error?,result?:{asset:{id,previewFilename,nativeFilename}}}
-      receipts: {
-        statePath: '/api/state',
-        finished: (state) => {
-          const jobs = (state as { jobs?: unknown[] } | null)?.jobs;
-          if (!Array.isArray(jobs)) return [];
-          return jobs.flatMap((j) => {
-            const o = j as { id?: unknown; kind?: unknown; status?: unknown; engine?: unknown; error?: unknown; result?: { asset?: { id?: unknown; previewFilename?: unknown; nativeFilename?: unknown } } };
-            if (typeof o.id !== 'string' || typeof o.status !== 'string' || !ENDED.has(o.status)) return [];
-            const a = o.result?.asset;
-            const files = a && typeof a.id === 'string'
-              ? [a.previewFilename, a.nativeFilename].filter((f): f is string => typeof f === 'string' && /^[\w.-]+$/.test(f)).map((filename) => ({ assetId: a.id as string, filename }))
-              : [];
-            const kind = typeof o.kind === 'string' ? o.kind : 'job';
-            return [{ id: o.id, kind, status: o.status, label: `${kind}${typeof o.engine === 'string' ? ` ${o.engine}` : ''}`, ...(typeof o.error === 'string' ? { error: o.error.slice(0, 300) } : {}), files, raw: j }];
-          });
-        },
-      },
+      receipts: { finished: APP_JOBS['model-studio'] },
     },
   },
   {
@@ -182,7 +158,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       owner: 'Codex: Assess a 2D animator mini app',
       revision: 'v6 source archive (payload manifest 68c2f853; no commit; 59/59 app tests at the owner)',
       observedAt: '2026-10-26',
-      next: 'Hosted as its owner built it. Its `timmy animate` command, agent tools and MCP registration are not imported yet.',
+      next: 'Hosted as its owner built it; its ended exports are sealed as Timmy receipts. Its `timmy animate` command, agent tools and MCP registration are not imported yet.',
     },
     host: {
       sourceEnv: 'TIMMY_ANIMATE_DIR',
@@ -192,6 +168,8 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       env: ({ port, dataDir, base }) => envOf(base, ['ANIMATE_TLDRAW_LICENSE_FILE', 'ANIMATE_BLENDER'], {
         PORT: String(port), ANIMATE_DATA_DIR: dataDir,
       }),
+      // its <id>/job.json native exports, with the artifacts it lists
+      receipts: { finished: APP_JOBS['animate'] },
     },
   },
 ] as MiniAppSpec[]);

@@ -1,12 +1,14 @@
 /**
  * R13 (the 2026-10-26 integration order): an owner's app's finished jobs, sealed as Timmy's canonical receipts.
  *
- * The app keeps its own records (Model Studio: a local hash manifest per job, unsigned). Timmy does not relabel those as
- * sealed: while it hosts the app, it reads the app's state, and for each job the app reports ended (its own word, never
- * upgraded) it seals ONE receipt into the project's `runs` chain (src/utils/receipts.ts appendReceipt: hash-chained, signed
- * where the store signs) with:
+ * The apps keep their own records (Model Studio and Animate: local hash manifests, Card Lab: an unsigned local hash chain,
+ * Film Room: local sha256 files). Timmy does not relabel those as sealed: while it hosts the app, it reads the app's own
+ * record of its jobs (./app-jobs.ts), and for each job that record says ended (the app's word, never upgraded) it seals ONE
+ * receipt into the project's `runs` chain (src/utils/receipts.ts appendReceipt: hash-chained, signed where the store signs)
+ * with:
  *   - the app's job id, kind, label and state, and its error when it failed;
  *   - every file the job made, hashed by Timmy from the bytes the app serves (path, sha256, bytes), not from the app's claim;
+ *     a file the app did not serve (or larger than 200 MiB) is listed as not hashed, never left out silently;
  *   - the sha256 of the app's own record of the job exactly as it reported it (the record itself is not copied);
  *   - who started it: not observed by Timmy (the app's own UI or its local assistant).
  * Each job is sealed once: the sealed ids are kept beside the app's data folder (<data dir>.timmy-sealed.json), so a restart
@@ -16,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname } from 'node:path';
-import type { FinishedAppJob, MiniAppSpec } from './registry.js';
+import type { MiniAppSpec } from './registry.js';
 
 /** What the watcher hands the seal (the routes bind it to appendReceipt in the project's store). */
 export interface AppJobReceipt {
@@ -27,11 +29,11 @@ export interface AppJobReceipt {
   status: 'ok' | 'failed' | 'cancelled';
   job: { id: string; kind: string; label: string; state: string; error?: string };
   outputs: Array<{ path: string; sha256: string; bytes: number }>;
+  /** files the job made that the app did not serve to Timmy (or over the size limit): named, not hashed */
+  outputs_unhashed?: string[];
   miniapp: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string; principal: string };
   project?: string;
 }
-
-const STATUS: Record<string, AppJobReceipt['status']> = { succeeded: 'ok', failed: 'failed', interrupted: 'failed', cancelled: 'cancelled' };
 
 const MAX_FILE = 200 * 1024 * 1024;
 
@@ -80,25 +82,28 @@ export interface WatchOptions {
 export async function sealFinished(o: WatchOptions, sealed: Set<string>): Promise<string[]> {
   const r = o.spec.host?.receipts;
   if (!r) return [];
-  const body = await fetchBytes(o.workerPort, r.statePath);
-  if (!body) return [];
-  let state: unknown;
-  try { state = JSON.parse(body.toString('utf8')); } catch { return []; }
+  const json = async (path: string) => { const b = await fetchBytes(o.workerPort, path); if (!b) return null; try { return JSON.parse(b.toString('utf8')) as unknown; } catch { return null; } };
+  let finished;
+  try { finished = await r.finished({ json, dataDir: o.dataDir }); } catch { return []; }
   const out: string[] = [];
-  for (const j of r.finished(state) as FinishedAppJob[]) {
+  for (const j of finished) {
     if (sealed.has(j.id)) continue;
     const outputs: AppJobReceipt['outputs'] = [];
+    const unhashed: string[] = [];
     for (const f of j.files) {
-      const bytes = await fetchBytes(o.workerPort, `/api/assets/${encodeURIComponent(f.assetId)}/${encodeURIComponent(f.filename)}`);
-      if (bytes) outputs.push({ path: `apps/${o.spec.id}/${f.assetId}/${f.filename}`, sha256: sha(bytes), bytes: bytes.length });
+      const bytes = await fetchBytes(o.workerPort, f.path);
+      if (bytes) outputs.push({ path: `apps/${o.spec.id}/${f.name}`, sha256: sha(bytes), bytes: bytes.length });
+      else unhashed.push(`apps/${o.spec.id}/${f.name}`);
     }
     const id = o.seal({
       kind: 'miniapp',
       subject: `miniapp · ${o.spec.id} · ${j.label} · ${j.status}`,
       policy: 'app-initiated',
-      status: STATUS[j.status] ?? 'failed',
+      // (the reader's outcome from the app's own word: anything but the app's success is failed or cancelled)
+      status: j.outcome === 'ok' || j.outcome === 'cancelled' ? j.outcome : 'failed',
       job: { id: j.id, kind: j.kind, label: j.label, state: j.status, ...(j.error ? { error: j.error } : {}) },
       outputs,
+      ...(unhashed.length ? { outputs_unhashed: unhashed } : {}),
       miniapp: { app: o.spec.id, title: o.spec.title, revision: o.revision, record_sha256: sha(canon(j.raw)), started_by: 'not observed by Timmy (the app’s own controls or its local assistant)', principal: o.principal },
       ...(o.project ? { project: o.project } : {}),
     });
