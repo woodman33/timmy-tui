@@ -52,6 +52,8 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
         () => ({ chunks: textChunks('fake-qwen3:8b', ['Written', '.']), delayMs: 100 }),
         // Stop: a turn that never answers
         () => ({ hang: true }),
+        // the Canvas: the request of the desk's native ActionButton, sent as a real turn
+        () => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE desk answer: ', 'sent from the canvas.']), delayMs: 300 }),
       ],
     });
     const home = process.env.TIMMY_HOME!;
@@ -194,6 +196,16 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     // the licence as the SDK's own manager says it (no key in this test: unlicensed on a development address)
     await page.waitForSelector('.ta-license[data-license]:not([data-license="unread"])', { timeout: 30_000 });
     expect(await page.locator('.ta-footer').innerText()).toContain('Canvas licence:');
+    // the desk's native ActionButton does what it shows: a person's click sends its request as a real turn of the project; the
+    // AgentConsole on the desk follows the turn's own events (working, then idle) and the receipt card shows the new receipt
+    const chatsBefore = ollama.chats().length;
+    await page.click('.tr-shape-welcome button.tr-face');
+    await page.waitForFunction(() => document.querySelector('.tr-shape-activity')?.getAttribute('data-state') === 'working', null, { timeout: 30_000 });
+    await page.waitForFunction(() => document.querySelector('.tr-shape-activity')?.getAttribute('data-state') === 'idle', null, { timeout: 60_000 });
+    expect(await page.locator('.tr-shape-activity .tr-shape-source').innerText()).toContain('POST /api/chat/turn');
+    expect(ollama.chats().length).toBeGreaterThan(chatsBefore);
+    await page.waitForFunction(() => (document.querySelector('.ta-turnpanel')?.textContent ?? '').includes('receipt'), null, { timeout: 30_000 });
+    await page.waitForSelector('.ta-desk-card[data-desk-card="receipt"] .ta-verified', { timeout: 30_000 });
     const count = async (): Promise<number> => page.evaluate(() => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1));
     const n0 = await count();
     expect(n0).toBeGreaterThanOrEqual(4);

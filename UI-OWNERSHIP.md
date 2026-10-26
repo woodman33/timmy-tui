@@ -76,6 +76,16 @@ lead (the markdown fence hang, the tool label wrap, the plain word for "not set 
   from `<Panel>`, `<Tool>` (a tool without `onClick` is unavailable and says why) and `ui.jsx`'s words; it reads and acts
   only through `api.js` (`getJson`, `postJson`, `call` — the token in a header, never in a URL) and `store.js`; a page's own
   sheet is prefixed `tx-<page>-` and reads only the `--timmy-ui-*` registry and the shell's `--ta-*` materials (made of it).
+- **The desk's layout (the operator's 19:03 order):** one sectioned rectangle of two long rows, RUN (01 Ask · 02 Agent ·
+  03 Proof) over SETUP (04 Connection · 05 Model · 06 Notes) (`SECTIONS`, `DESK` in `pages/canvas.jsx`); Fit fits the rows'
+  height at most 100 % (`fit-y-100`) and the camera pans along them, held inside the desk's bounds (DESK grown to hold every
+  shape). A Rive shape on the desk is its title and its native face; the artboard choice and the state's source are in the
+  context column, with what the shape does: an ActionButton's request (`meta.request`, sent as a real turn on a trusted
+  press), a ProviderCard's Check, the AgentConsole's turn (NEEDS YOU answers, Stop, receipt).
+- **Highlights (the operator's 19:04 order):** `--ta-hl-warm` (the family's accent: what you act on), `--ta-hl-cool` (the
+  other family's swatch: structure, the agent's lane, depth washes), `--ta-hl-rim` (lit top edges); each a mix of registry
+  colours, in about a 60-30-10 proportion. Meanings never move: green is earned, focus is exact `#FFB000`, every state keeps
+  its word and glyph, content is never recoloured.
 - **The desk:** the Canvas is kept in Timmy's project storage, never in the browser alone: `GET / POST /api/app/desk`
   (`src/companion/timmy-app.ts`, the principal's project under the principal's Timmy home:
   `canvas/projects/<project id>/app-desk/canvas.json`, Studio's revisioned `CanvasDocuments`); the page saves 700 ms after

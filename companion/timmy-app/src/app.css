@@ -467,3 +467,75 @@ li.ta-turn.ta-tool { align-self: flex-start; opacity: .85; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .ta-stage .tr-shape-head .tr-badge { display: none; }
+
+/* ── R12 (the operator's 19:03 order): the Canvas as one sectioned rectangle of two long rows ── */
+/* the page's head on the Canvas is one line (the top bar's crumb names the page): the stage takes the height */
+.ta-page[data-page="canvas"] .ta-kicker, .ta-page[data-page="canvas"] .ta-lead { display: none; }
+.ta-page[data-page="canvas"] .ta-title { font-size: 22px; margin: 0; }
+.ta-page[data-page="canvas"] .ta-head { align-items: center; min-height: 0; }
+@media (min-width: 1100px) { .ta-page[data-page="canvas"] .ta-body.has-context { grid-template-columns: minmax(0, 1fr) 300px; } }
+.ta-desk-section { position: absolute; box-sizing: border-box; border-radius: 16px; border: 1px dashed color-mix(in srgb, var(--timmy-ui-text, #ECF1F5) 10%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ta-hl-lane, var(--ta-hl-cool)) 6%, transparent), transparent 40%); }
+.ta-desk-section-k, .ta-desk-section-label { position: absolute; top: 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+.ta-desk-section-k { left: 14px; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.ta-desk-section-label { left: 74px; color: var(--ta-hl-lane, var(--ta-hl-cool)); }
+.ta-desk-section-label.is-alone { left: 14px; }
+.ta-desk-section.is-ask, .ta-desk-section.is-notes { --ta-hl-lane: var(--ta-hl-warm); }
+.ta-desk-section.is-agent, .ta-desk-section.is-connect { --ta-hl-lane: var(--ta-hl-cool); }
+.ta-desk-section.is-proof, .ta-desk-section.is-model { --ta-hl-lane: var(--ta-hl-cool-soft); }
+/* on the desk a Rive shape is its title and its native face (the face's own caption says LIVE or AS SAVED); the artboard
+   choice and the state's source are in the context column */
+.ta-stage .tr-shape-pick, .ta-stage .tr-shape-source { display: none; }
+.ta-stage .tr-shape-inner { padding: 12px 14px; gap: 8px; }
+.ta-stage .tr-shape-title { font-size: 17px; }
+
+/* ── R12 (the operator's 19:04 order): highlights, from colour theory and the psychology of colour ──
+   The base stays (near-black and charcoal, off-white text, the family's accent). Added: a highlight layer of three roles,
+   in roughly the 60-30-10 proportion (neutral ground, a cool secondary, the warm accent kept for the few things that ask
+   to be acted on):
+   - warm (the family's accent): what you act on — the primary step, the action button's lane, notes you write. Warm hues
+     advance and draw the eye (colour stereopsis; warm-cool contrast).
+   - cool (the complement: Glacier in Amber, Amber's sand in Glacier): structure and depth — the agent's lane, connections,
+     washes behind panels. Cool hues recede, so they build depth without competing; blue reads as calm and competent.
+   - lit rims: a light edge on the top of raised surfaces, so surfaces read as material, not flat boxes.
+   Meanings do not move: green is still earned (live, passed, verified), focus is still exact #FFB000, every state keeps its
+   word and glyph, and content (artwork, images, data) is never recoloured. Each highlight is a mix of registry colours. */
+:root, html[data-theme="amber"] {
+  --ta-hl-warm: var(--timmy-ui-accent, #D6AA64);
+  --ta-hl-cool: var(--timmy-ui-swatch-glacier, #8ABBE3);
+  --ta-hl-cool-soft: color-mix(in srgb, var(--timmy-ui-swatch-glacier, #8ABBE3) 60%, var(--timmy-ui-text-secondary, #BDCADA)); }
+html[data-theme="glacier"] {
+  --ta-hl-warm: var(--timmy-ui-swatch-amber, #D6AA64);
+  --ta-hl-cool: var(--timmy-ui-accent, #8ABBE3);
+  --ta-hl-cool-soft: color-mix(in srgb, var(--timmy-ui-accent, #8ABBE3) 60%, var(--timmy-ui-text-secondary, #BDCADA)); }
+:root {
+  --ta-hl-rim: linear-gradient(90deg, transparent, color-mix(in srgb, var(--timmy-ui-text, #ECF1F5) 22%, transparent) 30%, color-mix(in srgb, var(--timmy-ui-accent, #D6AA64) 40%, transparent) 55%, transparent);
+  --ta-hl-depth: radial-gradient(ellipse at 100% 100%, color-mix(in srgb, var(--ta-hl-cool) 9%, transparent), transparent 55%); }
+/* raised surfaces: a lit rim along the top and a cool depth from the far corner */
+.ta-panel, .ta-context, .ta-band, .ta-toolsrow, .ta-chat, .ta-stage { position: relative; }
+.ta-panel::before, .ta-context::before, .ta-band::before, .ta-toolsrow::before, .ta-chat::before {
+  content: ""; position: absolute; left: 18px; right: 18px; top: -1px; height: 1px; background: var(--ta-hl-rim); pointer-events: none; }
+.ta-panel, .ta-context, .ta-chat { background-image: var(--ta-hl-depth); }
+.ta-stage .tl-background { background: radial-gradient(ellipse at 46% 22%, var(--timmy-ui-accent-wash, rgba(214,170,100,.08)), transparent 58%),
+  radial-gradient(ellipse at 92% 100%, color-mix(in srgb, var(--ta-hl-cool) 10%, transparent), transparent 52%), var(--timmy-ui-canvas, #080B0F); }
+/* the eyebrows and the band's keys carry the cool secondary; the kicker's dot stays the warm accent */
+.ta-kicker, .ta-cell-k, .ta-context-k, .ta-rail-label, .ta-toolsrow-k { color: color-mix(in srgb, var(--ta-hl-cool) 72%, var(--timmy-ui-text-muted, #9AAFC3)); }
+.ta-cell { position: relative; }
+.ta-cell::after { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, var(--ta-hl-cool), transparent); opacity: .55; }
+/* the rail's page you are on: the warm accent as a lit bar and a soft glow; hover takes the cool */
+.ta-rail-item[aria-current="page"] { box-shadow: inset 3px 0 0 var(--ta-hl-warm), 0 0 22px color-mix(in srgb, var(--ta-hl-warm) 14%, transparent); }
+.ta-rail-item:hover:not([aria-current="page"]) { background: color-mix(in srgb, var(--ta-hl-cool) 8%, transparent); }
+/* secondary buttons: a cool glow on hover; the primary keeps the warm gradient */
+.ta-btn:not(.ta-btn-primary):hover:not(:disabled) { border-color: color-mix(in srgb, var(--ta-hl-cool) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ta-hl-cool) 12%, transparent); }
+.ta-tool[aria-pressed="true"] { box-shadow: 0 0 18px color-mix(in srgb, var(--ta-hl-warm) 22%, transparent); }
+/* the desk card: a cool lit rim on its head */
+.ta-desk-card-head { box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ta-hl-cool) 30%, transparent); }
+.ta-desk-kicker { color: color-mix(in srgb, var(--ta-hl-cool) 55%, var(--timmy-ui-ink, #1C3043)); }
+/* the conversation: your words on the cool secondary, Timmy's answer with a warm lit edge (who said what, at a glance; the
+   words and the names still say it) */
+.ta-turn.ta-you { background: linear-gradient(135deg, color-mix(in srgb, var(--ta-hl-cool) 22%, transparent), color-mix(in srgb, var(--ta-hl-cool) 7%, transparent)); border-color: color-mix(in srgb, var(--ta-hl-cool) 38%, transparent); }
+.ta-turn.ta-timmy { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ta-hl-warm) 70%, transparent); }
+.ta-composer { border-color: color-mix(in srgb, var(--ta-hl-cool) 24%, transparent); }
+.ta-composer:focus-within { border-color: color-mix(in srgb, var(--ta-hl-warm) 55%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ta-hl-warm) 12%, transparent), 0 10px 30px color-mix(in srgb, var(--ta-hl-cool) 8%, transparent); }
+.ta-context-face, .ta-face-console { border-radius: 14px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ta-hl-cool) 22%, transparent), 0 12px 36px color-mix(in srgb, var(--ta-hl-cool) 10%, transparent); }
+.ta-title { text-shadow: 0 0 28px color-mix(in srgb, var(--ta-hl-warm) 16%, transparent); }

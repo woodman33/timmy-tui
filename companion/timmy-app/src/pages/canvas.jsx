@@ -27,11 +27,21 @@ import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } f
 // ── the desk ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The desk in page units: a 920 × 632 work area inside a 56-unit margin (what Fit shows, and the camera's bounds). Sized, as the
- * Card Lab's inspection desk is, so that Fit shows its objects at about three quarters of their size on a 1440 × 900 screen:
- * a few large, readable objects rather than many small panels.
+ * The desk (the operator's 19:03 order): ONE sectioned rectangle of two long rows — RUN (ask → agent → proof) over SETUP
+ * (connection, model, notes) — in page units. Fit fits the two rows' HEIGHT (at most 100 %), so the objects read at about
+ * their own size, and the rows run on to the right: the camera pans along them, held inside the desk.
  */
-export const DESK = Object.freeze({ x: -56, y: -56, w: 1032, h: 744 });
+export const SECTIONS = Object.freeze([
+  { id: 'ask', row: 'RUN', label: '01 · Ask', x: 0, y: 0, w: 300, h: 372 },
+  { id: 'agent', row: '', label: '02 · Agent', x: 328, y: 0, w: 440, h: 372 },
+  { id: 'proof', row: '', label: '03 · Proof', x: 796, y: 0, w: 380, h: 372 },
+  { id: 'connect', row: 'SETUP', label: '04 · Connection', x: 0, y: 396, w: 300, h: 276 },
+  { id: 'model', row: '', label: '05 · Model', x: 328, y: 396, w: 440, h: 276 },
+  { id: 'notes', row: '', label: '06 · Notes', x: 796, y: 396, w: 380, h: 276 },
+]);
+/** Where a section's object goes: under its label. */
+const IN = (id) => { const s = SECTIONS.find((x) => x.id === id); return { x: s.x, y: s.y + 30 }; };
+export const DESK = Object.freeze({ x: -28, y: -28, w: 1232, h: 728 });
 export const ZOOM_STEPS = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]);
 const quick = () => (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
 
@@ -51,7 +61,8 @@ export function holdDesk(editor) {
   const padding = { x: vp.w < 650 ? 12 : 24, y: 24 };
   editor.setCameraOptions({
     isLocked: false, panSpeed: 1, zoomSpeed: 0.8, wheelBehavior: 'pan', zoomSteps: [...ZOOM_STEPS],
-    constraints: { bounds: deskBounds(editor), padding, origin: { x: 0.5, y: 0.5 }, initialZoom: 'fit-max-100', baseZoom: 'default', behavior: 'contain' },
+    // fit the rows' height (never closer than 100 %), start at the rows' left end; the rows run on to the right
+    constraints: { bounds: deskBounds(editor), padding, origin: { x: 0, y: 0.5 }, initialZoom: 'fit-y-100', baseZoom: 'fit-y-100', behavior: 'contain' },
   });
 }
 export function fitDesk(editor, animate = true) {
@@ -74,7 +85,7 @@ export const CARD_SHAPE = 'timmy-card';
 /** The cards a person can put on the desk: each reads the store (the companion's answers on this page). */
 export const DESK_CARDS = Object.freeze({
   model: { title: 'The chosen model', kicker: 'Model', w: 380, h: 220 },
-  receipt: { title: 'The last receipt', kicker: 'Proof', w: 560, h: 200 },
+  receipt: { title: 'The last receipt', kicker: 'Proof', w: 380, h: 230 },
   conversation: { title: 'This conversation', kicker: 'Conversation', w: 380, h: 220 },
 });
 
@@ -143,7 +154,11 @@ function DeskEdge() {
   const d = useValue('timmy desk: bounds', () => deskBounds(editor), [editor]);
   return (
     <div className="ta-desk" aria-hidden="true" style={{ left: d.x, top: d.y, width: d.w, height: d.h }}>
-      <span className="ta-desk-caption">{name} · Canvas</span>
+      {SECTIONS.map((x) => (
+        <div key={x.id} className={`ta-desk-section is-${x.id}`} style={{ left: x.x - d.x - 12, top: x.y - d.y - 8, width: x.w + 24, height: x.h + 16 }}>
+          {x.row ? <span className="ta-desk-section-k">{x.row}</span> : null}<span className={`ta-desk-section-label${x.row ? '' : ' is-alone'}`}>{x.label}</span>
+        </div>
+      ))}
       <i className="ta-desk-corner is-tl" /><i className="ta-desk-corner is-tr" /><i className="ta-desk-corner is-bl" /><i className="ta-desk-corner is-br" />
     </div>
   );
@@ -250,13 +265,18 @@ function firstDesk(editor) {
     const console = createShapeId();
     const link = createShapeId();
     const receipt = createShapeId();
-    editor.createShape({ id: action, type: RIVE_SHAPE, x: 0, y: 24, props: riveProps('welcome', { w: 340, label: ACTION.label }), meta: { request: ACTION.request } });
-    editor.createShape({ id: link, type: RIVE_SHAPE, x: 0, y: 264, props: riveProps('connection', { w: 340, provider, label: providerName(provider) }) });
-    editor.createShape({ id: console, type: RIVE_SHAPE, x: 400, y: 0, props: riveProps('activity', { w: 520, label: 'Agent / tool activity' }) });
-    editor.createShape({ id: receipt, type: CARD_SHAPE, x: 400, y: 412, props: { w: 520, h: 200, kind: 'receipt', saved: '' } });
+    const model = createShapeId();
+    const note = createShapeId();
+    editor.createShape({ id: action, type: RIVE_SHAPE, ...IN('ask'), props: riveProps('welcome', { w: 300, label: ACTION.label }), meta: { request: ACTION.request } });
+    editor.createShape({ id: console, type: RIVE_SHAPE, ...IN('agent'), props: riveProps('activity', { w: 440, label: 'Agent / tool activity' }) });
+    editor.createShape({ id: receipt, type: CARD_SHAPE, ...IN('proof'), props: { w: 380, h: 230, kind: 'receipt', saved: '' } });
+    editor.createShape({ id: link, type: RIVE_SHAPE, ...IN('connect'), props: riveProps('connection', { w: 300, provider, label: providerName(provider) }) });
+    editor.createShape({ id: model, type: CARD_SHAPE, ...IN('model'), props: { w: 440, h: 200, kind: 'model', saved: '' } });
+    editor.createShape({ id: note, type: 'note', ...IN('notes'), props: { richText: toRichText('Notes for this project') } });
     connect(editor, action, console);
-    connect(editor, link, console);
     connect(editor, console, receipt);
+    connect(editor, link, console);
+    connect(editor, model, console);
   }, { history: 'ignore' });
 }
 
@@ -268,6 +288,15 @@ export function deskDocument(editor) {
   const store = {};
   for (const [id, r] of Object.entries(doc.store)) if (!(r && r.typeName === 'user')) store[id] = r;
   return { ...doc, store };
+}
+/**
+ * The desk as compared before a save: the document without what only a viewing changes — a Rive shape's height follows its
+ * content (its caption says where its state came from on THIS page), so a height measured differently is not a change of the desk.
+ */
+export function deskCompared(doc) {
+  const store = {};
+  for (const [id, r] of Object.entries(doc.store)) store[id] = r && r.type === RIVE_SHAPE && r.props ? { ...r, props: { ...r.props, h: 0 } } : r;
+  return JSON.stringify({ ...doc, store });
 }
 /** How long after the person's last change the desk is saved. */
 export const SAVE_AFTER_MS = 700;
@@ -285,14 +314,14 @@ export function keepDesk(editor, start, onState) {
   let again = false;
   let stopped = false;
   let savedAt = start && start.savedAt ? start.savedAt : null;
-  let last = start && start.snapshot ? JSON.stringify(deskDocument(editor)) : null;
+  let last = start && start.snapshot ? deskCompared(deskDocument(editor)) : null;
   const save = async () => {
     clearTimeout(timer);
     pending = false;
     if (stopped) return;
     if (saving) { again = true; return; }
     const snapshot = deskDocument(editor);
-    const text = JSON.stringify(snapshot);
+    const text = deskCompared(snapshot);
     // a change that left the desk as it was saved (a face's word set again, a size measured the same) writes nothing
     if (text === last) { onState({ phase: 'saved', revision: rev, savedAt }); return; }
     saving = true;
