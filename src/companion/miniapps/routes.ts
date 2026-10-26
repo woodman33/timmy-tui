@@ -13,6 +13,7 @@
 import express from 'express';
 import { join } from 'node:path';
 import { JobManager } from '../../jobs/index.js';
+import { appendReceipt } from '../../utils/receipts.js';
 import { projectId } from '../../project/index.js';
 import { appDataDir, hostProblem, installedRevision, MiniAppHost, principalKey } from './host.js';
 import { MINI_APPS, miniAppOf } from './registry.js';
@@ -76,6 +77,9 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         spec, key: keyOf(spec.id, req, p.root), dir: deps.env[spec.host!.sourceEnv]!,
         dataDir: appDataDir(home, spec.id, projectId(p.root)), base: deps.env,
         ancestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`], jobs: jobsOf(home), project: p.name,
+        revision: installedRevision(spec, deps.env),
+        // each of the app's ended jobs: one receipt in this project's runs chain (where its chat turns are sealed)
+        seal: (r) => appendReceipt('runs', { ...r, project_id: projectId(p.root) }, p.root).id,
       });
       res.set('Cache-Control', 'no-store').json({ ok: true, id: spec.id, project: p.name, url: hosted.launch(), startedAt: hosted.startedAt, job: hosted.jobId });
     } catch (e) {

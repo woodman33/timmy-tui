@@ -24,6 +24,7 @@ import net from 'node:net';
 import { join } from 'node:path';
 import { JobManager } from '../../jobs/index.js';
 import type { MiniAppSpec } from './registry.js';
+import { watchAppJobs, type AppJobReceipt } from './receipts.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -40,6 +41,8 @@ export interface HostedApp {
   startedAt: string;
   /** a one-time key for the gateway's launch address, valid for LAUNCH_MS */
   launch(): string;
+  /** read the app's state now and seal its newly ended jobs (the receipts' ids); a no-op without a seal */
+  sealNow(): Promise<string[]>;
   stop(): Promise<void>;
   readonly running: boolean;
 }
@@ -102,6 +105,10 @@ export interface StartOptions {
   jobs: JobManager;
   /** the project's name (the job record's) */
   project: string;
+  /** seals one of the app's ended jobs into Timmy's receipts (the routes: the project's runs chain); absent: none sealed */
+  seal?: (r: AppJobReceipt) => string | undefined;
+  /** the installed copy's revision (its .timmy-source.json), sealed with each job */
+  revision?: string | null;
 }
 
 export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
@@ -118,6 +125,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   const ready = await o.jobs.ready(job.id);
   if (ready.state !== 'ready') throw new Error(`${o.spec.title} did not start (job ${job.id}: ${ready.state}${ready.error ? `, ${ready.error}` : ''}).`);
   const exited = () => { const j = o.jobs.get(job.id); return !j || (j.state !== 'ready' && j.state !== 'running'); };
+  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal }) : null;
   const secret = randomBytes(32).toString('hex');
   const launches = new Map<string, number>();
   let gatewayPort = 0;
@@ -178,9 +186,12 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
       launches.set(k, now);
       return `http://127.0.0.1:${gatewayPort}/__timmy/launch?k=${k}`;
     },
+    sealNow() { return watcher ? watcher.tick() : Promise.resolve([]); },
     async stop() {
       if (stopped) return;
       stopped = true;
+      // (one last read of the app's jobs while it still answers)
+      if (watcher) await watcher.stop().catch(() => undefined);
       await new Promise<void>((r) => { gateway.close(() => r()); gateway.closeAllConnections(); });
       if (!exited()) await o.jobs.stop(job.id, STOP_MS);
     },

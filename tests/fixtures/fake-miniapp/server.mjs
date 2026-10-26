@@ -9,12 +9,26 @@ const port = Number(process.env.STUDIO_PORT);
 const data = process.env.STUDIO_DATA_DIR;
 mkdirSync(data, { recursive: true });
 writeFileSync(join(data, 'started.json'), JSON.stringify({ pid: process.pid, at: Date.now() }));
+const jobs = [];
+const assets = new Map();
 const page = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'dist', 'index.html'));
 const server = http.createServer((req, res) => {
   const send = (status, body, type = 'application/json') => { res.writeHead(status, { 'content-type': type, 'content-security-policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'none'", 'x-frame-options': 'SAMEORIGIN' }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
   if (req.headers.host !== `127.0.0.1:${port}`) return send(403, { error: 'Unrecognized local host' });
   if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${port}`) return send(403, { error: 'Cross-origin requests are not allowed' });
-  if (req.url === '/api/state') return send(200, { fake: true, dataDir: data });
+  if (req.url === '/api/state') return send(200, { fake: true, dataDir: data, jobs: [...jobs].reverse() });
+  // FAKE job: ends at once, succeeded, with a FAKE file the app serves (or failed, when asked)
+  if (req.method === 'POST' && req.url === '/api/jobs') {
+    let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
+      const body = JSON.parse(b || '{}'); const id = `job_fake_${jobs.length + 1}`;
+      if (body.fail) { const j = { id, kind: 'create', status: 'failed', engine: 'fake', error: 'FAKE failure' }; jobs.push(j); return send(202, j); }
+      const asset = { id: `asset_fake_${jobs.length + 1}`, previewFilename: 'r1-model.glb', nativeFilename: 'r1-model.blend' };
+      assets.set(`${asset.id}/r1-model.glb`, Buffer.from('FAKE glb bytes')); assets.set(`${asset.id}/r1-model.blend`, Buffer.from('FAKE blend bytes'));
+      const j = { id, kind: 'create', status: 'succeeded', engine: 'fake', result: { asset } }; jobs.push(j); send(202, j);
+    }); return;
+  }
+  const am = /^\/api\/assets\/([\w-]+)\/([\w.-]+)$/.exec(req.url ?? '');
+  if (am && assets.has(`${am[1]}/${am[2]}`)) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end(assets.get(`${am[1]}/${am[2]}`)); }
   if (req.url === '/api/env') return send(200, { keys: Object.keys(process.env).sort(), cookie: req.headers.cookie ?? null, referer: req.headers.referer ?? null, origin: req.headers.origin ?? null });
   if (req.method === 'POST' && req.url === '/api/echo') { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => send(200, { echoed: b })); return; }
   if (req.url === '/') return send(200, page.toString(), 'text/html');

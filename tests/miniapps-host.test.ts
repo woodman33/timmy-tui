@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { framedPolicy, hostProblem, MiniAppHost } from '../src/companion/miniapps/host.js';
 import { mountMiniApps } from '../src/companion/miniapps/routes.js';
+import { projectId } from '../src/project/index.js';
+import { readChain, verifyChain } from '../src/utils/receipts.js';
+import { createHash } from 'node:crypto';
 import { MINI_APPS, miniAppOf } from '../src/companion/miniapps/registry.js';
 
 const FAKE_APP = fileURLToPath(new URL('./fixtures/fake-miniapp', import.meta.url));
@@ -179,4 +182,34 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     // the same principal and project reuse their worker
     expect(new URL((await open('alice', 'one')).url).port).toBe(ports[0]);
   }, 90_000);
+
+  it('receipts: each job the app reports ended is sealed once into the project’s runs chain, its files hashed by Timmy from the app’s bytes', async () => {
+    const opened = JSON.parse((await get(`${timmy}/api/apps/model-studio/open?p=receipts`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', '{}')).body);
+    const l = await get(opened.url);
+    const gateway = `http://127.0.0.1:${new URL(opened.url).port}`;
+    const cookie = cookieOf(l);
+    const ok = JSON.parse((await get(`${gateway}/api/jobs`, { cookie, 'content-type': 'application/json' }, 'POST', '{}')).body);
+    const bad = JSON.parse((await get(`${gateway}/api/jobs`, { cookie, 'content-type': 'application/json' }, 'POST', '{"fail":true}')).body);
+    const root = join(base, 'operator', 'projects', 'receipts');
+    const hosted = host.get(`model-studio:operator:${projectId(root)}`)!;
+    expect(hosted).toBeTruthy();
+    const ids = await hosted.sealNow();
+    expect(ids).toHaveLength(2);
+    expect(await hosted.sealNow()).toEqual([]);  // sealed once
+    const chain = readChain('runs', root).filter((r) => r.kind === 'miniapp');
+    expect(chain).toHaveLength(2);
+    const good = chain.find((r) => r.job?.id === ok.id)!;
+    expect(good).toMatchObject({ status: 'ok', policy: 'app-initiated', project: 'receipts', job: { kind: 'create', state: 'succeeded' } });
+    expect(good.miniapp).toMatchObject({ app: 'model-studio', started_by: expect.stringMatching(/not observed by Timmy/) });
+    expect(good.outputs).toEqual([
+      { path: `apps/model-studio/${ok.result.asset.id}/r1-model.glb`, sha256: createHash('sha256').update('FAKE glb bytes').digest('hex'), bytes: 14 },
+      { path: `apps/model-studio/${ok.result.asset.id}/r1-model.blend`, sha256: createHash('sha256').update('FAKE blend bytes').digest('hex'), bytes: 16 },
+    ]);
+    const failed = chain.find((r) => r.job?.id === bad.id)!;
+    expect(failed).toMatchObject({ status: 'failed', job: { state: 'failed', error: 'FAKE failure' }, outputs: [] });
+    expect(verifyChain('runs', root).ok).toBe(true);
+    // a restart of the app seals nothing again (the sealed ids are kept beside its data)
+    await get(`${timmy}/api/apps/model-studio/stop?p=receipts`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', '{}');
+    expect(readChain('runs', root).filter((r) => r.kind === 'miniapp')).toHaveLength(2);
+  }, 60_000);
 });

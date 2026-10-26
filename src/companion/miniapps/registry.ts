@@ -11,6 +11,19 @@
  * record of the owner's source (docs/integration/REGISTER.md), shown on the app's page as it was recorded.
  */
 
+/** One of an app's own jobs that has ended, as the app's state reports it (never upgraded here). */
+export interface FinishedAppJob {
+  id: string;
+  kind: string;
+  /** the app's own word: succeeded, failed, cancelled or interrupted */
+  status: string;
+  label: string;
+  error?: string;
+  files: Array<{ assetId: string; filename: string }>;
+  /** the app's record of the job, exactly as it reported it (its hash is sealed; the record is not) */
+  raw: unknown;
+}
+
 export type MiniAppKind = 'image' | 'video' | 'spatial' | 'stream' | 'motion';
 
 /** What the page may say about an app: hostable (a source folder can be started), or waiting on a named step. */
@@ -44,6 +57,12 @@ export interface MiniAppSpec {
     readyPath: string;
     /** the app's own variables: its port and data folder, and which of the companion's variables it may see */
     env: (a: { port: number; dataDir: string; base: Record<string, string | undefined> }) => Record<string, string>;
+    /**
+     * How Timmy reads the app's finished jobs for its canonical receipts (./receipts.ts): the path of the app's state, and
+     * each finished job in it with the files it made (an asset id and file name the app serves at /api/assets/<id>/<file>).
+     * Absent: the app's jobs are not sealed by Timmy.
+     */
+    receipts?: { statePath: string; finished: (state: unknown) => FinishedAppJob[] };
   };
 }
 
@@ -103,6 +122,25 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
         // a hosted app never writes byte-code into an engine's environment it borrows (the owner's venvs stay as they are)
         out.PYTHONDONTWRITEBYTECODE = '1';
         return out;
+      },
+      // Model Studio's state (docs/CONTRACT.md): jobs {id,kind,status,engine,error?,result?:{asset:{id,previewFilename,nativeFilename}}}
+      receipts: {
+        statePath: '/api/state',
+        finished: (state) => {
+          const jobs = (state as { jobs?: unknown[] } | null)?.jobs;
+          if (!Array.isArray(jobs)) return [];
+          const ended = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
+          return jobs.flatMap((j) => {
+            const o = j as { id?: unknown; kind?: unknown; status?: unknown; engine?: unknown; error?: unknown; result?: { asset?: { id?: unknown; previewFilename?: unknown; nativeFilename?: unknown } } };
+            if (typeof o.id !== 'string' || typeof o.status !== 'string' || !ended.has(o.status)) return [];
+            const a = o.result?.asset;
+            const files = a && typeof a.id === 'string'
+              ? [a.previewFilename, a.nativeFilename].filter((f): f is string => typeof f === 'string' && /^[\w.-]+$/.test(f)).map((filename) => ({ assetId: a.id as string, filename }))
+              : [];
+            const kind = typeof o.kind === 'string' ? o.kind : 'job';
+            return [{ id: o.id, kind, status: o.status, label: `${kind}${typeof o.engine === 'string' ? ` ${o.engine}` : ''}`, ...(typeof o.error === 'string' ? { error: o.error.slice(0, 300) } : {}), files, raw: j }];
+          });
+        },
       },
     },
   },
