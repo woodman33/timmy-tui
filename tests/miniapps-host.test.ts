@@ -10,6 +10,7 @@
  */
 import express from 'express';
 import http from 'node:http';
+import net from 'node:net';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -292,5 +293,85 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     const b2 = await open('carol', 'iso-b');
     expect((await get(`${gw(b2)}/api/state`, { cookie: cbx })).status).toBe(401);
     expect((await get(`${gw(b2)}/api/state`, { cookie: await enter(b2.url) })).status).toBe(200);
+  }, 120_000);
+  it('the worker port (R13, the 15:31 order): every route refused to a client without Timmy’s worker secret — state, events, artifacts, cancel, upgrade; two users and two projects: each one’s cache, events, artifacts and cancellation reach only through that one’s grant; sign-out, project switch and revoked grants hold directly as through the gateway', async () => {
+    const H = (user: string | null) => ({ authorization: 'Bearer FAKE', 'content-type': 'application/json', ...(user ? { 'x-fake-user': user } : {}) });
+    const open = async (user: string | null, p: string) => JSON.parse((await get(`${timmy}/api/apps/model-studio/open?p=${p}`, H(user), 'POST', '{}')).body);
+    const enter = async (url: string) => cookieOf(await get(url));
+    const gw = (o: { url: string }) => `http://127.0.0.1:${new URL(o.url).port}`;
+    const keyOf = (user: string, p: string) => `model-studio:${'u-' + createHash('sha256').update(`timmy-app:${user}`).digest('hex').slice(0, 16)}:${projectId(join(base, user, 'projects', p))}`;
+    const upgrade = (port: number, headers: Record<string, string> = {}) => new Promise<string>((resolve) => {
+      const sock = net.connect(port, '127.0.0.1', () => sock.write(`GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n${Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('')}\r\n`));
+      let b = ''; sock.on('data', (c) => { b += c.toString(); }); sock.on('close', () => resolve(b.split('\r\n')[0] ?? '')); sock.on('error', () => resolve(''));
+      setTimeout(() => { sock.destroy(); resolve(b.split('\r\n')[0] ?? ''); }, 1500);
+    });
+
+    // erin in project w-1, frank in project w-2: separate workers, each makes a job through its own grant
+    const e = await open('erin', 'w-1'); const ce = await enter(e.url);
+    const f = await open('frank', 'w-2'); const cf = await enter(f.url);
+    const he = host.get(keyOf('erin', 'w-1'))!; const hf = host.get(keyOf('frank', 'w-2'))!;
+    expect(he.workerPort).not.toBe(hf.workerPort);
+    const ej = JSON.parse((await get(`${gw(e)}/api/jobs`, { cookie: ce, 'content-type': 'application/json' }, 'POST', '{}')).body);
+    const fj = JSON.parse((await get(`${gw(f)}/api/jobs`, { cookie: cf, 'content-type': 'application/json' }, 'POST', '{}')).body);
+    const ePath = `/api/assets/${ej.result.asset.id}/r1-model.glb`;
+    const fPath = `/api/assets/${fj.result.asset.id}/r1-model.glb`;
+
+    // DIRECT to the worker port (any local program), with its own Host as the app expects: refused, every route
+    for (const [port, path] of [[he.workerPort, '/api/state'], [he.workerPort, '/api/events'], [he.workerPort, ePath], [he.workerPort, '/'], [hf.workerPort, '/api/state'], [hf.workerPort, fPath]] as const) {
+      const r = await get(`http://127.0.0.1:${port}${path}`);
+      expect(r.status, `${port}${path}`).toBe(403);
+      expect(r.body).toMatch(/only through Timmy/);
+    }
+    expect((await get(`http://127.0.0.1:${he.workerPort}/api/jobs/${ej.id}/cancel`, { 'content-type': 'application/json' }, 'POST', '{}')).status).toBe(403);
+    expect((await get(`http://127.0.0.1:${he.workerPort}/api/jobs`, { 'content-type': 'application/json' }, 'POST', '{}')).status).toBe(403);
+    // a cookie is no key to the worker, nor a guessed or another worker's secret
+    expect((await get(`http://127.0.0.1:${he.workerPort}/api/state`, { cookie: ce })).status).toBe(403);
+    expect((await get(`http://127.0.0.1:${he.workerPort}/api/state`, { 'x-timmy-worker': 'f'.repeat(64) })).status).toBe(403);
+    expect(await upgrade(he.workerPort)).toMatch(/^HTTP\/1\.1 403/);
+    // the direct cancel changed nothing: erin's job is still succeeded
+    const eState = JSON.parse((await get(`${gw(e)}/api/state`, { cookie: ce })).body);
+    expect(eState.jobs.find((j: { id: string }) => j.id === ej.id).status).toBe('succeeded');
+
+    // THROUGH the gateway: each one's cache, events and artifacts with that one's grant only
+    expect(eState.dataDir).toBe(he.dataDir);
+    const fState = JSON.parse((await get(`${gw(f)}/api/state`, { cookie: cf })).body);
+    expect(fState.dataDir).toBe(hf.dataDir);
+    expect(he.dataDir).not.toBe(hf.dataDir);
+    expect(fState.jobs.map((j: { id: string; result?: { asset?: { id: string } } }) => j.result?.asset?.id)).not.toContain(ej.result.asset.id);
+    const ev = await get(`${gw(e)}/api/events`, { cookie: ce });
+    expect(ev.status).toBe(200);
+    expect(ev.body).toContain(JSON.stringify(he.dataDir).slice(1, -1));
+    expect((await get(`${gw(e)}${ePath}`, { cookie: ce })).body).toBe('FAKE glb bytes');
+    expect((await get(`${gw(f)}${ePath}`, { cookie: cf })).status).toBe(404); // erin's artifact is not in frank's worker
+    expect((await get(`${gw(e)}${ePath}`, { cookie: cf })).status).toBe(401); // nor frank's grant at erin's gateway
+    expect((await get(`${gw(e)}/api/events`, { cookie: cf })).status).toBe(401);
+    expect((await get(`${gw(e)}/api/jobs/${ej.id}/cancel`, { cookie: cf, 'content-type': 'application/json' }, 'POST', '{}')).status).toBe(401);
+    // the gateway never forwards a client's own worker header, and the app never sees the secret in its env or headers
+    const env = JSON.parse((await get(`${gw(e)}/api/env`, { cookie: ce, 'x-timmy-worker': 'mine' })).body);
+    expect(env.keys).not.toContain('TIMMY_WORKER_SECRET');
+    expect(JSON.stringify(env)).not.toMatch(/x-timmy-worker/i);
+    expect(await upgrade(Number(new URL(e.url).port), { cookie: ce })).toMatch(/^HTTP\/1\.1 501/);
+
+    // erin cancels her own job through her grant
+    const cancelled = JSON.parse((await get(`${gw(e)}/api/jobs/${ej.id}/cancel`, { cookie: ce, 'content-type': 'application/json' }, 'POST', '{}')).body);
+    expect(cancelled.status).toBe('cancelled');
+
+    // project switch: erin opens w-2; her w-1 grant ends; her w-1 worker still refuses direct clients
+    const e2 = await open('erin', 'w-2'); const ce2 = await enter(e2.url);
+    expect((await get(`${gw(e)}/api/state`, { cookie: ce })).status).toBe(401);
+    expect((await get(`http://127.0.0.1:${he.workerPort}/api/state`)).status).toBe(403);
+    const he2 = host.get(keyOf('erin', 'w-2'))!;
+    expect(he2.workerPort).not.toBe(hf.workerPort); // her w-2 is not frank's w-2
+    expect(JSON.parse((await get(`${gw(e2)}/api/state`, { cookie: ce2 })).body).jobs).toEqual([]);
+    // sign-out (revoke): erin's grants end; frank's do not; neither worker answers directly
+    expect(JSON.parse((await get(`${timmy}/api/apps/revoke`, H('erin'), 'POST', '{}')).body).revoked).toBeGreaterThan(0);
+    expect((await get(`${gw(e2)}/api/state`, { cookie: ce2 })).status).toBe(401);
+    expect((await get(`${gw(f)}/api/state`, { cookie: cf })).status).toBe(200);
+    expect((await get(`http://127.0.0.1:${he2.workerPort}/api/state`)).status).toBe(403);
+    // the receipt reader still reads through the guard (it holds the secret): erin's w-1 jobs are sealed, and the cancel too
+    expect((await he.sealNow()).length + readChain('runs', join(base, 'erin', 'projects', 'w-1')).filter((r) => r.kind === 'miniapp').length).toBeGreaterThan(0);
+    // a stopped worker: nothing answers on its port at all
+    await host.stop(keyOf('erin', 'w-1'));
+    await expect(get(`http://127.0.0.1:${he.workerPort}/api/state`)).rejects.toThrow();
   }, 120_000);
 });

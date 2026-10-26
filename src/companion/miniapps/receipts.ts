@@ -37,9 +37,10 @@ export interface AppJobReceipt {
 
 const MAX_FILE = 200 * 1024 * 1024;
 
-function fetchBytes(port: number, path: string): Promise<Buffer | null> {
+function fetchBytes(port: number, path: string, secret?: string): Promise<Buffer | null> {
   return new Promise((resolve) => {
-    const req = http.request({ host: '127.0.0.1', port, path, method: 'GET', headers: { host: `127.0.0.1:${port}` }, timeout: 15_000 }, (res) => {
+    // (the worker's guard answers only Timmy: src/companion/miniapps/host.ts WORKER_HEADER)
+    const req = http.request({ host: '127.0.0.1', port, path, method: 'GET', headers: { host: `127.0.0.1:${port}`, ...(secret ? { 'x-timmy-worker': secret } : {}) }, timeout: 15_000 }, (res) => {
       if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
       const chunks: Buffer[] = []; let n = 0;
       res.on('data', (c: Buffer) => { n += c.length; if (n > MAX_FILE) { req.destroy(); resolve(null); return; } chunks.push(c); });
@@ -63,6 +64,8 @@ function canon(v: unknown): string {
 export interface WatchOptions {
   spec: MiniAppSpec;
   workerPort: number;
+  /** the worker's secret (its guard refuses a request without it) */
+  workerSecret?: string;
   /** the app's data folder: the sealed ids are kept beside it */
   dataDir: string;
   revision: string | null;
@@ -82,7 +85,7 @@ export interface WatchOptions {
 export async function sealFinished(o: WatchOptions, sealed: Set<string>): Promise<string[]> {
   const r = o.spec.host?.receipts;
   if (!r) return [];
-  const json = async (path: string) => { const b = await fetchBytes(o.workerPort, path); if (!b) return null; try { return JSON.parse(b.toString('utf8')) as unknown; } catch { return null; } };
+  const json = async (path: string) => { const b = await fetchBytes(o.workerPort, path, o.workerSecret); if (!b) return null; try { return JSON.parse(b.toString('utf8')) as unknown; } catch { return null; } };
   let finished;
   try { finished = await r.finished({ json, dataDir: o.dataDir }); } catch { return []; }
   const out: string[] = [];
@@ -91,7 +94,7 @@ export async function sealFinished(o: WatchOptions, sealed: Set<string>): Promis
     const outputs: AppJobReceipt['outputs'] = [];
     const unhashed: string[] = [];
     for (const f of j.files) {
-      const bytes = await fetchBytes(o.workerPort, f.path);
+      const bytes = await fetchBytes(o.workerPort, f.path, o.workerSecret);
       if (bytes) outputs.push({ path: `apps/${o.spec.id}/${f.name}`, sha256: sha(bytes), bytes: bytes.length });
       else unhashed.push(`apps/${o.spec.id}/${f.name}`);
     }

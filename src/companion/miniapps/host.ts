@@ -18,10 +18,10 @@
  * check in the app's server is the owner's change to make.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { JobManager } from '../../jobs/index.js';
 import type { MiniAppSpec } from './registry.js';
 import { watchAppJobs, type AppJobReceipt } from './receipts.js';
@@ -108,6 +108,51 @@ export function framedPolicy(csp: string, ancestors: string[]): string {
   return parts.join('; ');
 }
 
+/**
+ * R13 (the operator's 15:31 order: close the direct worker-port bypass). The worker's own port listens on 127.0.0.1, where any
+ * local program could reach it without Timmy's grant. Timmy now starts each worker with this guard loaded first (`node
+ * --require`), before the owner's code: every HTTP request and upgrade the app's servers receive must carry the worker's
+ * secret, which only Timmy (the gateway and its receipt reader) holds; anything else is answered 403 before the app sees it.
+ * The secret is removed from the app's environment and from the request's headers before the app runs or reads them. The
+ * owners' code is unchanged; an owner's own check of the same secret would be the native form (REGISTER findings).
+ */
+export const WORKER_HEADER = 'x-timmy-worker';
+const GUARD_SOURCE = `'use strict';
+// Timmy mini-app worker guard (written by Timmy's host, src/companion/miniapps/host.ts; R13). Not an owner's file.
+const http = require('node:http');
+const { timingSafeEqual } = require('node:crypto');
+const secret = process.env.TIMMY_WORKER_SECRET || '';
+delete process.env.TIMMY_WORKER_SECRET;
+if (secret) {
+  const want = Buffer.from(secret);
+  const ok = (req) => { const got = req.headers['${'x-timmy-worker'}']; if (typeof got !== 'string') return false; const b = Buffer.from(got); return b.length === want.length && timingSafeEqual(b, want); };
+  const scrub = (req) => { delete req.headers['${'x-timmy-worker'}']; const r = req.rawHeaders; for (let i = r.length - 2; i >= 0; i -= 2) if (String(r[i]).toLowerCase() === '${'x-timmy-worker'}') r.splice(i, 2); };
+  const emit = http.Server.prototype.emit;
+  http.Server.prototype.emit = function (event, req, resOrSocket) {
+    if (event === 'request' || event === 'upgrade' || event === 'checkContinue' || event === 'checkExpectation') {
+      if (!ok(req)) {
+        try {
+          if (event === 'upgrade') resOrSocket.end('HTTP/1.1 403 Forbidden\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n');
+          else { resOrSocket.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', connection: 'close' }); resOrSocket.end('This app answers only through Timmy.\\n'); }
+        } catch { /* the client is gone */ }
+        return true;
+      }
+      scrub(req);
+    }
+    return emit.apply(this, arguments);
+  };
+}
+`;
+
+/** The guard's file beside the apps' data (<home>/apps/.timmy-worker-guard.cjs), written when it differs. */
+export function workerGuardFile(appsDir: string): string {
+  const file = join(appsDir, '.timmy-worker-guard.cjs');
+  let have = '';
+  try { have = readFileSync(file, 'utf8'); } catch { /* none yet */ }
+  if (have !== GUARD_SOURCE) { mkdirSync(appsDir, { recursive: true, mode: 0o700 }); writeFileSync(`${file}.tmp`, GUARD_SOURCE, { mode: 0o644 }); renameSync(`${file}.tmp`, file); }
+  return file;
+}
+
 export interface StartOptions {
   spec: MiniAppSpec;
   key: string;
@@ -138,16 +183,19 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   if (!h) throw new Error(`${o.spec.title} is not hostable.`);
   mkdirSync(o.dataDir, { recursive: true, mode: 0o700 });
   const workerPort = await freePort();
-  const env = h.env({ port: workerPort, dataDir: o.dataDir, base: o.base });
+  // (the worker's secret: only this host's gateway and receipt reader present it; the guard refuses every other client)
+  const workerSecret = randomBytes(32).toString('hex');
+  const env = { ...h.env({ port: workerPort, dataDir: o.dataDir, base: o.base }), TIMMY_WORKER_SECRET: workerSecret };
+  const guard = workerGuardFile(dirname(dirname(o.dataDir)));
   const job = o.jobs.start({
     kind: 'server', label: `${o.spec.title} (mini-app)`, project: o.project, root: o.dir,
-    command: o.node ?? process.execPath, args: [join(o.dir, h.entry)], env, envExact: true,
+    command: o.node ?? process.execPath, args: ['--require', guard, join(o.dir, h.entry)], env, envExact: true,
     ready: { url: `http://127.0.0.1:${workerPort}${h.readyPath}`, timeoutMs: READY_MS },
   });
   const ready = await o.jobs.ready(job.id);
   if (ready.state !== 'ready') throw new Error(`${o.spec.title} did not start (job ${job.id}: ${ready.state}${ready.error ? `, ${ready.error}` : ''}).`);
   const exited = () => { const j = o.jobs.get(job.id); return !j || (j.state !== 'ready' && j.state !== 'running'); };
-  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known }) : null;
+  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, workerSecret, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known }) : null;
   // grants: one per launch (a browser), each its own secret, each ending at its own time unless renewed; revoke ends them all
   const grants = new Map<string, number>();
   const launches = new Map<string, number>();
@@ -187,7 +235,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
     if (!hasGrant(req.headers.cookie)) { deny(401, `Open ${o.spec.title} from Timmy: this address answers only the browser Timmy opened it in.`); return; }
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== self) { deny(403, 'Cross-origin requests are not allowed.'); return; }
-    const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${workerPort}` };
+    const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${workerPort}`, [WORKER_HEADER]: workerSecret };
     delete headers.cookie;
     if (origin !== undefined) headers.origin = `http://127.0.0.1:${workerPort}`;
     if (headers.referer) delete headers.referer;
