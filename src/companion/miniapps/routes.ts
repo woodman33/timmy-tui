@@ -13,7 +13,7 @@
 import express from 'express';
 import { join } from 'node:path';
 import { JobManager } from '../../jobs/index.js';
-import { appendReceipt } from '../../utils/receipts.js';
+import { appendReceipt, readChain } from '../../utils/receipts.js';
 import { projectId } from '../../project/index.js';
 import { appDataDir, hostProblem, installedRevision, MiniAppHost, principalKey } from './host.js';
 import { MINI_APPS, miniAppOf } from './registry.js';
@@ -80,6 +80,8 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         revision: installedRevision(spec, deps.env),
         // each of the app's ended jobs: one receipt in this project's runs chain (where its chat turns are sealed)
         seal: (r) => appendReceipt('runs', { ...r, project_id: projectId(p.root) }, p.root).id,
+        principal: who(req),
+        known: () => readChain('runs', p.root).filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && r.miniapp?.principal === who(req) && typeof r.job?.id === 'string').map((r) => r.job!.id),
       });
       // (this principal's grants to the same app in their other projects end: an old tab cannot act in the project left)
       const revoked = host.revokeOthers(hosted.key);

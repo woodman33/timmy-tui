@@ -27,7 +27,7 @@ export interface AppJobReceipt {
   status: 'ok' | 'failed' | 'cancelled';
   job: { id: string; kind: string; label: string; state: string; error?: string };
   outputs: Array<{ path: string; sha256: string; bytes: number }>;
-  miniapp: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string };
+  miniapp: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string; principal: string };
   project?: string;
 }
 
@@ -66,6 +66,13 @@ export interface WatchOptions {
   revision: string | null;
   project?: string;
   seal: (r: AppJobReceipt) => string | undefined;
+  /** the principal's one-way key (src/companion/miniapps/host.ts principalKey), sealed with each job */
+  principal: string;
+  /**
+   * The app job ids this app, principal and project already have a receipt for, read from the chain itself: a job is never
+   * sealed twice even when the sealed-ids file is gone or the app replays its history after a restart.
+   */
+  known?: () => string[];
   everyMs?: number;
 }
 
@@ -92,7 +99,7 @@ export async function sealFinished(o: WatchOptions, sealed: Set<string>): Promis
       status: STATUS[j.status] ?? 'failed',
       job: { id: j.id, kind: j.kind, label: j.label, state: j.status, ...(j.error ? { error: j.error } : {}) },
       outputs,
-      miniapp: { app: o.spec.id, title: o.spec.title, revision: o.revision, record_sha256: sha(canon(j.raw)), started_by: 'not observed by Timmy (the app’s own controls or its local assistant)' },
+      miniapp: { app: o.spec.id, title: o.spec.title, revision: o.revision, record_sha256: sha(canon(j.raw)), started_by: 'not observed by Timmy (the app’s own controls or its local assistant)', principal: o.principal },
       ...(o.project ? { project: o.project } : {}),
     });
     sealed.add(j.id);
@@ -107,6 +114,8 @@ export function watchAppJobs(o: WatchOptions): { stop: () => Promise<void>; tick
   const file = `${o.dataDir}.timmy-sealed.json`;
   let sealed: Set<string>;
   try { sealed = new Set((JSON.parse(readFileSync(file, 'utf8')) as { jobs?: string[] }).jobs ?? []); } catch { sealed = new Set(); }
+  // (the chain is the record: what it already holds for this app, principal and project counts as sealed)
+  try { for (const id of o.known?.() ?? []) sealed.add(id); } catch { /* the chain unreadable: the file's ids stand */ }
   const keep = () => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(`${file}.tmp`, JSON.stringify({ jobs: [...sealed] }), { mode: 0o600 }); renameSync(`${file}.tmp`, file); };
   let busy: Promise<string[]> = Promise.resolve([]);
   const tick = () => {

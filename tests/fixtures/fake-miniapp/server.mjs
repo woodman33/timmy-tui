@@ -9,7 +9,10 @@ const port = Number(process.env.STUDIO_PORT);
 const data = process.env.STUDIO_DATA_DIR;
 mkdirSync(data, { recursive: true });
 writeFileSync(join(data, 'started.json'), JSON.stringify({ pid: process.pid, at: Date.now() }));
-const jobs = [];
+// jobs persist in the data folder and are reported again after a restart (as Model Studio replays its saved state)
+const jobsFile = join(data, 'jobs.json');
+let jobs = []; try { jobs = JSON.parse(readFileSync(jobsFile, 'utf8')); } catch { jobs = []; }
+const keep = () => writeFileSync(jobsFile, JSON.stringify(jobs));
 const assets = new Map();
 const page = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'dist', 'index.html'));
 const server = http.createServer((req, res) => {
@@ -21,10 +24,11 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/api/jobs') {
     let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
       const body = JSON.parse(b || '{}'); const id = `job_fake_${jobs.length + 1}`;
-      if (body.fail) { const j = { id, kind: 'create', status: 'failed', engine: 'fake', error: 'FAKE failure' }; jobs.push(j); return send(202, j); }
+      if (body.fail) { const j = { id, kind: 'create', status: 'failed', engine: 'fake', error: 'FAKE failure' }; jobs.push(j); keep(); return send(202, j); }
+      if (body.cancel) { const j = { id, kind: 'create', status: 'cancelled', engine: 'fake' }; jobs.push(j); keep(); return send(202, j); }
       const asset = { id: `asset_fake_${jobs.length + 1}`, previewFilename: 'r1-model.glb', nativeFilename: 'r1-model.blend' };
       assets.set(`${asset.id}/r1-model.glb`, Buffer.from('FAKE glb bytes')); assets.set(`${asset.id}/r1-model.blend`, Buffer.from('FAKE blend bytes'));
-      const j = { id, kind: 'create', status: 'succeeded', engine: 'fake', result: { asset } }; jobs.push(j); send(202, j);
+      const j = { id, kind: 'create', status: 'succeeded', engine: 'fake', result: { asset } }; jobs.push(j); keep(); send(202, j);
     }); return;
   }
   const am = /^\/api\/assets\/([\w-]+)\/([\w.-]+)$/.exec(req.url ?? '');

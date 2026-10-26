@@ -114,6 +114,9 @@ export interface StartOptions {
   project: string;
   /** seals one of the app's ended jobs into Timmy's receipts (the routes: the project's runs chain); absent: none sealed */
   seal?: (r: AppJobReceipt) => string | undefined;
+  /** the principal's one-way key; the app job ids the chain already holds for this app, principal and project */
+  principal?: string;
+  known?: () => string[];
   /** the installed copy's revision (its .timmy-source.json), sealed with each job */
   revision?: string | null;
 }
@@ -132,7 +135,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   const ready = await o.jobs.ready(job.id);
   if (ready.state !== 'ready') throw new Error(`${o.spec.title} did not start (job ${job.id}: ${ready.state}${ready.error ? `, ${ready.error}` : ''}).`);
   const exited = () => { const j = o.jobs.get(job.id); return !j || (j.state !== 'ready' && j.state !== 'running'); };
-  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal }) : null;
+  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known }) : null;
   // grants: one per launch (a browser), each its own secret, each ending at its own time unless renewed; revoke ends them all
   const grants = new Map<string, number>();
   const launches = new Map<string, number>();

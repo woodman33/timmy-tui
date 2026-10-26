@@ -90,7 +90,7 @@ export interface Receipt {
   sources?: unknown[];
   /** R13 (the integration order): a hosted mini-app's job (src/companion/miniapps/receipts.ts): the app, the revision it ran, the
    *  sha256 of the app's own record of the job (the record is the app's, unsigned; this receipt is Timmy's), and who started it */
-  miniapp?: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string };
+  miniapp?: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string; principal?: string };
   /** Round R4 (lead): a fleet plan's prediction (sealed before it runs) or its run (src/fleet/**): the plan, the backend as it
    *  labels itself (FAKE for the offline backend), the isolation it gives, the counts kept apart (a delivery is never a
    *  verification), and whether this was a simulation. Upstream allocation, session and request ids stay in the plan's
