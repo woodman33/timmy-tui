@@ -34,6 +34,9 @@ export interface ApprovalRequest {
 }
 
 const READ_ONLY = new Set([
+  // R13: Timmy Animate's authoring tools return candidates in memory (no file, no canvas, no server: src/agent/animate-tools.ts)
+  'timmy_animate_catalog', 'timmy_animate_template', 'timmy_animate_recipe', 'timmy_animate_svg', 'timmy_animate_lottie', 'timmy_animate_after_effects',
+  'timmy_animate_xstate', 'timmy_animate_state_preview', 'timmy_animate_path_preset', 'timmy_animate_layer', 'timmy_animate_motion_react',
   'get_current_time', 'calculate', 'get_system_info', 'list_local_spatial_models', 'read_spatial_model_context',
   'review_spatial_with_local_model', 'browser_get_snapshot', 'browser_take_screenshot', 'cloudflare_get_feature_flag',
   // Timmy Canvas: fixed read-only code (the model's words arrive only as a JSON string).
@@ -49,6 +52,7 @@ const READ_ONLY = new Set([
 ]);
 
 const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }> = {
+  timmy_animate_export: { reason: 'runs Blender on this computer (a native export, receipted)', keys: ['sceneJson'] },
   get_env: { reason: 'sends a value from your environment to the model', keys: ['name'], session: false },
   stress_test_endpoint: { reason: 'sends load to a remote endpoint', keys: ['url', 'endpoint'] },
   cloudflare_send_durable_pulse: { reason: 'writes to a remote service', keys: ['message', 'payload'] },

@@ -102,7 +102,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       owner: 'Codex: Analyze NFL footage with AI',
       revision: 'codex/film-room-checkpoint f9db9fe0 (131/131 app tests at the owner)',
       observedAt: '2026-10-26',
-      next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here. Its ended jobs are sealed as Timmy receipts; shared assets are still to map.',
+      next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here. Its ended jobs are sealed as Timmy receipts; `timmy video` (import, render, jobs) runs through the same host. Shared assets are still to map.',
     },
     host: {
       sourceEnv: 'TIMMY_FILM_ROOM_DIR',
@@ -158,7 +158,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       owner: 'Codex: Assess a 2D animator mini app',
       revision: 'v6 source archive (payload manifest 68c2f853; no commit; 59/59 app tests at the owner)',
       observedAt: '2026-10-26',
-      next: 'Hosted as its owner built it; its ended exports are sealed as Timmy receipts. Its `timmy animate` command, agent tools and MCP registration are not imported yet.',
+      next: 'Hosted as its owner built it; its ended exports are sealed as Timmy receipts. `timmy animate` (render, job, its owner’s scene authoring) and the agent’s and MCP’s timmy_animate_* tools run through the same host.',
     },
     host: {
       sourceEnv: 'TIMMY_ANIMATE_DIR',

@@ -259,15 +259,22 @@ HELP
     ;;
   workbench|repl|watch)
     need_install
+    license_key
+    mini_apps
     DIR="$(start_dir)"
     if [ "$cmd" = repl ]; then ( cd "$DIR" && run timmy "$@" ); else ( cd "$DIR" && run timmy "$cmd" "$@" ); fi
     ;;
   timmy)
     need_install
+    # (the owners' apps the package carries, for timmy video, timmy animate and the agent's and MCP's Animate tools)
+    license_key
+    mini_apps
     ( cd "$(start_dir)" && run timmy "$@" )
     ;;
   shell)
     need_install
+    license_key
+    mini_apps
     say "A shell in the review's environment (Timmy $REV). Type timmy ...; exit to leave."
     ( cd "$(start_dir)" && run bash --norc --noprofile -i )
     ;;

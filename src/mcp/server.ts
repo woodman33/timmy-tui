@@ -22,6 +22,7 @@ import { runOpenHandsTask, openHandsPlanHash, type OpenHandsOpts } from '../util
 import { roboflowRun, type RoboflowReq } from '../utils/roboflow-adapter.js';
 import { oapiRun, type OapiReq } from '../utils/oapi-adapter.js';
 import { VISION_TOOLS, callVisionTool } from '../vision/mcp.js';
+import { ANIMATE_TOOLS, callAnimateTool } from '../agent/animate-tools.js';
 import { GEO_TOOLS, callGeoTool } from '../geo/mcp.js';
 import { FLEET_TOOLS, callFleetTool } from '../fleet/mcp.js';
 import { DECISION_TOOLS, callDecisionTool } from '../decision/mcp.js';
@@ -32,6 +33,8 @@ const sleepSync = (ms: number) => spawnSync('sleep', [String(ms / 1000)]);
 
 const TOOLS = [
   ...VISION_TOOLS,
+  // R13: Timmy Animate's authoring tools (candidates, no receipt) and its native export through the C1 host (receipted)
+  ...ANIMATE_TOOLS,
   ...GEO_TOOLS,
   ...FLEET_TOOLS,
   ...DECISION_TOOLS,
@@ -627,6 +630,7 @@ const forgeGuard = (tool: string, fn: () => unknown): unknown => {
 };
 
 const call = (name: string, args: any): unknown => {
+  if (name.startsWith('timmy_animate_')) return callAnimateTool(name, args ?? {});
   if (name.startsWith('timmy_vision_')) return callVisionTool(name, args);
   if (name.startsWith('timmy_geo_')) return callGeoTool(name, args ?? {});
   if (name.startsWith('timmy_fleet_')) return callFleetTool(name, args ?? {});

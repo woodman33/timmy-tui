@@ -18,7 +18,7 @@
  * check in the app's server is the owner's change to make.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
@@ -47,8 +47,36 @@ export interface HostedApp {
   revoke(): void;
   /** read the app's state now and seal its newly ended jobs (the receipts' ids); a no-op without a seal */
   sealNow(): Promise<string[]>;
+  /**
+   * R13 (the C1 adapters: `timmy video`, `timmy animate`, the agent's and MCP's Animate tools): one request to the app as
+   * Timmy itself makes it (its own Host, the worker's secret), for Timmy's own commands; never handed to a page.
+   */
+  request(method: string, path: string, body?: Buffer | string | object, headers?: Record<string, string>): Promise<AppResponse>;
   stop(): Promise<void>;
   readonly running: boolean;
+}
+
+/** What `request` answers: the status, the body as bytes, and its JSON when it parses. */
+export interface AppResponse { status: number; headers: http.IncomingHttpHeaders; bytes: Buffer; json: unknown }
+
+/**
+ * R13: one worker per app data folder, whichever Timmy process starts it (the companion for the page, a `timmy video` or
+ * `timmy animate` command, the MCP server): two servers of one app on one folder would write over each other's records.
+ * The lock beside the folder names the process that runs it; a lock whose process is gone is stale and taken over.
+ */
+export function takeWorkerLock(dataDir: string, title: string): () => void {
+  const file = `${dataDir}.timmy-worker.lock`;
+  try {
+    const held = JSON.parse(readFileSync(file, 'utf8')) as { pid?: number; since?: string };
+    if (typeof held.pid === 'number' && held.pid !== process.pid) {
+      let alive = false;
+      try { process.kill(held.pid, 0); alive = true; } catch (e) { alive = (e as NodeJS.ErrnoException).code === 'EPERM'; }
+      if (alive) throw Object.assign(new Error(`${title} is already open for this project in another Timmy process (pid ${held.pid}, since ${held.since ?? 'unknown'}): use it there, or stop it there first.`), { code: 'TIMMY_APP_LOCKED' });
+    }
+  } catch (e) { if ((e as { code?: string }).code === 'TIMMY_APP_LOCKED') throw e; }
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, JSON.stringify({ pid: process.pid, since: new Date().toISOString() }), { mode: 0o600 });
+  return () => { try { const held = JSON.parse(readFileSync(file, 'utf8')) as { pid?: number }; if (held.pid === process.pid) rmSync(file, { force: true }); } catch { /* gone */ } };
 }
 
 export const LAUNCH_MS = 60_000;
@@ -182,6 +210,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   const h = o.spec.host;
   if (!h) throw new Error(`${o.spec.title} is not hostable.`);
   mkdirSync(o.dataDir, { recursive: true, mode: 0o700 });
+  const unlock = takeWorkerLock(o.dataDir, o.spec.title);
   const workerPort = await freePort();
   // (the worker's secret: only this host's gateway and receipt reader present it; the guard refuses every other client)
   const workerSecret = randomBytes(32).toString('hex');
@@ -193,6 +222,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
     ready: { url: `http://127.0.0.1:${workerPort}${h.readyPath}`, timeoutMs: READY_MS },
   });
   const ready = await o.jobs.ready(job.id);
+  if (ready.state !== 'ready') unlock();
   if (ready.state !== 'ready') throw new Error(`${o.spec.title} did not start (job ${job.id}: ${ready.state}${ready.error ? `, ${ready.error}` : ''}).`);
   const exited = () => { const j = o.jobs.get(job.id); return !j || (j.state !== 'ready' && j.state !== 'running'); };
   const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, workerSecret, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known }) : null;
@@ -269,6 +299,24 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
     renew() { const now = Date.now(); for (const [k, until] of grants) { if (until <= now) grants.delete(k); else grants.set(k, now + GRANT_MS); } return grants.size; },
     revoke() { grants.clear(); launches.clear(); },
     sealNow() { return watcher ? watcher.tick() : Promise.resolve([]); },
+    request(method, path, body, headers = {}) {
+      return new Promise<AppResponse>((resolve, reject) => {
+        const payload = body === undefined ? undefined : Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
+        const req = http.request({ host: '127.0.0.1', port: workerPort, method, path, headers: {
+          host: `127.0.0.1:${workerPort}`, [WORKER_HEADER]: workerSecret,
+          ...(payload && !Buffer.isBuffer(body) && typeof body !== 'string' ? { 'content-type': 'application/json' } : {}),
+          ...(payload ? { 'content-length': String(payload.length) } : {}), ...headers,
+        } }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => { const bytes = Buffer.concat(chunks); let json: unknown = null; try { json = JSON.parse(bytes.toString('utf8')); } catch { /* not JSON */ } resolve({ status: res.statusCode ?? 0, headers: res.headers, bytes, json }); });
+          res.on('error', reject);
+        });
+        req.on('error', reject);
+        if (payload) req.write(payload);
+        req.end();
+      });
+    },
     async stop() {
       if (stopped) return;
       stopped = true;
@@ -276,6 +324,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
       if (watcher) await watcher.stop().catch(() => undefined);
       await new Promise<void>((r) => { gateway.close(() => r()); gateway.closeAllConnections(); });
       if (!exited()) await o.jobs.stop(job.id, STOP_MS);
+      unlock();
     },
     get running() { return !stopped && !exited(); },
   };

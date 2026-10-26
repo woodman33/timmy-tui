@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { boundOutput, count, LOG_CAP_BYTES, runLocalCommand, VIEW_HEAD_BYTES, VIEW_TAIL_BYTES } from './command-output.js';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from './spatial-model-tools.js';
+import { animateTools } from './animate-tools.js';
 import { z } from 'zod/v4';
 import { edgeUrl, operatorLabel } from '../utils/edge-host.js';
 import { timmyHome } from '../utils/init.js';
@@ -595,6 +596,8 @@ export const listCardTool = tool({
 } as any);
 
 export const defaultTools = [
+  // R13: Timmy Animate (src/agent/animate-tools.ts): authoring candidates; the native export through the C1 host asks first
+  ...animateTools,
   spatialModelCatalogTool,
   spatialModelContextTool,
   spatialModelReviewTool,
