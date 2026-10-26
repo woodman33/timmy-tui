@@ -76,7 +76,12 @@ lead (the markdown fence hang, the tool label wrap, the plain word for "not set 
   from `<Panel>`, `<Tool>` (a tool without `onClick` is unavailable and says why) and `ui.jsx`'s words; it reads and acts
   only through `api.js` (`getJson`, `postJson`, `call` — the token in a header, never in a URL) and `store.js`; a page's own
   sheet is prefixed `tx-<page>-` and reads only the `--timmy-ui-*` registry and the shell's `--ta-*` materials (made of it).
-- **The desk:** the Canvas keeps its tldraw store in the browser under `timmy-desk-<key(principal | project root)>`; its
+- **The desk:** the Canvas is kept in Timmy's project storage, never in the browser alone: `GET / POST /api/app/desk`
+  (`src/companion/timmy-app.ts`, the principal's project under the principal's Timmy home:
+  `canvas/projects/<project id>/app-desk/canvas.json`, Studio's revisioned `CanvasDocuments`); the page saves 700 ms after
+  the person's last change at the next revision, a save over a newer desk is refused (409) and its version kept as a copy
+  beside it, and tldraw's per-viewer `user` records are never saved. The board's React key stays
+  `timmy-desk-<key(principal | project root)>`; its
   shapes are `timmy-rive` (RIVE CONTRACT v2, unchanged) and `timmy-card` (`{ w, h, kind: model | receipt | conversation }`,
   each saying when it was read on the page, or "not live"); Export / Import is a `{ format: "timmy-desk", version: 1,
   snapshot }` file.

@@ -3,19 +3,20 @@
  * headless Chromium, against the real companion on 127.0.0.1, read and used as a person does — Timmy's shell (the rail, the
  * page head, the band, the tools row), the permission before the local Ollama is asked, a model chosen, a real turn sent and
  * sealed, NEEDS YOU on the Rive ActionButton, Stop, the Canvas desk (Rive shapes, Timmy cards, the SDK's licence, a node added,
- * undone and kept across a reload), and the phone's drawer and composer.
+ * undone and kept in the project's own storage — back in a fresh browser, never over a newer desk), and the phone's drawer and composer.
  *
  * Real: the companion, its token, the app's bundle (scripts/canvas/build-app.mjs, built here when it is missing), the Chat's
  * routes and the agent's turn (POST /api/chat/turn), the receipt it seals. FAKE, labelled: the local Ollama
  * (tests/fixtures/fake-ollama-chat.ts: no model behind it, its answer says FAKE).
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../scripts/canvas/build-app.mjs';
-import { appRoot } from '../src/companion/timmy-app.js';
+import { DESK_FOLDER, appRoot } from '../src/companion/timmy-app.js';
+import { projectId } from '../src/project/index.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { browserPath, launchBrowser } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
@@ -179,7 +180,7 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.context().close();
   }, 180_000);
 
-  it('the Canvas: a bounded desk with Timmy\'s Rive shapes and cards, the SDK\'s licence read; a node added, undone, kept across a reload', async () => {
+  it('the Canvas: a bounded desk with Timmy\'s Rive shapes and cards, the SDK\'s licence read; a node added, undone, kept in the project and opened in a fresh browser', async () => {
     const page = await open(1440, 900);
     await go(page, 'canvas');
     await page.waitForSelector('.ta-stage .tl-container .ta-desk', { timeout: 60_000 });
@@ -202,14 +203,37 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.click('.ta-tool[data-tool="Nodes"]');
     await page.click('.ta-popover-item[data-node="card:receipt"]');
     await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0);
-    await page.waitForTimeout(1200); // tldraw writes its store to the browser's IndexedDB as the person works
-    // opened again from Timmy (the token is in the page's memory only, so a reload alone reads nothing): the page it was on, the desk as left
-    await page.goto('about:blank');
-    await page.goto(`${origin}/app#t=${token}`);
-    await page.waitForSelector('.ta-page[data-page="canvas"] .ta-stage .tl-container .ta-desk', { timeout: 60_000 });
-    await page.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0, { timeout: 30_000 });
-    expect(await page.locator('.ta-footer-btn:has-text("Export canvas")').isDisabled()).toBe(false);
+    // kept in Timmy's project storage, not the browser: saved at a revision as the person works
+    const file = join(process.env.TIMMY_HOME!, 'canvas', 'projects', projectId(join(box, 'project')), DESK_FOLDER, 'canvas.json');
+    const shapesIn = (): number => { try { return Object.values((JSON.parse(readFileSync(file, 'utf8')) as { snapshot: { store: Record<string, { typeName?: string }> } }).snapshot.store).filter((r) => r.typeName === 'shape').length; } catch { return -1; } };
+    await expect.poll(shapesIn, { timeout: 20_000 }).toBe(n0 + 1);
+    await page.waitForSelector('[data-kept="saved"]', { timeout: 20_000 });
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { format: string; revision: number; snapshot: { store: Record<string, { typeName?: string; type?: string; props?: { kind?: string } }> } };
+    expect(saved.format).toBe('timmy-canvas');
+    expect(saved.revision).toBeGreaterThanOrEqual(2);
+    expect(Object.values(saved.snapshot.store).filter((r) => r.typeName === 'shape').length).toBe(n0 + 1);
     await page.context().close();
+    // opened again from Timmy in ANOTHER browser context (nothing of the first one's storage): the page it was on is not
+    // remembered there, so it goes to the Canvas; the desk is the project's, as left
+    const again = await open(1440, 900);
+    await go(again, 'canvas');
+    await again.waitForSelector('.ta-page[data-page="canvas"] .ta-stage .tl-container .ta-desk', { timeout: 60_000 });
+    await again.waitForFunction((n) => Number(/(\d+) shape/.exec(document.querySelector('.ta-band .ta-cell-v')?.textContent ?? '')?.[1] ?? -1) === n + 1, n0, { timeout: 30_000 });
+    // opening it wrote nothing: the desk on disk is the one left, at the same revision (no viewer's record is the project's)
+    await again.waitForTimeout(2000);
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { revision: number }).revision).toBe(saved.revision);
+    expect(Object.values((JSON.parse(readFileSync(file, 'utf8')) as typeof saved).snapshot.store).some((r) => r.typeName === 'user')).toBe(false);
+    expect(await again.locator('[data-kept]').innerText()).toContain(`revision ${saved.revision}`);
+    // a save over a newer desk is refused, and its version kept beside it (two windows on one project)
+    const stale = await fetch(`${origin}/api/app/desk`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot: saved.snapshot, baseRevision: 1, revision: 2 }) });
+    expect(stale.status).toBe(409);
+    const refused = await stale.json() as { conflict?: boolean; kept?: string };
+    expect(refused.conflict).toBe(true);
+    expect(refused.kept).toMatch(/^copies\/canvas-r2-/);
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { revision: number }).revision).toBe(saved.revision);
+    const page2 = again;
+    expect(await page2.locator('.ta-footer-btn:has-text("Export canvas")').isDisabled()).toBe(false);
+    await page2.context().close();
   }, 180_000);
 
   it('a phone\'s width: the rail is a drawer, the pages one column, the composer in view, nothing wider than the screen', async () => {

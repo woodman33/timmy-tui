@@ -877,11 +877,13 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R12 (the operator's 03:04 order): the Timmy app — the main UI as a tldraw board of cards with the Rive faces — at /app; it
   // reads and acts through the routes above with the same token (src/companion/timmy-app.ts)
   mountTimmyApp(app, {
-    withToken, withUser: withUserOrOperator, env: chatEnv(),
+    withToken, withUser: withUserOrOperator, env: chatEnv(), storeEnv: options.workspace?.env ?? process.env,
+    // (the desk: a user's project under the user's Timmy home; the operator's under the companion's)
     projectOf: (req) => {
       const u = (req as express.Request & { user?: Principal }).user;
-      const p = u && !u.operator ? userProjectOf(req) : projectFor(req);
-      return p ? { name: p.name, root: p.root } : null;
+      const own = u && !u.operator;
+      const p = own ? userProjectOf(req) : projectFor(req);
+      return p ? { name: p.name, root: p.root, ...(own ? { env: identity.envOf(req) } : {}) } : null;
     },
   });
   app.get('/', (_req, res) => { sendPage(res); });

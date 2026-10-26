@@ -35,7 +35,7 @@ const KEYS = [
 const KEPT = [
   { title: 'Receipts', words: 'Each sealed answer and MCP call gets a receipt in the project’s receipt chain (.timmy/receipts in the project). The app shows whether each one verified.', page: 'runs' },
   { title: 'The conversation', words: 'One conversation per project, shared by every surface of Timmy (the terminal, this app, the Workbench); New conversation starts another and keeps the last one.', page: 'chat' },
-  { title: 'The desk', words: 'Kept in this browser, one desk per project (tldraw’s own store). Export canvas in the footer saves it as a file; Import opens one again.', page: 'canvas' },
+  { title: 'The desk', words: 'One desk per project, kept in Timmy’s project storage and saved as you work. Export canvas in the footer saves it as a file; Import opens one again.', page: 'canvas' },
   { title: 'MCP calls', words: 'Each call made from Tools & integrations is kept with its request, answer and wire trace under .timmy/mcp in the project.', page: 'tools' },
   { title: 'This app’s choices', words: 'The theme, the page you were on and whether Timmy may ask this computer’s Ollama are kept in this browser only. The launch token is kept in this page’s memory, never stored.', page: 'settings' },
 ];

@@ -23,7 +23,10 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { projectId } from '../project/index.js';
+import { boardDir } from '../studio/boards.js';
 import { studioConfig } from '../studio/config.js';
+import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir } from '../studio/document.js';
 import { installSteps, SIZE_NOTE, STARTER_MODELS } from '../setup/ollama-local.js';
 import { tildePath } from '../utils/home-scrub.js';
 
@@ -69,9 +72,19 @@ export interface TimmyAppDeps {
   root?: string;
   /** a signed-in user's session when the request carries one (src/companion/server.ts withUserOrOperator) */
   withUser?: express.RequestHandler;
-  /** the project the request's principal works in (name and root), null when none is known */
-  projectOf?: (req: express.Request) => { name: string; root: string } | null;
+  /** the project the request's principal works in (name and root; env: the principal's Timmy home), null when none is known */
+  projectOf?: (req: express.Request) => { name: string; root: string; env?: Env } | null;
+  /** the operator's environment (its Timmy home holds the operator's projects' desks): `env` when absent */
+  storeEnv?: Env;
 }
+
+/** The folder, beside the project's Studio board, that holds the Timmy app's Canvas desk (its own revisions, never Studio's file). */
+export const DESK_FOLDER = 'app-desk';
+/** The Canvas desk of the project in folder `root`, in the Timmy home of `env`: <TIMMY_HOME>/canvas/projects/<project id>/app-desk/. */
+export function deskOf(root: string, env: Env): CanvasDocuments {
+  return new CanvasDocuments(join(boardDir(canvasDir(env), projectId(root)), DESK_FOLDER));
+}
+export const DESK_NO_PROJECT = 'No project is open for this page, so its Canvas desk has nowhere to be kept: open one in Timmy (`timmy app` in its folder).';
 
 export function mountTimmyApp(app: express.Application, deps: TimmyAppDeps): { root: string } {
   const root = deps.root ?? appRoot();
@@ -104,6 +117,32 @@ export function mountTimmyApp(app: express.Application, deps: TimmyAppDeps): { r
       // and how Ollama is installed and started on this computer's system (words and the official page; nothing is run)
       ollama: { starters: STARTER_MODELS.map(({ model, size, use, page, default: d }) => ({ model, size, use, page, default: d })), sizeNote: SIZE_NOTE, install: installSteps(process.platform) },
     });
+  });
+  // R12 (the operator's 2026-10-24 order: boards are kept in Timmy's project storage, never in the browser alone): the Canvas
+  // desk of the request's principal's project — read (GET) and saved (POST, at a revision, only over the revision it was
+  // opened at). A save that finds a newer desk saves nothing over it: the page's version is kept as a copy beside it.
+  const deskFor = (req: express.Request): { docs: CanvasDocuments; name: string } | null => {
+    const p = (() => { try { return deps.projectOf ? deps.projectOf(req) : null; } catch { return null; } })();
+    return p ? { docs: deskOf(p.root, p.env ?? deps.storeEnv ?? deps.env ?? process.env), name: p.name } : null;
+  };
+  app.get('/api/app/desk', ...guards, (req, res) => {
+    const d = deskFor(req);
+    if (!d) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: DESK_NO_PROJECT }); return; }
+    const s = d.docs.load();
+    res.set('Cache-Control', 'no-store').json({ ok: true, project: d.name, revision: s.revision, savedAt: s.savedAt, snapshot: s.snapshot, ...(s.notice ? { notice: s.notice } : {}) });
+  });
+  app.post('/api/app/desk', ...guards, express.json({ limit: 2 * MAX_CANVAS_BYTES }), (req, res) => {
+    const d = deskFor(req);
+    if (!d) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: DESK_NO_PROJECT }); return; }
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as { snapshot?: unknown; revision?: unknown; baseRevision?: unknown };
+    const r = d.docs.save(body);
+    if (r.ok) { res.set('Cache-Control', 'no-store').json({ ...r, project: d.name }); return; }
+    if ('conflict' in r && r.conflict) {
+      const kept = d.docs.keepCopy(body);
+      res.status(409).set('Cache-Control', 'no-store').json({ ...r, project: d.name, ...(kept.ok ? { kept: kept.kept } : {}) });
+      return;
+    }
+    res.status('tooLarge' in r && r.tooLarge ? 413 : 400).set('Cache-Control', 'no-store').json({ ...r, project: d.name });
   });
   return { root };
 }

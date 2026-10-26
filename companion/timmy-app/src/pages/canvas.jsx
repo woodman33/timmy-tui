@@ -4,7 +4,8 @@
 // shape: AgentConsole, ProviderCard, ActionButton), Timmy's cards (the chosen model, the last receipt, the conversation: each
 // says whether it was read on this page or not), and the person's own notes, drawings and arrows (an arrow binds to a card).
 // Selection, connections, pan / zoom / Fit, the selected shape's parameters, delete, undo / redo: tldraw's own, with the desk's
-// toolbar on the page's tools row. The desk is kept per project in this browser (tldraw's store under a key made of the project),
+// toolbar on the page's tools row. The desk is kept in Timmy's project storage (the companion's /api/app/desk: the principal's
+// project, <TIMMY_HOME>/canvas/projects/<project id>/app-desk/, saved at a revision as the person works, never over a newer one),
 // and it can be exported to a file and imported again (the footer).
 import React, { memo, useEffect, useRef, useState } from 'react';
 import {
@@ -18,7 +19,8 @@ import { createLicenseReadout } from '../../../studio-canvas/src/license-state.j
 import { timmyThemes } from '../../../studio-canvas/src/theme.js';
 import { chosenOf, providerName, whereOf } from '../models-parts.jsx';
 import { Page, Tool } from '../shell.jsx';
-import { getState, goTo, say, setCanvasIo, setLicense, useApp } from '../store.js';
+import { getJson, postJson } from '../api.js';
+import { getState, goTo, projectQuery, say, setCanvasIo, setLicense, useApp } from '../store.js';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
 // ── the desk ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -48,7 +50,7 @@ export function keyOf(text) {
   for (const ch of String(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
   return h.toString(36);
 }
-/** The desk's key: the principal the companion verified (config.principal, a one-way key) and the project — never shared between them. */
+/** The board's key (its React key, so two principals or projects never share one open board): the principal the companion verified (config.principal, a one-way key) and the project — never shared between them. */
 export const deskKeyOf = (config) => `timmy-desk-${keyOf(`${config && config.principal ? config.principal : 'operator'}|${config && config.project ? config.project.root : 'no-project'}`)}`;
 
 // ── Timmy's cards on the desk ───────────────────────────────────────────────────────────────────────────────────────────
@@ -211,6 +213,74 @@ function firstDesk(editor) {
   }, { history: 'ignore' });
 }
 
+// ── the desk kept in the project (the companion's /api/app/desk) ─────────────────────────────────────────────────────────
+
+/** The desk's document as the project keeps it: without the records of whoever had it open (tldraw's `user` records are per viewer). */
+export function deskDocument(editor) {
+  const doc = getSnapshot(editor.store).document;
+  const store = {};
+  for (const [id, r] of Object.entries(doc.store)) if (!(r && r.typeName === 'user')) store[id] = r;
+  return { ...doc, store };
+}
+/** How long after the person's last change the desk is saved. */
+export const SAVE_AFTER_MS = 700;
+/**
+ * Saves the desk of `editor` to its project as the person works: each save at the next revision over the one this page has, so a
+ * desk another window saved since is never written over (the companion keeps this page's version beside it as a copy, and
+ * saving stops until the desk is opened again). The project is the one this page showed when the desk opened.
+ */
+export function keepDesk(editor, start, onState) {
+  const q = projectQuery();
+  let rev = start && Number.isInteger(start.revision) ? start.revision : 0;
+  let timer = 0;
+  let pending = false;
+  let saving = false;
+  let again = false;
+  let stopped = false;
+  let savedAt = start && start.savedAt ? start.savedAt : null;
+  let last = start && start.snapshot ? JSON.stringify(deskDocument(editor)) : null;
+  const save = async () => {
+    clearTimeout(timer);
+    pending = false;
+    if (stopped) return;
+    if (saving) { again = true; return; }
+    const snapshot = deskDocument(editor);
+    const text = JSON.stringify(snapshot);
+    // a change that left the desk as it was saved (a face's word set again, a size measured the same) writes nothing
+    if (text === last) { onState({ phase: 'saved', revision: rev, savedAt }); return; }
+    saving = true;
+    onState({ phase: 'saving', revision: rev });
+    const r = await postJson(`/api/app/desk${q}`, { snapshot, baseRevision: rev, revision: rev + 1 });
+    saving = false;
+    if (r.ok) { rev = r.revision; last = text; savedAt = r.savedAt; onState({ phase: 'saved', revision: rev, savedAt }); }
+    else if (r.conflict) {
+      stopped = true;
+      onState({ phase: 'conflict', revision: r.revision, words: `${r.error}${r.kept ? ` This page’s version was kept beside it (${r.kept}).` : ''}` });
+      return;
+    } else onState({ phase: 'failed', revision: rev, words: r.error || `The companion answered ${r.status}.` });
+    if (again) { again = false; save(); }
+  };
+  const schedule = () => { if (stopped) return; if (!pending && !saving) onState({ phase: 'pending', revision: rev }); pending = true; clearTimeout(timer); timer = setTimeout(save, SAVE_AFTER_MS); };
+  const off = editor.store.listen(schedule, { source: 'user', scope: 'document' });
+  const hidden = () => { if (document.visibilityState === 'hidden' && pending) save(); };
+  document.addEventListener('visibilitychange', hidden);
+  return {
+    now: save,
+    stop: () => { if (pending) save(); stopped = true; clearTimeout(timer); off(); document.removeEventListener('visibilitychange', hidden); },
+  };
+}
+/** What the band and the inspector say of where the desk is kept. */
+export function keptWords(kept, project) {
+  const where = `in the project${project ? ` ${project.name}` : ''}`;
+  if (!kept || kept.phase === 'loading') return 'reading the project’s desk…';
+  if (kept.phase === 'new') return `${where} · not saved yet`;
+  if (kept.phase === 'pending') return `${where} · changes not saved yet`;
+  if (kept.phase === 'saving') return `${where} · saving…`;
+  if (kept.phase === 'saved') return `${where} · revision ${kept.revision}${kept.savedAt ? ` · ${clock(kept.savedAt)}` : ''}`;
+  return `not saved: ${kept.words}`;
+}
+let keeper = null;
+
 // ── export / import (the footer's buttons) ──────────────────────────────────────────────────────────────────────────────
 
 export const DESK_FILE = 'timmy-desk';
@@ -237,6 +307,7 @@ function importDesk(editor) {
       const file = JSON.parse(await f.text());
       if (!file || file.format !== DESK_FILE || !file.snapshot) { say(`Not imported: ${f.name} is not a Timmy canvas file.`); return; }
       loadSnapshot(editor.store, file.snapshot);
+      if (keeper) keeper.now();
       holdDesk(editor);
       fitDesk(editor, false);
       say(`Imported ${f.name}${file.project ? ` (saved from ${file.project}` : ' ('}${file.savedAt ? ` at ${new Date(file.savedAt).toLocaleString()}` : ''}): its cards read this page’s answers; its Rive components say “as saved” until an event of this page moves them.`);
@@ -247,11 +318,9 @@ function importDesk(editor) {
 
 // ── the board ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const Board = memo(function Board({ licenseKey, deskKey, onEditor }) {
+const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
   return (
     <Tldraw
-      key={deskKey}
-      persistenceKey={deskKey}
       licenseKey={licenseKey || undefined}
       shapeUtils={SHAPE_UTILS}
       assetUrls={assetUrls || (assetUrls = getAssetUrls({ baseUrl: `${location.origin}/app/dist/assets/` }))}
@@ -262,14 +331,27 @@ const Board = memo(function Board({ licenseKey, deskKey, onEditor }) {
       onMount={(editor) => {
         current = editor;
         editor.user.updateUserPreferences({ colorScheme: 'dark' });
+        // the project's desk as it was saved (only the document: the camera is the desk's own, Fit)
+        let opened = true;
+        if (start && start.ok && start.snapshot) {
+          try { loadSnapshot(editor.store, { document: start.snapshot }); } catch (e) {
+            opened = false;
+            say(`The project’s saved desk could not be opened here (${e instanceof Error ? e.message : String(e)}): this desk is not saved, so the saved one is left as it is.`);
+          }
+        }
         holdDesk(editor);
         firstDesk(editor);
         fitDesk(editor, false);
+        keeper = start && start.ok && opened ? keepDesk(editor, start, onKept) : null;
+        if (keeper && !start.revision && editor.getCurrentPageShapeIds().size) keeper.now();
+        if (start && !start.ok) onKept({ phase: 'failed', words: start.error || 'the companion did not answer.' });
+        else if (!opened) onKept({ phase: 'failed', words: 'the saved desk could not be opened here.' });
         const onResize = () => holdDesk(editor);
         editor.on('resize', onResize);
         const stopLicense = license.watch(editor, (r) => setLicense(r));
         onEditor(editor);
-        return () => { editor.off('resize', onResize); stopLicense(); if (current === editor) current = null; onEditor(null); };
+        const mine = keeper;
+        return () => { editor.off('resize', onResize); stopLicense(); if (mine) mine.stop(); if (keeper === mine) keeper = null; if (current === editor) current = null; onEditor(null); };
       }}
     />
   );
@@ -337,7 +419,7 @@ function DeskTools({ editor }) {
 
 const PROVIDERS = ['ollama-local', 'openrouter', 'ollama-cloud', 'cloudflare'];
 
-function Selection({ editor }) {
+function Selection({ editor, kept }) {
   const selected = useValue('timmy desk: selection', () => (editor ? editor.getSelectedShapes() : []), [editor]);
   const count = useValue('timmy desk: shapes', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
   const lic = useApp((s) => s.license);
@@ -354,7 +436,7 @@ function Selection({ editor }) {
           <p className="ta-muted">Select a card, a Rive component or a drawing to see and change its parameters. Add more from Nodes; connect two with Connect.</p>
           <Facts rows={[
             ['on the desk', `${count} shape${count === 1 ? '' : 's'}`],
-            ['kept', <span key="k">in this browser for {config && config.project ? config.project.name : 'this project'} (tldraw’s store, as you work)</span>],
+            ['kept', keptWords(kept, config && config.project)],
           ]} />
         </>
       ) : one ? (
@@ -408,7 +490,25 @@ export default function CanvasPage() {
   const note = useApp((s) => s.note);
   const count = useApp((s) => s.license);
   const [editor, setEditor] = useState(null);
+  const [desk, setDesk] = useState(null);
+  const [kept, setKept] = useState({ phase: 'loading' });
+  const [opening, setOpening] = useState(0);
   const deskKey = deskKeyOf(config);
+  const ready = Boolean(config && config.ok);
+  // the project's desk, read before the board opens (again after Reload, when another window saved it first)
+  useEffect(() => {
+    if (!ready) return undefined;
+    let live = true;
+    setDesk(null);
+    setKept({ phase: 'loading' });
+    getJson(`/api/app/desk${projectQuery()}`).then((d) => {
+      if (!live) return;
+      setDesk(d);
+      if (d.ok) setKept({ phase: d.revision ? 'saved' : 'new', revision: d.revision, savedAt: d.savedAt });
+      if (d.notice) say(d.notice);
+    });
+    return () => { live = false; };
+  }, [ready, opening]);
   useEffect(() => {
     if (!editor) { setCanvasIo(null); return undefined; }
     setCanvasIo({ export: () => exportDesk(editor, config && config.project), import: () => importDesk(editor) });
@@ -417,16 +517,20 @@ export default function CanvasPage() {
   const shapes = useValue('timmy desk: count', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
   return (
     <Page id="canvas" fill note={note}
-      actions={<Button onClick={() => editor && fitDesk(editor)} disabled={!editor}>Fit workspace</Button>}
+      actions={<>
+        {kept.phase === 'conflict' ? <Button onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
+        <Button onClick={() => editor && fitDesk(editor)} disabled={!editor}>Fit workspace</Button>
+      </>}
       band={[
         ['DESK', editor ? `${shapes} shape${shapes === 1 ? '' : 's'}` : <span className="ta-muted">opening…</span>],
-        ['KEPT', <span key="k">in this browser · {config && config.project ? config.project.name : 'no project'}</span>],
+        ['KEPT', <span key="k" data-kept={kept.phase}>{keptWords(kept, config && config.project)}</span>],
         ['LICENCE', count ? <StateWord word={count.state} live={count.state === 'licensed'} /> : <span className="ta-muted">reading…</span>],
       ]}
-      context={<Selection editor={editor} />}
+      context={<Selection editor={editor} kept={kept} />}
       tools={<DeskTools editor={editor} />}>
       <div className="ta-stage" aria-label="The desk">
-        {config && config.ok ? <Board licenseKey={config.licenseKey} deskKey={deskKey} onEditor={setEditor} />
+        {ready && desk ? <Board key={`${deskKey}:${opening}`} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
+          : ready ? <p className="ta-empty ta-pad">Reading the project’s desk…</p>
           : <p className="ta-empty ta-pad">{config ? config.error || 'The companion did not answer.' : 'Opening the desk…'}</p>}
       </div>
     </Page>
