@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { OPEN_FROM_TIMMY, TOKEN, call, onRefused, refusal } from './api.js';
 import { pageOf } from './nav.js';
-import { Dock, Footer, Rail, Topbar } from './shell.jsx';
+import { Dock, Footer, Rail, Topbar, useRailSlim } from './shell.jsx';
 import { getState, loadConfig, loadModels, refreshView, setDrawer, setTheme, useApp } from './store.js';
 import ChatPage from './pages/chat.jsx';
 import ModelsPage from './pages/models.jsx';
@@ -35,6 +35,7 @@ function App() {
   const page = useApp((s) => s.page);
   const drawer = useApp((s) => s.drawer);
   const projectId = useApp((s) => s.projectId);
+  const slim = useRailSlim();
   const [refused, setRefused] = useState(refusal());
   useEffect(() => onRefused(setRefused), []);
   useEffect(() => { document.title = `${pageOf(page).title} · Timmy`; }, [page]);
@@ -66,7 +67,7 @@ function App() {
   if (refused) return <Refused words={refused} />;
   const Current = DRAWN[page] || ChatPage;
   return (
-    <div className={`ta-app${drawer ? ' has-drawer' : ''}`}>
+    <div className={`ta-app${drawer ? ' has-drawer' : ''}${slim ? ' is-slim' : ''}`} data-page-now={page}>
       <Rail />
       {drawer ? <button type="button" className="ta-scrim" aria-label="Close the menu" onClick={() => setDrawer(false)} /> : null}
       <div className="ta-main">

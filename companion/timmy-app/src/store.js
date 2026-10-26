@@ -25,6 +25,8 @@ const initial = {
   page: (() => { try { const q = new URLSearchParams(location.search).get('page'); if (isPage(q)) return q; } catch { /* no address */ } return isPage(read(PAGE, '')) ? read(PAGE, '') : 'chat'; })(),
   /** the rail on a phone (a drawer) and the records dock (folded by default) */
   drawer: false,
+  // the rail folded to its icons, per page the person chose it on (null: folded on the Canvas only, the default)
+  railFold: null,
   dock: read(DOCK, '') === 'open',
   projects: null, // GET /api/projects (accounts) — null until asked
   projectId: null,
@@ -102,6 +104,7 @@ export function setSearch(source, text) { set((s) => ({ search: { ...s.search, [
 
 export function goTo(page) { if (isPage(page)) { set({ page, drawer: false }); write(PAGE, page); try { window.scrollTo(0, 0); } catch { /* no window */ } } }
 export function setDrawer(open) { set({ drawer: !!open }); }
+export function setRailSlim(slim) { set((s) => ({ railFold: { ...(s.railFold || {}), [s.page]: !!slim } })); }
 export function setDock(open) { set({ dock: !!open }); write(DOCK, open ? 'open' : 'folded'); }
 
 /** The person's projects (GET /api/projects: only a companion with accounts answers it; else the one project the page shows). */

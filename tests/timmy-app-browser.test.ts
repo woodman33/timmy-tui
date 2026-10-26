@@ -206,6 +206,18 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     expect(ollama.chats().length).toBeGreaterThan(chatsBefore);
     await page.waitForFunction(() => (document.querySelector('.ta-turnpanel')?.textContent ?? '').includes('receipt'), null, { timeout: 30_000 });
     await page.waitForSelector('.ta-desk-card[data-desk-card="receipt"] .ta-verified', { timeout: 30_000 });
+    // the inspector is a layer on the stage: folded by default, opened, dragged by its header (kept where it was left)
+    expect(await page.locator('.ta-layer').getAttribute('class')).toContain('is-folded');
+    await page.click('.ta-layer-fold');
+    await page.waitForFunction(() => !document.querySelector('.ta-layer')?.classList.contains('is-folded'));
+    const head = await page.locator('.ta-layer-head').boundingBox();
+    await page.mouse.move(head!.x + 40, head!.y + head!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(head!.x - 160, head!.y + 120, { steps: 8 });
+    await page.mouse.up();
+    const moved = await page.locator('.ta-layer').boundingBox();
+    expect(Math.round(moved!.x)).toBeLessThan(Math.round(head!.x) - 100);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('timmy-app:canvas-layer') || '{}').folded)).toBe(false);
     const count = async (): Promise<number> => page.evaluate(() => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1));
     const n0 = await count();
     expect(n0).toBeGreaterThanOrEqual(4);
@@ -285,10 +297,15 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
         const r = await page.evaluate((id) => {
           const a = document.querySelector(id === 'canvas' ? '.ta-stage' : '.ta-work')!.getBoundingClientRect();
           const t = document.querySelector('.ta-toolsrow')!.getBoundingClientRect();
+          const main = document.querySelector('.ta-pagewrap')!.getBoundingClientRect();
           const wrap = document.querySelector('.ta-pagewrap')!;
-          return { over: a.bottom - t.top, scrolls: wrap.scrollHeight > wrap.clientHeight + 1 };
+          return { over: a.bottom - t.top, inside: t.top >= a.top && t.bottom <= a.bottom && t.left >= a.left && t.right <= a.right, share: (a.width * a.height) / (main.width * main.height), scrolls: wrap.scrollHeight > wrap.clientHeight + 1 };
         }, id);
-        expect(r.over, `${id} at ${w} × ${h}: its stage ends ${r.over} px below the tools row's top`).toBeLessThanOrEqual(0);
+        if (id === 'canvas') {
+          // the operator's 19:19 order: the Canvas is the page — the stage takes most of it, its tools float inside it
+          expect(r.inside, `the Canvas tools at ${w} × ${h} are inside the stage`).toBe(true);
+          expect(r.share, `the stage's share of the page at ${w} × ${h}`).toBeGreaterThan(0.8);
+        } else expect(r.over, `${id} at ${w} × ${h}: its stage ends ${r.over} px below the tools row's top`).toBeLessThanOrEqual(0);
         if (w === 1440) expect(r.scrolls, `${id} at 1440 × 900 scrolls`).toBe(false);
       }
       await page.context().close();

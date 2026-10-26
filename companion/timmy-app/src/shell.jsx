@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { onRequest, requestLog } from './api.js';
 import { GROUPS, PAGES, pageOf } from './nav.js';
-import { goTo, loadProjects, setDock, setDrawer, setTheme, switchProject, useApp } from './store.js';
+import { goTo, loadProjects, setDock, setDrawer, setRailSlim, setTheme, switchProject, useApp } from './store.js';
 import { Button, clock } from './ui.jsx';
 
 // ── the rail ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -65,6 +65,13 @@ const subscribeNarrow = (fn) => { const m = matchMedia(NARROW); m.addEventListen
 /** Whether the window is a phone's width (the rail is then a drawer). */
 export const useNarrow = () => useSyncExternalStore(subscribeNarrow, () => matchMedia(NARROW).matches);
 
+/** Whether the rail is folded to its icons: on the Canvas by default (the canvas is that page's work), anywhere the person folds it. */
+export function useRailSlim() {
+  const page = useApp((s) => s.page);
+  const fold = useApp((s) => s.railFold);
+  return fold === null || fold === undefined ? page === 'canvas' : Boolean(fold[page] ?? fold.all);
+}
+
 export function Rail() {
   const page = useApp((s) => s.page);
   const drawer = useApp((s) => s.drawer);
@@ -81,6 +88,7 @@ export function Rail() {
     return () => { document.removeEventListener('keydown', esc); const m = document.querySelector('.ta-menu'); if (m) m.focus(); };
   }, [narrow, drawer]);
   const hidden = narrow && !drawer;
+  const slim = useRailSlim();
   return (
     <nav ref={nav} className={`ta-rail${drawer ? ' is-open' : ''}`} aria-label="Timmy" inert={hidden} aria-hidden={hidden ? 'true' : undefined}
       {...(narrow && drawer ? { role: 'dialog', 'aria-modal': 'true' } : {})}>
@@ -88,6 +96,7 @@ export function Rail() {
         <span className="ta-mark" aria-hidden="true">T</span>
         <span className="ta-rail-name">TIMMY</span>
         <button type="button" className="ta-rail-close" aria-label="Close the menu" onClick={() => setDrawer(false)}>✕</button>
+        <button type="button" className="ta-rail-fold" aria-label={slim ? 'Show the menu’s words' : 'Fold the menu to its icons'} aria-pressed={slim} onClick={() => setRailSlim(!slim)} title={slim ? 'Show the words' : 'Fold to icons'}><span aria-hidden="true">{slim ? '»' : '«'}</span></button>
       </div>
       <ProjectSwitcher />
       {GROUPS.map((g) => {
@@ -97,7 +106,7 @@ export function Rail() {
           <div key={g.id} className={`ta-rail-group ta-rail-${g.id}`} role="group" aria-label={g.label || (g.id === 'start' ? 'Start' : 'More')}>
             {g.label ? <p className="ta-rail-label">{g.label}</p> : null}
             {pages.map((p) => (
-              <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id}>
+              <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id} title={p.title}>
                 <span className="ta-rail-glyph" aria-hidden="true">{p.glyph}</span>
                 <span className="ta-rail-title">{p.title}</span>
               </button>
@@ -142,18 +151,18 @@ export function Topbar() {
  * column; its heading is the page's `context` word), `tools` (the page's tools row, under the work), `fill` (the work area
  * takes the page's height: the Chat, the Canvas), `children` (the work area).
  */
-export function Page({ id, actions, band, context, contextTitle, tools, fill = false, compact = fill, children, note }) {
+export function Page({ id, actions, band, context, contextTitle, tools, fill = false, compact = fill, head = true, children, note }) {
   const p = pageOf(id);
   return (
-    <div className={`ta-page${fill ? ' is-fill' : ''}${compact ? ' is-compact' : ''}`} data-page={p.id}>
-      <header className="ta-head">
+    <div className={`ta-page${fill ? ' is-fill' : ''}${compact ? ' is-compact' : ''}${head ? '' : ' is-headless'}`} data-page={p.id}>
+      {head ? <header className="ta-head">
         <div className="ta-head-words">
           <p className="ta-kicker">{p.kicker}</p>
           <h1 className="ta-title">{p.title}</h1>
           <p className="ta-lead">{p.lead}</p>
         </div>
         {actions ? <div className="ta-head-actions">{actions}</div> : null}
-      </header>
+      </header> : <h1 className="tr-visually-hidden">{p.title}</h1>}
       {band && band.length ? (
         <section className="ta-band" aria-label="Summary">
           {band.map(([k, v], i) => (

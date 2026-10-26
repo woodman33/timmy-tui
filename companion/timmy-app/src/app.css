@@ -539,3 +539,57 @@ html[data-theme="glacier"] {
 .ta-composer:focus-within { border-color: color-mix(in srgb, var(--ta-hl-warm) 55%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ta-hl-warm) 12%, transparent), 0 10px 30px color-mix(in srgb, var(--ta-hl-cool) 8%, transparent); }
 .ta-context-face, .ta-face-console { border-radius: 14px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ta-hl-cool) 22%, transparent), 0 12px 36px color-mix(in srgb, var(--ta-hl-cool) 10%, transparent); }
 .ta-title { text-shadow: 0 0 28px color-mix(in srgb, var(--ta-hl-warm) 16%, transparent); }
+
+/* ── R12 (the operator's 19:19 order): the Canvas is the page ── */
+/* the rail folded to its icons (on the Canvas by default; « and » fold and open it anywhere) */
+.ta-rail-fold { margin-left: auto; border: 1px solid var(--ta-edge); background: none; color: var(--timmy-ui-text-secondary, #BDCADA); border-radius: 8px; cursor: pointer; padding: 2px 8px; font-size: 13px; transition: transform .2s ease, background .2s ease; }
+.ta-rail-fold:hover { background: color-mix(in srgb, var(--ta-hl-cool) 10%, transparent); }
+.ta-app { transition: grid-template-columns .22s ease; }
+.ta-app.is-slim { --ta-rail: 72px; }
+.ta-app.is-slim .ta-rail { padding: 14px 8px; align-items: stretch; }
+.ta-app.is-slim .ta-rail-brand { flex-direction: column; gap: 8px; padding: 2px 0 10px; }
+.ta-app.is-slim .ta-rail-fold { margin: 0 auto; }
+.ta-app.is-slim .ta-rail-name, .ta-app.is-slim .ta-rail-title, .ta-app.is-slim .ta-rail-label, .ta-app.is-slim .ta-project-switch { display: none; }
+.ta-app.is-slim .ta-rail-item { justify-content: center; padding: 10px 0; }
+.ta-app.is-slim .ta-rail-glyph { font-size: 16px; margin: 0; }
+.ta-app.is-slim .ta-rail-group + .ta-rail-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--ta-edge); }
+@media (max-width: 760px) { .ta-app.is-slim { --ta-rail: 0px; } .ta-rail-fold { display: none; } .ta-app.is-slim .ta-rail-name, .ta-app.is-slim .ta-rail-title, .ta-app.is-slim .ta-rail-label, .ta-app.is-slim .ta-project-switch { display: revert; } }
+/* the page without a head: the stage takes the page, with a little room above and below */
+.ta-page.is-headless { padding-top: 12px; padding-bottom: 12px; gap: 10px; }
+.ta-page.is-headless .ta-body { min-height: 0; }
+.ta-stage.is-page { min-height: 480px; border-radius: 20px; }
+/* the inspector layer: on the stage, dragged by its header, folded to it */
+.ta-layer { position: absolute; z-index: 400; top: 14px; right: 14px; width: 300px; max-height: calc(100% - 96px); display: flex; flex-direction: column;
+  border-radius: 16px; border: 1px solid var(--ta-edge-lit); background: var(--ta-hl-depth), var(--timmy-ui-elev-surface, #111A23);
+  box-shadow: 0 18px 48px rgba(0,0,0,.5), var(--ta-lit); overflow: hidden; }
+.ta-layer-flag { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ta-hl-cool) 40%, transparent); color: var(--ta-hl-cool); }
+.ta-layer-flag.is-needs { border-color: var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-focus, #FFB000); box-shadow: 0 0 14px color-mix(in srgb, var(--timmy-ui-focus, #FFB000) 30%, transparent); }
+.ta-layer::before { content: ""; position: absolute; left: 16px; right: 16px; top: 0; height: 1px; background: var(--ta-hl-rim); pointer-events: none; }
+.ta-layer-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; cursor: grab; user-select: none; touch-action: none; border-bottom: 1px solid var(--ta-edge); }
+.ta-layer-head:active { cursor: grabbing; }
+.ta-layer-grip { color: color-mix(in srgb, var(--ta-hl-cool) 70%, var(--timmy-ui-text-muted, #9AAFC3)); letter-spacing: -2px; }
+.ta-layer-title { flex: 1 1 auto; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: color-mix(in srgb, var(--ta-hl-cool) 72%, var(--timmy-ui-text-muted, #9AAFC3)); }
+.ta-layer-fold { border: 0; background: none; color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 6px; transition: transform .22s cubic-bezier(.2,.8,.2,1); }
+.ta-layer-fold:hover { background: color-mix(in srgb, var(--ta-hl-cool) 12%, transparent); }
+.ta-layer.is-folded .ta-layer-fold { transform: rotate(-90deg); }
+.ta-layer-body { overflow: auto; padding: 12px 14px 14px; transition: opacity .2s ease, max-height .26s cubic-bezier(.2,.8,.2,1); max-height: 80vh; }
+.ta-layer.is-folded .ta-layer-body { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+.ta-layer.is-folded { width: 220px; }
+/* the tools: a bar floating at the stage's foot, as the Card Lab's */
+.ta-floatbar.ta-toolsrow { position: absolute; z-index: 400; left: 50%; bottom: 14px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 28px);
+  background: var(--timmy-ui-elev-surface, #111A23);
+  box-shadow: 0 16px 40px rgba(0,0,0,.5), var(--ta-lit); flex-wrap: nowrap; }
+.ta-floatbar .ta-toolsrow-note { max-width: 220px; }
+.ta-stage-note { position: absolute; z-index: 401; top: 14px; left: 50%; transform: translateX(-50%); max-width: min(640px, calc(100% - 360px)); margin: 0; padding: 8px 14px; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--ta-hl-cool) 30%, transparent); background: color-mix(in srgb, var(--timmy-ui-elev-surface, #111A23) 92%, transparent); font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+@media (prefers-reduced-motion: reduce) { .ta-app, .ta-layer-fold, .ta-layer-body, .ta-rail-fold { transition: none; } }
+/* a phone: the stage, then its tools, then the inspector, one under the other */
+@media (max-width: 900px) {
+  .ta-stage.is-page { overflow: visible; min-height: 0; display: flex; flex-direction: column; border: 0; background: none; box-shadow: none; }
+  .ta-stage.is-page > .tl-container { position: relative; inset: auto; height: 62vh; border-radius: 18px; border: 1px solid var(--ta-edge); overflow: hidden; }
+  .ta-floatbar.ta-toolsrow { position: static; transform: none; width: auto; max-width: none; margin-top: 10px; overflow-x: auto; order: 1; }
+  .ta-layer, .ta-layer.is-folded { position: static; width: auto; max-height: none; margin-top: 10px; order: 2; }
+  .ta-stage-note { order: 3; }
+  .ta-layer-head { cursor: default; }
+  .ta-stage-note { position: static; transform: none; max-width: none; margin-top: 10px; }
+}

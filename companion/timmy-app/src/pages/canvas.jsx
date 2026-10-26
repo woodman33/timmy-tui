@@ -41,7 +41,8 @@ export const SECTIONS = Object.freeze([
 ]);
 /** Where a section's object goes: under its label. */
 const IN = (id) => { const s = SECTIONS.find((x) => x.id === id); return { x: s.x, y: s.y + 30 }; };
-export const DESK = Object.freeze({ x: -28, y: -28, w: 1232, h: 728 });
+/** (the foot of the desk keeps 64 units free under the rows: the floating tools sit there, never over an object) */
+export const DESK = Object.freeze({ x: -28, y: -28, w: 1232, h: 792 });
 export const ZOOM_STEPS = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]);
 const quick = () => (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
 
@@ -641,6 +642,65 @@ function Selection({ editor, kept }) {
   );
 }
 
+/** Where the person last left the inspector layer on the stage (this browser only: a viewer's convenience, not the desk). */
+const LAYER_KEY = 'timmy-app:canvas-layer';
+const readLayer = () => { try { const v = JSON.parse(localStorage.getItem(LAYER_KEY) || 'null'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
+const keepLayer = (v) => { try { localStorage.setItem(LAYER_KEY, JSON.stringify(v)); } catch { /* not kept: a private window */ } };
+
+/**
+ * The inspector as a layer ON the canvas (the operator's 19:19 order: the canvas is the page; everything else small, folded and
+ * movable): dragged by its header within the stage (arrow keys on the header move it too), folded to its header and opened
+ * again; where it was left is kept in this browser. On a phone it sits under the stage, unfolded.
+ */
+function DeskLayer({ editor, kept }) {
+  const [at, setAt] = useState(() => ({ folded: true, ...readLayer() }));
+  const turn = useApp((s) => s.turn);
+  // a tool waiting on the person opens the layer, whatever its fold (its answers are in it)
+  const box = useRef(null);
+  const drag = useRef(null);
+  const waiting = Boolean(turn && turn.needsYou);
+  const running = Boolean(turn && ['running', 'stopping'].includes(turn.phase));
+  const folded = Boolean(at.folded) && !waiting;
+  const save = (next) => { setAt(next); keepLayer(next); };
+  const clamp = (x, y) => {
+    const el = box.current; const stage = el && el.parentElement;
+    if (!el || !stage) return { x, y };
+    return { x: Math.max(8, Math.min(stage.clientWidth - el.offsetWidth - 8, x)), y: Math.max(8, Math.min(stage.clientHeight - 52, y)) };
+  };
+  const down = (e) => {
+    if (e.button !== 0 || (e.target instanceof Element && e.target.closest('button'))) return;
+    const el = box.current; if (!el) return;
+    drag.current = { dx: e.clientX - el.offsetLeft, dy: e.clientY - el.offsetTop };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault(); e.stopPropagation();
+  };
+  const move = (e) => { const d = drag.current; if (!d) return; const p = clamp(e.clientX - d.dx, e.clientY - d.dy); setAt((a) => ({ ...a, ...p })); };
+  const up = (e) => { if (!drag.current) return; drag.current = null; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* released */ } setAt((a) => { keepLayer(a); return a; }); };
+  const keys = (e) => {
+    const step = e.shiftKey ? 64 : 16;
+    const dir = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!dir) return;
+    e.preventDefault(); e.stopPropagation();
+    const el = box.current; if (!el) return;
+    save({ ...at, ...clamp(el.offsetLeft + dir[0], el.offsetTop + dir[1]) });
+  };
+  const style = Number.isFinite(at.x) && Number.isFinite(at.y) ? { left: at.x, top: at.y, right: 'auto' } : undefined;
+  return (
+    <section ref={box} className={`ta-layer${folded ? ' is-folded' : ''}`} style={style} aria-label="Inspector" onPointerDown={keepPointer} {...keepKeys}>
+      <header className="ta-layer-head" onPointerDown={down} onPointerMove={move} onPointerUp={up} onKeyDown={keys} tabIndex={0}
+        aria-label="Inspector: drag it, or move it with the arrow keys" title="Drag to move · arrow keys move it">
+        <span className="ta-layer-grip" aria-hidden="true">⠿</span>
+        <span className="ta-layer-title">Inspector</span>
+        {waiting ? <span className="ta-layer-flag is-needs">NEEDS YOU</span> : running ? <span className="ta-layer-flag">working</span> : null}
+        <button type="button" className="ta-layer-fold" aria-expanded={!folded} aria-label={folded ? 'Open the inspector' : 'Fold the inspector'} onClick={() => save({ ...at, folded: !folded })}><span aria-hidden="true">▾</span></button>
+      </header>
+      <div className="ta-layer-body" aria-hidden={folded ? 'true' : undefined} inert={folded}>
+        <Selection editor={editor} kept={kept} />
+      </div>
+    </section>
+  );
+}
+
 export default function CanvasPage() {
   const config = useApp((s) => s.config);
   const note = useApp((s) => s.note);
@@ -682,18 +742,20 @@ export default function CanvasPage() {
     });
   }, [editor]);
   const shapes = useValue('timmy desk: count', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
+  // the Canvas is the page: no head, no band, no column beside it; the inspector and the tools are layers on the stage
   return (
-    <Page id="canvas" fill note={note}
-      actions={kept.phase === 'conflict' ? <Button kind="primary" onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
-      context={<Selection editor={editor} kept={kept} />}
-      tools={<>
-        <DeskTools editor={editor} />
-        <span className="ta-toolsrow-note" data-kept={kept.phase} title={keptWords(kept, config && config.project)}>{editor ? `${shapes} shape${shapes === 1 ? '' : 's'} · ` : ''}{deskWord(kept)}</span>
-      </>}>
-      <div className="ta-stage" aria-label="The desk">
+    <Page id="canvas" fill head={false}>
+      <div className="ta-stage is-page" aria-label="The desk">
         {ready && desk ? <Board key={`${deskKey}:${opening}`} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
           : ready ? <p className="ta-empty ta-pad">Reading the project’s desk…</p>
           : <p className="ta-empty ta-pad">{config ? config.error || 'The companion did not answer.' : 'Opening the desk…'}</p>}
+        {note ? <p className="ta-stage-note" role="status">{note}</p> : null}
+        <DeskLayer editor={editor} kept={kept} />
+        <div className="ta-floatbar ta-toolsrow" role="toolbar" aria-label="Canvas tools">
+          <DeskTools editor={editor} />
+          {kept.phase === 'conflict' ? <Button kind="primary" onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
+          <span className="ta-toolsrow-note" data-kept={kept.phase} title={keptWords(kept, config && config.project)}>{editor ? `${shapes} shape${shapes === 1 ? '' : 's'} · ` : ''}{deskWord(kept)}</span>
+        </div>
       </div>
     </Page>
   );
