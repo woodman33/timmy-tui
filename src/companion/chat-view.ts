@@ -342,7 +342,7 @@ export async function chooseModel(env: Env, root: string, body: unknown): Promis
   if (!row) return { ok: false, state: 'not listed', model, words: `${model} is not chosen: it is not in OpenRouter's catalog as this computer keeps it. Nothing was changed.` };
   const policy = permits(row, routePolicyNow(env));
   if (!policy.ok) return { ok: false, state: 'refused', model, words: `${model} is not chosen: ${policyRefusalLines(policy).map((l) => l.trim()).filter(Boolean).join(' ')} Nothing was changed.` };
-  if (!providerStates({ env, cwd: root }).some((p) => p.id === 'openrouter' && p.state !== 'not set up')) return { ok: false, state: 'refused', model, words: `${model} runs on OpenRouter: connect OpenRouter first (its key, in the terminal). Nothing was changed.` };
+  if (!providerStates({ env, cwd: root }).some((p) => p.id === 'openrouter' && p.state !== 'not set up')) return { ok: false, state: 'refused', model, words: `${model} runs on OpenRouter: connect OpenRouter first: Sign in with OpenRouter on this page, or set its key in the terminal. Nothing was changed.` };
   try {
     // the choice is written where this env keeps the settings (TIMMY_SETTINGS_DIR: a signed-in user's own home, the lead's
     // gate-2 ruling 1); the process-wide store (src/utils/config.ts) only when it is that very file
