@@ -81,9 +81,17 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('the register: four launch apps and Animate; only Model Studio is hostable, the rest say the step they wait on', () => {
+  it('the register: four launch apps and Animate; the four with owner checkpoints are hostable, Stream Studio says it has no owner', () => {
     expect(MINI_APPS.map((a) => a.id)).toEqual(['card-lab', 'film-room', 'model-studio', 'stream-studio', 'animate']);
-    expect(MINI_APPS.filter((a) => a.availability === 'hostable').map((a) => a.id)).toEqual(['model-studio']);
+    expect(MINI_APPS.filter((a) => a.availability === 'hostable').map((a) => a.id)).toEqual(['card-lab', 'film-room', 'model-studio', 'animate']);
+    expect(miniAppOf('stream-studio')!.availability).toBe('no-owner');
+    // every hostable app's env: its port and data folder set, no provider key or paid switch passed whatever the companion holds
+    for (const a of MINI_APPS.filter((x) => x.host)) {
+      const env = a.host!.env({ port: 1234, dataDir: '/data', base: { OPENROUTER_API_KEY: 'k', CARDLAB_CLOUDFLARE_AGENT_TOKEN: 't', STUDIO_ALLOW_PAID: '1', ROBOFLOW_API_KEY: 'r', PATH: '/bin', TLDRAW_LICENSE_KEY: 'x' } });
+      expect(Object.keys(env).filter((k) => /KEY|TOKEN|PAID|SECRET/.test(k) && k !== 'TLDRAW_LICENSE_KEY')).toEqual([]);
+      expect(Object.values(env)).toContain('/data');
+      expect(Object.values(env)).toContain('1234');
+    }
     for (const a of MINI_APPS) expect(a.observed?.next).toBeTruthy();
     const ms = miniAppOf('model-studio')!;
     expect(hostProblem(ms, {})).toMatch(/not installed with this Timmy/);
@@ -98,9 +106,9 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     expect(r.ok).toBe(true);
     const by = Object.fromEntries(r.apps.map((a: { id: string }) => [a.id, a]));
     expect(by['model-studio']).toMatchObject({ hostable: true, running: false, problem: null });
-    expect(by['card-lab']).toMatchObject({ hostable: false, availability: 'awaiting-owner-checkpoint' });
+    expect(by['card-lab']).toMatchObject({ hostable: false, availability: 'hostable', problem: expect.stringMatching(/not installed with this Timmy/) });
     expect(by['stream-studio']).toMatchObject({ hostable: false, availability: 'no-owner' });
-    const refused = await get(`${timmy}/api/apps/card-lab/open`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', '{}');
+    const refused = await get(`${timmy}/api/apps/stream-studio/open`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', '{}');
     expect(refused.status).toBe(409);
   });
 

@@ -66,37 +66,62 @@ export interface MiniAppSpec {
   };
 }
 
-/** Variables a hosted app may inherit from the companion, by name (never a provider key, token or the paid-call switch). */
-const MODEL_STUDIO_PASS = [
-  'PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TZ',
-  // the tldraw license: the app serves it to its own page exactly as Timmy's app page does (never printed)
-  'TLDRAW_LICENSE_KEY', 'STUDIO_TLDRAW_LICENSE_FILE',
-  // the native engines' executables on this computer (Model Studio's server/native.mjs reads these first)
-  'STUDIO_BLENDER', 'STUDIO_OPENSCAD', 'STUDIO_FREECAD', 'STUDIO_CAD_PYTHON', 'STUDIO_BUILD123D_PYTHON', 'STUDIO_C4DPY',
-  'STUDIO_HYTHON', 'STUDIO_NATIVE_EVIDENCE_DIR', 'STUDIO_OLLAMA_URL',
-] as const;
+/** Variables every hosted app may inherit from the companion, by name (never a provider key, token or paid-call switch). */
+const BASE_PASS = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TZ',
+  // the tldraw license: each app serves it to its own page exactly as Timmy's app page does (never printed)
+  'TLDRAW_LICENSE_KEY'] as const;
+
+/** An app's environment: the base names and its own allowed names from the companion's, then its port and data folder. */
+function envOf(base: Record<string, string | undefined>, extra: readonly string[], set: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of [...BASE_PASS, ...extra]) { const v = base[k]; if (typeof v === 'string' && v !== '') out[k] = v; }
+  // a hosted app never writes byte-code into an engine's environment it borrows (an owner's venvs stay as they are)
+  out.PYTHONDONTWRITEBYTECODE = '1';
+  return { ...out, ...set };
+}
+
+const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
 
 export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
   {
     id: 'card-lab', title: 'Card Lab', kind: 'image',
     lead: 'Image analysis: inspect, research and decide on cards, with the broadcast controls for a reviewed card.',
-    availability: 'awaiting-owner-checkpoint',
+    availability: 'hostable',
     observed: {
       owner: 'Codex: Timmy Card Lab (private standalone release)',
-      revision: 'main 6431f8fb + 20 modified, 12 untracked (working tree, not committed)',
+      revision: 'codex/card-lab-checkpoint 7176ad97 (owner checkpoint of 6431f8fb + its working tree)',
       observedAt: '2026-10-26',
-      next: 'The owner commits the working tree on a checkpoint branch (private collections out of git); then Timmy imports that commit.',
+      next: 'Hosted in local mode as its owner built it. Its own app suite timed out at the owner (120 s, 90 s); shared jobs, assets, approvals and receipts are still to map.',
+    },
+    host: {
+      sourceEnv: 'TIMMY_CARD_LAB_DIR',
+      entry: 'bin/timmy-card-lab.mjs',
+      builtFile: 'frontend/dist/index.html',
+      readyPath: '/api/health',
+      // local mode only (loopback, no hosted sign-in); no provider token reaches it (CARDLAB_*_TOKEN and keys are not passed)
+      env: ({ port, dataDir, base }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL'], {
+        CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1',
+      }),
     },
   },
   {
     id: 'film-room', title: 'Film Room', kind: 'video',
     lead: 'Video analysis: saved projects, clips, annotations and stats, with Airtable for data and notes.',
-    availability: 'awaiting-owner-checkpoint',
+    availability: 'hostable',
     observed: {
       owner: 'Codex: Analyze NFL footage with AI',
-      revision: 'main ecca8f44 + 21 modified, 107 untracked (working tree, not committed)',
+      revision: 'codex/film-room-checkpoint f9db9fe0 (131/131 app tests at the owner)',
       observedAt: '2026-10-26',
-      next: 'The owner commits the working tree on a checkpoint branch, the private project kept outside it; then Timmy imports that commit.',
+      next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here; shared jobs, assets and receipts are still to map.',
+    },
+    host: {
+      sourceEnv: 'TIMMY_FILM_ROOM_DIR',
+      entry: 'server.mjs',
+      builtFile: 'dist/index.html',
+      readyPath: '/api/config',
+      env: ({ port, dataDir, base }) => envOf(base, ['FILMROOM_TLDRAW_LICENSE_FILE', 'FILMROOM_FFMPEG', 'FILMROOM_PYTHON', 'FILMROOM_MAX_UPLOAD_BYTES'], {
+        PORT: String(port), FILMROOM_DATA_DIR: dataDir,
+      }),
     },
   },
   {
@@ -105,34 +130,28 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'hostable',
     observed: {
       owner: 'Codex: timmy-new-1',
-      revision: 'codex/model-studio aabe7c1a (committed, clean)',
+      revision: 'codex/model-studio a5264eb5 (clean-clone build and cancellation fix over aabe7c1a)',
       observedAt: '2026-10-26',
-      next: 'Hosted here as its owner built it. Timmy jobs, receipts and assets adapters are the next steps.',
+      next: 'Hosted here as its owner built it; its ended jobs are sealed as Timmy receipts.',
     },
     host: {
       sourceEnv: 'TIMMY_MODEL_STUDIO_DIR',
       entry: 'server.mjs',
       builtFile: 'dist/index.html',
       readyPath: '/api/state',
-      env: ({ port, dataDir, base }) => {
-        const out: Record<string, string> = {};
-        for (const k of MODEL_STUDIO_PASS) { const v = base[k]; if (typeof v === 'string' && v !== '') out[k] = v; }
-        out.STUDIO_PORT = String(port);
-        out.STUDIO_DATA_DIR = dataDir;
-        // a hosted app never writes byte-code into an engine's environment it borrows (the owner's venvs stay as they are)
-        out.PYTHONDONTWRITEBYTECODE = '1';
-        return out;
-      },
+      // the native engines' executables on this computer (Model Studio's server/native.mjs reads these first)
+      env: ({ port, dataDir, base }) => envOf(base, ['STUDIO_TLDRAW_LICENSE_FILE', 'STUDIO_BLENDER', 'STUDIO_OPENSCAD', 'STUDIO_FREECAD', 'STUDIO_CAD_PYTHON', 'STUDIO_BUILD123D_PYTHON', 'STUDIO_C4DPY', 'STUDIO_HYTHON', 'STUDIO_NATIVE_EVIDENCE_DIR', 'STUDIO_OLLAMA_URL'], {
+        STUDIO_PORT: String(port), STUDIO_DATA_DIR: dataDir,
+      }),
       // Model Studio's state (docs/CONTRACT.md): jobs {id,kind,status,engine,error?,result?:{asset:{id,previewFilename,nativeFilename}}}
       receipts: {
         statePath: '/api/state',
         finished: (state) => {
           const jobs = (state as { jobs?: unknown[] } | null)?.jobs;
           if (!Array.isArray(jobs)) return [];
-          const ended = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
           return jobs.flatMap((j) => {
             const o = j as { id?: unknown; kind?: unknown; status?: unknown; engine?: unknown; error?: unknown; result?: { asset?: { id?: unknown; previewFilename?: unknown; nativeFilename?: unknown } } };
-            if (typeof o.id !== 'string' || typeof o.status !== 'string' || !ended.has(o.status)) return [];
+            if (typeof o.id !== 'string' || typeof o.status !== 'string' || !ENDED.has(o.status)) return [];
             const a = o.result?.asset;
             const files = a && typeof a.id === 'string'
               ? [a.previewFilename, a.nativeFilename].filter((f): f is string => typeof f === 'string' && /^[\w.-]+$/.test(f)).map((filename) => ({ assetId: a.id as string, filename }))
@@ -150,7 +169,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'no-owner',
     observed: {
       owner: 'none assigned',
-      revision: 'not built (Card Lab carries broadcast controls for reviewed cards; Timmy Animate carries the motion engine)',
+      revision: 'not built (Card Lab carries broadcast controls for reviewed cards; Timmy Animate carries the motion engine and exports)',
       observedAt: '2026-10-26',
       next: 'One owner is assigned the general Compose → Animate → Broadcast editor.',
     },
@@ -158,12 +177,21 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
   {
     id: 'animate', title: 'Timmy Animate', kind: 'motion',
     lead: 'Motion paths, layers, states and exports: the engine behind Stream Studio’s animation.',
-    availability: 'awaiting-owner-checkpoint',
+    availability: 'hostable',
     observed: {
       owner: 'Codex: Assess a 2D animator mini app',
-      revision: 'never committed (companion/animate in a separate local checkout)',
+      revision: 'v6 source archive (payload manifest 68c2f853; no commit; 59/59 app tests at the owner)',
       observedAt: '2026-10-26',
-      next: 'The owner commits it (its own repository or branch); then Timmy imports that commit.',
+      next: 'Hosted as its owner built it. Its `timmy animate` command, agent tools and MCP registration are not imported yet.',
+    },
+    host: {
+      sourceEnv: 'TIMMY_ANIMATE_DIR',
+      entry: 'server.mjs',
+      builtFile: 'dist/index.html',
+      readyPath: '/api/health',
+      env: ({ port, dataDir, base }) => envOf(base, ['ANIMATE_TLDRAW_LICENSE_FILE', 'ANIMATE_BLENDER'], {
+        PORT: String(port), ANIMATE_DATA_DIR: dataDir,
+      }),
     },
   },
 ] as MiniAppSpec[]);
