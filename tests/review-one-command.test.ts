@@ -79,6 +79,21 @@ describe('./timmy-review: the candidate in one command (R10, H163)', () => {
     expect(calls(dir)).toEqual([`install node=${join(n24, 'node')}`, `demo node=${join(n24, 'node')}`, `workbench node=${join(n24, 'node')}`]);
   });
 
+  // R12: ./timmy-app (and its double-click twin, Timmy App.command) make the same first run, then open the app, not the Workbench
+  it('./timmy-app and Timmy App.command: the same first run, then the Timmy app (./review.sh app) instead of the Workbench', () => {
+    const dir = pkg();
+    for (const f of ['timmy-app', 'Timmy App.command']) writeFileSync(join(dir, f), readFileSync(join(SRC, f), 'utf8'), { mode: 0o755 });
+    const n24 = nodeDir('real');
+    const r = spawnSync(join(dir, 'Timmy App.command'), [], { cwd: temp('timmy-app-cwd-'), encoding: 'utf8', timeout: 30_000, env: { HOME: temp('timmy-review-home-'), PATH: `${n24}:${SYS}` } });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout.split('\n')[0]).toMatch(/^Timmy review candidate abc1234 /);
+    expect(r.stdout).toMatch(/Opening the Timmy app on tray in your browser/);
+    expect(r.stdout).not.toContain('STAND-IN WORKBENCH OPENED');
+    expect(calls(dir)).toEqual([`install node=${join(n24, 'node')}`, `demo node=${join(n24, 'node')}`, `app node=${join(n24, 'node')}`]);
+    const again = spawnSync(join(dir, 'timmy-app'), ['--version'], { cwd: dir, encoding: 'utf8', timeout: 30_000, env: { HOME: temp('timmy-review-home-'), PATH: `${n24}:${SYS}` } });
+    expect(again.stdout.trim()).toBe(`Timmy review candidate ${REV} (${BRANCH}): timmy-tui 9.9.9-test.0, revision ${REVFULL}`);
+  });
+
   it('later runs skip the install and the demo, say so in one line, and open the Workbench on the node the first run used', () => {
     const dir = pkg();
     const n24 = nodeDir('real');

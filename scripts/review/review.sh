@@ -89,6 +89,20 @@ start_dir() {
   if [ -n "$a" ]; then printf '%s' "$a"; else printf '%s' "$WORK"; fi
 }
 
+# R12: the tldraw licence key for `./review.sh app`, never printed: TLDRAW_LICENSE_KEY when it is set; else a key line
+# (TLDRAW_LICENSE_KEY=… or VITE_TLDRAW_LICENSE_KEY=…) read from the file TLDRAW_LICENSE_FILE names, or the file named on the one
+# line of tldraw-license.path beside this script (a path you write there yourself; the package never carries a key). The SDK
+# checks the key in the page; without one the Canvas says it is unlicensed, in the SDK's own words.
+license_key() {
+  [ -n "${TLDRAW_LICENSE_KEY:-}" ] && { say "tldraw licence key: from TLDRAW_LICENSE_KEY (not printed)"; return 0; }
+  local f="${TLDRAW_LICENSE_FILE:-}" k
+  if [ -z "$f" ] && [ -f "$HERE/tldraw-license.path" ]; then f="$(head -n 1 "$HERE/tldraw-license.path")"; f="${f/#\~/$HOME}"; fi
+  [ -n "$f" ] || { say "tldraw licence key: none set (the Canvas will say unlicensed; see README.md)"; return 0; }
+  [ -r "$f" ] || { say "tldraw licence key: the file named cannot be read ($f): the Canvas will say unlicensed"; return 0; }
+  k="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}\(VITE_\)\{0,1\}TLDRAW_LICENSE_KEY[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([^"'"'"'[:space:]#]*\).*/\3/p' "$f" | head -n 1)"
+  if [ -n "$k" ]; then TLDRAW_LICENSE_KEY="$k"; export TLDRAW_LICENSE_KEY; say "tldraw licence key: read from $f (not printed)"; else say "tldraw licence key: no key line in $f: the Canvas will say unlicensed"; fi
+}
+
 need_install() { [ -x "$PREFIX/node_modules/.bin/timmy" ] || die "not installed yet: run ./review.sh install first" 2; need_node; }
 
 cmd="${1:-help}"
@@ -105,6 +119,8 @@ Timmy review package, revision $REV
   ./review.sh demo           a new Timmy home with three projects: "first-light" (timmy init's own), "blank", then "tray"
                              (from the tray-workflow starter), the active project at the end, with scripted review content:
                              a VoxVision observation of the package's example image and a report run that writes four files
+  ./review.sh app            the Timmy app in your browser (Chat, Models & accounts, the licensed Canvas with Timmy's Rive
+                             components) on the active project: o opens it again, q stops it (./timmy-app does the same)
   ./review.sh workbench      the terminal Workbench, the main space: keys 1-9 and 0 are the ten tabs, c shows the browser
                              companion, s shows Studio, ? lists every key (on the active project; p switches)
   ./review.sh check          the shared workspace frame, after asking each service once with a free request
@@ -196,6 +212,11 @@ HELP
   check)
     need_install
     ( cd "$(start_dir)" && run timmy workspace check "$@" )
+    ;;
+  app)
+    need_install
+    license_key
+    ( cd "$(start_dir)" && run timmy app "$@" )
     ;;
   workbench|repl|watch)
     need_install
