@@ -70,6 +70,22 @@ function envOf(base: Record<string, string | undefined>, extra: readonly string[
   return { ...out, ...set };
 }
 
+/**
+ * R13 (the operator's 15:31 order, item 5): Card Lab's vision stage on a model on this computer. Card Lab sends its vision
+ * request to any OpenAI-compatible endpoint it is given (CARDLAB_VISION_ENDPOINT, which it allows on loopback). When the
+ * companion names a loopback endpoint (a local Ollama's /v1/chat/completions) and a model that is not a cloud tag, the app is
+ * given those two and a fixed placeholder in the key field Card Lab requires: a local Ollama takes no key, and no real key —
+ * the companion's OpenRouter key above all — is ever passed. Anything else: nothing is passed and the stage stays held.
+ */
+export function localVision(base: Record<string, string | undefined>): Record<string, string> {
+  const endpoint = base.CARDLAB_VISION_ENDPOINT, model = base.CARDLAB_VISION_MODEL;
+  if (!endpoint || !model || /cloud/i.test(model) || !/^[\w.:/@+-]{1,180}$/.test(model)) return {};
+  let u: URL;
+  try { u = new URL(endpoint); } catch { return {}; }
+  if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname) || u.username || u.password) return {};
+  return { CARDLAB_VISION_ENDPOINT: u.toString(), CARDLAB_VISION_MODEL: model, CARDLAB_VISION_API_KEY: 'local-loopback-no-key' };
+}
+
 export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
   {
     id: 'card-lab', title: 'Card Lab', kind: 'image',
@@ -89,6 +105,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       // local mode only (loopback, no hosted sign-in); no provider token reaches it (CARDLAB_*_TOKEN and keys are not passed)
       env: ({ port, dataDir, base }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL'], {
         CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1',
+        ...localVision(base),
       }),
       // each launch of a run's stages (its run.json events), with the run's served artifacts
       receipts: { finished: APP_JOBS['card-lab'] },

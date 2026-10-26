@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { animateJobs, APP_JOBS, cardLabJobs, filmRoomJobs, modelStudioJobs } from '../src/companion/miniapps/app-jobs.js';
 import { sealFinished, type AppJobReceipt } from '../src/companion/miniapps/receipts.js';
-import { miniAppOf } from '../src/companion/miniapps/registry.js';
+import { localVision, miniAppOf } from '../src/companion/miniapps/registry.js';
 import { installedSource } from '../src/companion/miniapps/host.js';
 
 const U = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
@@ -132,5 +132,20 @@ describe('what an installed app was made from', () => {
     expect(installedSource(spec, { TIMMY_ANIMATE_DIR: d })).toBe('v6 archive 68c2f853');
     writeFileSync(join(d, '.timmy-source.json'), JSON.stringify({ app: 'animate', revision: 'f9db9fe074b1a7928db983b600879694a9404470', label: 'x' }));
     expect(installedSource(spec, { TIMMY_ANIMATE_DIR: d })).toBe('f9db9fe074b1a7928db983b600879694a9404470');
+  });
+});
+
+describe('Card Lab’s vision stage on a model on this computer (R13, item 5)', () => {
+  it('only a loopback endpoint and a non-cloud model are passed, with a placeholder key; never the companion’s own key', () => {
+    expect(localVision({ CARDLAB_VISION_ENDPOINT: 'http://127.0.0.1:11434/v1/chat/completions', CARDLAB_VISION_MODEL: 'gemma4:12b-it-qat', OPENROUTER_API_KEY: 'sk-or-FAKE' }))
+      .toEqual({ CARDLAB_VISION_ENDPOINT: 'http://127.0.0.1:11434/v1/chat/completions', CARDLAB_VISION_MODEL: 'gemma4:12b-it-qat', CARDLAB_VISION_API_KEY: 'local-loopback-no-key' });
+    expect(localVision({ CARDLAB_VISION_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions', CARDLAB_VISION_MODEL: 'some/model' })).toEqual({});
+    expect(localVision({ CARDLAB_VISION_ENDPOINT: 'http://127.0.0.1:11434/v1/chat/completions', CARDLAB_VISION_MODEL: 'gemma4:31b-cloud' })).toEqual({});
+    expect(localVision({ CARDLAB_VISION_ENDPOINT: 'http://models.example.invalid:11434/v1/chat/completions', CARDLAB_VISION_MODEL: 'gemma4:12b' })).toEqual({});
+    expect(localVision({ CARDLAB_VISION_MODEL: 'gemma4:12b' })).toEqual({});
+    const env = miniAppOf('card-lab')!.host!.env({ port: 1, dataDir: '/d', base: { CARDLAB_VISION_ENDPOINT: 'http://127.0.0.1:11434/v1/chat/completions', CARDLAB_VISION_MODEL: 'gemma4:12b-it-qat', OPENROUTER_API_KEY: 'sk-or-FAKE', CARDLAB_VISION_API_KEY: 'sk-real-FAKE' } });
+    expect(env.CARDLAB_VISION_API_KEY).toBe('local-loopback-no-key');
+    expect(Object.values(env)).not.toContain('sk-or-FAKE');
+    expect(Object.values(env)).not.toContain('sk-real-FAKE');
   });
 });

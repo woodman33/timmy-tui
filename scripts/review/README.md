@@ -1,29 +1,39 @@
 # Timmy review package · __REV__
 
-**One command:** `./timmy-review`, in this folder once it is unpacked. It opens this candidate's Workbench on the active
-project. Its first run checks the files against `SHA256SUMS`, installs the packed Timmy into `./sandbox` and seeds the demo
-projects; later runs skip both and say so. `timmy` alone is your installed timmy, not this candidate: `./timmy-review`
-never runs or changes it, and its first line says so, with where that timmy is when one is on your PATH.
+**Open the Timmy app:** double-click **`Timmy App.command`** (macOS), or run **`./timmy-app`** in this folder once it is
+unpacked. The app opens in your browser: Chat, Models & accounts, the licensed Canvas with Timmy's Rive components, and the
+**APPS** rail (Card Lab, Film Room, Model Studio, Stream Studio) with Timmy Animate under CREATE. Its first run checks the
+files against `SHA256SUMS`, installs the packed Timmy into `./sandbox` with `npm ci` from the package's lock, builds the
+owners' apps inside the package and seeds the demo projects; later runs skip what is done and say so.
 
 ```bash
 shasum -a 256 -c timmy-review-__REV__.tar.gz.sha256      # Linux: sha256sum -c
 tar -xzf timmy-review-__REV__.tar.gz
 cd timmy-review-__REV__
-./timmy-review              # the first run installs and seeds (a minute or two; npm fetches the dependencies)
+./timmy-app                 # or double-click "Timmy App.command"; the first run installs (a few minutes: npm, the apps' builds)
 ```
 
-- **The Timmy app (R12):** `./timmy-app`, or double-click `Timmy App.command` on a Mac, after the same first run opens the
-  app in your browser instead of the Workbench: Chat, Models & accounts, the licensed Canvas with Timmy's Rive components.
-  q (or Ctrl+C) in its window stops it. The tldraw licence key is never in this package: set `TLDRAW_LICENSE_KEY`, or
-  `TLDRAW_LICENSE_FILE` to a file with a `TLDRAW_LICENSE_KEY=…` line, or write that file's path on the one line of
-  `tldraw-license.path` beside this README; it is read into the app's environment and never printed.
+- **Stop:** press **q** (or Ctrl+C) in the app's Terminal window. That stops the companion and every app it hosted for this
+  run (each app's own stop path ends its native jobs). Closing the browser tab alone leaves it running. `./timmy-app` opens
+  it again on the same sandbox and the same projects.
+- **The apps:** each opens inside Timmy's page and keeps its work in the project's own folder, separate for each person
+  signed in. Their own ports answer only Timmy. Paid model calls stay held: no provider key or paid switch reaches an app.
+  Card Lab's vision stage runs only on a model on this computer (`CARDLAB_VISION_ENDPOINT` naming a loopback endpoint, such
+  as a local Ollama's `http://127.0.0.1:11434/v1/chat/completions`, and `CARDLAB_VISION_MODEL` a local model); otherwise it
+  is held and says so. Stream Studio has no owner and is not built: its page says so.
+- **tldraw licence:** the key is never in this package. Set `TLDRAW_LICENSE_KEY`, or `TLDRAW_LICENSE_FILE` to a file with a
+  `TLDRAW_LICENSE_KEY=…` line, or write that file's path on the one line of `tldraw-license.path` beside this README; it is
+  read into the app's environment and never printed.
+- **The terminal is still here:** `./timmy-review` opens the terminal Workbench on the active project (the same sandbox);
+  `./review.sh repl` the REPL; `./review.sh timmy video …` and `./review.sh timmy animate …` drive Film Room and Timmy
+  Animate from the terminal through the same host, each job receipted. `timmy` alone is your installed timmy, not this
+  candidate: nothing here runs or changes it.
 - **Which revision:** `./timmy-review --version` prints the candidate's version and revision and opens nothing;
   `./timmy-review about` adds what the installed build says of itself (its `timmy --version`, which names its revision)
   and where your own timmy is.
 - **Node:** it finds a Node 24 or later by itself and says which one it uses: `TIMMY_NODE` when you set it, else the first
   Node 24 or later on your PATH (an older one first on PATH is passed over, and named), else `/opt/homebrew/bin/node` or
   `/usr/local/bin/node`, else the newest under `~/.nvm/versions/node`. With none, it says so in one line and stops.
-- **Quit:** the Workbench's Ctrl+C (Stop, below); `./timmy-review` opens it again, on the same sandbox.
 
 The packed Timmy of one exact revision, the launchers that run it in a sandbox beside them, and (when this package carries
 them) the notes and captures of a scripted rehearsal. Nothing is installed globally, nothing is published, and no model key
@@ -34,15 +44,15 @@ acceptance are yours.
 
 | | |
 |---|---|
-| Revision | `__REV__`, branch `__BRANCH__` (its draft PR targets `feat/ui-workflow-r1`) |
+| Revision | `__REV__`, branch `__BRANCH__` (its draft PR #109 targets `r12/rive-tldraw-app`) |
 | Package | `__TGZ__`; its sha256 and every other file's are in `SHA256SUMS` |
 | Checks | in `REHEARSAL.md` when this package carries one: the full suite, the type checks, the packed-install check and the privacy scan of this revision, each with its counts, and what a script did with this package |
 | Not in this package | merge, publish, tags, deployment (all on HOLD); any live fleet, paid model call or new account |
 
-## Launch (Linux or macOS; Node 24 or later and npm; python3 for workflow runs, with OpenCV for VoxVision; tmux for `watch`)
+## The terminal, step by step (Linux or macOS; Node 24 or later and npm; python3 for workflow runs, with OpenCV for VoxVision; tmux for `watch`)
 
-`./timmy-review` (above) does the first three of these steps itself, then opens the Workbench. They stay available one by
-one, as before:
+The app (above) is the review's entry point. The terminal surfaces stay available: `./timmy-review` does the first three of
+these steps itself, then opens the Workbench; they also run one by one, as before:
 
 ```bash
 ./review.sh install      # npm installs the packed Timmy and its dependencies into ./sandbox/prefix (--ignore-scripts)
@@ -81,7 +91,7 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 - **FAKE:** every lane program (`fake-lanes/`: opencode, hermes, pi, openhands, jcode, minds) is a stand-in that notes its
   call in `sandbox/fake-lanes.log` and waits, so no real lane starts.
 
-## A short walkthrough (about 15 minutes; a terminal of at least 160×45)
+## A short walkthrough of the terminal Workbench (about 15 minutes; a terminal of at least 160×45)
 
 1. **Install and set chat.** `./timmy-review` once (it installs, seeds the demo and opens the Workbench; Ctrl+C quits it),
    then `./review.sh ollama 127.0.0.1:11434 <a model your Ollama lists>` (local, no charge), then `./timmy-review` again.
@@ -308,6 +318,11 @@ installed.
 
 ## Stop
 
+- **The Timmy app:** q (or Ctrl+C) in its Terminal window stops the companion and every owner's app it hosted for this run;
+  each app's own stop path ends its native jobs (a Blender or ffmpeg job still running is stopped with it, and its record and
+  receipt say so). `./review.sh census` (below) then lists nothing of this sandbox.
+- **A `timmy video` or `timmy animate` job:** Ctrl+C asks the app to cancel the job; its outcome is sealed as the app reports
+  it (cancelled, or the end it had already reached).
 - **The Workbench:** Ctrl+C quits it, and the companion and Studio it started stop with it. When a job it started is
   still running, Ctrl+C asks first ("Quit the Workbench? 1 job this Workbench started will stop with it"): Ctrl+C again
   quits and cancels that job (the Workbench says it "was cancelled as the Workbench ended", and its record says
