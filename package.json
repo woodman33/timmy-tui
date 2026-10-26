@@ -154,7 +154,7 @@
     "@mcpc/core": "npm:@mcpc-tech/core@^0.3.52",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openfeature/server-sdk": "^1.21.0",
-    "@openrouter/sdk": "0.12.35",
+    "@openrouter/sdk": "1.5.7",
     "@opentui/core": "^0.5.10",
     "@opentui/react": "^0.5.10",
     "@quiverai/sdk": "^0.9.0",

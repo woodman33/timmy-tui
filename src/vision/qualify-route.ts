@@ -15,7 +15,7 @@
  *
  * The client is injected: a test gives a labelled fake. Nothing here sends a request by itself.
  */
-import { OpenRouter } from '@openrouter/sdk';
+import { OpenRouterClient } from '../agent/openrouter-lean.js';
 import type { InterpretationClient, InterpretationRequest } from './evidence.js';
 import { ANSWER_MAX_BYTES } from './route.js';
 
@@ -28,7 +28,8 @@ export interface QualifyClient {
 
 /** The SDK's own client for this key, as a QualifyClient: the compiler checks that the shapes agree. `serverURL`: a test's local fake server only. */
 export const sdkQualifyClient = (apiKey: string, serverURL?: string): QualifyClient => {
-  const client: OpenRouter = new OpenRouter({ apiKey, ...(serverURL ? { serverURL } : {}) });
+  // without a test's serverURL: OpenRouter's own server, never OPENROUTER_BASE_URL from the environment (src/agent/openrouter-lean.ts)
+  const client: OpenRouterClient = new OpenRouterClient({ apiKey, ...(serverURL ? { serverURL } : {}) });
   return client;
 };
 
