@@ -14,6 +14,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { animateJobs, APP_JOBS, cardLabJobs, filmRoomJobs, modelStudioJobs } from '../src/companion/miniapps/app-jobs.js';
 import { sealFinished, type AppJobReceipt } from '../src/companion/miniapps/receipts.js';
 import { miniAppOf } from '../src/companion/miniapps/registry.js';
+import { installedSource } from '../src/companion/miniapps/host.js';
 
 const U = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 const dirs: string[] = [];
@@ -118,5 +119,18 @@ describe('sealing an app’s ended jobs', () => {
       expect(sealedReceipts.find((r) => r.job.id === bad)).toMatchObject({ status: 'failed', job: { state: 'failed', error: 'Blender did not complete all required outputs.' }, outputs: [] });
       expect(sealedReceipts.find((r) => r.job.id === bad)).not.toHaveProperty('outputs_unhashed');
     } finally { server.close(); }
+  });
+});
+
+describe('what an installed app was made from', () => {
+  it('its commit when the package recorded one; else the owner archive’s label (Animate); else nothing', () => {
+    const d = tmp();
+    const spec = miniAppOf('animate')!;
+    expect(installedSource(spec, {})).toBeNull();
+    expect(installedSource(spec, { TIMMY_ANIMATE_DIR: d })).toBeNull();
+    writeFileSync(join(d, '.timmy-source.json'), JSON.stringify({ app: 'animate', revision: null, label: 'v6 archive 68c2f853', from: 'owner archive' }));
+    expect(installedSource(spec, { TIMMY_ANIMATE_DIR: d })).toBe('v6 archive 68c2f853');
+    writeFileSync(join(d, '.timmy-source.json'), JSON.stringify({ app: 'animate', revision: 'f9db9fe074b1a7928db983b600879694a9404470', label: 'x' }));
+    expect(installedSource(spec, { TIMMY_ANIMATE_DIR: d })).toBe('f9db9fe074b1a7928db983b600879694a9404470');
   });
 });

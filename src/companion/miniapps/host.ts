@@ -78,6 +78,18 @@ export function installedRevision(spec: MiniAppSpec, env: Env): string | null {
   try { const r = JSON.parse(readFileSync(join(dir, '.timmy-source.json'), 'utf8')).revision; return typeof r === 'string' && /^[0-9a-f]{7,40}$/.test(r) ? r : null; } catch { return null; }
 }
 
+/**
+ * What the app's folder says it was made from, in words: its commit, or, for an owner's archive with no commit (Animate),
+ * the label the package recorded (`.timmy-source.json` label). Null when the folder records neither.
+ */
+export function installedSource(spec: MiniAppSpec, env: Env): string | null {
+  const rev = installedRevision(spec, env);
+  if (rev) return rev;
+  const dir = spec.host ? env[spec.host.sourceEnv] : undefined;
+  if (!dir) return null;
+  try { const l = JSON.parse(readFileSync(join(dir, '.timmy-source.json'), 'utf8')).label; return typeof l === 'string' && l.trim() !== '' ? l.trim().slice(0, 80) : null; } catch { return null; }
+}
+
 /** The words for a hostable app that cannot start here: not installed (no folder named), or not built. */
 export function hostProblem(spec: MiniAppSpec, env: Env): string | null {
   const h = spec.host;

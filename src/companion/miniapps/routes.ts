@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { JobManager } from '../../jobs/index.js';
 import { appendReceipt, readChain } from '../../utils/receipts.js';
 import { projectId } from '../../project/index.js';
-import { appDataDir, hostProblem, installedRevision, MiniAppHost, principalKey } from './host.js';
+import { appDataDir, hostProblem, installedRevision, installedSource, MiniAppHost, principalKey } from './host.js';
 import { MINI_APPS, miniAppOf } from './registry.js';
 
 type Env = Record<string, string | undefined>;
@@ -54,7 +54,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         return {
           id: a.id, title: a.title, kind: a.kind, lead: a.lead, availability: a.availability,
           hostable: a.availability === 'hostable' && problem === null, problem, running, observed: a.observed,
-          installed: a.availability === 'hostable' ? installedRevision(a, deps.env) : null,
+          installed: a.availability === 'hostable' ? installedSource(a, deps.env) : null,
         };
       }),
     });

@@ -26,7 +26,7 @@ function useApps() {
 function Record({ a }) {
   const o = a.observed;
   if (!o) return null;
-  return <Facts rows={[['owner', o.owner], ['source', o.revision], ['recorded', o.observedAt], ...(a.installed ? [['installed here', a.installed.slice(0, 8)]] : []), ['next step', o.next]]} />;
+  return <Facts rows={[['owner', o.owner], ['source', o.revision], ['recorded', o.observedAt], ...(a.installed ? [['installed here', /^[0-9a-f]{40}$/.test(a.installed) ? a.installed.slice(0, 8) : a.installed]] : []), ['next step', o.next]]} />;
 }
 
 export function MiniAppPage({ appId }) {
