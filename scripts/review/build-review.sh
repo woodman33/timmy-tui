@@ -7,6 +7,7 @@
 #
 # Makes <out-dir>/timmy-review-<rev>/ holding:
 #   timmy-tui-<version>.tgz   the packed Timmy of this revision
+#   timmy-app, Timmy App.command  R12: the Timmy app (browser) after the same first run; the .command is the double-click
 #   timmy-review              the one launch command (R10, H163; scripts/review/timmy-review): first run installs and seeds,
 #                             every run opens the Workbench; a name no one takes for the installed `timmy`
 #   review.sh                 the launcher (scripts/review/review.sh): a sandbox beside itself, env -i, its own ports
@@ -63,7 +64,10 @@ fill() { sed -e "s/__REVFULL__/$revfull/g" -e "s/__REV__/$rev/g" -e "s/__TGZ__/$
 fill scripts/review/review.sh "$pkg/review.sh"
 fill scripts/review/timmy-review "$pkg/timmy-review"
 fill scripts/review/README.md "$pkg/README.md"
-chmod +x "$pkg/review.sh" "$pkg/timmy-review"
+# R12: ./timmy-app and its double-click twin (macOS) open the Timmy app after the same first run
+cp scripts/review/timmy-app "$pkg/timmy-app"
+cp "scripts/review/Timmy App.command" "$pkg/Timmy App.command"
+chmod +x "$pkg/review.sh" "$pkg/timmy-review" "$pkg/timmy-app" "$pkg/Timmy App.command"
 # R10 (H163): ./review.sh census counts what still runs in the sandbox, never itself or what it runs under
 cp scripts/review/census.mjs "$pkg/census.mjs"
 mkdir -p "$pkg/fake-lanes"

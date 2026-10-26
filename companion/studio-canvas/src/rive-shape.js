@@ -92,7 +92,10 @@ export function createRiveShape(deps) {
         setSource(ev.source);
         // the state word the shape keeps with the board (what was observed last on this page)
         const ed = deps.editor();
-        if (ed && ev.input === def.input && typeof ev.value === 'string' && ev.value !== shape.props.state) {
+        // (compared with the shape as it is now, not as this effect first saw it: a turn's working → idle must reach the board,
+        // or a desk saved after the turn reopens saying "working")
+        const now = ed ? ed.getShape(shape.id) : null;
+        if (ed && now && ev.input === def.input && typeof ev.value === 'string' && ev.value !== now.props.state) {
           try { ed.run(() => ed.updateShape({ id: shape.id, type: shape.type, props: { state: ev.value } }), { history: 'ignore' }); } catch (e) { /* the word on the face stands */ }
         }
       });

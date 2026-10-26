@@ -1,13 +1,14 @@
-import { OpenRouter } from '@openrouter/sdk';
+import { OpenRouterClient } from './openrouter-lean.js';
 import type { AgentConfig } from '../types/index.js';
 // R10 (H169): one data path for OpenRouter's models (src/models/catalog.ts): its fetch (no key, a timeout, never throws)
 import { fetchOpenRouterCatalog } from '../models/catalog.js';
 
-let clientInstance: OpenRouter | null = null;
+let clientInstance: OpenRouterClient | null = null;
 
-export function getOpenRouterClient(apiKey: string): OpenRouter {
+export function getOpenRouterClient(apiKey: string): OpenRouterClient {
   if (!clientInstance || clientInstance === null) {
-    clientInstance = new OpenRouter({ apiKey });
+    // OpenRouter's own server, never OPENROUTER_BASE_URL from the environment (./openrouter-lean.ts)
+    clientInstance = new OpenRouterClient({ apiKey });
   }
   return clientInstance;
 }

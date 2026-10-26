@@ -496,9 +496,16 @@
     if (!isProduction(handle)) return null;
     const spec = HEADLINE[handle.artboardBase || handle.artboard || ''];
     const r = handle.rive;
-    const faceW = handle.face ? handle.face.clientWidth : 0;
-    const faceH = handle.face ? handle.face.clientHeight : 0;
+    // the face's size as the ResizeObserver measured it (fitWhenShown), read from layout only until it has: reading
+    // clientWidth / clientHeight on every event forced a layout per event, ~12 per burst batch (the R12 failure diagnosis)
+    const known = handle.faceWidth > 0 && handle.faceHeight > 0;
+    const faceW = known ? handle.faceWidth : handle.face ? handle.face.clientWidth : 0;
+    const faceH = known ? handle.faceHeight : handle.face ? handle.face.clientHeight : 0;
+    if (!known && faceW > 0 && faceH > 0) { handle.faceWidth = faceW; handle.faceHeight = faceH; }
     if (!spec || !r || !r.artboard || handle.state !== 'drawn' || !(faceW > 0 && faceH > 0)) { placeWords(handle); return null; }
+    // the same word on a face of the same size: the headline is already fitted (its nodes keep their scale)
+    const prior = handle.headline;
+    if (prior && prior.nodes > 0 && prior.word === String(labelWord(handle) || '') && prior.faceWidth === faceW && prior.faceHeight === faceH) { placeWords(handle); return prior; }
     const faceScale = (spec.by === 'width' ? faceW : faceH) / spec.base;
     const drawn = spec.px * faceScale;                                 // the headline's CSS px as authored, at this face's size
     const word = String(labelWord(handle) || '');

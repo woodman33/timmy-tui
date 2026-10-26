@@ -1,0 +1,6 @@
+/* R12: the Settings page's own parts (pages/settings.jsx). */
+.tx-set-title { margin: 0; font-size: 16px; font-weight: 500; }
+.tx-set-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; cursor: pointer; }
+.tx-set-check input { margin-top: 3px; accent-color: var(--timmy-ui-accent, #D6AA64); width: 16px; height: 16px; }
+.tx-set-label { display: block; font-size: 14px; }
+.tx-set-path { overflow-wrap: anywhere; }

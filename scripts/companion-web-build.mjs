@@ -286,14 +286,30 @@ export async function ensureCompanionWeb({ root = repository, out = join(root, W
   }
   try {
     if (isFresh(root, out)) return { built: false, record: builtRecord(out) };
-    const tmp = `${out}.tmp-${process.pid}-${Date.now()}`;
-    try {
-      const record = await buildCompanionWeb(root, tmp);
-      rmSync(out, { recursive: true, force: true });
-      renameSync(tmp, out);
-      return { built: true, record };
-    } finally { rmSync(tmp, { recursive: true, force: true }); }
+    return { built: true, record: await buildCompanionWebInPlace(root, out) };
   } finally { rmSync(lock, { recursive: true, force: true }); }
+}
+
+/**
+ * Build into a folder of its own and swap it in when it is whole (R12, the failure diagnosis of 2026-10-25: a build that
+ * deleted `out` and wrote it file by file left a running companion, and the tests reading it, with no web code for the
+ * length of the build). The old folder is renamed aside, the new one renamed in, the old one removed: a reader sees the
+ * whole old build or the whole new one.
+ */
+export async function buildCompanionWebInPlace(root = repository, out = join(root, WEB_DIR)) {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const tmp = `${out}.tmp-${stamp}`;
+  const old = `${out}.old-${stamp}`;
+  mkdirSync(join(out, '..'), { recursive: true });
+  try {
+    const record = await buildCompanionWeb(root, tmp);
+    if (existsSync(out)) renameSync(out, old);
+    renameSync(tmp, out);
+    return record;
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(old, { recursive: true, force: true });
+  }
 }
 
 /** What a build in `dir` lacks before it can ship in a package (empty when it can). */
@@ -316,7 +332,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     process.stdout.write('timmy companion web: the build is whole and carries every licence it needs.\n');
     process.exit(0);
   }
-  const run = process.argv.includes('--ensure') ? ensureCompanionWeb().then((r) => ({ ...r.record, skipped: !r.built })) : buildCompanionWeb();
+  const run = process.argv.includes('--ensure') ? ensureCompanionWeb().then((r) => ({ ...r.record, skipped: !r.built })) : buildCompanionWebInPlace();
   run.then((r) => {
     process.stdout.write(`${r.skipped ? 'The companion\'s web code is up to date' : 'The companion\'s web code built'}: streamdown ${r.versions.streamdown}, react ${r.versions.react}, mermaid ${r.versions.mermaid}, shiki ${r.versions.shiki}, tailwindcss ${r.versions.tailwindcss}; ${r.files} files, ${r.bytes} bytes${r.skipped ? '' : `, ${r.ms} ms`} (${WEB_DIR})\n`);
     if (!r.distributable) process.stdout.write(`Not distributable yet (fine on this machine). Missing:\n${r.missing.map((m) => `  ${m}\n`).join('')}`);

@@ -1,4 +1,4 @@
-import { OpenRouter } from '@openrouter/sdk';
+import { OpenRouterClient } from './openrouter-lean.js';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { stepCountIs, maxCost } from '@openrouter/sdk/lib/stop-conditions.js';
 import type { StreamableOutputItem } from '@openrouter/sdk/lib/stream-transformers.js';
@@ -366,7 +366,7 @@ class TmuxManager implements MultiplexerManager {
 }
 
 export class Agent extends EventEmitter<AgentEvents> {
-  private client: OpenRouter;
+  private client: OpenRouterClient;
   private conversation: ConversationManager;
   private config: AgentConfig;
   private tools: ReturnType<typeof tool>[];
@@ -408,7 +408,8 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   constructor(config: AgentConfig, options: AgentOptions = {}) {
     super();
-    this.client = new OpenRouter({ apiKey: config.apiKey });
+    // the SDK's callModel on its core client, always OpenRouter's own address (./openrouter-lean.ts: why, and OPENROUTER_BASE_URL)
+    this.client = new OpenRouterClient({ apiKey: config.apiKey });
     this.conversation = new ConversationManager();
     this.config = config;
     // R11 (H169, Phase 0 item 4): the default tools, and the opt-in ones only when TIMMY_TOOLS_OPT_IN names them
@@ -547,7 +548,7 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   updateApiKey(apiKey: string): void {
     this.config.apiKey = apiKey;
-    this.client = new OpenRouter({ apiKey });
+    this.client = new OpenRouterClient({ apiKey });
   }
 
   addTool(t: ReturnType<typeof tool>): void {

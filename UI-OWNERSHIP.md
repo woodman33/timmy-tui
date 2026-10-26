@@ -52,3 +52,63 @@ A file not listed is not written this round without the lead naming its writer h
 ## Status
 
 Posted and kept in the round's handoff by the lead; this file records who writes what, not what is done.
+
+## R12 (2026-10-25): the Timmy app — `companion/timmy-app/`
+
+The operator's 03:04 order and the finish brief: Timmy's main UI as one React app on the licensed tldraw SDK with the native
+Rive components, served by the companion at `/app` and opened by `timmy app`. One writer per file this round; the lead
+integrated each lane's files one at a time and rebuilt and re-tested on the merged tree.
+
+| Lane | Writer | Files | Reads (contract) |
+|---|---|---|---|
+| The app shell, the store, Chat, Models & accounts, Canvas, the tests | **lead** | `companion/timmy-app/{index.html,src/app.jsx,app.css,api.js,store.js,nav.js,shell.jsx,ui.jsx,rive.jsx,md.jsx,models-parts.jsx}`, `src/pages/{chat,models,canvas,pending,index}.{jsx,js}`, `scripts/canvas/build-app.mjs`, `src/companion/timmy-app.ts`, `src/app/launch.ts`, the local-catalog scope in `src/companion/chat-view.ts`, `tests/timmy-app*.test.ts`, `tests/companion-local-catalog-scope.test.ts` | RIVE CONTRACT v2 (the mounts, the `timmy-rive` shape reused as is); the `--timmy-ui-*` registry |
+| Files, Workflows | **R12 lane A** (a lead's fork) | `src/pages/files.{jsx,css}`, `src/pages/workflows.{jsx,css}` | APP SHELL v1; `/api/files*`, `/api/panel/workflows/docs` |
+| Runs & receipts, Control Room | **R12 lane B** | `src/pages/runs.{jsx,css}`, `src/pages/control.{jsx,css}` | APP SHELL v1; `/api/panel/runs/list`, `/api/panel/control/{room,panes}`, `POST /api/chat/stop` |
+| VoxVision, Motion & 3D (with the Studio's starters) | **R12 lane C** | `src/pages/voxvision.{jsx,css}`, `src/pages/motion.{jsx,css}` | APP SHELL v1; `/api/panel/voxvision/*`, `/api/panel/create/*`, `/api/panel/studio/{board,open}` |
+| Tools & integrations, Help & find, Settings | **R12 lane D** | `src/pages/tools.{jsx,css}`, `src/pages/help.{jsx,css}`, `src/pages/settings.{jsx,css}` | APP SHELL v1; `/api/panel/tools/*`, `/api/workspace`, `POST /api/workspace/prefs` |
+
+Each lane wrote only its own files and its own line of `src/pages/index.js`; anything it needed elsewhere it reported to the
+lead (the markdown fence hang, the tool label wrap, the plain word for "not set up": fixed by the lead).
+
+- **APP SHELL CONTRACT v1 (lead):** `nav.js` is the rail's registry (group, glyph, kicker, title, lead, context heading per
+  page); a page renders `<Page id actions band context tools fill>` from `shell.jsx` (the head with ONE primary next step,
+  the band's `[label, value]` cells of real facts, the work area, the context column, the tools row) and builds its work
+  from `<Panel>`, `<Tool>` (a tool without `onClick` is unavailable and says why) and `ui.jsx`'s words; it reads and acts
+  only through `api.js` (`getJson`, `postJson`, `call` — the token in a header, never in a URL) and `store.js`; a page's own
+  sheet is prefixed `tx-<page>-` and reads only the `--timmy-ui-*` registry and the shell's `--ta-*` materials (made of it).
+- **The desk's layout (the operator's 19:03 order):** one sectioned rectangle of two long rows, RUN (01 Ask · 02 Agent ·
+  03 Proof) over SETUP (04 Connection · 05 Model · 06 Notes) (`SECTIONS`, `DESK` in `pages/canvas.jsx`); Fit fits the rows'
+  height at most 100 % (`fit-y-100`) and the camera pans along them, held inside the desk's bounds (DESK grown to hold every
+  shape). A Rive shape on the desk is its title and its native face; the artboard choice and the state's source are in the
+  context column, with what the shape does: an ActionButton's request (`meta.request`, sent as a real turn on a trusted
+  press), a ProviderCard's Check, the AgentConsole's turn (NEEDS YOU answers, Stop, receipt).
+- **Highlights (the operator's 19:04 order):** `--ta-hl-warm` (the family's accent: what you act on), `--ta-hl-cool` (the
+  other family's swatch: structure, the agent's lane, depth washes), `--ta-hl-rim` (lit top edges); each a mix of registry
+  colours, in about a 60-30-10 proportion. Meanings never move: green is earned, focus is exact `#FFB000`, every state keeps
+  its word and glyph, content is never recoloured.
+- **The desk:** the Canvas is kept in Timmy's project storage, never in the browser alone: `GET / POST /api/app/desk`
+  (`src/companion/timmy-app.ts`, the principal's project under the principal's Timmy home:
+  `canvas/projects/<project id>/app-desk/canvas.json`, Studio's revisioned `CanvasDocuments`); the page saves 700 ms after
+  the person's last change at the next revision, a save over a newer desk is refused (409) and its version kept as a copy
+  beside it, and tldraw's per-viewer `user` records are never saved. The board's React key stays
+  `timmy-desk-<key(principal | project root)>`; its
+  shapes are `timmy-rive` (RIVE CONTRACT v2, unchanged) and `timmy-card` (`{ w, h, kind: model | receipt | conversation }`,
+  each saying when it was read on the page, or "not live"); Export / Import is a `{ format: "timmy-desk", version: 1,
+  snapshot }` file.
+- **Configure (the operator's 20:38 order):** every capability row says "Configured: Yes / No" (yes = the inventory's
+  available AND configured facts; neither is a check that it works; the three facts stay apart in the Tools page's context
+  column) and a not-configured row has ONE Configure button. Every one starts the same aid (`companion/timmy-app/src/configure.jsx`,
+  the lead's): a ring around the pressed button; a step on another page → that page opens and the ring lands on the exact control,
+  focused; a step this page cannot take (a `.env` line, a command, MCPorter's config) → the words, the line to copy and Check
+  again (`?refresh=1`), the aid's native Rive ActionButton fed Working / NEEDS-YOU / idle from what the re-read observed. Nothing
+  is written or run from the page. The Control Room's fleet and the Tools page's inventory use it; any new capability list does.
+
+## R13 (planned, 2026-10-25 evening): two parallel lanes beside the lead
+
+| Lane | Writer | Files | Reads |
+|---|---|---|---|
+| 3D Spatial mini app (VoxVision + Kimi K3.1 Pro) | **R13 spatial** (`r13/spatial-3d`) | `src/pages/voxvision.{jsx,css}`, new `src/spatial/**`, new `src/companion/panels/spatial-3d.ts` (+ one marked mount line in `server.ts`), new `tests/timmy-app-spatial*` | APP SHELL v1; `configure.jsx`; the vox and spatial-volume routes |
+| Control Room harness wall + the relay | **R13 harness** (`r13/harness-wall`) | `src/pages/control.{jsx,css}`, new `src/harness/**`, new `src/companion/panels/harness.ts` (+ one marked mount line), lanes appended in `src/agent/lanes.ts`, new `src/agent/relay.ts`, new `tests/timmy-app-harness*`, `tests/agent-relay*` | APP SHELL v1; `configure.jsx`; lanes, profiles, the inventory |
+
+The lead keeps the shell, the store, `app.css`, `configure.jsx`, `nav.js`, the tokens and the Rive source (new artboards GuideRing,
+HarnessCard, LinkBeam, MenuFold through `create-controls.py` and the Rive CLI on the operator's machine).

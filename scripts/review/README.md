@@ -12,6 +12,11 @@ cd timmy-review-__REV__
 ./timmy-review              # the first run installs and seeds (a minute or two; npm fetches the dependencies)
 ```
 
+- **The Timmy app (R12):** `./timmy-app`, or double-click `Timmy App.command` on a Mac, after the same first run opens the
+  app in your browser instead of the Workbench: Chat, Models & accounts, the licensed Canvas with Timmy's Rive components.
+  q (or Ctrl+C) in its window stops it. The tldraw licence key is never in this package: set `TLDRAW_LICENSE_KEY`, or
+  `TLDRAW_LICENSE_FILE` to a file with a `TLDRAW_LICENSE_KEY=…` line, or write that file's path on the one line of
+  `tldraw-license.path` beside this README; it is read into the app's environment and never printed.
 - **Which revision:** `./timmy-review --version` prints the candidate's version and revision and opens nothing;
   `./timmy-review about` adds what the installed build says of itself (its `timmy --version`, which names its revision)
   and where your own timmy is.

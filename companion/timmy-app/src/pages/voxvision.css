@@ -1,0 +1,33 @@
+/* R12: the VoxVision page's own parts (pages/voxvision.jsx). Provenance and evidence words in neutral chips: a word is the
+   record's, and no colour here upgrades it (green stays for a verified receipt, amber for what is stale, unverified or FAKE). */
+.tx-vox-tag { display: inline-block; margin-right: 4px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--timmy-ui-border, #44586B); font-size: 11px; line-height: 18px; color: var(--timmy-ui-text-secondary, #BDCADA); white-space: nowrap; cursor: help; }
+.tx-vox-evidence { border-style: dashed; }
+.tx-vox-tag.is-stale, .tx-vox-tag.is-unverified, .tx-vox-tag.is-fake { border-color: var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-focus, #FFB000); }
+.tx-vox-tag.is-not-recorded, .tx-vox-tag.is-unknown { color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-vox-tag.is-fake { margin-left: 6px; cursor: default; }
+.tx-vox-empty { display: grid; gap: 8px; }
+.tx-vox-open { display: grid; gap: 12px; }
+.tx-vox-open-title { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tx-vox-fake { margin: 0; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-focus, #FFB000); font-size: 12px; }
+.tx-vox-imgs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tx-vox-img { margin: 0; display: grid; gap: 4px; }
+.tx-vox-img img { width: 100%; height: 110px; object-fit: contain; border-radius: 8px; background: var(--timmy-ui-canvas, #080B0F); border: 1px solid var(--ta-edge); image-rendering: auto; }
+.tx-vox-img-none { height: 110px; display: grid; place-items: center; padding: 8px; box-sizing: border-box; text-align: center; border-radius: 8px; border: 1px dashed var(--timmy-ui-border, #44586B); font-size: 11.5px; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.tx-vox-img figcaption { font-size: 11.5px; overflow-wrap: anywhere; }
+.tx-vox-values ul, .tx-vox-legend ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.tx-vox-values li { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--ta-edge); background: var(--ta-sunk); font-size: 13px; }
+.tx-vox-v-title { color: var(--timmy-ui-text-muted, #9AAFC3); font-size: 12px; }
+.tx-vox-v-text { overflow-wrap: anywhere; }
+.tx-vox-legend { display: grid; gap: 8px; }
+.tx-vox-legend p { margin: 0; }
+.tx-vox-legend li { font-size: 12.5px; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.tx-vox-legend b { color: var(--timmy-ui-text, #ECF1F5); font-weight: 500; margin-right: 6px; }
+.tx-vox-doctrine { margin: 0; padding: 8px 10px; border-left: 2px solid var(--timmy-ui-border, #44586B); font-size: 12.5px; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.tx-vox-actions { display: grid; gap: 8px; }
+.tx-vox-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; font-size: 12.5px; }
+.tx-vox-action code { overflow-wrap: anywhere; }
+.tx-vox-action .ta-muted { grid-column: 1; font-size: 12px; }
+.tx-vox-action .ta-btn { grid-column: 2; grid-row: 1 / span 2; }
+.ta-table tr[data-vox-row] { cursor: pointer; }
+.tx-vox-scroll { overflow-x: auto; }
+@media (max-width: 760px) { .tx-vox-scroll th:nth-child(3), .tx-vox-scroll td:nth-child(3), .tx-vox-scroll th:nth-child(6), .tx-vox-scroll td:nth-child(6), .tx-vox-scroll th:nth-child(7), .tx-vox-scroll td:nth-child(7) { display: none; } .tx-vox-imgs { grid-template-columns: 1fr; } }

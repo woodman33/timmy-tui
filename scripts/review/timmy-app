@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Timmy review candidate: the Timmy app, in ONE command (R12). The same first run as ./timmy-review (checks SHA256SUMS,
+# installs the packed Timmy into ./sandbox, seeds the demo projects), then the app in your browser instead of the Workbench:
+# Chat, Models & accounts and the licensed Canvas with Timmy's Rive components. q (or Ctrl+C) stops it. Your installed
+# `timmy` is never run or changed. --version, about and --help are ./timmy-review's.
+TIMMY_REVIEW_OPEN=app exec "$(cd "$(dirname "$0")" && pwd -P)/timmy-review" "$@"

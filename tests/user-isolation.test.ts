@@ -410,6 +410,29 @@ describe('user isolation on the companion: a FAKE identity provider\'s RS256 tok
     expect(bare.json?.needs, bare.text.slice(0, 200)).toBe('session');
   });
 
+  // R12 (the operator's 2026-10-24 order: boards in Timmy's project storage, and the finish brief's two-user rule): the Timmy
+  // app's Canvas desk is the principal's project's, under the principal's own home
+  it('the Timmy app\'s Canvas desk (GET/POST /api/app/desk) is the principal\'s: A\'s desk is saved under A\'s home; B reads none of it, even naming A\'s project; a save over a newer desk is refused', async () => {
+    expect(aProject, 'A\'s project (the case above)').toBeTruthy();
+    const snapshot = { store: { 'shape:fake-a': { id: 'shape:fake-a', typeName: 'shape', type: 'note', props: { text: 'FAKE A desk' } } }, schema: { schemaVersion: 2, sequences: {} } };
+    const saved = await call('POST', '/api/app/desk', { session: identity.token(A), query: { project: aProject!.id }, body: { snapshot, baseRevision: 0, revision: 1 } });
+    expect(saved.status, `A's POST /api/app/desk: ${saved.text.slice(0, 300)}`).toBe(200);
+    expect(saved.json?.revision).toBe(1);
+    const mine = filesUnder(userHome(A)).filter((f) => /app-desk[\\/]canvas\.json$/.test(f));
+    expect(mine.length, 'A\'s desk is a file under A\'s home').toBe(1);
+    const readA = await call('GET', '/api/app/desk', { session: identity.token(A), query: { project: aProject!.id } });
+    expect(readA.json?.revision).toBe(1);
+    expect(readA.text).toContain('FAKE A desk');
+    const asB = await call('GET', '/api/app/desk', { session: identity.token(B) });
+    expect(asB.text, `B's desk: ${asB.text.slice(0, 200)}`).not.toContain('FAKE A desk');
+    const asBNamingA = await call('GET', '/api/app/desk', { session: identity.token(B), query: { project: aProject!.id } });
+    expect(asBNamingA.text, `B naming A's project: ${asBNamingA.text.slice(0, 200)}`).not.toContain('FAKE A desk');
+    expect(filesUnder(userHome(B)).some((f) => f.includes(aProject!.id))).toBe(false);
+    const stale = await call('POST', '/api/app/desk', { session: identity.token(A), query: { project: aProject!.id }, body: { snapshot, baseRevision: 0, revision: 1 } });
+    expect(stale.status, stale.text.slice(0, 200)).toBe(409);
+    expect(stale.json?.conflict).toBe(true);
+  });
+
   it('B cannot read A\'s conversation nor run a turn on A\'s root: refused with words; A\'s logs and receipts are in none of B\'s reads', async () => {
     expect(aProject, 'A\'s project (the case above)').toBeTruthy();
     // A reads A's conversation first: a refusal that refuses everyone (a route that knows no user's project) is no isolation

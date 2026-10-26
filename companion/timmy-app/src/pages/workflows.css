@@ -1,0 +1,18 @@
+/* R12: the Workflows page (pages/workflows.jsx). Shared classes are app.css's. */
+.tx-wf-list { display: grid; gap: 12px; }
+.tx-wf-card { border: 1px solid var(--ta-edge); border-radius: 12px; background: var(--ta-sunk); overflow: hidden; }
+.tx-wf-card.is-selected { border-color: var(--timmy-ui-focus, #FFB000); }
+.tx-wf-card-head { width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--ta-edge);
+  background: linear-gradient(110deg, var(--timmy-ui-highlight, rgba(255,255,255,.06)), transparent 75%); color: var(--timmy-ui-text, #ECF1F5); text-align: left; cursor: pointer; }
+.tx-wf-card-title { font-weight: 500; font-size: 15px; }
+.tx-wf-blocks { list-style: none; margin: 0; padding: 8px 14px 12px; display: grid; gap: 8px; }
+.tx-wf-block { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; }
+.tx-wf-block p { margin: 0; }
+.tx-wf-block-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tx-wf-glyph { color: var(--timmy-ui-text-muted, #9AAFC3); padding-top: 2px; }
+.tx-wf-card .ta-empty, .tx-wf-card .ta-result { margin: 10px 14px; }
+.tx-wf-running { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tx-wf-doc { display: grid; gap: 8px; min-width: 0; }
+.tx-wf-doc p { margin: 0; }
+.tx-wf-doc-title { font-size: 16px; font-weight: 500; }
+.tx-wf-md { max-height: 62vh; overflow: auto; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ta-edge); background: var(--ta-sunk); }

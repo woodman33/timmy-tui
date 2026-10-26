@@ -2,7 +2,7 @@
  * R10 (H170; CHAT-H170 item 2): signing in with OpenRouter by PKCE (S256), so a person never gives Timmy a password: they
  * authorize Timmy on OpenRouter's own page, and Timmy exchanges the code that comes back for a key of their account.
  *
- * The flow, as OpenRouter's client SDK has it (@openrouter/sdk 0.12.35, installed here; its oAuthCreateSHA256CodeChallenge,
+ * The flow, as OpenRouter's client SDK has it (@openrouter/sdk 1.5.7, installed here; its oAuthCreateSHA256CodeChallenge,
  * oAuthCreateAuthorizationUrl and oAuthExchangeAuthCodeForAPIKey, generated from OpenRouter's API):
  *   1. a code verifier (32 random bytes, base64url, RFC 7636) and its S256 challenge; the verifier stays in this process
  *   2. a callback server on 127.0.0.1, on a free port, answering one path that holds a random part, so that no other page's

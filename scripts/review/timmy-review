@@ -198,6 +198,11 @@ else
 fi
 
 name="$(active_name || true)"
+# R12: ./timmy-app (and Timmy App.command) open the Timmy app instead of the Workbench, after the same first run
+if [ "${TIMMY_REVIEW_OPEN:-workbench}" = app ]; then
+  say "Opening the Timmy app${name:+ on $name} in your browser: q (or Ctrl+C) stops it; ./timmy-app opens it again."
+  PATH="$(dirname "$NODE"):$PATH" exec "$HERE/review.sh" app
+fi
 say "Opening the Workbench${name:+ on $name}: the Workbench's Ctrl+C quits it; ./timmy-review opens it again."
 # the node found or recorded first on PATH for review.sh too (its own small reads, such as the active project's folder, use
 # the node on PATH; Timmy itself always runs on the node recorded at install)
