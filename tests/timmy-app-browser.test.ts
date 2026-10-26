@@ -314,6 +314,48 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     }
   }, 180_000);
 
+  // the operator's 20:38 order: a capability row is "Configured: Yes / No" and one Configure button; ONE aid serves them all
+  it('configure: the fleet says Configured Yes or No with one Configure button, and the one aid explains a step or lands on its control', async () => {
+    const page = await open(1440, 900);
+    await go(page, 'control');
+    await page.waitForSelector('.ta-page[data-page="control"] .ta-cfg', { timeout: 60_000 });
+    expect(await page.locator('.ta-page[data-page="control"]').innerText()).not.toContain('The three facts');
+    const rows = await page.locator('.ta-page[data-page="control"] .ta-cfg').evaluateAll((els) => els.map((e) => ({
+      yn: e.getAttribute('data-configured'), word: e.querySelector('.ta-cfg-yn')?.textContent?.trim(), button: e.querySelectorAll('button.ta-cfg-go').length,
+    })));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.word).toBe(r.yn === 'yes' ? '✓ Yes' : '○ No');
+      expect(r.button).toBe(r.yn === 'yes' ? 0 : 1);
+    }
+    // a step this page cannot take: the aid unfolds under the button with the step, its native face and Check again
+    const no = page.locator('.ta-page[data-page="control"] .ta-cfg[data-configured="no"] .ta-cfg-go').first();
+    if (await no.count()) {
+      await no.click();
+      await page.waitForSelector('.ta-aid-ring');
+      await page.waitForSelector('#ta-aid.is-explain', { timeout: 10_000 });
+      await page.waitForSelector('#ta-aid .ta-aid-face .tr-component[data-artboard="ActionButton"]', { timeout: 30_000 });
+      expect(await page.locator('#ta-aid .ta-aid-words').innerText()).not.toBe('');
+      expect(await no.getAttribute('aria-expanded')).toBe('true');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('#ta-aid'));
+    }
+    // a step on another page: the aid holds, opens Models & accounts and lands on the exact control, focused
+    await go(page, 'tools');
+    await page.click('.tx-tools-groups [role="tab"]:has-text("Models")');
+    const or = page.locator('.ta-cfg[data-cfg="model:openrouter"]');
+    await or.waitFor();
+    if ((await or.getAttribute('data-configured')) === 'no') {
+      await or.locator('.ta-cfg-go').click();
+      await page.waitForSelector('#ta-aid.is-landed', { timeout: 20_000 });
+      expect(await page.locator('.ta-page').getAttribute('data-page')).toBe('models');
+      expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Sign in with OpenRouter');
+      expect(await page.locator('.ta-aid-face').getAttribute('data-aid-state')).toBe('awaiting');
+      await page.keyboard.press('Escape');
+    }
+    await page.context().close();
+  }, 120_000);
+
   it('asked nothing of another host, broke no policy, threw nothing', () => {
     expect(outside).toEqual([]);
     expect(problems).toEqual([]);

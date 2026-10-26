@@ -8,6 +8,7 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { OPEN_FROM_TIMMY, TOKEN, call, onRefused, refusal } from './api.js';
 import { pageOf } from './nav.js';
 import { Dock, Footer, Rail, Topbar, useRailSlim } from './shell.jsx';
+import { ConfigureAid } from './configure.jsx';
 import { getState, loadConfig, loadModels, refreshView, setDrawer, setTheme, useApp } from './store.js';
 import ChatPage from './pages/chat.jsx';
 import ModelsPage from './pages/models.jsx';
@@ -78,6 +79,7 @@ function App() {
         <Dock />
         <Footer />
       </div>
+      <ConfigureAid />
     </div>
   );
 }

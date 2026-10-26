@@ -10,13 +10,12 @@ import { getJson, postJson } from '../api.js';
 import { Page, Panel } from '../shell.jsx';
 import { goTo, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
+import { ConfigureRow, isConfigured, readInventory, useInventory } from '../configure.jsx';
 import './tools.css';
 
 const base = '/api/panel/tools';
 const q = (extra = '') => { const p = projectQuery('').trim(); const all = [extra, p].filter(Boolean).join('&'); return all ? `?${all}` : ''; };
 const ms = (n) => (typeof n === 'number' ? (n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`) : '');
-/** The standing word of a row: exercised > configured > available, none when no word holds (the terminal's rule). */
-const standingOf = (row) => (row.exercised && row.exercised.ok ? 'exercised' : row.configured && row.configured.ok ? 'configured' : row.available && row.available.ok ? 'available' : 'none');
 const SPEC = (s) => (s.kind === 'fixture' ? { kind: 'fixture' } : { kind: 'configured', name: s.name });
 const keyOfServer = (s) => (s.kind === 'fixture' ? 'fixture' : `configured:${s.name}`);
 
@@ -44,22 +43,9 @@ function Inventory({ inv, group, setGroup, picked, pick }) {
       <div className="ta-seg tx-tools-groups" role="tablist" aria-label="Kinds of capability">
         {groups.map((g) => <button key={g} type="button" role="tab" aria-selected={g === group} onClick={() => setGroup(g)}>{g} <span className="tx-tools-n">{rows.filter((r) => r.group === g).length}</span></button>)}
       </div>
-      <table className="ta-table tx-tools-table">
-        <thead><tr><th>Capability</th><th>Standing</th><th>Next</th></tr></thead>
-        <tbody>
-          {shown.map((r) => {
-            const c = cards.get(r.id);
-            const st = standingOf(r);
-            return (
-              <tr key={r.id} aria-selected={picked === r.id} onClick={() => pick(r.id)} data-row={r.id}>
-                <td><button type="button" className="tx-tools-name" onClick={() => pick(r.id)}>{r.name}</button></td>
-                <td>{st === 'none' ? <span className="ta-muted">none of the three</span> : <StateWord word={st} />}</td>
-                <td className="ta-muted">{c && c.step ? (c.step.short || c.step.next) : '—'}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <ul className="ta-cfg-list" aria-label={`${group}: configured or not`}>
+        {shown.map((r) => <ConfigureRow key={r.id} row={r} card={cards.get(r.id)} onPick={() => pick(r.id)} picked={picked === r.id} />)}
+      </ul>
       <p className="ta-muted">{inv.read}. {inv.note}</p>
     </>
   );
@@ -221,17 +207,16 @@ function Inspector({ state, servers, onCall }) {
 
 export default function ToolsPage() {
   const config = useApp((s) => s.config);
-  const [inv, setInv] = useState(null);
+  const inv = useInventory();
   const [state, setState] = useState(null);
   const [servers, setServers] = useState(null);
   const [calls, setCalls] = useState(null);
   const [group, setGroup] = useState('Tools');
   const [picked, setPicked] = useState(null);
   const [call, setCall] = useState(null);
-  const loadInv = async (refresh) => setInv(await getJson(`${base}/inventory${q(refresh ? 'refresh=1' : '')}`));
+  const loadInv = (refresh) => readInventory(refresh);
   const loadCalls = async () => setCalls(await getJson(`${base}/calls${q()}`));
   useEffect(() => {
-    loadInv(false);
     getJson(`${base}/state${q()}`).then(setState);
     getJson(`${base}/servers${q()}`).then(setServers);
     loadCalls();
@@ -247,7 +232,7 @@ export default function ToolsPage() {
       : (
         <>
           <p className="tx-tools-title">Nothing selected</p>
-          <p className="ta-muted">Select a capability to see its three words and where each was read, or a call to see its answer and receipt.</p>
+          <p className="ta-muted">Select a capability’s name to see its three facts (available, configured, exercised) and where each was read, or a call to see its answer and receipt.</p>
           {routes.length ? (
             <>
               <p className="ta-context-k">THE TWO MCP ROUTES</p>
@@ -261,7 +246,7 @@ export default function ToolsPage() {
     <Page id="tools"
       actions={<Button onClick={() => loadInv(true)}>Read this computer again</Button>}
       band={[
-        ['CAPABILITIES', inv && inv.counts ? <>{inv.counts.exercised} exercised · {inv.counts.configured} configured · {inv.counts.available} available</> : <span className="ta-muted">reading…</span>],
+        ['CONFIGURED', inv && inv.ok && inv.inventory ? <>{(inv.inventory.rows || []).filter(isConfigured).length} of {(inv.inventory.rows || []).length} <span className="ta-muted">· {inv.counts ? `${inv.counts.exercised} run here` : ''}</span></> : <span className="ta-muted">reading…</span>],
         ['MCP SERVERS', servers ? (servers.ok ? <>{(servers.servers || []).length} configured <span className="ta-muted">· none started</span></> : <span className="ta-muted">{servers.error || 'not read'}</span>) : <span className="ta-muted">reading…</span>],
         ['CALLS', calls ? (callRows.length ? <>{callRows.length}{calls.more ? `+${calls.more}` : ''} <span className="ta-muted">· last {callRows[0].tool} {clock(callRows[0].startedAt)}</span></> : <span className="ta-muted">none from this project yet</span>) : <span className="ta-muted">reading…</span>],
       ]}

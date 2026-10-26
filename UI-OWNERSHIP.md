@@ -95,3 +95,20 @@ lead (the markdown fence hang, the tool label wrap, the plain word for "not set 
   shapes are `timmy-rive` (RIVE CONTRACT v2, unchanged) and `timmy-card` (`{ w, h, kind: model | receipt | conversation }`,
   each saying when it was read on the page, or "not live"); Export / Import is a `{ format: "timmy-desk", version: 1,
   snapshot }` file.
+- **Configure (the operator's 20:38 order):** every capability row says "Configured: Yes / No" (yes = the inventory's
+  available AND configured facts; neither is a check that it works; the three facts stay apart in the Tools page's context
+  column) and a not-configured row has ONE Configure button. Every one starts the same aid (`companion/timmy-app/src/configure.jsx`,
+  the lead's): a ring around the pressed button; a step on another page → that page opens and the ring lands on the exact control,
+  focused; a step this page cannot take (a `.env` line, a command, MCPorter's config) → the words, the line to copy and Check
+  again (`?refresh=1`), the aid's native Rive ActionButton fed Working / NEEDS-YOU / idle from what the re-read observed. Nothing
+  is written or run from the page. The Control Room's fleet and the Tools page's inventory use it; any new capability list does.
+
+## R13 (planned, 2026-10-25 evening): two parallel lanes beside the lead
+
+| Lane | Writer | Files | Reads |
+|---|---|---|---|
+| 3D Spatial mini app (VoxVision + Kimi K3.1 Pro) | **R13 spatial** (`r13/spatial-3d`) | `src/pages/voxvision.{jsx,css}`, new `src/spatial/**`, new `src/companion/panels/spatial-3d.ts` (+ one marked mount line in `server.ts`), new `tests/timmy-app-spatial*` | APP SHELL v1; `configure.jsx`; the vox and spatial-volume routes |
+| Control Room harness wall + the relay | **R13 harness** (`r13/harness-wall`) | `src/pages/control.{jsx,css}`, new `src/harness/**`, new `src/companion/panels/harness.ts` (+ one marked mount line), lanes appended in `src/agent/lanes.ts`, new `src/agent/relay.ts`, new `tests/timmy-app-harness*`, `tests/agent-relay*` | APP SHELL v1; `configure.jsx`; lanes, profiles, the inventory |
+
+The lead keeps the shell, the store, `app.css`, `configure.jsx`, `nav.js`, the tokens and the Rive source (new artboards GuideRing,
+HarnessCard, LinkBeam, MenuFold through `create-controls.py` and the Rive CLI on the operator's machine).

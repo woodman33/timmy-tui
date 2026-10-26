@@ -10,6 +10,7 @@ import { getJson, postJson } from '../api.js';
 import { Page, Panel, Tool } from '../shell.jsx';
 import { goTo, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
+import { ConfigureRow, isConfigured, useInventory } from '../configure.jsx';
 import './control.css';
 
 const usd = (n) => (typeof n === 'number' && Number.isFinite(n) ? (n === 0 || n >= 0.01 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`) : 'unknown');
@@ -137,6 +138,10 @@ export default function ControlPage() {
   const a = rOk ? room.activity : null;
   const fleet = rOk && Array.isArray(room.fleet) ? room.fleet : [];
   const count = (w) => fleet.filter((f) => f.word === w).length;
+  // the fleet's rows as configure rows: the inventory itself (its available + configured facts), the one aid for each
+  const inv = useInventory();
+  const fleetRows = inv && inv.ok && inv.inventory ? (inv.inventory.rows || []).filter((r) => r.group === 'Lanes' || r.group === 'Integrations') : [];
+  const cardOf = new Map(((inv && inv.cards) || []).map((c) => [c.id, c]));
   const copy = async (text) => {
     try {
       if (!window.isSecureContext || !navigator.clipboard) throw new Error('no clipboard on this page');
@@ -205,20 +210,14 @@ export default function ControlPage() {
         {pOk && panes.more ? <p className="ta-muted">{panes.more} more run{panes.more === 1 ? 's' : ''} than the panes shown.</p> : null}
         {pOk && panes.notes && panes.notes.length ? <ul className="tx-ctl-notes">{panes.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
       </Panel>
-      <Panel id="fleet" kicker="FLEET" title="Lanes and integrations">
-        {!rOk ? <Empty>{room ? 'Not read.' : 'Reading…'}</Empty> : !fleet.length ? <Empty>The capability inventory listed no lane or integration.</Empty> : (
-          <ul className="tx-ctl-fleet">
-            {fleet.map((f) => (
-              <li key={f.id} data-fleet={f.id}>
-                <p className="tx-ctl-row"><strong>{f.name}</strong> <span className="ta-muted">{f.group}</span> <StateWord word={f.word} /></p>
-                <details className="ta-details"><summary>The three facts</summary>
-                  <ul className="tx-ctl-facts"><li>{f.available}</li><li>{f.configured}</li><li>{f.exercised}</li></ul>
-                  {f.next ? <p className="ta-muted">Next: {f.next}</p> : null}
-                </details>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Panel id="fleet" kicker="FLEET" title="Lanes and integrations"
+        tools={fleetRows.length ? <span className="ta-muted">{fleetRows.filter(isConfigured).length} of {fleetRows.length} configured</span> : null}>
+        {!inv ? <Empty>Reading what is on this computer…</Empty> : !inv.ok ? <Empty>{inv.error || 'The companion did not answer the inventory.'}</Empty>
+          : !fleetRows.length ? <Empty>The capability inventory listed no lane or integration.</Empty> : (
+            <ul className="ta-cfg-list" aria-label="Lanes and integrations">
+              {fleetRows.map((r) => <ConfigureRow key={r.id} row={r} card={cardOf.get(r.id)} />)}
+            </ul>
+          )}
       </Panel>
     </Page>
   );

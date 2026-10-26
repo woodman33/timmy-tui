@@ -594,3 +594,58 @@ html[data-theme="glacier"] {
   .ta-stage-note { position: static; transform: none; max-width: none; margin-top: 10px; }
 }
 .ta-stage .tr-shape-welcome .tr-status { display: none; }
+
+/* ── the operator's 20:38 order: one row per capability ("Configured: Yes / No") and ONE configure aid for all (configure.jsx) ── */
+.ta-cfg-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 8px; }
+.ta-cfg { display: grid; grid-template-columns: minmax(0, 1fr) auto 104px; align-items: center; gap: 14px; min-height: 60px; padding: 10px 12px 10px 16px; box-sizing: border-box;
+  border: 1px solid var(--ta-edge); border-radius: 12px; background: var(--timmy-ui-elev-raised, #1C2936); box-shadow: var(--ta-lit); transition: border-color 160ms; }
+.ta-cfg[data-configured="no"] { background: linear-gradient(90deg, color-mix(in srgb, var(--ta-hl-warm, #D6AA64) 7%, transparent), transparent 55%), var(--timmy-ui-elev-raised, #1C2936); }
+.ta-cfg.is-aided, .ta-cfg.is-picked { border-color: var(--ta-edge-lit); }
+.ta-cfg-id { display: grid; min-width: 0; gap: 1px; }
+.ta-cfg-name { font-size: 15px; font-weight: 600; line-height: 1.25; color: var(--timmy-ui-text, #ECF1F5); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+button.ta-cfg-pick { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color 160ms; }
+button.ta-cfg-pick:hover, button.ta-cfg-pick[aria-pressed="true"] { text-decoration-color: var(--timmy-ui-accent, #D6AA64); }
+.ta-cfg-group { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.ta-cfg-state { display: grid; justify-items: end; gap: 1px; }
+.ta-cfg-k { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.ta-cfg-yn { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.ta-cfg-yn.is-yes { color: var(--timmy-ui-text, #ECF1F5); }
+.ta-cfg-yn.is-yes > span { color: var(--timmy-ui-accent-soft, #EAD0A3); }
+.ta-cfg-yn.is-no { color: var(--timmy-ui-text-secondary, #BDCADA); font-weight: 500; }
+.ta-cfg-go { min-height: 36px; padding: 0 14px; width: 104px; font-weight: 600; color: var(--timmy-ui-accent-soft, #EAD0A3);
+  border-color: color-mix(in srgb, var(--timmy-ui-accent, #D6AA64) 55%, transparent); background: color-mix(in srgb, var(--timmy-ui-accent, #D6AA64) 8%, transparent); }
+.ta-cfg-go:hover { background: color-mix(in srgb, var(--timmy-ui-accent, #D6AA64) 16%, transparent); border-color: var(--timmy-ui-accent, #D6AA64); color: var(--timmy-ui-text, #ECF1F5); }
+.ta-cfg-go[aria-expanded="true"] { border-color: var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-text, #ECF1F5); }
+@media (max-width: 520px) { .ta-cfg { grid-template-columns: minmax(0, 1fr) auto 92px; gap: 10px; padding-left: 14px; } .ta-cfg-go { width: 92px; padding: 0 10px; } .ta-cfg-name { font-size: 14px; } }
+
+/* the ring: drawn around the pressed button, then around the control it leads to */
+.ta-aid-ring { position: fixed; z-index: 90; pointer-events: none; overflow: visible; }
+.ta-aid-ring rect { fill: none; }
+.ta-aid-ring-trace { stroke: var(--timmy-ui-focus, #FFB000); stroke-width: 2.5; stroke-dasharray: 100; stroke-dashoffset: 100; stroke-linecap: round; animation: ta-aid-trace 560ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.ta-aid-ring-glow { stroke: var(--timmy-ui-focus, #FFB000); stroke-width: 6; opacity: 0; }
+.ta-aid-ring.is-landed .ta-aid-ring-glow, .ta-aid-ring.is-still .ta-aid-ring-glow { animation: ta-aid-pulse 1.4s ease-out 3; }
+.ta-aid-ring.is-done .ta-aid-ring-trace { stroke: var(--timmy-ui-accent-soft, #EAD0A3); }
+@keyframes ta-aid-trace { to { stroke-dashoffset: 0; } }
+@keyframes ta-aid-pulse { 0% { opacity: .38; } 100% { opacity: 0; } }
+
+/* the aid: one popover, under (or above) whatever the ring points at */
+.ta-aid { position: fixed; z-index: 95; width: 360px; max-width: calc(100vw - 24px); box-sizing: border-box; display: grid; gap: 10px; padding: 14px 16px 16px;
+  border: 1px solid var(--timmy-ui-border, #44586B); border-radius: 16px; background: var(--timmy-ui-elev-raised, #1C2936); box-shadow: var(--timmy-ui-shadow-raised, 0 18px 40px rgba(0,0,0,.45)), var(--ta-lit);
+  animation: ta-aid-in 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes ta-aid-in { from { opacity: 0; transform: translateY(-6px); } }
+.ta-aid-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ta-aid-k { margin: 0; font-size: 10px; letter-spacing: .16em; color: var(--timmy-ui-text-muted, #9AAFC3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-aid-x { flex: none; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--timmy-ui-text-secondary, #BDCADA); cursor: pointer; }
+.ta-aid-x:hover { background: var(--timmy-ui-highlight, rgba(255,255,255,.06)); color: var(--timmy-ui-text, #ECF1F5); }
+.ta-aid-title { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.25; color: var(--timmy-ui-text, #ECF1F5); }
+.ta-aid.is-done .ta-aid-title::before { content: "✓ "; color: var(--timmy-ui-accent-soft, #EAD0A3); }
+.ta-aid.is-still .ta-aid-title { color: var(--timmy-ui-focus, #FFB000); }
+.ta-aid-words { margin: 0; font-size: 14px; line-height: 1.5; color: var(--timmy-ui-text-secondary, #BDCADA); }
+.ta-aid-code { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 10px; border: 1px solid var(--ta-edge); background: var(--ta-sunk); }
+.ta-aid-code code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; color: var(--timmy-ui-text, #ECF1F5); }
+.ta-aid-caret { color: var(--timmy-ui-text-muted, #9AAFC3); font-style: italic; }
+.ta-aid-where { margin: 0; font-size: 12.5px; color: var(--timmy-ui-text-muted, #9AAFC3); }
+.ta-aid-act { display: flex; align-items: center; gap: 10px; }
+.ta-aid-face .tr-component[data-artboard] .tr-face { width: 180px; height: 54px; }
+.ta-aid-raw p { margin: 0; font-size: 12.5px; color: var(--timmy-ui-text-secondary, #BDCADA); }
+@media (prefers-reduced-motion: reduce) { .ta-aid-ring-trace { animation: none; stroke-dashoffset: 0; } .ta-aid-ring-glow { animation: none !important; } .ta-aid { animation: none; } }
