@@ -171,16 +171,19 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
 
   it('two principals and two projects: separate data folders, separate workers, and one’s launch never opens the other’s', async () => {
     const open = async (user: string | null, p: string) => JSON.parse((await get(`${timmy}/api/apps/model-studio/open?p=${p}`, { authorization: 'Bearer FAKE', 'content-type': 'application/json', ...(user ? { 'x-fake-user': user } : {}) }, 'POST', '{}')).body);
-    const a = await open('alice', 'one');
-    const b = await open('bob', 'one');
-    const a2 = await open('alice', 'two');
-    const ports = [a, b, a2].map((x) => new URL(x.url).port);
-    expect(new Set(ports).size).toBe(3);
     const stateOf = async (x: { url: string }) => {
       const l = await get(x.url);
       return JSON.parse((await get(`http://127.0.0.1:${new URL(x.url).port}/api/state`, { cookie: cookieOf(l) })).body).dataDir as string;
     };
-    const [da, db, da2] = [await stateOf(a), await stateOf(b), await stateOf(a2)];
+    // (each launch address is entered before the same principal opens another project, which ends it)
+    const a = await open('alice', 'one');
+    const da = await stateOf(a);
+    const b = await open('bob', 'one');
+    const db = await stateOf(b);
+    const a2 = await open('alice', 'two');
+    const da2 = await stateOf(a2);
+    const ports = [a, b, a2].map((x) => new URL(x.url).port);
+    expect(new Set(ports).size).toBe(3);
     expect(da.startsWith(join(base, 'alice', 'home', 'apps'))).toBe(true);
     expect(db.startsWith(join(base, 'bob', 'home', 'apps'))).toBe(true);
     expect(da2).not.toBe(da);
@@ -220,4 +223,65 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     await get(`${timmy}/api/apps/model-studio/stop?p=receipts`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', '{}');
     expect(readChain('runs', root).filter((r) => r.kind === 'miniapp')).toHaveLength(2);
   }, 60_000);
+
+  it('isolation: a project switch ends the old project’s grants; sign-out revocation ends only that principal’s; one principal cannot stop another’s app; Range bytes pass; the worker port is never handed out; a restart issues new grants', async () => {
+    const H = (user: string | null) => ({ authorization: 'Bearer FAKE', 'content-type': 'application/json', ...(user ? { 'x-fake-user': user } : {}) });
+    const open = async (user: string | null, p: string) => JSON.parse((await get(`${timmy}/api/apps/model-studio/open?p=${p}`, H(user), 'POST', '{}')).body);
+    const enter = async (url: string) => cookieOf(await get(url));
+    const gw = (o: { url: string }) => `http://127.0.0.1:${new URL(o.url).port}`;
+
+    // carol in project iso-a, then she switches to iso-b: her grants in iso-a end, her app there keeps running
+    const a = await open('carol', 'iso-a');
+    const ca = await enter(a.url);
+    expect((await get(`${gw(a)}/api/state`, { cookie: ca })).status).toBe(200);
+    const b = await open('carol', 'iso-b');
+    expect(b.revokedElsewhere).toBe(1);
+    expect((await get(`${gw(a)}/api/state`, { cookie: ca })).status).toBe(401);
+    const cb = await enter(b.url);
+    expect((await get(`${gw(b)}/api/state`, { cookie: cb })).status).toBe(200);
+    // opening iso-a again gives her a fresh grant there
+    const a2 = await open('carol', 'iso-a');
+    expect(gw(a2)).toBe(gw(a));
+    const ca2 = await enter(a2.url);
+    expect((await get(`${gw(a)}/api/state`, { cookie: ca2 })).status).toBe(200);
+    // (and that ended her iso-b grants in turn: one project at a time per app; she opens iso-b again to go on)
+    expect((await get(`${gw(b)}/api/state`, { cookie: cb })).status).toBe(401);
+    const bAgain = await open('carol', 'iso-b');
+    const cbx = await enter(bAgain.url);
+    expect((await get(`${gw(b)}/api/state`, { cookie: cbx })).status).toBe(200);
+
+    // renew keeps a live grant; a renew for a project with no app answers 404
+    expect(JSON.parse((await get(`${timmy}/api/apps/model-studio/renew?p=iso-b`, H('carol'), 'POST', '{}')).body)).toMatchObject({ ok: true, grants: 1 });
+    expect((await get(`${timmy}/api/apps/model-studio/renew?p=nowhere`, H('carol'), 'POST', '{}')).status).toBe(404);
+
+    // dave cannot stop carol's app (his stop names his own key); his revoke ends only his grants
+    const d = await open('dave', 'iso-a');
+    const cd = await enter(d.url);
+    expect(JSON.parse((await get(`${timmy}/api/apps/model-studio/stop?p=iso-b`, H('dave'), 'POST', '{}')).body)).toEqual({ ok: true, stopped: false });
+    expect((await get(`${gw(b)}/api/state`, { cookie: cbx })).status).toBe(200);
+    expect(JSON.parse((await get(`${timmy}/api/apps/revoke`, H('dave'), 'POST', '{}')).body).revoked).toBe(1);
+    expect((await get(`${gw(d)}/api/state`, { cookie: cd })).status).toBe(401);
+    expect((await get(`${gw(b)}/api/state`, { cookie: cbx })).status).toBe(200);
+
+    // an artifact's Range request reaches the app and its 206 comes back whole through the gateway
+    const job = JSON.parse((await get(`${gw(b)}/api/jobs`, { cookie: cbx, 'content-type': 'application/json' }, 'POST', '{}')).body);
+    const part = await get(`${gw(b)}/api/assets/${job.result.asset.id}/r1-model.glb`, { cookie: cbx, range: 'bytes=0-3' });
+    expect(part.status).toBe(206);
+    expect(part.body).toBe('FAKE');
+    expect(part.headers['content-range']).toBe('bytes 0-3/14');
+
+    // the worker's own port is never in what the companion answers
+    const listed = (await get(`${timmy}/api/apps?p=iso-b`, H('carol'))).body;
+    const hostedB = host.get(`model-studio:${'u-' + createHash('sha256').update('timmy-app:carol').digest('hex').slice(0, 16)}:${projectId(join(base, 'carol', 'projects', 'iso-b'))}`)!;
+    expect(hostedB).toBeTruthy();
+    expect(listed).not.toContain(String(hostedB.workerPort));
+    expect(JSON.stringify(b)).not.toContain(String(hostedB.workerPort));
+
+    // a restart of the host: every grant is new; an old cookie opens nothing
+    await host.stopAll();
+    await expect(get(`${gw(b)}/api/state`, { cookie: cbx })).rejects.toThrow();
+    const b2 = await open('carol', 'iso-b');
+    expect((await get(`${gw(b2)}/api/state`, { cookie: cbx })).status).toBe(401);
+    expect((await get(`${gw(b2)}/api/state`, { cookie: await enter(b2.url) })).status).toBe(200);
+  }, 120_000);
 });

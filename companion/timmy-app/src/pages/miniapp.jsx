@@ -35,6 +35,19 @@ export function MiniAppPage({ appId }) {
   const [busy, setBusy] = useState('');
   const [words, setWords] = useState('');
   const a = apps && apps.ok ? apps.apps.find((x) => x.id === appId) : null;
+  const projectNow = useApp((s) => s.projectId);
+  // another project: the frame of the one left is closed (its grant there was ended by the companion when this one opens)
+  useEffect(() => { setOpen(null); }, [projectNow]);
+  // while framed, the grant is renewed with this page's own session; a page whose session ended cannot renew, so the app
+  // refuses its frame within the grant's time (src/companion/miniapps/host.ts GRANT_MS)
+  useEffect(() => {
+    if (!open) return undefined;
+    const t = setInterval(async () => {
+      const r = await postJson(`/api/apps/${appId}/renew${projectQuery()}`, {});
+      if (!r.ok) { setOpen(null); setWords(r.error || 'The app was closed: open it again.'); }
+    }, 5 * 60_000);
+    return () => clearInterval(t);
+  }, [open, appId]);
 
   const start = async () => {
     setBusy('open'); setWords('');

@@ -81,10 +81,27 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         // each of the app's ended jobs: one receipt in this project's runs chain (where its chat turns are sealed)
         seal: (r) => appendReceipt('runs', { ...r, project_id: projectId(p.root) }, p.root).id,
       });
-      res.set('Cache-Control', 'no-store').json({ ok: true, id: spec.id, project: p.name, url: hosted.launch(), startedAt: hosted.startedAt, job: hosted.jobId });
+      // (this principal's grants to the same app in their other projects end: an old tab cannot act in the project left)
+      const revoked = host.revokeOthers(hosted.key);
+      res.set('Cache-Control', 'no-store').json({ ok: true, id: spec.id, project: p.name, url: hosted.launch(), startedAt: hosted.startedAt, job: hosted.jobId, revokedElsewhere: revoked });
     } catch (e) {
       res.status(502).set('Cache-Control', 'no-store').json({ ok: false, error: e instanceof Error ? e.message : String(e) });
     }
+  });
+
+  // the page renews its browser's grant while it holds a valid session (a grant not renewed ends in GRANT_MS: a signed-out
+  // session cannot renew, so its frames are refused within that time)
+  app.post('/api/apps/:id/renew', ...guards, (req, res) => {
+    const spec = miniAppOf(String(req.params.id));
+    const p = project(req);
+    const hosted = spec && p ? host.get(keyOf(spec.id, req, p.root)) : undefined;
+    if (!hosted) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: 'Not running for this project: open it again.' }); return; }
+    res.set('Cache-Control', 'no-store').json({ ok: true, grants: hosted.renew() });
+  });
+
+  // end every grant this principal holds in every app (the page calls it before signing out)
+  app.post('/api/apps/revoke', ...guards, (req, res) => {
+    res.set('Cache-Control', 'no-store').json({ ok: true, revoked: host.revokePrincipal(who(req)) });
   });
 
   app.post('/api/apps/:id/stop', ...guards, async (req, res) => {

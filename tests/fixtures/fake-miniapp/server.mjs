@@ -28,7 +28,12 @@ const server = http.createServer((req, res) => {
     }); return;
   }
   const am = /^\/api\/assets\/([\w-]+)\/([\w.-]+)$/.exec(req.url ?? '');
-  if (am && assets.has(`${am[1]}/${am[2]}`)) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end(assets.get(`${am[1]}/${am[2]}`)); }
+  if (am && assets.has(`${am[1]}/${am[2]}`)) {
+    const bytes = assets.get(`${am[1]}/${am[2]}`);
+    const r = /^bytes=(\d+)-(\d+)$/.exec(String(req.headers.range ?? ''));
+    if (r) { const a = Number(r[1]), b = Math.min(Number(r[2]), bytes.length - 1); res.writeHead(206, { 'content-type': 'application/octet-stream', 'content-range': `bytes ${a}-${b}/${bytes.length}` }); return res.end(bytes.subarray(a, b + 1)); }
+    res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end(bytes);
+  }
   if (req.url === '/api/env') return send(200, { keys: Object.keys(process.env).sort(), cookie: req.headers.cookie ?? null, referer: req.headers.referer ?? null, origin: req.headers.origin ?? null });
   if (req.method === 'POST' && req.url === '/api/echo') { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => send(200, { echoed: b })); return; }
   if (req.url === '/') return send(200, page.toString(), 'text/html');

@@ -41,6 +41,10 @@ export interface HostedApp {
   startedAt: string;
   /** a one-time key for the gateway's launch address, valid for LAUNCH_MS */
   launch(): string;
+  /** extend every live grant of this gateway by GRANT_MS (the page renews while its session is valid); how many it kept */
+  renew(): number;
+  /** end every grant: each browser holding one is refused until it opens the app again from Timmy (sign-out, project switch) */
+  revoke(): void;
   /** read the app's state now and seal its newly ended jobs (the receipts' ids); a no-op without a seal */
   sealNow(): Promise<string[]>;
   stop(): Promise<void>;
@@ -48,6 +52,9 @@ export interface HostedApp {
 }
 
 export const LAUNCH_MS = 60_000;
+/** how long a browser's grant lasts without a renewal from the Timmy page that holds a valid session (the page renews it) */
+export const GRANT_MS = 15 * 60_000;
+export const MAX_GRANTS = 16;
 const READY_MS = 30_000;
 const STOP_MS = 5_000;
 
@@ -126,15 +133,21 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   if (ready.state !== 'ready') throw new Error(`${o.spec.title} did not start (job ${job.id}: ${ready.state}${ready.error ? `, ${ready.error}` : ''}).`);
   const exited = () => { const j = o.jobs.get(job.id); return !j || (j.state !== 'ready' && j.state !== 'running'); };
   const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal }) : null;
-  const secret = randomBytes(32).toString('hex');
+  // grants: one per launch (a browser), each its own secret, each ending at its own time unless renewed; revoke ends them all
+  const grants = new Map<string, number>();
   const launches = new Map<string, number>();
   let gatewayPort = 0;
   const cookieName = () => `timmy_app_${gatewayPort}`;
-  const hasCookie = (header: string | undefined): boolean => {
-    const want = Buffer.from(secret);
+  const hasGrant = (header: string | undefined): boolean => {
+    const now = Date.now();
     for (const part of String(header ?? '').split(';')) {
       const [k, ...v] = part.trim().split('=');
-      if (k === cookieName()) { const got = Buffer.from(v.join('=')); if (got.length === want.length && timingSafeEqual(got, want)) return true; }
+      if (k !== cookieName()) continue;
+      const got = Buffer.from(v.join('='));
+      for (const [secret, until] of grants) {
+        const want = Buffer.from(secret);
+        if (got.length === want.length && timingSafeEqual(got, want)) { if (until > now) return true; grants.delete(secret); return false; }
+      }
     }
     return false;
   };
@@ -148,11 +161,15 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
       const at = launches.get(k);
       launches.delete(k);
       if (at === undefined || Date.now() - at > LAUNCH_MS) { deny(403, 'This launch address was used or has expired: open the app again from Timmy.'); return; }
+      const secret = randomBytes(32).toString('hex');
+      grants.set(secret, Date.now() + GRANT_MS);
+      // (at most MAX_GRANTS browsers at once: the one ending soonest gives way)
+      while (grants.size > MAX_GRANTS) { let first: string | null = null; let at = Infinity; for (const [k, u] of grants) if (u < at) { at = u; first = k; } if (first) grants.delete(first); else break; }
       res.writeHead(302, { location: '/', 'set-cookie': `${cookieName()}=${secret}; HttpOnly; SameSite=Strict; Path=/`, 'cache-control': 'no-store' });
       res.end();
       return;
     }
-    if (!hasCookie(req.headers.cookie)) { deny(401, `Open ${o.spec.title} from Timmy: this address answers only the browser Timmy opened it in.`); return; }
+    if (!hasGrant(req.headers.cookie)) { deny(401, `Open ${o.spec.title} from Timmy: this address answers only the browser Timmy opened it in.`); return; }
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== self) { deny(403, 'Cross-origin requests are not allowed.'); return; }
     const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${workerPort}` };
@@ -186,6 +203,8 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
       launches.set(k, now);
       return `http://127.0.0.1:${gatewayPort}/__timmy/launch?k=${k}`;
     },
+    renew() { const now = Date.now(); for (const [k, until] of grants) { if (until <= now) grants.delete(k); else grants.set(k, now + GRANT_MS); } return grants.size; },
+    revoke() { grants.clear(); launches.clear(); },
     sealNow() { return watcher ? watcher.tick() : Promise.resolve([]); },
     async stop() {
       if (stopped) return;
@@ -222,6 +241,24 @@ export class MiniAppHost {
   }
 
   get(key: string): HostedApp | undefined { const a = this.apps.get(key); return a?.running ? a : undefined; }
+
+  /** every running app whose key starts with `prefix` (keys are `<app>:<principal>:<project>`) */
+  private matching(prefix: string): HostedApp[] { return [...this.apps.entries()].filter(([k, a]) => k.startsWith(prefix) && a.running).map(([, a]) => a); }
+
+  /** A principal opening an app in one project ends their grants to it in every other project (its jobs keep running). */
+  revokeOthers(key: string): number {
+    const [app, principal] = key.split(':');
+    const others = this.matching(`${app}:${principal}:`).filter((a) => a.key !== key);
+    for (const a of others) a.revoke();
+    return others.length;
+  }
+
+  /** End every grant a principal holds, in every app and project (their session ended, or they asked). */
+  revokePrincipal(principal: string): number {
+    const all = [...this.apps.values()].filter((a) => a.key.split(':')[1] === principal && a.running);
+    for (const a of all) a.revoke();
+    return all.length;
+  }
 
   async stop(key: string): Promise<boolean> {
     const a = this.apps.get(key);
