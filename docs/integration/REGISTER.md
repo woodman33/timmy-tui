@@ -135,5 +135,36 @@ app at its exact source with `.timmy-source.json`; `review.sh` installs with `np
   available (Blender, OpenSCAD, FreeCAD, build123d, CadQuery; C4D and Houdini not); a real OpenSCAD parametric box
   40 × 30 × 10 mm succeeded in 2 s; phone layout; stopped through its job. The Rive status face's motion was not checked.
 - Containers, REAL owners' apps: all four opened framed through C1 in Chromium with no page error.
-- **The next candidate** is recorded in PR #109 with its full-suite and Mac results when they are run; nothing above is a
-  result for it.
+### Candidate 030d0942 (2026-10-26): FAILED / HOLD on one test, kept as run
+
+- **Full suite** (frozen worktree, clean, 2 workers, under the heavy lock, 13:38–14:39 PT): **exit 1**: 779 files passed,
+  1 failed, 16 skipped; 6423 tests passed, 1 failed, 136 skipped; 3649 s. The failure:
+  `tests/chat-one-conversation-pty.test.ts` (the REPL in the project's one conversation) timed out after 50 s waiting for
+  "RECEIPT … signed and verified" on the terminal screen; on dd2c1350 it passed in 6.7 s. The source changes since dd2c1350
+  are the mini-app modules and one type-only field in `src/utils/receipts.ts`; the REPL imports neither module. The run's
+  load was about 4 on 2 cores, and the lead ran a low-priority `tsc` and one 2 s test file in another worktree at 13:51
+  (during it). **Unclassified:** not repaired, not rerun; a single-test rerun to classify it is a separate step. An earlier
+  start at 13:36 was stopped by the lead after about a minute, before any file result, and kept as a separate log.
+- **Mac, the installed package 030d094** (fresh `npm ci` from its lock: Node 26.6.0, npm 11.18.0 on the Mac; the lock was
+  resolved with Node 24.21.0, npm 11.19.0; 392 packages added against the lock's 434 entries, the difference not examined);
+  the package's demo home (principal `operator`, projects tray and blank); real apps and engines, no key, no paid call:
+  **22 of 23 checks passed.**
+  - Model Studio: OpenSCAD box `succeeded` (receipt `ok`, 2 files hashed); a Blender create cancelled while running
+    (`cancelled`). Engines seen: Blender, OpenSCAD, FreeCAD available; build123d, CadQuery, C4D, Houdini not.
+  - Timmy Animate: a Blender export of its example scene `succeeded` (8 artifacts hashed); a second export cancelled.
+  - Film Room: a FAKE 1-second test pattern made with ffmpeg on the Mac ingested (`complete`, its media hashed).
+  - Card Lab: its predict stage `held` without a key (receipt `failed`; "No model has run").
+  - Every receipt signed, principal operator, project tray; the chain verified (before and after the steps below).
+  - Isolation, one principal and two projects: a launch key works once (302, then 403); no grant, no answer (401); an
+    artifact downloads with the grant and not without; blank has its own worker and data and none of tray's jobs; opening
+    in blank ends the grant in tray; tray's cookie is no grant at blank's gateway; renewal; sign-out revocation ends the
+    grant; reopening and a companion restart sealed nothing twice; after the restart the old gateway refuses connections,
+    an old cookie is no grant, and the saved jobs are there; no answer names a worker port.
+  - **Failed check:** "each app names its installed source": Animate's package record has no commit, so the listing showed
+    none. Fixed after the run in cae6a6b7 (the archive's label is named); not part of this candidate.
+  - **Not established:** the Rive status face's motion (the screencast's changed regions were the 3D viewport); the tldraw
+    licence verdict (no watermark element and no licence console line on 127.0.0.1, where tldraw shows neither anyway);
+    two principals on the Mac (no sign-in is configured there; two-principal isolation is covered by FAKE-principal tests
+    only); the worker port's own loopback exposure (unchanged; the owner's change).
+  - An earlier attempt the same hour stopped at the isolation step on a driver error (it named projects by name, which the
+    companion does not resolve); kept as run, labelled incomplete.
