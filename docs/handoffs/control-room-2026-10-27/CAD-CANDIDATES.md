@@ -25,6 +25,12 @@ Use the retained SolidCraft source/probes above; do not repeat that investigatio
 
 Mixar/Blender OSS and control interfaces are candidate ingredients for the same owner-controlled workflow, not established integrations in this packet. Blender's supported Python/API execution should preserve editable native artifacts. Mixar identity, revision, license and supported interface still require specific source verification before an adoption claim. No new Mixar or Blender probe ran for this update.
 
+### Existing animation setup — operator update
+
+The operator reports **Blender 5.2 with Maya Workflow Kit already installed**, and selects **5.2 rather than 5.3 beta** for this workflow. Include the kit's Maya-style Blender interaction and animation workflow in the Model Studio/native-engine inventory. Preserve the existing installation and native `.blend` projects; use Blender's Python API and executable scripts as the planned automation route, behind the shared Timmy job controller. Coordinate any adapter work with the existing owners.
+
+This records the operator's current setup; no installation, launch or compatibility check ran for this note. Maya-style operation inside Blender is distinct from a verified Autodesk Maya installation, Maya-native scripting or `.ma`/`.mb` file compatibility. Keep those capabilities separately identified until observed.
+
 Any actual adapter patch must first coordinate scope with **timmy-new-1, Model Studio owner**, and **Claude, shared host integrator**. Keep ongoing app/UI/theme work undisturbed. This packet supplies research and reviewable support, not a competing Model Studio implementation.
 
 ## Episode retention is separate from training admission
