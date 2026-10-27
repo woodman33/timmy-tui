@@ -731,3 +731,6 @@ const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(process.ar
 if (isMain) startMcpServer();
 
 export { llmCall, judgeLoop, redact, call as dispatchMcpTool };
+
+/** What `timmy mcp serve` declares on tools/list (name and description only): the app's Timmy MCP page reads this. */
+export const TIMMY_MCP_TOOLS: ReadonlyArray<{ name: string; description: string }> = TOOLS.map((t) => ({ name: t.name, description: t.description }));

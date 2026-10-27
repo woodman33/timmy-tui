@@ -206,7 +206,36 @@ function Inspector({ state, servers, onCall }) {
   );
 }
 
-export default function ToolsPage() {
+/** The Timmy MCP page: what `timmy mcp serve` declares, read from this Timmy's code (GET /api/panel/tools/timmy-mcp). */
+function TimmyMcp({ picked, pick }) {
+  const [r, setR] = useState(null);
+  const [f, setF] = useState('');
+  useEffect(() => { getJson(`${base}/timmy-mcp${q()}`).then(setR); }, []);
+  if (!r) return <Empty>Reading what Timmy serves…</Empty>;
+  if (!r.ok) return <Empty>{r.error || 'The companion did not answer.'}</Empty>;
+  const tools = (r.tools || []).filter((t) => !f || `${t.name} ${t.description}`.toLowerCase().includes(f.toLowerCase()));
+  return (
+    <>
+      <p className="ta-muted">Start it for another agent or editor with <code>{r.serve}</code> ({r.transport}). {r.read}.</p>
+      <label className="tx-tools-filter"><span className="tr-visually-hidden">Find a tool</span><input type="search" value={f} onChange={(e) => setF(e.target.value)} placeholder={`Find among ${(r.tools || []).length} tools`} /></label>
+      <table className="ta-table">
+        <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+        <tbody>
+          {tools.map((t) => (
+            <tr key={t.name} aria-selected={picked === t.name}>
+              <td><button type="button" className="tx-tools-name" onClick={() => pick(t.name)}>{t.name}</button></td>
+              <td className="ta-muted">{t.description.length > 140 ? `${t.description.slice(0, 140)}…` : t.description}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/** One page for three rail entries: Integrations (view 'integrations', page tools), MCP → CLI (view 'mcp', page mcp-cli), Timmy MCP (view 'timmy', page timmy-mcp). */
+export default function ToolsPage({ view = 'integrations' }) {
+  const [timmyTool, setTimmyTool] = useState(null);
   const config = useApp((s) => s.config);
   const inv = useInventory();
   const [state, setState] = useState(null);
@@ -243,41 +272,57 @@ export default function ToolsPage() {
           ) : null}
         </>
       );
+  const pageId = view === 'mcp' ? 'mcp-cli' : view === 'timmy' ? 'timmy-mcp' : 'tools';
+  const configuredBand = ['CONFIGURED', inv && inv.ok && inv.inventory ? <>{(inv.inventory.rows || []).filter(isConfigured).length} of {(inv.inventory.rows || []).length} <span className="ta-muted">· {inv.counts ? `${inv.counts.exercised} run here` : ''}</span></> : <span className="ta-muted">reading…</span>];
+  const serversBand = ['MCP SERVERS', servers ? (servers.ok ? <>{(servers.servers || []).length} configured <span className="ta-muted">· none started</span></> : <span className="ta-muted">{servers.error || 'not read'}</span>) : <span className="ta-muted">reading…</span>];
+  const callsBand = ['CALLS', calls ? (callRows.length ? <>{callRows.length}{calls.more ? `+${calls.more}` : ''} <span className="ta-muted">· last {callRows[0].tool} {clock(callRows[0].startedAt)}</span></> : <span className="ta-muted">none from this project yet</span>) : <span className="ta-muted">reading…</span>];
+  if (view === 'timmy') {
+    return (
+      <Page id={pageId} band={[serversBand, callsBand]}
+        context={timmyTool ? <><p className="tx-tools-title">{timmyTool}</p><p className="ta-muted">Declared by <code>timmy mcp serve</code>. Call it from another agent, or list Timmy’s server live from MCP → CLI once it is configured there.</p><button type="button" className="ta-link" onClick={() => goTo('mcp-cli')}>Open MCP → CLI →</button></> : <p className="ta-muted">Select a tool to see where it is called from.</p>}>
+        <Panel id="timmy-mcp" kicker="TIMMY’S OWN SERVER" title="The tools Timmy serves over MCP">
+          <TimmyMcp picked={timmyTool} pick={setTimmyTool} />
+        </Panel>
+      </Page>
+    );
+  }
+  if (view === 'mcp') {
+    return (
+      <Page id={pageId} band={[serversBand, callsBand]} context={context}>
+        <Panel id="inspector" kicker="MCP → CLI" title="List, check and call a server’s tools">
+          {state ? (state.ok === false ? <Empty>{state.error}</Empty> : <Inspector state={state} servers={servers} onCall={(c) => { setCall(c); setPicked(null); loadCalls(); loadInv(true); }} />) : <Empty>Reading the routes…</Empty>}
+        </Panel>
+        <Panel id="calls" kicker="RECORDS" title="This project’s MCP calls" tools={<Button onClick={loadCalls}>Read again</Button>}>
+          {!calls ? <Empty>Reading…</Empty> : !callRows.length ? <Empty>No MCP call was made in this project yet.</Empty> : (
+            <table className="ta-table">
+              <thead><tr><th>When</th><th>Tool</th><th>Route</th><th>Outcome</th><th>Receipt</th></tr></thead>
+              <tbody>
+                {callRows.map((c) => (
+                  <tr key={c.id} aria-selected={!!call && call.id === c.id}>
+                    <td>{day(c.startedAt)}</td>
+                    <td><button type="button" className="tx-tools-name" onClick={() => openCall(c.id)}>{c.tool}</button></td>
+                    <td>{c.route}</td>
+                    <td><StateWord word={c.outcome} /></td>
+                    <td>{c.receipt ? <><span className={c.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{c.receipt.verified ? '✓' : '✕'}</span> <code>{c.receipt.id}</code></> : <span className="ta-muted">none</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Panel>
+      </Page>
+    );
+  }
   return (
-    <Page id="tools"
+    <Page id={pageId}
       actions={<Button onClick={() => loadInv(true)}>Read this computer again</Button>}
-      band={[
-        ['CONFIGURED', inv && inv.ok && inv.inventory ? <>{(inv.inventory.rows || []).filter(isConfigured).length} of {(inv.inventory.rows || []).length} <span className="ta-muted">· {inv.counts ? `${inv.counts.exercised} run here` : ''}</span></> : <span className="ta-muted">reading…</span>],
-        ['MCP SERVERS', servers ? (servers.ok ? <>{(servers.servers || []).length} configured <span className="ta-muted">· none started</span></> : <span className="ta-muted">{servers.error || 'not read'}</span>) : <span className="ta-muted">reading…</span>],
-        ['CALLS', calls ? (callRows.length ? <>{callRows.length}{calls.more ? `+${calls.more}` : ''} <span className="ta-muted">· last {callRows[0].tool} {clock(callRows[0].startedAt)}</span></> : <span className="ta-muted">none from this project yet</span>) : <span className="ta-muted">reading…</span>],
-      ]}
+      band={[configuredBand, serversBand]}
       context={context}>
       <Panel id="integrations" kicker="INTEGRATIONS" title="Treg and the Canvas: installed, signed in, discovered, ran here, qualified">
         <Integrations />
       </Panel>
       <Panel id="inventory" kicker="WHAT TIMMY CAN USE" title="Capabilities on this computer">
         <Inventory inv={inv} group={group} setGroup={setGroup} picked={picked} pick={(id) => { setCall(null); setPicked(id); }} />
-      </Panel>
-      <Panel id="inspector" kicker="MCP" title="List, check and call a server’s tools">
-        {state ? (state.ok === false ? <Empty>{state.error}</Empty> : <Inspector state={state} servers={servers} onCall={(c) => { setCall(c); setPicked(null); loadCalls(); loadInv(true); }} />) : <Empty>Reading the routes…</Empty>}
-      </Panel>
-      <Panel id="calls" kicker="RECORDS" title="This project’s MCP calls" tools={<Button onClick={loadCalls}>Read again</Button>}>
-        {!calls ? <Empty>Reading…</Empty> : !callRows.length ? <Empty>No MCP call was made in this project yet.</Empty> : (
-          <table className="ta-table">
-            <thead><tr><th>When</th><th>Tool</th><th>Route</th><th>Outcome</th><th>Receipt</th></tr></thead>
-            <tbody>
-              {callRows.map((c) => (
-                <tr key={c.id} aria-selected={!!call && call.id === c.id}>
-                  <td>{day(c.startedAt)}</td>
-                  <td><button type="button" className="tx-tools-name" onClick={() => openCall(c.id)}>{c.tool}</button></td>
-                  <td>{c.route}</td>
-                  <td><StateWord word={c.outcome} /></td>
-                  <td>{c.receipt ? <><span className={c.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{c.receipt.verified ? '✓' : '✕'}</span> <code>{c.receipt.id}</code></> : <span className="ta-muted">none</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </Panel>
     </Page>
   );

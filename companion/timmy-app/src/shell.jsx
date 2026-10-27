@@ -102,15 +102,25 @@ export function Rail() {
       {GROUPS.map((g) => {
         const pages = PAGES.filter((p) => p.group === g.id);
         if (!pages.length) return null;
+        const items = pages.map((p) => (
+          <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id} title={p.title}>
+            <span className="ta-rail-glyph" aria-hidden="true">{p.glyph}</span>
+            <span className="ta-rail-title">{p.title}</span>
+          </button>
+        ));
+        // the WORKSPACES pages behind one disclosure: open while one of them is the page shown
+        if (g.disclosure) {
+          return (
+            <details key={g.id} className={`ta-rail-group ta-rail-${g.id} ta-rail-more`} open={pages.some((p) => p.id === page) || undefined}>
+              <summary className="ta-rail-label ta-rail-summary">{g.label}</summary>
+              <div role="group" aria-label={g.label}>{items}</div>
+            </details>
+          );
+        }
         return (
           <div key={g.id} className={`ta-rail-group ta-rail-${g.id}`} role="group" aria-label={g.label || (g.id === 'start' ? 'Start' : 'More')}>
             {g.label ? <p className="ta-rail-label">{g.label}</p> : null}
-            {pages.map((p) => (
-              <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id} title={p.title}>
-                <span className="ta-rail-glyph" aria-hidden="true">{p.glyph}</span>
-                <span className="ta-rail-title">{p.title}</span>
-              </button>
-            ))}
+            {items}
           </div>
         );
       })}

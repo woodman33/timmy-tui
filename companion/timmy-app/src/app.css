@@ -681,3 +681,14 @@ button.ta-cfg-pick:hover, button.ta-cfg-pick[aria-pressed="true"] { text-decorat
   .ta-floatbar.ta-toolsrow { flex-wrap: wrap; overflow-x: visible; }
 }
 @media (max-width: 420px) { .ta-phonebtn { padding: 0 8px; } }
+
+/* the 07:37 completion pass: the rail's WORKSPACES disclosure (Canvas, Workflows, Motion & 3D, VoxVision, Animate, Models) */
+.ta-rail-more > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; min-height: 28px; border-radius: 8px; }
+.ta-rail-more > summary::-webkit-details-marker { display: none; }
+.ta-rail-more > summary::after { content: "▸"; font-size: 10px; transition: transform var(--timmy-ui-motion-fast, 180ms) var(--timmy-ui-ease, ease); }
+.ta-rail-more[open] > summary::after { transform: rotate(90deg); }
+.ta-rail-more > summary:focus-visible { outline: 2px solid var(--timmy-ui-accent, #D6AA64); outline-offset: 2px; }
+.ta-rail-more > div { display: grid; gap: 1px; }
+.ta-app.is-slim .ta-rail-more > summary { display: flex; justify-content: center; font-size: 0; }
+.ta-app.is-slim .ta-rail-more > summary::after { content: "⋯"; font-size: 16px; transform: none; }
+@media (prefers-reduced-motion: reduce) { .ta-rail-more > summary::after { transition: none; } }

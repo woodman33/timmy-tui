@@ -1,7 +1,9 @@
 // R12: the pages of the rail beyond Chat, Models & accounts and Canvas (./chat.jsx, ./models.jsx, ./canvas.jsx: imported by
 // ../app.jsx). Each page owns its own file here (UI-OWNERSHIP.md).
+import { createElement } from 'react';
 import { pending } from './pending.jsx';
 import ToolsPage from './tools.jsx';
+import OpenHandsPage from './openhands.jsx';
 import HelpPage from './help.jsx';
 import SettingsPage from './settings.jsx';
 import VoxVisionPage from './voxvision.jsx';
@@ -24,6 +26,9 @@ export const PAGE_PARTS = {
   voxvision: VoxVisionPage,
   motion: MotionPage,
   tools: ToolsPage,
+  'mcp-cli': () => createElement(ToolsPage, { view: 'mcp' }),
+  'timmy-mcp': () => createElement(ToolsPage, { view: 'timmy' }),
+  openhands: OpenHandsPage,
   control: ControlPage,
   help: HelpPage,
   settings: SettingsPage,

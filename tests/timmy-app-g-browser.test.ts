@@ -81,6 +81,8 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
   };
   const go = async (page: Page, id: string): Promise<void> => {
     if (await page.locator('.ta-menu').isVisible()) { await page.click('.ta-menu'); await page.waitForSelector('.ta-rail.is-open'); }
+    // the WORKSPACES pages sit behind the rail's disclosure (the 07:37 pass): open it first when it is closed
+    if (await page.locator(`.ta-rail-more:not([open]) .ta-rail-item[data-nav="${id}"]`).count()) await page.click('.ta-rail-more > summary');
     await page.click(`.ta-rail-item[data-nav="${id}"]`);
     await page.waitForSelector(`.ta-page[data-page="${id}"]`, { timeout: 30_000 });
   };
@@ -205,7 +207,7 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     const frame = page.frameLocator('iframe[data-miniapp-frame="card-lab"]');
     await frame.locator(`[data-fake-run="${run}"]`).waitFor({ timeout: 30_000 });
     await shot(page, 'g3-card-lab-inspection');
-    // the theme contract v1 (the owner's interface): the launch path carried ?theme= and this page's exact origin; the frame
+    // the theme contract v1 (Card Lab 6f166d2d): the launch path carried ?theme=, the server gave the app this page’s exact origin; the frame
     // got the theme from this origin on load, and again when the person switched to Glacier — without a reload
     const body = frame.locator('body');
     expect(await body.getAttribute('data-initial-theme')).toBe('amber');

@@ -27,9 +27,9 @@ function useRuns() {
 }
 
 /** The review form: harness, model, task, time limit → the proposal (nothing starts until Approve and start). */
-function Launch({ onStarted }) {
+function Launch({ onStarted, only }) {
   const [h, setH] = useState(null);
-  const [harness, setHarness] = useState('qwen');
+  const [harness, setHarness] = useState(only || 'qwen');
   const [model, setModel] = useState('');
   const [task, setTask] = useState('');
   const [limit, setLimit] = useState(10);
@@ -58,11 +58,13 @@ function Launch({ onStarted }) {
   return (
     <form className="tx-ctl-launch" onSubmit={review} aria-label="Start a code-agent run">
       <div className="tx-ctl-launch-row">
-        <label className="tx-ctl-field"><span>Harness</span>
-          <select value={harness} onChange={(e) => { setHarness(e.target.value); setProposal(null); }}>
-            {hs.map((x) => <option key={x.id} value={x.id}>{x.title}{x.found ? '' : ' (not set up)'}</option>)}
-          </select>
-        </label>
+        {only ? null : (
+          <label className="tx-ctl-field"><span>Harness</span>
+            <select value={harness} onChange={(e) => { setHarness(e.target.value); setProposal(null); }}>
+              {hs.map((x) => <option key={x.id} value={x.id}>{x.title}{x.found ? '' : ' (not set up)'}</option>)}
+            </select>
+          </label>
+        )}
         <label className="tx-ctl-field"><span>Model (this computer’s Ollama)</span>
           {h.models && h.models.length ? (
             <select value={model} onChange={(e) => { setModel(e.target.value); setProposal(null); }}>
@@ -219,17 +221,18 @@ function RunCard({ r, theme, onChange }) {
   );
 }
 
-export function AgentRuns() {
+/** The AGENT RUNS panel; `only` (a harness id) keeps it to that harness: the OpenHands sandbox page's own runs. */
+export function AgentRuns({ only = null, title = 'Run a code agent on a copy of this project' } = {}) {
   const { runs, read } = useRuns();
   const theme = useApp((s) => s.theme);
-  const list = runs && runs.ok ? runs.runs || [] : [];
+  const list = (runs && runs.ok ? runs.runs || [] : []).filter((r) => !only || r.harness === only);
   const live = list.filter((r) => r.live).length;
   return (
-    <Panel id="agent-runs" kicker="AGENT RUNS" title="Run a code agent on a copy of this project"
+    <Panel id={only ? `agent-runs-${only}` : 'agent-runs'} kicker="AGENT RUNS" title={title}
       tools={live ? <StateWord word={`${live} running`} live /> : null}>
-      <Launch onStarted={() => read()} />
+      <Launch onStarted={() => read()} only={only} />
       {!runs ? <Empty>Reading the runs…</Empty> : !runs.ok ? <p className="ta-result" role="status">{said(runs)}</p>
-        : !list.length ? <Empty>No run yet. Review one above: OpenHands or Qwen Code, on a model of this computer.</Empty>
+        : !list.length ? <Empty>{only ? 'No run of this harness yet. Review one above, on a model of this computer.' : 'No run yet. Review one above: OpenHands or Qwen Code, on a model of this computer.'}</Empty>
           : <div className="tx-ctl-runs">{list.map((r) => <RunCard key={r.id} r={r} theme={theme} onChange={read} />)}</div>}
     </Panel>
   );

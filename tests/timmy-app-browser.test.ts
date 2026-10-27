@@ -87,6 +87,8 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
 
   const go = async (page: Page, id: string): Promise<void> => {
     if (await page.locator('.ta-menu').isVisible()) { await page.click('.ta-menu'); await page.waitForSelector('.ta-rail.is-open'); }
+    // the WORKSPACES pages sit behind the rail's disclosure (the 07:37 pass): open it first when it is closed
+    if (await page.locator(`.ta-rail-more:not([open]) .ta-rail-item[data-nav="${id}"]`).count()) await page.click('.ta-rail-more > summary');
     await page.click(`.ta-rail-item[data-nav="${id}"]`);
     await page.waitForSelector(`.ta-page[data-page="${id}"]`, { timeout: 30_000 });
   };
@@ -97,9 +99,12 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     const page = await open(1440, 900);
     await page.waitForSelector('.ta-page[data-page="chat"] .ta-title', { timeout: 60_000 });
     expect(page.url()).toBe(`${origin}/app`);
-    // R13: the APPS group (the four launch mini-apps) above WORK, and Timmy Animate in CREATE: 12 → 17 pages
-    expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['APPS', 'WORK', 'CREATE', 'CONNECT']);
-    expect(await page.locator('.ta-rail-item').count()).toBe(17);
+    // the 07:37 pass on the operator's 07:57 word: APPS (image, video, 3D, 2D animation), AGENTS, TOOLS on the rail, six more
+    // pages behind the WORKSPACES disclosure (closed while none of them is shown), Runs/Settings/Help at the foot: 20 pages
+    expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['APPS', 'AGENTS', 'TOOLS', 'WORKSPACES']);
+    expect(await page.locator('.ta-rail-item').count()).toBe(20);
+    expect(await page.locator('.ta-rail-item:visible').count()).toBe(14);
+    expect(await page.locator('.ta-rail-apps .ta-rail-title').allInnerTexts()).toEqual(['Image · Card Lab', 'Video · Film Room', '3D · Model Studio', '2D Animation · Stream Studio']);
     expect(await page.locator('.ta-rail-item[aria-current="page"]').innerText()).toContain('Chat');
     expect(await page.locator('.ta-page[data-page="chat"] .ta-band .ta-cell-k').allInnerTexts()).toEqual(['WORKSPACE', 'MODEL', 'AGENT', 'RECORDS']);
     // one Send (in the composer), and the chat's tools on its tools row
@@ -279,7 +284,7 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('.ta-rail.is-open'));
     // every page: nothing wider than the screen inside the page's own scroller
-    for (const id of ['chat', 'models', 'canvas', 'files', 'workflows', 'runs', 'voxvision', 'motion', 'tools', 'control', 'help', 'settings']) {
+    for (const id of ['chat', 'models', 'canvas', 'files', 'workflows', 'runs', 'voxvision', 'motion', 'tools', 'mcp-cli', 'timmy-mcp', 'openhands', 'control', 'help', 'settings']) {
       await go(page, id);
       await page.waitForTimeout(400);
       const over = await page.evaluate(() => { const w = document.querySelector('.ta-pagewrap')!; return Math.max(w.scrollWidth - w.clientWidth, document.documentElement.scrollWidth - document.documentElement.clientWidth); });
