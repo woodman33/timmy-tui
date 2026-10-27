@@ -458,3 +458,18 @@ Checklist section I (gaps I1–I11). Owner revisions adopted, each checked again
 - **Blockers kept, not passes:** the OpenHands runner image `timmy-oh-runner:1.21.0-attempts-1` is not built on the Mac
   (and no new paid run is authorized); Stream Studio's theme trust (query or referrer, any loopback origin) is asked of
   its owner and not claimed at parity; Card Lab's identity on a real card (A7) needs a card image.
+
+- **c6acfea on the Mac** (package sha256 `5be30d87…9763`; the driver's navigation and import-menu waits corrected):
+  launch passed; hosting and project switching 23/23; two users 12/12; Rive 7/7; commands 10/10; home store unchanged.
+  The journeys: 39 of 41. The theme into all four apps passed in Timmy's frame, both ways, without a reload (Card Lab and
+  Film Room Amber → Glacier → Amber; Model Studio and Stream Studio Glacier → Amber → Glacier; Stream not claimed at
+  parity); the reopened Files named the handoff (W9). Not passed: R (the rail was right; an earlier theme check had left
+  the person's choice on Amber, so its "Glacier first" part read Amber — split into its own check on a fresh profile), and
+  A7-live (Card Lab held: its provider call timed out at 90 s on the local model).
+  Its captures showed what the checks did not: an imported SVG drew as a broken image, a video could not be imported,
+  and an import on a full desk landed on a card. Fixed in 43ff2da (GET /api/files/media: from-apps/ only, images, SVG
+  with a sandboxing CSP, video).
+- **43ff2da on the Mac** (sha256 `e18ef003…e099`): the same stages all passed; the journeys 42 of 43. A fresh profile
+  opens in Glacier (RT); an imported SVG drew (960 px wide) and a Film Room clip played (WS2). Not passed: A7-live, as
+  above. Its capture showed the video placed to the right of the desk, out of the desk camera's reach: fixed in 790477f
+  (the Notes section when nothing on the desk is clear).
