@@ -107,6 +107,15 @@ export interface Receipt {
     agent: { run: string; outcome: string | null; receipt: string | null; deleted: number } | null;
     plan_sha256: string; task_sha256: string; stopped_by?: string;
   };
+  /** The 2026-10-27 shared-integrator order: a connector operation the companion ran (src/companion/connector-ops.ts): Treg's
+   *  tool, the route, whether it may charge, the approved quote and what Treg's answer says it charged (null: not stated),
+   *  the /mcp call it made and that call's own mcp.call receipt. Arguments are bound by their hash; no credential is here. */
+  connector?: {
+    connector: string; op: string; tool: string; route: string; paid: boolean; state: string; principal: string;
+    endpoint_id: string | null; args_sha256: string;
+    proposal?: string; price_op?: string; quote_usd?: number; quote_type?: string | null; request_sha256?: string; idempotency_key?: string;
+    charged_usd: number | null; charged_from?: string; mcp_call: string | null; mcp_receipt: string | null; stopped_in_flight?: boolean;
+  };
   /** Round R4 (lead): a fleet plan's prediction (sealed before it runs) or its run (src/fleet/**): the plan, the backend as it
    *  labels itself (FAKE for the offline backend), the isolation it gives, the counts kept apart (a delivery is never a
    *  verification), and whether this was a simulation. Upstream allocation, session and request ids stay in the plan's

@@ -11,6 +11,7 @@ import { Page, Panel } from '../shell.jsx';
 import { goTo, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
 import { ConfigureRow, isConfigured, readInventory, useInventory } from '../configure.jsx';
+import { Integrations } from './integrations.jsx';
 import './tools.css';
 
 const base = '/api/panel/tools';
@@ -251,6 +252,9 @@ export default function ToolsPage() {
         ['CALLS', calls ? (callRows.length ? <>{callRows.length}{calls.more ? `+${calls.more}` : ''} <span className="ta-muted">· last {callRows[0].tool} {clock(callRows[0].startedAt)}</span></> : <span className="ta-muted">none from this project yet</span>) : <span className="ta-muted">reading…</span>],
       ]}
       context={context}>
+      <Panel id="integrations" kicker="INTEGRATIONS" title="Treg and the Canvas: installed, signed in, discovered, ran here, qualified">
+        <Integrations />
+      </Panel>
       <Panel id="inventory" kicker="WHAT TIMMY CAN USE" title="Capabilities on this computer">
         <Inventory inv={inv} group={group} setGroup={setGroup} picked={picked} pick={(id) => { setCall(null); setPicked(id); }} />
       </Panel>

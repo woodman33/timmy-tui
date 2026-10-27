@@ -24,6 +24,10 @@ cd timmy-review-__REV__
 - **tldraw licence:** the key is never in this package. Set `TLDRAW_LICENSE_KEY`, or `TLDRAW_LICENSE_FILE` to a file with a
   `TLDRAW_LICENSE_KEY=…` line, or write that file's path on the one line of `tldraw-license.path` beside this README; it is
   read into the app's environment and never printed.
+- **Treg (Tools & integrations):** the review never reads your home's Treg sign-in on its own. Set `TREG_CONFIG` to the
+  absolute path of the file `treg login` wrote, or write that path on the one line of `treg-config.path` beside this README.
+  Timmy's own bridge reads it for each request; its token never reaches a page, record or receipt. Catalog lookups and the
+  balance are free; a paid call runs only after you approve its quoted price, once, without retry.
 - **The terminal is still here:** `./timmy-review` opens the terminal Workbench on the active project (the same sandbox);
   `./review.sh repl` the REPL; `./review.sh timmy video …` and `./review.sh timmy animate …` drive Film Room and Timmy
   Animate from the terminal through the same host, each job receipted. `timmy` alone is your installed timmy, not this

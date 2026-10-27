@@ -55,6 +55,7 @@ need_node() {
 # process) and TIMMY_RERUN (the rerun program Timmy reads recordings with), TZ, and (R11 round 4) the companion's identity
 # provider: CLERK_PUBLISHABLE_KEY and CLERK_JWT_KEY (or CLERK_SECRET_KEY) — without them the companion runs as this computer's
 # (R11 round 6: and TLDRAW_LICENSE_KEY for the Studio's tldraw license — passed through, never printed; the SDK checks it in the page)
+# (the 2026-10-27 integrator order: and TREG_CONFIG, the path of the Treg CLI's sign-in file — a path, never its contents)
 # operator and its account screen names them; no model key passes this way
 run() {
   mkdir -p "$H" "$WORK" "$BOX/tmp" "$BOX/tmux" "$BOX/mcp-home/.mcporter"
@@ -71,7 +72,7 @@ run() {
     ${TZ:+TZ="$TZ"} \
     ${CLERK_PUBLISHABLE_KEY:+CLERK_PUBLISHABLE_KEY="$CLERK_PUBLISHABLE_KEY"} ${CLERK_JWT_KEY:+CLERK_JWT_KEY="$CLERK_JWT_KEY"} \
     ${CLERK_SECRET_KEY:+CLERK_SECRET_KEY="$CLERK_SECRET_KEY"} \
-    ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} \
+    ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} ${TREG_CONFIG:+TREG_CONFIG="$TREG_CONFIG"} \
     ${CARDLAB_VISION_ENDPOINT:+CARDLAB_VISION_ENDPOINT="$CARDLAB_VISION_ENDPOINT"} ${CARDLAB_VISION_MODEL:+CARDLAB_VISION_MODEL="$CARDLAB_VISION_MODEL"} \
     ${CARDLAB_OLLAMA_MODEL:+CARDLAB_OLLAMA_MODEL="$CARDLAB_OLLAMA_MODEL"} \
     ${TIMMY_MODEL_STUDIO_DIR:+TIMMY_MODEL_STUDIO_DIR="$TIMMY_MODEL_STUDIO_DIR"} ${TIMMY_CARD_LAB_DIR:+TIMMY_CARD_LAB_DIR="$TIMMY_CARD_LAB_DIR"} \
@@ -131,6 +132,19 @@ license_key() {
   [ -r "$f" ] || { say "tldraw licence key: the file named cannot be read ($f): the Canvas will say unlicensed"; return 0; }
   k="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}\(VITE_\)\{0,1\}TLDRAW_LICENSE_KEY[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([^"'"'"'[:space:]#]*\).*/\3/p' "$f" | head -n 1)"
   if [ -n "$k" ]; then TLDRAW_LICENSE_KEY="$k"; export TLDRAW_LICENSE_KEY; say "tldraw licence key: read from $f (not printed)"; else say "tldraw licence key: no key line in $f: the Canvas will say unlicensed"; fi
+}
+
+# The 2026-10-27 integrator order: the Treg sign-in for Tools & integrations, never read from the review's own sandbox home
+# unless you name it: TREG_CONFIG when it is set (the absolute path of the file `treg login` wrote), else the path on the one
+# line of treg-config.path beside this script (a path you write there yourself; ~ is your home). The file's contents are never
+# read here or printed; Timmy's bridge reads it for each Treg request. Without one, Treg says "not signed in".
+treg_config() {
+  local f="${TREG_CONFIG:-}"
+  if [ -z "$f" ] && [ -f "$HERE/treg-config.path" ]; then f="$(head -n 1 "$HERE/treg-config.path")"; f="${f/#\~/$HOME}"; fi
+  [ -n "$f" ] || { say "Treg sign-in: none named (Tools & integrations will say not signed in; see README.md)"; return 0; }
+  case "$f" in /*) ;; *) say "Treg sign-in: the path named is not absolute: not used"; return 0 ;; esac
+  [ -r "$f" ] || say "Treg sign-in: the file named cannot be read: Tools & integrations will say so"
+  TREG_CONFIG="$f"; export TREG_CONFIG; say "Treg sign-in: the file you named (its contents are not read here)"
 }
 
 need_install() { [ -x "$PREFIX/node_modules/.bin/timmy" ] || die "not installed yet: run ./review.sh install first" 2; need_node; }
@@ -256,7 +270,7 @@ HELP
     ;;
   app)
     need_install
-    license_key
+    license_key; treg_config
     mini_apps
     # (R13: the one command that opens a browser: the app's page, through Timmy's private launch page; every other command
     # keeps TIMMY_LOGS_OPEN=0, so the Workbench, logs and watch never open one)
@@ -264,7 +278,7 @@ HELP
     ;;
   workbench|repl|watch)
     need_install
-    license_key
+    license_key; treg_config
     mini_apps
     DIR="$(start_dir)"
     if [ "$cmd" = repl ]; then ( cd "$DIR" && run timmy "$@" ); else ( cd "$DIR" && run timmy "$cmd" "$@" ); fi
@@ -272,13 +286,13 @@ HELP
   timmy)
     need_install
     # (the owners' apps the package carries, for timmy video, timmy animate and the agent's and MCP's Animate tools)
-    license_key
+    license_key; treg_config
     mini_apps
     ( cd "$(start_dir)" && run timmy "$@" )
     ;;
   shell)
     need_install
-    license_key
+    license_key; treg_config
     mini_apps
     say "A shell in the review's environment (Timmy $REV). Type timmy ...; exit to leave."
     ( cd "$(start_dir)" && run bash --norc --noprofile -i )

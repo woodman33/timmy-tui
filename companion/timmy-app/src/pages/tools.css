@@ -26,3 +26,25 @@
 @media (max-width: 760px) { .tx-tools-field select { min-width: 0; width: 100%; } .tx-tools-controls > * { flex: 1 1 100%; } .tx-tools-table th:nth-child(3), .tx-tools-table td:nth-child(3) { display: none; } }
 /* the selected capability or call stays in view while the inspector scrolls */
 @media (min-width: 901px) { .ta-page[data-page="tools"] .ta-context { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 160px); } }
+
+/* the 2026-10-27 integrator order: the Integrations cards (pages/integrations.jsx) */
+.tx-int-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+.tx-int-card { display: grid; gap: 10px; min-width: 0; padding: 12px 14px; border: 1px solid var(--ta-edge); border-radius: 12px; background: var(--ta-sunk); }
+.tx-int-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.tx-int-title { margin: 0; font-size: 15px; font-weight: 600; }
+.tx-int-ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tx-int-ladder li { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13px; }
+.tx-int-words { overflow-wrap: anywhere; color: var(--timmy-ui-text, #ECF1F5); }
+.tx-int-next { margin: 0; font-size: 13px; }
+.tx-int-next .ta-context-k { margin-right: 6px; }
+.tx-int-controls, .tx-int-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.tx-int-form .tx-tools-field { flex: 1 1 240px; }
+.tx-int-input { font: inherit; font-size: 13px; color: var(--timmy-ui-text, #ECF1F5); padding: 7px 10px; border-radius: 8px; border: 1px solid #536b835c; background: linear-gradient(145deg, #0e151e, #182431); min-height: 36px; box-sizing: border-box; width: 100%; }
+.tx-int-hits { margin: 0; padding-left: 1.1em; display: grid; gap: 3px; font-size: 12.5px; }
+.tx-int-propose, .tx-int-proposal, .tx-int-op { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ta-edge); }
+.tx-int-proposal { padding: 10px 12px; border: 1px solid var(--timmy-ui-focus, #FFB000); border-radius: 10px; }
+.tx-int-quote { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.tx-int-price { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tx-int-ops td:nth-child(4) { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .tx-int-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .tx-int-ladder li { grid-template-columns: minmax(0, 1fr); gap: 2px; } .tx-int-ops th:nth-child(1), .tx-int-ops td:nth-child(1) { display: none; } }

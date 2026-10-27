@@ -32,6 +32,7 @@ const initial = {
   projectId: null,
   license: null, // the canvas SDK's own licence readout (pages/canvas.jsx, license-state.js), once the Canvas opened
   canvasIo: null, // { export(), import() } while the Canvas is open
+  canvasNote: null, // { text, from }: a host operation's result to put on the Canvas desk as a note (Tools & integrations)
   theme: read(THEME, 'amber') === 'glacier' ? 'glacier' : 'amber',
   /** 'unasked' | 'granted' | 'declined': whether this page may ask the Ollama on this computer for its list of models */
   localPermission: ['granted', 'declined'].includes(read(LOCAL_PERMISSION, '')) ? read(LOCAL_PERMISSION, '') : 'unasked',
@@ -279,4 +280,7 @@ export function say(note) { set({ note }); }
 export const projectGeneration = () => generation;
 export function setLicense(license) { set({ license }); }
 export function setCanvasIo(canvasIo) { set({ canvasIo }); }
+/** A host operation's result, put on the Canvas desk as a note the next time the desk opens (the 2026-10-27 order's tldraw card). */
+export function placeOnCanvas(text, from) { set({ canvasNote: { text: String(text || '').slice(0, 1200), from: from || null, at: Date.now() } }); goTo('canvas'); }
+export function takeCanvasNote() { const n = state.canvasNote; if (!n) return null; set({ canvasNote: null }); return n; }
 export { call };

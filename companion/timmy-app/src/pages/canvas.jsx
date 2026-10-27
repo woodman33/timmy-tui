@@ -20,7 +20,7 @@ import { timmyThemes } from '../../../studio-canvas/src/theme.js';
 import { chosenOf, providerName, whereOf } from '../models-parts.jsx';
 import { Page, Tool } from '../shell.jsx';
 import { getJson, postJson } from '../api.js';
-import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, useApp } from '../store.js';
+import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
@@ -253,6 +253,26 @@ export function addNode(editor, node) {
   return id;
 }
 
+/** A note with text on the desk where there is room (a host operation's result: its words, operation and receipt). */
+export function placeNote(editor, text) {
+  const id = createShapeId();
+  // in the Notes section where it is free (a note at 0.8 is 160 units wide, about 250 tall with these lines), else where
+  // the desk has room for it whole
+  const W = 168; const H = 250;
+  const sec = SECTIONS.find((x) => x.id === 'notes');
+  const taken = editor.getCurrentPageShapes().map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
+  const free = (x, y) => !taken.some((b) => x < b.x + b.w + 12 && x + W + 12 > b.x && y < b.y + b.h + 12 && y + H + 12 > b.y);
+  let at = null;
+  for (let y = sec.y + 24; !at && y + H <= sec.y + sec.h + 4; y += 10) for (let x = sec.x + 8; !at && x + W <= sec.x + sec.w; x += 10) if (free(x, y)) at = { x, y };
+  editor.run(() => {
+    const p = at || placeFor(editor, W, H);
+    editor.createShape({ id, type: 'note', x: p.x, y: p.y, props: { richText: toRichText(String(text || '')), size: 's', scale: 0.8 } });
+    editor.select(id);
+  });
+  focusShape(editor, id);
+  return id;
+}
+
 /** A new action button's words and the request it sends (the person changes both in the context column). */
 export const ACTION = Object.freeze({ label: 'Ask Timmy', request: 'List the files in this project and say in one line what each is for.' });
 /** The request an action button sends: its own (the shape's meta), else its label. */
@@ -457,6 +477,9 @@ const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
         editor.on('resize', onResize);
         const stopLicense = license.watch(editor, (r) => setLicense(r));
         onEditor(editor);
+        // a host operation's result sent here from Tools & integrations: a note on the desk (kept with it), selected
+        const pending = keeper ? takeCanvasNote() : null;
+        if (pending) placeNote(editor, pending.text);
         const mine = keeper;
         return () => { editor.off('resize', onResize); stopLicense(); if (mine) mine.stop(); if (keeper === mine) keeper = null; if (current === editor) current = null; onEditor(null); };
       }}

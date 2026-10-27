@@ -150,6 +150,7 @@ import { connectSrcFor } from './identity/config.js';
 import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
 import { mountMiniApps } from './miniapps/routes.js';
 import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
+import { ConnectorOps, mountConnectorOps, type ConnectorDeps } from './connector-ops.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
@@ -237,6 +238,8 @@ export interface CompanionOptions {
   workspace?: WorkspaceDeps;
   /** the Control Room's runs (tests: a FAKE `timmy act` and a FAKE Ollama list); the real CLI and fetch when absent */
   controlRuns?: ControlDeps;
+  /** test seams for the Treg connector's operations (the timmy command, a FAKE MCP server for the bridge) */
+  connectorOps?: ConnectorDeps;
   /**
    * R11 round 4 (H173): the identity routes' seams (a test's FAKE Clerk folder, origins, JWKS address or clock). The
    * configuration itself is read from `workspace.env` when given, else this process's environment (identityConfig).
@@ -918,6 +921,21 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       return { principal: own ? `user:${u.id}` : 'operator', project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
     },
   });
+  // The 2026-10-27 shared-integrator order: Treg through the host's job model (src/companion/connector-ops.ts) — discovery, a
+  // price preview, a paid call only from an approved proposal, its result, cost and receipt — for the operator only (the
+  // sign-in is the operator's Treg CLI login, read by Timmy's bridge and never sent to a page); stopped with the companion
+  const connectorOps = new ConnectorOps(options.connectorOps);
+  mountConnectorOps(app, {
+    withToken, withUser: withUserOrOperator, json: express.json({ limit: '32kb' }), ops: connectorOps,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', operator: !own, project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+  });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
@@ -1113,7 +1131,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         httpServer.closeAllConnections();
       });
       await miniApps.stopAll();
-      await controlRuns.stopAll();
+      await Promise.all([controlRuns.stopAll(), connectorOps.stopAll()]);
       await noteSelf('stopped');
     },
     setState: (state: string) => {
