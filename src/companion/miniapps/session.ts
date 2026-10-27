@@ -23,6 +23,12 @@ export interface AppSession {
   request: HostedApp['request'];
   /** seal what has ended now; the receipts sealed (ids) */
   sealNow(): Promise<string[]>;
+  /**
+   * Seals until this job's receipt is in the chain, or `ms` passes (R13, the Mac run of d1228ee): an app's API can say a job
+   * ended before its own record does (Timmy Animate writes job.json cancelled once Blender has exited), and the receipt is
+   * sealed from the record. The receipts for the job, empty when the record never said it ended in time.
+   */
+  sealFor(jobId: string, ms?: number): Promise<Array<{ id: string; status: string; state: string | undefined }>>;
   /** every receipt sealed for this app's job in this project (newest last), read from the chain */
   receiptsOf(jobId: string): Array<{ id: string; status: string; state: string | undefined }>;
   /** stop the worker (after one last read of its jobs); what was sealed in that read */
@@ -56,13 +62,20 @@ export async function openAppSession(appId: string, o: OpenOptions = {}): Promis
       known: () => readChain('runs', project.root).filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && r.miniapp?.principal === 'operator' && typeof r.job?.id === 'string').map((r) => r.job!.id),
     });
   } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+  const receiptsOf = (jobId: string) => readChain('runs', project.root)
+    .filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && (r.job?.id === jobId || String(r.job?.id ?? '').startsWith(`${jobId}/`)))
+    .map((r) => ({ id: r.id, status: String(r.status), state: r.job?.state }));
   return {
     spec, project, app,
     request: (...a) => app.request(...a),
     sealNow: () => app.sealNow(),
-    receiptsOf: (jobId) => readChain('runs', project.root)
-      .filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && (r.job?.id === jobId || String(r.job?.id ?? '').startsWith(`${jobId}/`)))
-      .map((r) => ({ id: r.id, status: String(r.status), state: r.job?.state })),
+    receiptsOf,
+    sealFor: async (jobId, ms = 15_000) => {
+      const end = Date.now() + ms;
+      await app.sealNow();
+      while (!receiptsOf(jobId).length && Date.now() < end) { await new Promise((r) => setTimeout(r, 250)); await app.sealNow(); }
+      return receiptsOf(jobId);
+    },
     close: () => app.stop(),
   };
 }

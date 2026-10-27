@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
   const jm = /^\/api\/jobs\/([a-f0-9-]{36})(\/cancel)?$/.exec(url.pathname);
   if (jm) {
     const j = jobs.get(jm[1]); if (!j) return send(404, { error: 'Job not found' });
-    if (jm[2] && req.method === 'POST') { const k = film ? 'state' : 'status'; if (j[k] === 'running') { j[k] = 'cancelled'; save(j); } }
+    if (jm[2] && req.method === 'POST') { const k = film ? 'state' : 'status'; if (j[k] === 'running') { j[k] = 'cancelled'; if (film) save(j); else setTimeout(() => save(j), 700); } } // (Animate, as the real app: its API says cancelled at once, its job.json once Blender has exited)
     return send(200, j);
   }
   return send(404, { error: 'Route not found' });

@@ -68,7 +68,7 @@ export async function callAnimateTool(name: string, input: unknown = {}, env: Re
       const timer = args.cancelAfterSeconds !== undefined ? setTimeout(() => { void s.request('POST', `/api/jobs/${job.id}/cancel`, {}); }, args.cancelAfterSeconds * 1000) : null;
       const end = await waitFor(async () => (await s.request('GET', `/api/jobs/${job.id}`)).json as { status?: string; error?: string; artifacts?: Array<{ name: string; bytes?: number }> } | null, (j) => !j || !['queued', 'running'].includes(String(j.status)), 600_000);
       if (timer) clearTimeout(timer);
-      await s.sealNow();
+      await s.sealFor(job.id);
       await s.close();
       return { ok: end?.status === 'succeeded', app: 'animate', project: s.project.name, job: job.id, state: end?.status ?? 'unknown', ...(end?.error ? { error: end.error } : {}), artifacts: (end?.artifacts ?? []).map((a) => ({ name: a.name, bytes: a.bytes })), receipts: s.receiptsOf(job.id) };
     } finally { await s.close(); }

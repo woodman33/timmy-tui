@@ -37,8 +37,8 @@ async function runJob(s: AppSession, o: { started: unknown; read: (id: string) =
   const end = await waitFor(() => o.read(id), o.ended, 600_000);
   if (timer) clearTimeout(timer);
   process.removeListener('SIGINT', onSig);
-  // (the receipt: the app's own end word, sealed now; then the worker stops after one more read)
-  await s.sealNow();
+  // (the receipt: the app's own end word, sealed from its record once the record says it ended; then the worker stops)
+  await s.sealFor(id);
   await s.close();
   const receipts = s.receiptsOf(id);
   const state = o.stateOf(end);

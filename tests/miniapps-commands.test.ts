@@ -95,6 +95,11 @@ describe('timmy video and timmy animate through the C1 host (FAKE app)', () => {
       expect(await runAnimateCli(['render', good], io())).toBe(0);
       expect(chain().at(-1)).toMatchObject({ status: 'ok', job: { state: 'succeeded' } });
       expect(chain().at(-1)!.outputs!.map((o) => o.sha256)).toEqual([createHash('sha256').update('FAKE scene.blend').digest('hex'), createHash('sha256').update('FAKE preview.png').digest('hex')]);
+      // a cancel: the app's API says cancelled at once, its job.json later (as Blender exits); the command waits for that
+      // record and prints the receipt sealed from it (R13, the Mac run of d1228ee printed none)
+      lines.length = 0;
+      expect(await runAnimateCli(['render', good, '--cancel-after', '0.05'], io())).toBe(130);
+      expect(lines.join('\n')).toMatch(/: cancelled \(cancel asked\)\.\nreceipt rc_\S+: cancelled \(the app said cancelled\)/);
       lines.length = 0;
       expect(await runAnimateCli(['example', join(box, 'x.json')], { ...io(), env: { ...env, TIMMY_ANIMATE_DIR: join(box, 'nowhere') } })).toBe(2);
       expect(lines.join('\n')).toMatch(/authoring commands are not installed here/);
