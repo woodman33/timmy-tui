@@ -57,14 +57,35 @@ export function deskBounds(editor) {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 /** The camera held on the desk (tldraw's own constraints: contain, fit at most 100 %, the wheel pans). */
+/** A phone's stage (the page stacks at 900 px): there Fit is the Overview, the whole desk in view. */
+export const phoneStage = (editor) => editor.getViewportScreenBounds().w < 650;
 export function holdDesk(editor) {
   const vp = editor.getViewportScreenBounds();
-  const padding = { x: vp.w < 650 ? 12 : 24, y: 24 };
+  const phone = vp.w < 650;
+  const padding = { x: phone ? 12 : 24, y: phone ? 12 : 24 };
   editor.setCameraOptions({
-    isLocked: false, panSpeed: 1, zoomSpeed: 0.8, wheelBehavior: 'pan', zoomSteps: [...ZOOM_STEPS],
-    // fit the rows' height (never closer than 100 %), start at the rows' left end; the rows run on to the right
-    constraints: { bounds: deskBounds(editor), padding, origin: { x: 0, y: 0.5 }, initialZoom: 'fit-y-100', baseZoom: 'fit-y-100', behavior: 'contain' },
+    isLocked: false, panSpeed: 1, zoomSpeed: 0.8, wheelBehavior: 'pan', zoomSteps: phone ? [0.1, 0.25, ...ZOOM_STEPS.slice(1)] : [...ZOOM_STEPS],
+    // wide: fit the rows' height (never closer than 100 %), start at the rows' left end; the rows run on to the right. A phone
+    // (G5): the whole desk in view first, its Overview, so no card or tool starts out of reach; a card is read by focusing it
+    constraints: phone
+      ? { bounds: deskBounds(editor), padding, origin: { x: 0.5, y: 0.5 }, initialZoom: 'fit-max', baseZoom: 'fit-max', behavior: 'contain' }
+      : { bounds: deskBounds(editor), padding, origin: { x: 0, y: 0.5 }, initialZoom: 'fit-y-100', baseZoom: 'fit-y-100', behavior: 'contain' },
   });
+}
+
+/** The desk's cards and Rive components, in reading order (the rows, then left to right): what "Next card" steps through. */
+export function deskCards(editor) {
+  return editor.getCurrentPageShapes().filter((x) => x.type === CARD_SHAPE || x.type === RIVE_SHAPE)
+    .sort((a, b) => (Math.abs(a.y - b.y) > 120 ? a.y - b.y : a.x - b.x));
+}
+/** A card brought to the front of the view: selected and zoomed to (its words readable), the inspector showing it. */
+export function focusShape(editor, id) {
+  editor.select(id);
+  const b = editor.getShapePageBounds(id);
+  if (!b) return;
+  // after the inspector has opened under the stage (a resize re-holds the camera), the card fills the stage's width
+  const go = () => { const vp = editor.getViewportScreenBounds(); editor.zoomToBounds(b, { inset: 16, targetZoom: Math.min(2, Math.max(0.25, (vp.w - 32) / b.w)), animation: { duration: quick() } }); };
+  requestAnimationFrame(() => requestAnimationFrame(go));
 }
 export function fitDesk(editor, animate = true) {
   holdDesk(editor);
@@ -503,10 +524,48 @@ function DeskTools({ editor }) {
   );
 }
 
-const PROVIDERS = ['ollama-local', 'openrouter', 'ollama-cloud', 'cloudflare'];
+/** The page stacks at 900 px (app.css): there the Canvas gives its controls as buttons in one bar under the stage. */
+function usePhone() {
+  const q = '(max-width: 900px)';
+  const [on, setOn] = useState(() => typeof matchMedia === 'function' && matchMedia(q).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return undefined;
+    const m = matchMedia(q); const f = () => setOn(m.matches);
+    m.addEventListener('change', f); return () => m.removeEventListener('change', f);
+  }, []);
+  return on;
+}
 
-/** Sends an action button's request as a real turn of this project (the Chat's own POST /api/chat/turn), when none runs. */
-export function runAction(shape) {
+/**
+ * G5: a phone's Canvas, every action a button (no gesture to guess): Overview (the whole desk), the card before and after
+ * (each focused: zoomed to and shown in the inspector), Undo and Redo, and the rest of the tools behind "Tools". Pinch and
+ * drag still pan and zoom; nothing here takes them away.
+ */
+function PhoneBar({ editor, toolsOpen, onTools }) {
+  const cards = useValue('timmy desk: cards', () => (editor ? deskCards(editor).map((x) => x.id) : []), [editor]);
+  const sel = useValue('timmy desk: one', () => (editor && editor.getSelectedShapeIds().length === 1 ? editor.getSelectedShapeIds()[0] : null), [editor]);
+  const canUndo = useValue('timmy desk: undo', () => (editor ? editor.getCanUndo() : false), [editor]);
+  const canRedo = useValue('timmy desk: redo', () => (editor ? editor.getCanRedo() : false), [editor]);
+  const at = sel ? cards.indexOf(sel) : -1;
+  const step = (d) => { if (!editor || !cards.length) return; const i = at < 0 ? (d > 0 ? 0 : cards.length - 1) : (at + d + cards.length) % cards.length; focusShape(editor, cards[i]); };
+  const off = !editor;
+  return (
+    <div className="ta-phonebar" role="toolbar" aria-label="Canvas controls">
+      <button type="button" className="ta-phonebtn is-primary" disabled={off} onClick={() => { editor.selectNone(); fitDesk(editor); }} data-phone="overview"><span aria-hidden="true">⛶</span> Overview</button>
+      <span />
+      <button type="button" className="ta-phonebtn" aria-expanded={toolsOpen} onClick={onTools} data-phone="tools">Tools {toolsOpen ? '▾' : '▸'}</button>
+      <div className="ta-phonebar-row is-cards">
+        <button type="button" className="ta-phonebtn" disabled={off || !cards.length} onClick={() => step(-1)} aria-label="The card before" data-phone="prev">◀</button>
+        <span className="ta-phonebar-at" aria-live="polite">{at >= 0 ? `Card ${at + 1} of ${cards.length}` : `${cards.length} cards`}</span>
+        <button type="button" className="ta-phonebtn" disabled={off || !cards.length} onClick={() => step(1)} aria-label="The next card" data-phone="next">▶</button>
+        <button type="button" className="ta-phonebtn" disabled={off || !canUndo} onClick={() => editor.undo()} aria-label="Undo" data-phone="undo">↶</button>
+        <button type="button" className="ta-phonebtn" disabled={off || !canRedo} onClick={() => editor.redo()} aria-label="Redo" data-phone="redo">↷</button>
+      </div>
+    </div>
+  );
+}
+
+function runAction(shape) {
   const request = requestOf(shape);
   const t = getState().turn;
   if (!request) { say('This action button has no request yet: write one in the context column.'); return false; }
@@ -652,8 +711,11 @@ const keepLayer = (v) => { try { localStorage.setItem(LAYER_KEY, JSON.stringify(
  * movable): dragged by its header within the stage (arrow keys on the header move it too), folded to its header and opened
  * again; where it was left is kept in this browser. On a phone it sits under the stage, unfolded.
  */
-function DeskLayer({ editor, kept }) {
+function DeskLayer({ editor, kept, phone }) {
   const [at, setAt] = useState(() => ({ folded: true, ...readLayer() }));
+  const chosen = useValue('timmy desk: chosen', () => (editor ? editor.getSelectedShapeIds().join(',') : ''), [editor]);
+  // a phone: choosing a card opens the inspector under the stage (its parameters readable at the phone's size)
+  useEffect(() => { if (phone && chosen) setAt((a) => (a.folded ? { ...a, folded: false } : a)); }, [phone, chosen]);
   const turn = useApp((s) => s.turn);
   // a tool waiting on the person opens the layer, whatever its fold (its answers are in it)
   const box = useRef(null);
@@ -741,7 +803,26 @@ export default function CanvasPage() {
       if (shape && shape.type === RIVE_SHAPE) runAction(shape);
     });
   }, [editor]);
+  // G6: a Rive face on the desk is drawn for the zoom it is seen at (tldraw scales the shape with a transform, which a canvas
+  // drawn at 100 % blurs): its drawing surface follows the camera's zoom, settled 150 ms after the zoom stops
+  useEffect(() => {
+    const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+    if (!R || !editor || typeof R.handles !== 'function') return undefined;
+    let t = null;
+    const sharpen = () => {
+      const z = editor.getZoomLevel();
+      const ratio = Math.min(4, (window.devicePixelRatio || 1) * Math.max(1, z));
+      for (const h of R.handles()) {
+        if (!h.rive || !h.hostEl || !h.hostEl.closest || !h.hostEl.closest('.ta-stage')) continue;
+        try { h.rive.resizeDrawingSurfaceToCanvas(ratio); } catch { /* drawn as it was */ }
+      }
+    };
+    const stop = react('timmy desk: rive sharpness', () => { editor.getZoomLevel(); clearTimeout(t); t = setTimeout(sharpen, 150); });
+    return () => { clearTimeout(t); stop(); };
+  }, [editor]);
   const shapes = useValue('timmy desk: count', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
+  const phone = usePhone();
+  const [toolsOpen, setToolsOpen] = useState(false);
   // the Canvas is the page: no head, no band, no column beside it; the inspector and the tools are layers on the stage
   return (
     <Page id="canvas" fill head={false}>
@@ -750,8 +831,9 @@ export default function CanvasPage() {
           : ready ? <p className="ta-empty ta-pad">Reading the project’s desk…</p>
           : <p className="ta-empty ta-pad">{config ? config.error || 'The companion did not answer.' : 'Opening the desk…'}</p>}
         {note ? <p className="ta-stage-note" role="status">{note}</p> : null}
-        <DeskLayer editor={editor} kept={kept} />
-        <div className="ta-floatbar ta-toolsrow" role="toolbar" aria-label="Canvas tools">
+        {phone ? <PhoneBar editor={editor} toolsOpen={toolsOpen} onTools={() => setToolsOpen(!toolsOpen)} /> : null}
+        <DeskLayer editor={editor} kept={kept} phone={phone} />
+        <div className={`ta-floatbar ta-toolsrow${phone && !toolsOpen ? ' is-phone-folded' : ''}`} role="toolbar" aria-label="Canvas tools">
           <DeskTools editor={editor} />
           {kept.phase === 'conflict' ? <Button kind="primary" onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
           <span className="ta-toolsrow-note" data-kept={kept.phase} title={keptWords(kept, config && config.project)}>{editor ? `${shapes} shape${shapes === 1 ? '' : 's'} · ` : ''}{deskWord(kept)}</span>

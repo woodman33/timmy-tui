@@ -662,3 +662,22 @@ button.ta-cfg-pick:hover, button.ta-cfg-pick[aria-pressed="true"] { text-decorat
 @media (prefers-reduced-motion: no-preference) { .ta-sheet[open] { animation: ta-sheet-in 200ms cubic-bezier(0.16, 1, 0.3, 1); } }
 @keyframes ta-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 .ta-dock-bad { color: var(--timmy-ui-focus, #FFB000); }
+
+/* G5: a phone's Canvas — one bar of buttons under the stage: Overview, the card before and after, Undo, Redo, Tools. */
+.ta-phonebar { display: none; }
+@media (max-width: 900px) {
+  /* the stage keeps its height whatever opens under it (the inspector, the tools): the page scrolls instead */
+  .ta-page[data-page="canvas"] .ta-stage { height: auto; }
+  .ta-stage.is-page > .tl-container { flex: none; height: min(58dvh, 520px); }
+  .ta-phonebar { order: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; margin-top: 10px; padding: 6px; border: 1px solid var(--ta-edge); border-radius: 14px; background: var(--ta-sunk); }
+  .ta-phonebar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .ta-phonebar-row.is-cards { grid-column: 1 / -1; }
+  .ta-phonebtn { min-width: 44px; min-height: 44px; padding: 0 10px; border: 1px solid var(--ta-edge); border-radius: 10px; background: none; color: var(--timmy-ui-text, #ECF1F5); font: inherit; font-size: 15px; cursor: pointer; white-space: nowrap; }
+  .ta-phonebtn.is-primary { border-color: var(--timmy-ui-accent, #D6AA64); color: var(--timmy-ui-accent, #D6AA64); }
+  .ta-phonebtn:disabled { opacity: .45; cursor: not-allowed; }
+  .ta-phonebtn:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+  .ta-phonebar-at { flex: 1 1 auto; min-width: 0; text-align: center; font-size: 13px; color: var(--timmy-ui-text-secondary, #BDCADA); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ta-floatbar.ta-toolsrow.is-phone-folded { display: none; }
+  .ta-floatbar.ta-toolsrow { flex-wrap: wrap; overflow-x: visible; }
+}
+@media (max-width: 420px) { .ta-phonebtn { padding: 0 8px; } }

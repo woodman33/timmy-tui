@@ -107,6 +107,57 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.context().close();
   }, 120_000);
 
+  it('G5: a phone\'s Canvas opens on the whole desk; Overview, the cards one by one (focused, the inspector open), Undo, Redo and the tools are buttons', async () => {
+    const page = await open(390, 844);
+    await go(page, 'canvas');
+    await page.waitForSelector('.ta-stage .tl-container .tl-shape', { timeout: 60_000 });
+    await page.waitForTimeout(800);
+    const inView = async () => page.evaluate(() => {
+      const c = document.querySelector('.ta-stage .tl-container')!.getBoundingClientRect();
+      const shapes = [...document.querySelectorAll('.ta-stage .tl-shape')].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 4);
+      return { n: shapes.length, out: shapes.filter((r) => r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1).length };
+    });
+    const first = await inView();
+    expect(first.n).toBeGreaterThan(3);
+    expect(first.out, 'shapes outside the phone\'s stage at its opening view').toBe(0);
+    await shot(page, 'g5-phone-canvas-overview');
+    // every control is a visible button of at least 44 px
+    for (const k of ['overview', 'prev', 'next', 'undo', 'redo', 'tools']) {
+      const b = await page.locator(`[data-phone="${k}"]`).boundingBox();
+      expect(b && b.height >= 44 && b.width >= 44 && b.x >= 0 && b.x + b.width <= 390, k).toBe(true);
+    }
+    // the next card: selected, zoomed to, the inspector open with its parameters
+    await page.click('[data-phone="next"]');
+    await expect.poll(() => page.locator('.ta-phonebar-at').innerText()).toMatch(/^Card 1 of \d+$/);
+    await page.waitForTimeout(500);
+    expect(await page.locator('.ta-layer').getAttribute('class')).not.toContain('is-folded');
+    expect(await page.locator('.ta-layer .ta-inspect-title').innerText()).not.toBe('Nothing selected');
+    await shot(page, 'g5-phone-canvas-focused');
+    await page.click('[data-phone="next"]');
+    await expect.poll(() => page.locator('.ta-phonebar-at').innerText()).toMatch(/^Card 2 of \d+$/);
+    // the tools behind Tools: a note added, then undone and redone with the bar's buttons
+    expect(await page.locator('.ta-floatbar.ta-toolsrow').isVisible()).toBe(false);
+    await page.click('[data-phone="tools"]');
+    await page.waitForSelector('.ta-floatbar.ta-toolsrow [data-tool="Nodes"]');
+    const before = await page.locator('.ta-stage .tl-shape').count();
+    await page.click('.ta-floatbar [data-tool="Nodes"]');
+    await page.click('.ta-popover-item[data-node="note"]');
+    await page.waitForFunction((n) => document.querySelectorAll('.ta-stage .tl-shape').length > n, before);
+    await page.click('[data-phone="undo"]');
+    await page.waitForFunction((n) => document.querySelectorAll('.ta-stage .tl-shape').length === n, before);
+    await page.click('[data-phone="redo"]');
+    await page.waitForFunction((n) => document.querySelectorAll('.ta-stage .tl-shape').length > n, before);
+    await page.click('[data-phone="undo"]');
+    // Overview: the whole desk again
+    await page.click('[data-phone="overview"]');
+    await page.waitForTimeout(500);
+    expect((await inView()).out).toBe(0);
+    expect(await page.locator('.ta-phonebar-at').innerText()).toMatch(/^\d+ cards$/);
+    const over = await page.evaluate(() => { const w = document.querySelector('.ta-pagewrap')!; return w.scrollWidth - w.clientWidth; });
+    expect(over).toBeLessThanOrEqual(0);
+    await page.context().close();
+  }, 180_000);
+
   it('G1: an ended run says one outcome, its changed file and its receipt; its history and log are in Details', async () => {
     const page = await open(1440, 900);
     await go(page, 'control');
