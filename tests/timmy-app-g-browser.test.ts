@@ -125,6 +125,14 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.click('[data-import="from-apps/animate/j1/frame.svg"]');
     await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"]').count(), { timeout: 20_000 }).toBe(2);
     await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.tl-shape[data-shape-type="image"] img')].map((i) => (i as HTMLImageElement).naturalWidth)), { timeout: 20_000 }).toEqual(expect.arrayContaining([120]));
+    // every import lands on the desk (inside what Fit workspace shows), never outside the camera's reach
+    // (the SVG again, five times: 120 × 80 each, until the free space runs out and the Notes section takes the rest)
+    for (let i = 0; i < 5; i++) { await page.click('[data-tool="Import"]'); await page.click('[data-import="from-apps/animate/j1/frame.svg"]'); await page.waitForTimeout(400); }
+    await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"]').count(), { timeout: 20_000 }).toBe(7);
+    await page.click('[data-tool="Fit workspace"]').catch(async () => page.click('button:has-text("Fit workspace")'));
+    await page.waitForTimeout(800);
+    const outside = await page.evaluate(() => { const c = document.querySelector('.ta-stage .tl-container')!.getBoundingClientRect(); return [...document.querySelectorAll('.tl-shape[data-shape-type="image"]')].map((e) => e.getBoundingClientRect()).filter((r) => r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1).length; });
+    expect(outside).toBe(0);
     // the media route serves only what an app delivered, and only media
     const media = await page.evaluate(async (t) => Promise.all(['from-apps/animate/j1/frame.svg', 'a.txt', 'from-apps/animate/j1/scene.json'].map(async (p) => { const r = await fetch(`/api/files/media?path=${encodeURIComponent(p)}`, { headers: { authorization: `Bearer ${t}` } }); return [r.status, r.headers.get('content-security-policy') || '']; })), token);
     expect(media[0][0]).toBe(200); expect(media[0][1]).toMatch(/sandbox/);

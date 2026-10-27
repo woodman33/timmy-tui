@@ -534,7 +534,7 @@ function DeskTools({ editor }) {
       <Tool glyph="⌖" label="Arrange" pressed={tool === 'select'} onClick={off ? null : () => set('select')} />
       <Tool glyph="✋" label="Hand" pressed={tool === 'hand'} onClick={off ? null : () => set('hand')} />
       <NodesMenu editor={editor} />
-      <ImportMenu editor={editor} place={editor ? (w, h) => placeFor(editor, w, h) : null} focus={focusShape} />
+      <ImportMenu editor={editor} place={editor ? (w, h) => placeFor(editor, w, h) : null} focus={focusShape} area={() => SECTIONS.find((x) => x.id === 'notes')} />
       <Tool glyph="✎" label="Draw" pressed={tool === 'draw'} onClick={off ? null : () => set('draw')} />
       <Tool glyph="↗" label="Connect" pressed={tool === 'arrow'} onClick={off ? null : () => set('arrow')} />
       <Tool glyph="T" label="Text" pressed={tool === 'text'} onClick={off ? null : () => set('text')} />

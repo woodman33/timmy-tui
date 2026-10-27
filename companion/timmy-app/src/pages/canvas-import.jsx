@@ -65,31 +65,37 @@ async function sizeOf(kind, url) {
 }
 
 /** Place one app result on the desk where it has room (`place`: the desk's own free-space finder), else at the view's centre. */
-export async function importOutput(editor, file, result, place = null, focus = null) {
+export async function importOutput(editor, file, result, place = null, focus = null, area = null) {
   const kind = nodeKindOf(file.path);
   const meta = { from: 'app-output', app: result.app, path: file.path, receipt: result.receipt || null };
   const c = editor.getViewportPageBounds().center;
-  // the desk's free-space finder; when the desk is full, to the right of everything on it (never on a card)
+  // the desk's free-space finder; when no place on the desk is clear, inside the Notes section (the person's own area of the
+  // desk, where the camera can reach), fitted to it and stepped so imports do not stack exactly; never outside the desk
   const at = (w, h) => {
     const p = place ? place(w, h) : null;
     const taken = editor.getCurrentPageShapes().map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
     const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 12 && q.x + w + 12 > b.x && q.y < b.y + b.h + 12 && q.y + h + 12 > b.y);
-    if (clear(p)) return p;
-    const b = editor.getCurrentPageBounds();
-    return b ? { x: b.x + b.w + 40, y: b.y } : { x: c.x - w / 2, y: c.y - h / 2 };
+    if (clear(p)) return { ...p, w, h };
+    const a = area ? area() : null;
+    if (!a) return { x: c.x - w / 2, y: c.y - h / 2, w, h };
+    const k = Math.min(1, (a.w - 32) / w, (a.h - 64) / h);
+    const n = editor.getCurrentPageShapes().filter((x) => x.meta && x.meta.from === 'app-output').length % 6;
+    return { x: a.x + 16 + n * 14, y: a.y + 40 + n * 14, w: Math.round(w * k), h: Math.round(h * k) };
   };
   const id = createShapeId();
   if (kind === 'note') {
     const words = `${APP_WORDS[result.app] || result.app} · ${file.name}\n${file.path}${result.receipt ? `\nreceipt ${result.receipt}` : ''}\nOpen it in ${APP_WORDS[result.app] || result.app} to edit it.`;
     const p = at(168, 250);
-    editor.run(() => { editor.createShape({ id, type: 'note', x: p.x, y: p.y, meta, props: { richText: toRichText(words), size: 's', scale: 0.8 } }); editor.select(id); });
+    const sc = Math.min(0.8, 0.8 * p.w / 168);
+    editor.run(() => { editor.createShape({ id, type: 'note', x: p.x, y: p.y, meta, props: { richText: toRichText(words), size: 's', scale: sc } }); editor.select(id); });
     if (focus) focus(editor, id);
     return id;
   }
   const url = await fileUrl(file.path);
-  const { w, h } = await sizeOf(kind, url);
+  const natural = await sizeOf(kind, url);
   const assetId = AssetRecordType.createId();
-  const p = at(w, h);
+  const p = at(natural.w, natural.h);
+  const { w, h } = p;
   editor.run(() => {
     editor.createAssets([{ id: assetId, typeName: 'asset', type: kind, meta, props: { name: file.name, src: `${FILE_SRC}${file.path}`, w, h, mimeType: MIME[ext(file.path)] || null, isAnimated: kind === 'video' || ext(file.path) === 'gif' } }]);
     editor.createShape({ id, type: kind, x: p.x, y: p.y, meta, props: { assetId, w, h } });
@@ -100,7 +106,7 @@ export async function importOutput(editor, file, result, place = null, focus = n
 }
 
 /** The desk's "Import from apps" menu: the apps' newest results, each file a choice. */
-export function ImportMenu({ editor, place = null, focus = null }) {
+export function ImportMenu({ editor, place = null, focus = null, area = null }) {
   const [open, setOpen] = useState(false);
   const [r, setR] = useState(null);
   const [note, setNote] = useState('');
@@ -117,7 +123,7 @@ export function ImportMenu({ editor, place = null, focus = null }) {
     return () => { gone = true; document.removeEventListener('pointerdown', off); document.removeEventListener('keydown', esc); };
   }, [open]);
   const pick = async (file, result) => {
-    try { await importOutput(editor, file, result, place, focus); setOpen(false); } catch (e) { setNote(`Not placed: ${e instanceof Error ? e.message : String(e)}.`); }
+    try { await importOutput(editor, file, result, place, focus, area); setOpen(false); } catch (e) { setNote(`Not placed: ${e instanceof Error ? e.message : String(e)}.`); }
   };
   const results = r && r.ok ? r.results || [] : [];
   return (
