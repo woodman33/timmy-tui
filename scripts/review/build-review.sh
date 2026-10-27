@@ -126,6 +126,7 @@ if [ -n "${MODEL_STUDIO_GIT:-}" ]; then add_app_git model-studio "$MODEL_STUDIO_
 if [ -n "${CARD_LAB_GIT:-}" ]; then add_app_git card-lab "$CARD_LAB_GIT" "${CARD_LAB_REV:-HEAD}" "Codex: Timmy Card Lab" "${CARD_LAB_OWNER_REV:-}"; fi
 if [ -n "${FILM_ROOM_GIT:-}" ]; then add_app_git film-room "$FILM_ROOM_GIT" "${FILM_ROOM_REV:-HEAD}" "Codex: Analyze NFL footage with AI"; fi
 if [ -n "${ANIMATE_DIR:-}" ]; then add_app_dir animate "$ANIMATE_DIR" "Codex: Assess a 2D animator mini app" "${ANIMATE_LABEL:-owner archive}"; lock_app animate; fi
+if [ -n "${STREAM_DIR:-}" ]; then add_app_dir stream-studio "$STREAM_DIR" "Codex: Assess a 2D animator mini app" "${STREAM_LABEL:-owner content checkpoint}"; lock_app stream-studio; fi
 
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 sums="$out/SHA256SUMS.$rev.tmp"

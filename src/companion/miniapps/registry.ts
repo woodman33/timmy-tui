@@ -100,7 +100,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'hostable',
     observed: {
       owner: 'Codex: Timmy Card Lab (private standalone release)',
-      revision: 'timmy-card-lab 342c0f72 (cite and answer in separate phases; the host theme interface v1)',
+      revision: 'timmy-card-lab runtime 6f166d2d (theme completion: server-configured parent origin), HEAD 16a6ac71 (docs only: the main-UI reuse map); 189 tests and build at the owner',
       observedAt: '2026-10-27',
       next: 'Hosted in local mode as its owner built it. Its own app suite timed out at the owner (120 s, 90 s). Each ended launch is sealed as a Timmy receipt; shared assets and approvals are still to map.',
     },
@@ -110,11 +110,12 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       builtFile: 'frontend/dist/index.html',
       readyPath: '/api/health',
       // local mode only (loopback, no hosted sign-in); no provider token reaches it (CARDLAB_*_TOKEN and keys are not passed)
-      // the owner's theme interface v1 (docs/HOST-THEME.md at 342c0f72): ?theme= and the exact loopback parent in themeHostOrigin
-      theme: { hostOriginParam: 'themeHostOrigin' },
+      // the owner's theme completion (6f166d2d): ?theme= for the first paint; the exact loopback parent comes from the server
+      // (CARDLAB_TIMMY_PARENT_ORIGIN, also its CSP frame-ancestors), which a launch URL's themeHostOrigin cannot broaden
+      theme: {},
       // its provider call's bounded limit (10–600 s at the owner; default 90 s) when this computer's settings name one
-      env: ({ port, dataDir, base }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL', 'CARDLAB_PROVIDER_TIMEOUT_MS', 'CARDLAB_TIMMY_VISION_TIMEOUT_MS'], {
-        CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1',
+      env: ({ port, dataDir, base, parentOrigin }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL', 'CARDLAB_PROVIDER_TIMEOUT_MS', 'CARDLAB_TIMMY_VISION_TIMEOUT_MS'], {
+        CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1', CARDLAB_TIMMY_PARENT_ORIGIN: parentOrigin,
         ...localVision(base),
       }),
       // each launch of a run's stages (its run.json events), with the run's served artifacts
@@ -127,7 +128,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'hostable',
     observed: {
       owner: 'Codex: Analyze NFL footage with AI',
-      revision: 'timmy-film-room 8c3cd19f (the host theme contract v1; 12 theme tests and 17 browser checks at the owner)',
+      revision: 'timmy-film-room adfb7a74 (theme completion; 143 tests, 24 browser checks and build at the owner, test parent and synthetic footage)',
       observedAt: '2026-10-27',
       next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here. Its ended jobs are sealed as Timmy receipts; `timmy video` (import, render, jobs) runs through the same host. Shared assets are still to map.',
     },
@@ -152,18 +153,21 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'hostable',
     observed: {
       owner: 'Codex: timmy-new-1',
-      revision: 'codex/model-studio a5264eb5 (clean-clone build and cancellation fix over aabe7c1a)',
-      observedAt: '2026-10-26',
-      next: 'Hosted here as its owner built it; its ended jobs are sealed as Timmy receipts.',
+      revision: 'codex/model-studio 8266c20a (host theme v1 bridge on the embedded layout 39633703/ba96a0a8; 57 tests, 47 browser assertions and build at the owner; approved by the operator)',
+      observedAt: '2026-10-27',
+      next: 'Hosted here as its owner built it; its ended jobs are sealed as Timmy receipts. Appearance generation is not measured geometry.',
     },
     host: {
       sourceEnv: 'TIMMY_MODEL_STUDIO_DIR',
       entry: 'server.mjs',
       builtFile: 'dist/index.html',
       readyPath: '/api/state',
+      // the owner's host theme v1 (docs/HOST-THEME.md at 8266c20a): the exact parent origin in STUDIO_THEME_PARENT_ORIGIN, and
+      // its timmy:theme-ready (app 'model-studio') answered with the latest theme
+      theme: { ready: true },
       // the native engines' executables on this computer (Model Studio's server/native.mjs reads these first)
-      env: ({ port, dataDir, base }) => envOf(base, ['STUDIO_TLDRAW_LICENSE_FILE', 'STUDIO_BLENDER', 'STUDIO_OPENSCAD', 'STUDIO_FREECAD', 'STUDIO_CAD_PYTHON', 'STUDIO_BUILD123D_PYTHON', 'STUDIO_C4DPY', 'STUDIO_HYTHON', 'STUDIO_NATIVE_EVIDENCE_DIR', 'STUDIO_OLLAMA_URL'], {
-        STUDIO_PORT: String(port), STUDIO_DATA_DIR: dataDir,
+      env: ({ port, dataDir, base, parentOrigin }) => envOf(base, ['STUDIO_TLDRAW_LICENSE_FILE', 'STUDIO_BLENDER', 'STUDIO_OPENSCAD', 'STUDIO_FREECAD', 'STUDIO_CAD_PYTHON', 'STUDIO_BUILD123D_PYTHON', 'STUDIO_C4DPY', 'STUDIO_HYTHON', 'STUDIO_NATIVE_EVIDENCE_DIR', 'STUDIO_OLLAMA_URL'], {
+        STUDIO_PORT: String(port), STUDIO_DATA_DIR: dataDir, STUDIO_THEME_PARENT_ORIGIN: parentOrigin,
       }),
       // Model Studio's state (docs/CONTRACT.md): jobs {id,kind,status,engine,error?,result?:{asset:{id,previewFilename,nativeFilename}}}
       receipts: { finished: APP_JOBS['model-studio'] },
@@ -171,23 +175,36 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
   },
   {
     id: 'stream-studio', title: 'Stream Studio', kind: 'stream',
-    lead: 'Streaming overlays and web pages, composed, animated and broadcast, built mostly in HTML with the agent.',
-    availability: 'no-owner',
+    lead: 'The 2D animation app: compose a scene, animate it, preview and export it (SVG frame, HTML player). Broadcast is not built.',
+    availability: 'hostable',
     observed: {
-      owner: 'none assigned',
-      revision: 'not built (Card Lab carries broadcast controls for reviewed cards; Timmy Animate carries the motion engine and exports)',
-      observedAt: '2026-10-26',
-      next: 'One owner is assigned the general Compose → Animate → Broadcast editor.',
+      owner: 'Codex: Assess a 2D animator mini app (the Animate owner)',
+      revision: 'content SHA-256 2be70c25 (no commit; 64 manifest files matched; 26 tests and four browser suites at the owner)',
+      observedAt: '2026-10-27',
+      next: 'Hosted as its owner built it; its ended exports are sealed as Timmy receipts. Broadcast and other export formats are not built. Its theme trust reads the launch query or referrer (any loopback origin); an exact, server-configured parent origin is asked of its owner before theme parity is claimed.',
+    },
+    host: {
+      sourceEnv: 'TIMMY_STREAM_STUDIO_DIR',
+      entry: 'server.mjs',
+      builtFile: 'dist/index.html',
+      readyPath: '/api/health',
+      // its src/host-theme.mjs: ?theme= and the exact parent in hostOrigin (it admits any loopback origin; see `next`)
+      theme: { hostOriginParam: 'hostOrigin' },
+      env: ({ port, dataDir, base }) => envOf(base, ['STREAM_TLDRAW_LICENSE_FILE', 'ANIMATE_TLDRAW_LICENSE_FILE'], {
+        PORT: String(port), STREAM_DATA_DIR: dataDir,
+      }),
+      // GET /api/jobs: SVG and HTML exports, with the artifacts it publishes on success
+      receipts: { finished: APP_JOBS['stream-studio'] },
     },
   },
   {
     id: 'animate', title: 'Timmy Animate', kind: 'motion',
-    lead: 'Motion paths, layers, states and exports: the engine behind Stream Studio’s animation.',
+    lead: 'Motion paths, layers, states and exports: the engine behind Stream Studio’s animation, kept with its own tools.',
     availability: 'hostable',
     observed: {
       owner: 'Codex: Assess a 2D animator mini app',
-      revision: 'v6 source archive (payload manifest 68c2f853; no commit; 59/59 app tests at the owner)',
-      observedAt: '2026-10-26',
+      revision: 'v8 source (the v7 archive with the v8 UI files the owner\'s preservation manifest names; content manifest 6e2151ab, 262 files; no commit)',
+      observedAt: '2026-10-27',
       next: 'Hosted as its owner built it; its ended exports are sealed as Timmy receipts. `timmy animate` (render, job, its owner’s scene authoring) and the agent’s and MCP’s timmy_animate_* tools run through the same host.',
     },
     host: {

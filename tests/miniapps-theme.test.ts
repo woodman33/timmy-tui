@@ -1,8 +1,9 @@
 /**
- * The 05:03 order's G4 and the owners' theme contracts v1 (Card Lab docs/HOST-THEME.md at 342c0f72, Film Room
- * docs/Theme-Contract.md at 8c3cd19f): the host side — which apps declare it, how each learns the exact parent origin (Card
- * Lab from its launch path's themeHostOrigin, Film Room from FILMROOM_THEME_PARENT_ORIGIN in its environment), and the
- * launch path the page composes. Presentation only: nothing here carries identity, project or receipt authority.
+ * The 05:03 order's G4 and the owners' theme contracts v1, as adopted in the 07:37 completion pass: Card Lab 6f166d2d
+ * (CARDLAB_TIMMY_PARENT_ORIGIN, server-configured), Film Room adfb7a74 (FILMROOM_THEME_PARENT_ORIGIN), Model Studio 8266c20a
+ * (STUDIO_THEME_PARENT_ORIGIN and timmy:theme-ready), Stream Studio 2be70c25 (the launch path's hostOrigin; its trust is
+ * any loopback origin, so parity is not claimed). The host side: which apps declare it, how each learns the exact parent
+ * origin, and the launch path the page composes. Presentation only: nothing here carries identity, project or receipt authority.
  */
 import { describe, expect, it } from 'vitest';
 import { miniAppOf } from '../src/companion/miniapps/registry.js';
@@ -10,14 +11,18 @@ import { launchTarget } from '../src/companion/miniapps/host.js';
 import { themedPath } from '../companion/timmy-app/src/pages/miniapp.jsx';
 
 describe('the theme contract v1, the host side', () => {
-  it('Card Lab and Film Room declare it; Film Room is given the exact parent origin, Card Lab is not (it reads its path)', () => {
-    const card = miniAppOf('card-lab')!; const film = miniAppOf('film-room')!;
-    expect(card.host!.theme).toEqual({ hostOriginParam: 'themeHostOrigin' });
+  it('the server-derived parent origin reaches Card Lab, Film Room and Model Studio in their environment; Stream Studio reads its path', () => {
+    const card = miniAppOf('card-lab')!; const film = miniAppOf('film-room')!; const model = miniAppOf('model-studio')!; const stream = miniAppOf('stream-studio')!;
+    expect(card.host!.theme).toEqual({});
     expect(film.host!.theme).toEqual({ ready: true });
-    expect(miniAppOf('model-studio')!.host!.theme).toBeUndefined();
+    expect(model.host!.theme).toEqual({ ready: true });
+    expect(stream.host!.theme).toEqual({ hostOriginParam: 'hostOrigin' });
     const at = { port: 4501, dataDir: '/x', base: { PATH: '/bin' }, parentOrigin: 'http://127.0.0.1:4442' };
     expect(film.host!.env(at).FILMROOM_THEME_PARENT_ORIGIN).toBe('http://127.0.0.1:4442');
+    expect(card.host!.env(at).CARDLAB_TIMMY_PARENT_ORIGIN).toBe('http://127.0.0.1:4442');
+    expect(model.host!.env(at).STUDIO_THEME_PARENT_ORIGIN).toBe('http://127.0.0.1:4442');
     expect(card.host!.env(at)).not.toHaveProperty('FILMROOM_THEME_PARENT_ORIGIN');
+    expect(stream.host!.env(at)).toEqual({ PATH: '/bin', PYTHONDONTWRITEBYTECODE: '1', PORT: '4501', STREAM_DATA_DIR: '/x' });
     // Card Lab's bounded provider limit passes through when this computer names one; nothing else of the base does
     expect(card.host!.env({ ...at, base: { CARDLAB_PROVIDER_TIMEOUT_MS: '240000', OPENROUTER_API_KEY: 'sk-x' } })).toMatchObject({ CARDLAB_PROVIDER_TIMEOUT_MS: '240000' });
     expect(card.host!.env({ ...at, base: { OPENROUTER_API_KEY: 'sk-x' } })).not.toHaveProperty('OPENROUTER_API_KEY');

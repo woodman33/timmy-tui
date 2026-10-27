@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { animateJobs, APP_JOBS, cardLabJobs, filmRoomJobs, modelStudioJobs } from '../src/companion/miniapps/app-jobs.js';
+import { animateJobs, APP_JOBS, cardLabJobs, filmRoomJobs, modelStudioJobs, streamStudioJobs } from '../src/companion/miniapps/app-jobs.js';
 import { deliveredPath, deliverInto, sealFinished, type AppJobReceipt } from '../src/companion/miniapps/receipts.js';
 import { localVision, miniAppOf } from '../src/companion/miniapps/registry.js';
 import { installedSource } from '../src/companion/miniapps/host.js';
@@ -87,6 +87,22 @@ describe('each app’s ended jobs, from its own record', () => {
     ]);
     expect(jobs.map((j) => [j.status, j.outcome])).toEqual([['succeeded', 'ok'], ['interrupted', 'failed']]);
     expect(jobs[0]!.files.map((f) => f.path)).toEqual([`/api/artifacts/${U(30)}/scene.blend`, `/api/artifacts/${U(30)}/preview.png`]);
+  });
+
+  it('Stream Studio: its SVG and HTML exports from GET /api/jobs; artifacts only on success; queued and running are not ended', async () => {
+    const list = [
+      { id: U(40), status: 'succeeded', format: 'html', artifacts: [{ name: 'index.html' }, { name: 'face.riv' }, { name: '../x' }] },
+      { id: U(41), status: 'failed', format: 'svg', error: 'Export time must be inside the scene duration.', artifacts: [{ name: 'frame.svg' }] },
+      { id: U(42), status: 'cancelled', format: 'svg' },
+      { id: U(43), status: 'running', format: 'html' },
+      { id: 'nope', status: 'succeeded' },
+    ];
+    const jobs = streamStudioJobs(list);
+    expect(jobs.map((j) => [j.status, j.outcome, j.label])).toEqual([['succeeded', 'ok', 'export html'], ['failed', 'failed', 'export svg'], ['cancelled', 'cancelled', 'export svg']]);
+    expect(jobs[0]!.files.map((f) => f.path)).toEqual([`/api/artifacts/${U(40)}/index.html`, `/api/artifacts/${U(40)}/face.riv`]);
+    expect(jobs[1]!.files).toEqual([]);
+    expect(streamStudioJobs(null)).toEqual([]);
+    expect((await APP_JOBS['stream-studio']({ json: async (p: string) => (p === '/api/jobs' ? list : null), dataDir: '/nowhere' })).length).toBe(3);
   });
 
   it('the disk readers read only the data folder Timmy gave the app (Card Lab, Film Room, Animate)', async () => {

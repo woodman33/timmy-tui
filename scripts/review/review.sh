@@ -77,6 +77,7 @@ run() {
     ${CARDLAB_OLLAMA_MODEL:+CARDLAB_OLLAMA_MODEL="$CARDLAB_OLLAMA_MODEL"} \
     ${TIMMY_MODEL_STUDIO_DIR:+TIMMY_MODEL_STUDIO_DIR="$TIMMY_MODEL_STUDIO_DIR"} ${TIMMY_CARD_LAB_DIR:+TIMMY_CARD_LAB_DIR="$TIMMY_CARD_LAB_DIR"} \
     ${TIMMY_FILM_ROOM_DIR:+TIMMY_FILM_ROOM_DIR="$TIMMY_FILM_ROOM_DIR"} ${TIMMY_ANIMATE_DIR:+TIMMY_ANIMATE_DIR="$TIMMY_ANIMATE_DIR"} \
+    ${TIMMY_STREAM_STUDIO_DIR:+TIMMY_STREAM_STUDIO_DIR="$TIMMY_STREAM_STUDIO_DIR"} \
     ${ANIMATE_BLENDER:+ANIMATE_BLENDER="$ANIMATE_BLENDER"} ${FILMROOM_FFMPEG:+FILMROOM_FFMPEG="$FILMROOM_FFMPEG"} ${FILMROOM_PYTHON:+FILMROOM_PYTHON="$FILMROOM_PYTHON"} \
     ${STUDIO_BLENDER:+STUDIO_BLENDER="$STUDIO_BLENDER"} ${STUDIO_OPENSCAD:+STUDIO_OPENSCAD="$STUDIO_OPENSCAD"} \
     ${STUDIO_FREECAD:+STUDIO_FREECAD="$STUDIO_FREECAD"} ${STUDIO_CAD_PYTHON:+STUDIO_CAD_PYTHON="$STUDIO_CAD_PYTHON"} \
@@ -103,6 +104,7 @@ mini_apps() {
   if [ -f "$a/card-lab/bin/timmy-card-lab.mjs" ] && build_app "$a/card-lab" frontend/dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && (cd frontend && npm ci --ignore-scripts --no-audit --no-fund) && npm run build'; then export TIMMY_CARD_LAB_DIR="$a/card-lab"; fi
   if [ -f "$a/film-room/server.mjs" ] && build_app "$a/film-room" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_FILM_ROOM_DIR="$a/film-room"; fi
   if [ -f "$a/animate/server.mjs" ] && build_app "$a/animate" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_ANIMATE_DIR="$a/animate"; fi
+  if [ -f "$a/stream-studio/server.mjs" ] && build_app "$a/stream-studio" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_STREAM_STUDIO_DIR="$a/stream-studio"; fi
   return 0
 }
 

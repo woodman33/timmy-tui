@@ -152,10 +152,26 @@ export function animateJobs(jobs: unknown[]): FinishedAppJob[] {
   });
 }
 
+// ── Stream Studio (server.mjs at content 2be70c25): GET /api/jobs → [{id,status,format,error,artifacts}] ───────────────────
+// Statuses queued/running/succeeded/failed/cancelled/interrupted. Artifacts ({name,url,bytes,sha256,mime}) are published only
+// on success and served at /api/artifacts/:id/:name after the app re-checks their sha256.
+const STREAM: Record<string, AppOutcome> = { succeeded: 'ok', failed: 'failed', interrupted: 'failed', cancelled: 'cancelled' };
+export function streamStudioJobs(jobs: unknown): FinishedAppJob[] {
+  return (Array.isArray(jobs) ? jobs : []).flatMap((j) => {
+    const o = j as { id?: unknown; status?: unknown; format?: unknown; error?: unknown; artifacts?: Array<{ name?: unknown }> };
+    if (!str(o.id) || !/^[a-f0-9-]{36}$/.test(o.id) || !str(o.status) || !(o.status in STREAM)) return [];
+    const files = o.status !== 'succeeded' ? [] : (Array.isArray(o.artifacts) ? o.artifacts : []).map((a) => a?.name).filter((n): n is string => str(n) && SAFE.test(n))
+      .map((n) => ({ name: `${o.id as string}/${n}`, path: `/api/artifacts/${o.id as string}/${n}` }));
+    const format = str(o.format) && SAFE.test(o.format) ? o.format : 'export';
+    return [{ id: o.id, kind: 'export', status: o.status, outcome: STREAM[o.status]!, label: `export ${format}`, ...errorOf(o.error), files, raw: j }];
+  });
+}
+
 /** The readers, as the registry binds them to each app. */
 export const APP_JOBS = {
   'model-studio': async (s: AppJobSource) => modelStudioJobs(await s.json('/api/state')),
   'card-lab': async (s: AppJobSource) => cardLabJobs(readJsonFiles(s.dataDir, /^card_[a-f0-9-]{36}$/, 'run.json')),
   'film-room': async (s: AppJobSource) => filmRoomJobs(readJsonFiles(join(s.dataDir, 'jobs'), /^[a-f0-9-]{36}\.json$/, null)),
+  'stream-studio': async (s: AppJobSource) => streamStudioJobs(await s.json('/api/jobs')),
   'animate': async (s: AppJobSource) => animateJobs(readJsonFiles(s.dataDir, /^[a-f0-9-]{36}$/, 'job.json')),
 } as const;

@@ -82,10 +82,9 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('the register: four launch apps and Animate; the four with owner checkpoints are hostable, Stream Studio says it has no owner', () => {
+  it('the register: four launch apps and Animate; all five have owner checkpoints and are hostable', () => {
     expect(MINI_APPS.map((a) => a.id)).toEqual(['card-lab', 'film-room', 'model-studio', 'stream-studio', 'animate']);
-    expect(MINI_APPS.filter((a) => a.availability === 'hostable').map((a) => a.id)).toEqual(['card-lab', 'film-room', 'model-studio', 'animate']);
-    expect(miniAppOf('stream-studio')!.availability).toBe('no-owner');
+    expect(MINI_APPS.filter((a) => a.availability === 'hostable').map((a) => a.id)).toEqual(['card-lab', 'film-room', 'model-studio', 'stream-studio', 'animate']);
     // every hostable app's env: its port and data folder set, no provider key or paid switch passed whatever the companion holds
     for (const a of MINI_APPS.filter((x) => x.host)) {
       const env = a.host!.env({ port: 1234, dataDir: '/data', base: { OPENROUTER_API_KEY: 'k', CARDLAB_CLOUDFLARE_AGENT_TOKEN: 't', STUDIO_ALLOW_PAID: '1', ROBOFLOW_API_KEY: 'r', PATH: '/bin', TLDRAW_LICENSE_KEY: 'x' } });
@@ -108,7 +107,7 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     const by = Object.fromEntries(r.apps.map((a: { id: string }) => [a.id, a]));
     expect(by['model-studio']).toMatchObject({ hostable: true, running: false, problem: null });
     expect(by['card-lab']).toMatchObject({ hostable: false, availability: 'hostable', problem: expect.stringMatching(/not installed with this Timmy/) });
-    expect(by['stream-studio']).toMatchObject({ hostable: false, availability: 'no-owner' });
+    expect(by['stream-studio']).toMatchObject({ hostable: false, availability: 'hostable', problem: expect.stringMatching(/not installed with this Timmy/) });
     const refused = await get(`${timmy}/api/apps/stream-studio/open`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', '{}');
     expect(refused.status).toBe(409);
   });
