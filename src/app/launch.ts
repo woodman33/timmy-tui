@@ -94,11 +94,17 @@ export async function runApp(argv: readonly string[], deps: AppLaunchDeps = {}):
   }
   out('o  open the app again    q  stop');
   const keys = deps.keys === undefined ? (process.stdin.isTTY ? process.stdin : null) : deps.keys;
+  let onSignal = (): void => {};
+  const signal = (): void => onSignal();
   await new Promise<void>((resolve) => {
     let done = false;
     const finish = (): void => { if (done) return; done = true; if (keys && keys.isTTY) { try { keys.setRawMode(false); } catch { /* the terminal is gone */ } } keys?.pause(); resolve(); };
-    process.once('SIGINT', finish);
-    process.once('SIGTERM', finish);
+    // (on, not once: a second signal while the companion shuts down — the bin wrapper forwards the SIGTERM a `pkill -f` also
+    // sent this process — would otherwise kill it by default before its runs, apps and grants are stopped; seen on the Mac,
+    // 2026-10-27: no "Timmy app stopped." line)
+    onSignal = finish;
+    process.on('SIGINT', signal);
+    process.on('SIGTERM', signal);
     if (deps.until) deps.until.then(finish, finish);
     if (keys) {
       if (keys.isTTY) { try { keys.setRawMode(true); } catch { /* not a terminal after all */ } }
@@ -111,6 +117,8 @@ export async function runApp(argv: readonly string[], deps: AppLaunchDeps = {}):
     }
   });
   await server.shutdown();
+  process.off('SIGINT', signal);
+  process.off('SIGTERM', signal);
   out('Timmy app stopped.');
   return 0;
 }
