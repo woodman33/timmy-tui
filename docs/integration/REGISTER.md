@@ -306,3 +306,44 @@ Code as f2e8fbc8, plus the one test fix. Every check below ran on these exact by
 
 **Launch:** unpack, then double-click `Timmy App.command`, or `./timmy-app`. **Stop:** q or Ctrl+C in its Terminal window
 ("Timmy app stopped."). Then `./review.sh census` should count no process. The terminal: `./timmy-review`.
+
+## The integrated review candidate: 4d59da6e (2026-10-27, the operator's 01:46 PT order)
+
+The fixed checklist for this order is `CHECKLIST.md` (A1–A12, B1–B8, C1–C8, D1–D5, E1–E4, F and a backlog), each item
+with its owner, its criterion and its status.
+
+**Development runs on the Mac before it, kept as run:**
+
+- **79050917:** most journeys passed. Found: an interrupted run left its agent running (the act was spawned through the
+  `dist/timmy.js` wrapper, whose CLI child survived the kill); Model Studio's `.scad` was not among the files hashed; the
+  A7 check could not fail. Fixed in 5e89c798 (spawn `dist/src/cli.js`; the files listed; A7 tightened and A7-live added).
+- **5e89c798, 87730cf8:** Qwen Code on gemma4 and qwen3.8 created no file: `--bare` has no `write_file`, and
+  `--core-tools` is ignored in bare mode. 87730cf8 passes `--core-tools read_file write_file edit glob grep_search
+  list_directory` instead and gives a qwen run its own agent home. On 87730cf8 every check passed but A9's `.scad`
+  (Model Studio lists it under `artifacts`, not `files`; fixed in 4d59da6e) and A7-live (blocked, D3).
+
+### The candidate 4d59da6e
+
+- **The review package** `timmy-review-4d59da6.tar.gz`, built from a clean tree (exit 0), sha256
+  `4e00d337a451966cffaf437d7d3f24d69450b129171e0bdc451fe529d6c27a4a`. It carries the same owners' apps as 94b8979.
+- **Full suite** (frozen worktree, under the heavy lock): running at the time of this entry (started 03:14 PT).
+- **Mac, that package, a fresh folder (03:14–03:26 PT):** `npm ci` from the lock, real apps and engines, a local model
+  (gemma4:12b-it-qat on Ollama) only, no key, no paid call.
+
+  | Run | Checks |
+  |---|---|
+  | Entry point, desktop and phone | **7/7** |
+  | Isolation and receipts, one principal, two projects, a restart | **23/23** |
+  | Two signed-in users, the worker port tested directly | **12/12** |
+  | The journeys (A6–A11, C5, C8, B1–B8) through the app's own pages, recorded | **19/20**: A7-live blocked (Card Lab held its answer; its 90 s per-call timeout; D3) |
+  | Rive and tldraw (four real turns; the failure induced at a relay) | **7/7** |
+  | `timmy video`, `timmy animate`, the installed `timmy mcp serve` | **10/10** |
+
+  - The census after the app stopped, and again at the end, counted no process in the sandbox.
+  - The home folder's store was unchanged: 53 lines, the same sha256 before and after.
+  - The driver's phone pass clicked "Open X" where a running app shows "Return to X", so phone captures of those apps
+    were not taken (backlog 6); the checks passed.
+
+**Remaining blockers:** OpenHands (the image timmy-openhands:1.21.0 is not built; building it downloads python:3.12-slim
+and the OpenHands SDK: the operator's decision); a successful live Card Lab inspection (D3 and its 90 s timeout: owner
+requests); Stream Studio has no owner (F).
