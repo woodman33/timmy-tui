@@ -215,10 +215,12 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     const good = chain().find((r) => r.job?.id === ok.id)!;
     expect(good).toMatchObject({ status: 'ok', policy: 'app-initiated', project: 'receipts', project_id: projectId(root), job: { kind: 'create', state: 'succeeded' } });
     expect(good.miniapp).toMatchObject({ app: 'model-studio', principal: 'operator', started_by: expect.stringMatching(/not observed by Timmy/), record_sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    // the checklist's A6: each output is in the project's own Files too (from-apps/<app>/<job>/), the bytes the receipt hashed
     expect(good.outputs).toEqual([
-      { path: `apps/model-studio/${ok.result.asset.id}/r1-model.glb`, sha256: createHash('sha256').update('FAKE glb bytes').digest('hex'), bytes: 14 },
-      { path: `apps/model-studio/${ok.result.asset.id}/r1-model.blend`, sha256: createHash('sha256').update('FAKE blend bytes').digest('hex'), bytes: 16 },
+      { path: `from-apps/model-studio/${ok.id}/${ok.result.asset.id}/r1-model.glb`, sha256: createHash('sha256').update('FAKE glb bytes').digest('hex'), bytes: 14 },
+      { path: `from-apps/model-studio/${ok.id}/${ok.result.asset.id}/r1-model.blend`, sha256: createHash('sha256').update('FAKE blend bytes').digest('hex'), bytes: 16 },
     ]);
+    for (const o2 of good.outputs!) expect(createHash('sha256').update(readFileSync(join(root, o2.path))).digest('hex')).toBe(o2.sha256);
     // a failed job stays failed and a cancelled one cancelled: a receipt records the outcome, it does not make it a success
     expect(chain().find((r) => r.job?.id === bad.id)).toMatchObject({ status: 'failed', job: { state: 'failed', error: 'FAKE failure' }, outputs: [] });
     expect(chain().find((r) => r.job?.id === stopped.id)).toMatchObject({ status: 'cancelled', job: { state: 'cancelled' }, outputs: [] });

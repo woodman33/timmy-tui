@@ -3,7 +3,7 @@
 // a text file as text (Markdown drawn as React elements), an image as itself, anything else described, never guessed at.
 // Nothing here writes a file: the companion has no route for it, and the page says so.
 import { useEffect, useRef, useState } from 'react';
-import { call, getJson } from '../api.js';
+import { call, getJson, postJson } from '../api.js';
 import { Markdown } from '../md.jsx';
 import { Page, Panel, Tool } from '../shell.jsx';
 import { goTo, projectQuery, useApp } from '../store.js';
@@ -53,6 +53,34 @@ function Crumbs({ path, onGo, project }) {
   );
 }
 
+/**
+ * The checklist's A6 and A11: the receipt that names this file with these bytes (an app job's output delivered into the
+ * project), and, for an image, the one supported handoff — a new Card Lab run made from it, sealed as a handoff receipt.
+ */
+function Provenance({ path, image }) {
+  const [p, setP] = useState(null);
+  const [sent, setSent] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { let gone = false; setP(null); setSent(null); getJson(`/api/apps/provenance?${q(path)}`).then((r) => { if (!gone) setP(r); }); return () => { gone = true; }; }, [path]);
+  const send = async () => { setBusy(true); const r = await postJson(`/api/apps/card-lab/handoff${projectQuery()}`, { path }); setBusy(false); setSent(r); };
+  if (!p) return null;
+  const rc = p.ok ? p.receipt : null;
+  return (
+    <div className="tx-files-prov">
+      {rc ? <p className="ta-muted">Made by {rc.app ? `${rc.app}’s job ${rc.job}` : rc.kind}; its receipt <code>{rc.id}</code> names these exact bytes. <Button onClick={() => goTo('runs')}>Open Runs &amp; receipts</Button></p>
+        : p.ok ? <p className="ta-muted">No receipt in this project names this file with these bytes.</p> : null}
+      {image ? (
+        <div className="ta-row">
+          <Button onClick={send} disabled={busy || (sent && sent.ok)}>{busy ? 'Sending…' : 'Send to Card Lab'}</Button>
+          {sent ? (sent.ok
+            ? <span className="ta-muted" role="status">Card Lab run <code>{sent.run}</code> holds it; handoff receipt <code>{sent.receipt}</code>. <Button onClick={() => goTo('card-lab')}>Open Card Lab</Button></span>
+            : <span className="ta-result" role="status">{sent.error || `The companion answered ${sent.status}.`}</span>) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function OpenFile({ file }) {
   if (!file) return <Empty>Open a file from the list to read it here. Text and images are shown; anything else is described.</Empty>;
   const name = file.path.split('/').pop();
@@ -62,6 +90,7 @@ function OpenFile({ file }) {
       {file.state === 'reading' ? <p className="ta-muted">Reading…</p> : null}
       {file.state === 'refused' ? <p className="ta-result" role="status">{file.words}</p> : null}
       {file.state === 'image' ? <><img className="tx-files-img" src={file.url} alt={name} /><Facts rows={[['size', sizeWords(file.size)]]} /></> : null}
+      {file.state === 'image' || file.state === 'text' ? <Provenance path={file.path} image={file.state === 'image' && /\.(png|jpe?g|webp)$/i.test(file.path)} /> : null}
       {file.state === 'text' ? (
         <>
           <Facts rows={[['size', sizeWords(file.size)], ['changed', day(file.mtime)], ['shown', file.truncated ? 'the first 256 KB (the file is longer)' : 'all of it']]} />

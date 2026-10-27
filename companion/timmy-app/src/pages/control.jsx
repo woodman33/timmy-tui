@@ -4,13 +4,16 @@
 // /api/panel/control/room (what runs now and waits on you, the fleet in its three words, the budget the receipts measured).
 // A pane's state is that run's, never the agent's: the Chat's turn activity is the Chat's. The one action this page takes is
 // the companion's own Stop for a chat turn being answered (POST /api/chat/stop { turn }); a job is stopped with the command
-// the workspace frame names, copied for the terminal — this page types into no terminal and opens none.
+// the workspace frame names, copied for the terminal — this page types into no terminal and opens none. The checklist's B1–B8
+// (2026-10-27): its AGENT RUNS panel (control-runs.jsx) starts, follows, stops and inspects a code-agent run on a copy of the
+// project, through the companion's /api/control/* routes and `timmy act`.
 import { useEffect, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Page, Panel, Tool } from '../shell.jsx';
 import { goTo, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
 import { ConfigureRow, isConfigured, useInventory } from '../configure.jsx';
+import { AgentRuns } from './control-runs.jsx';
 import './control.css';
 
 const usd = (n) => (typeof n === 'number' && Number.isFinite(n) ? (n === 0 || n >= 0.01 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`) : 'unknown');
@@ -185,7 +188,7 @@ export default function ControlPage() {
         {sel ? <Tool glyph="✕" label="Close the pane’s facts" onClick={() => setSelId(null)} /> : null}
       </>}>
       <Panel id="now" kicker="NOW" title="What runs now"
-        tools={rOk ? <span className="ta-muted">read {clock(room.readAt)} · GET /api/panel/control/room</span> : null}>
+        tools={rOk ? <span className="ta-muted">read {clock(room.readAt)}</span> : null}>
         {!room ? <Empty>Reading the room…</Empty> : !rOk ? <p className="ta-result" role="status">{room.error || `The companion answered ${room.status || 'nothing'}.`}</p> : (
           <>
             {a.chatTurn ? (
@@ -198,7 +201,9 @@ export default function ControlPage() {
           </>
         )}
         {rOk && room.notes && room.notes.length ? <ul className="tx-ctl-notes">{room.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
+        {rOk ? <details className="ta-details"><summary>Details</summary><p className="ta-muted">Read from GET /api/panel/control/room and GET /api/panel/control/panes{panes && panes.ok ? `, ${clock(panes.readAt)}` : ''}.</p></details> : null}
       </Panel>
+      <AgentRuns />
       <Panel id="panes" kicker="PANES" title="The project’s runs, as panes"
         tools={pOk ? <span className="ta-muted">{panes.running ? `read every ${Math.round((panes.every || 2000) / 1000)} s while it runs · ` : ''}read {clock(panes.readAt)}</span> : null}>
         {!panes ? <Empty>Reading the panes…</Empty> : !pOk ? <p className="ta-result" role="status">{panes.error || `The companion answered ${panes.status || 'nothing'}.`}</p>

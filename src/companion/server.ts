@@ -149,6 +149,7 @@ import { connectSrcFor } from './identity/config.js';
 // (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
 import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
 import { mountMiniApps } from './miniapps/routes.js';
+import { ControlRuns, mountControlRuns } from './control-runs.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
@@ -900,6 +901,21 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       return { name: p.name, root: p.root, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
     },
   });
+  // The integrated candidate's checklist B1–B8 (the order of 2026-10-27): the Control Room starts, follows, stops and inspects a
+  // code-agent run (OpenHands or Qwen Code, a local model) on a copy of the principal's project, through `timmy act "/agent …"`
+  // (src/companion/control-runs.ts); the runs it started are stopped with the companion, each through act's own stop
+  const controlRuns = new ControlRuns();
+  mountControlRuns(app, {
+    withToken, withUser: withUserOrOperator, json: express.json({ limit: '16kb' }), runs: controlRuns,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+  });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
@@ -1095,6 +1111,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         httpServer.closeAllConnections();
       });
       await miniApps.stopAll();
+      await controlRuns.stopAll();
       await noteSelf('stopped');
     },
     setState: (state: string) => {

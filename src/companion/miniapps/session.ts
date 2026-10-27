@@ -13,6 +13,7 @@ import { baseHome } from '../identity/scope.js';
 import { appendReceipt, readChain } from '../../utils/receipts.js';
 import { appDataDir, hostProblem, installedRevision, startHostedApp, type AppResponse, type HostedApp } from './host.js';
 import { miniAppOf, type MiniAppSpec } from './registry.js';
+import { deliverInto } from './receipts.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -59,6 +60,8 @@ export async function openAppSession(appId: string, o: OpenOptions = {}): Promis
       ancestors: [], jobs, project: project.name, revision: installedRevision(spec, env),
       seal: (r) => appendReceipt('runs', { ...r, project_id: pid }, project.root).id,
       principal: 'operator',
+      // the checklist's A6: what the job made, delivered into the project's Files (from-apps/<app>/<job>/)
+      deliver: deliverInto(project.root),
       known: () => readChain('runs', project.root).filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && r.miniapp?.principal === 'operator' && typeof r.job?.id === 'string').map((r) => r.job!.id),
     });
   } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }

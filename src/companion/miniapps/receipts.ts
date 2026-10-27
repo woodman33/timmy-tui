@@ -13,11 +13,16 @@
  *   - who started it: not observed by Timmy (the app's own UI or its local assistant).
  * Each job is sealed once: the sealed ids are kept beside the app's data folder (<data dir>.timmy-sealed.json), so a restart
  * never seals again.
+ *
+ * The integrated candidate's checklist, A6: with `deliver` (the routes give it the project's folder), each hashed file is also
+ * written into the project, at from-apps/<app>/<job>/<its name>, from the same bytes, and the receipt names that path, so the
+ * person finds the result in Timmy's Files beside its receipt. A file already there is never written over: one with other
+ * bytes is kept, and the receipt keeps the app's own name for that output (apps/<app>/<name>).
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
-import { dirname } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import type { MiniAppSpec } from './registry.js';
 
 /** What the watcher hands the seal (the routes bind it to appendReceipt in the project's store). */
@@ -79,6 +84,33 @@ export interface WatchOptions {
    */
   known?: () => string[];
   everyMs?: number;
+  /** writes one output into the project (deliverInto): true when the file there holds exactly these bytes */
+  deliver?: (rel: string, bytes: Buffer) => boolean;
+}
+
+/** The project-relative path an app job's output is delivered at: from-apps/<app>/<job>/<its name>, made safe. */
+export function deliveredPath(app: string, job: string, name: string): string | null {
+  const parts = String(name).split(/[\\/]/).filter((x) => x && x !== '.');
+  if (!parts.length || parts.some((x) => x === '..')) return null;
+  if (parts.length > 1 && parts[0] === job) parts.shift(); // (Animate names its files under the job's own folder)
+  const clean = (x: string): string => x.replace(/[^A-Za-z0-9._ +()-]/g, '_').slice(0, 120);
+  return ['from-apps', clean(app), clean(job), ...parts.map(clean)].join('/');
+}
+
+/** Writes an app job's output into the project (never over a file that is there with other bytes). */
+export function deliverInto(root: string): (rel: string, bytes: Buffer) => boolean {
+  const base = resolve(root, 'from-apps');
+  return (rel, bytes) => {
+    try {
+      const abs = resolve(root, rel);
+      if (!abs.startsWith(`${base}${sep}`)) return false;
+      if (existsSync(abs)) return sha(readFileSync(abs)) === sha(bytes);
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(`${abs}.timmy-part`, bytes, { flag: 'wx' });
+      renameSync(`${abs}.timmy-part`, abs);
+      return true;
+    } catch { return false; }
+  };
 }
 
 /** Reads the app's state now: seals each newly ended job; resolves to the receipts it sealed. */
@@ -95,7 +127,11 @@ export async function sealFinished(o: WatchOptions, sealed: Set<string>): Promis
     const unhashed: string[] = [];
     for (const f of j.files) {
       const bytes = await fetchBytes(o.workerPort, f.path, o.workerSecret);
-      if (bytes) outputs.push({ path: `apps/${o.spec.id}/${f.name}`, sha256: sha(bytes), bytes: bytes.length });
+      if (bytes) {
+        const rel = o.deliver ? deliveredPath(o.spec.id, j.id, f.name) : null;
+        const here = rel !== null && o.deliver!(rel, bytes);
+        outputs.push({ path: here ? rel! : `apps/${o.spec.id}/${f.name}`, sha256: sha(bytes), bytes: bytes.length });
+      }
       else unhashed.push(`apps/${o.spec.id}/${f.name}`);
     }
     const id = o.seal({

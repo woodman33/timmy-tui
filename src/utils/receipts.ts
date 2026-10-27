@@ -92,6 +92,21 @@ export interface Receipt {
   /** R13 (the integration order): a hosted mini-app's job (src/companion/miniapps/receipts.ts): the app, the revision it ran, the
    *  sha256 of the app's own record of the job (the record is the app's, unsigned; this receipt is Timmy's), and who started it */
   miniapp?: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string; principal?: string };
+  /** the integrated candidate's checklist A11: a project file handed to another app (src/companion/miniapps/routes.ts):
+   *  the source file, the receipt that named it, and the run the target app made from it */
+  handoff?: {
+    from: { path: string; sha256: string; receipt: string | null; app: string | null; job: string | null };
+    to: { app: string; run: string; image_sha256: string; revision: string | null };
+    principal: string;
+  };
+  /** the integrated candidate's checklist B1–B8: a code-agent run the Control Room started on a copy of the project
+   *  (src/companion/control-runs.ts): its harness and local model, act's end, the agent's run and its receipt in the copy's store */
+  control_run?: {
+    run: string; harness: string; model: string; endpoint: 'local'; principal: string; state: string;
+    act: { operation: string | null; outcome: string; exit_code: number } | null;
+    agent: { run: string; outcome: string | null; receipt: string | null; deleted: number } | null;
+    plan_sha256: string; task_sha256: string; stopped_by?: string;
+  };
   /** Round R4 (lead): a fleet plan's prediction (sealed before it runs) or its run (src/fleet/**): the plan, the backend as it
    *  labels itself (FAKE for the offline backend), the isolation it gives, the counts kept apart (a delivery is never a
    *  verification), and whether this was a simulation. Upstream allocation, session and request ids stay in the plan's

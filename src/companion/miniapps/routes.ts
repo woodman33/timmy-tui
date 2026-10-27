@@ -6,17 +6,26 @@
  *   POST /api/apps/:id/open      start (or reuse) the app for the request's principal and project; answers a one-time
  *                                launch address for the page's frame (valid for a minute, used once)
  *   POST /api/apps/:id/stop      stop this principal's project's copy (the app's own SIGTERM path ends its native jobs)
+ *   GET  /api/apps/provenance    ?path=<project file>: the receipt that names this file with these bytes (an app job's output
+ *                                delivered into the project, the checklist's A6), or none
+ *   POST /api/apps/card-lab/handoff  { path }: the checklist's A11 — an image of the project (an Animate preview, say) as a
+ *                                new Card Lab run (Card Lab's own POST /api/runs, started for this principal and project when
+ *                                it is not running), the bytes it holds checked against the file's, and ONE handoff receipt
+ *                                naming the source file, its receipt and the target run
  *
  * Each route takes the launch token and, when the request carries one, the user's session (the same guards as /api/app/*):
  * the principal and project come from those checks, never from the request body.
  */
 import express from 'express';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { JobManager } from '../../jobs/index.js';
 import { appendReceipt, readChain } from '../../utils/receipts.js';
 import { projectId } from '../../project/index.js';
 import { appDataDir, hostProblem, installedRevision, installedSource, MiniAppHost, principalKey } from './host.js';
 import { MINI_APPS, miniAppOf } from './registry.js';
+import { deliverInto } from './receipts.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -42,6 +51,23 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
   // one job manager per Timmy home: a worker's job is kept with that principal's other jobs (<home>/jobs)
   const managers = new Map<string, JobManager>();
   const jobsOf = (home: string) => { let m = managers.get(home); if (!m) { m = new JobManager({ dir: join(home, 'jobs') }); managers.set(home, m); } return m; };
+
+  /** Starts (or reuses) an app for the request's principal and project, its receipts sealed into that project. */
+  const ensureFor = (spec: NonNullable<ReturnType<typeof miniAppOf>>, req: express.Request, p: { name: string; root: string; env: Env }, port: string) => {
+    const home = p.env.TIMMY_HOME!;
+    return host.ensure({
+      spec, key: keyOf(spec.id, req, p.root), dir: deps.env[spec.host!.sourceEnv]!,
+      dataDir: appDataDir(home, spec.id, projectId(p.root)), base: deps.env,
+      ancestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`], jobs: jobsOf(home), project: p.name,
+      revision: installedRevision(spec, deps.env),
+      // each of the app's ended jobs: one receipt in this project's runs chain (where its chat turns are sealed)
+      seal: (r) => appendReceipt('runs', { ...r, project_id: projectId(p.root) }, p.root).id,
+      principal: who(req),
+      // the checklist's A6: what the job made, delivered into the project's Files (from-apps/<app>/<job>/)
+      deliver: deliverInto(p.root),
+      known: () => readChain('runs', p.root).filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && r.miniapp?.principal === who(req) && typeof r.job?.id === 'string').map((r) => r.job!.id),
+    });
+  };
 
   app.get('/api/apps', ...guards, (req, res) => {
     const p = project(req);
@@ -73,16 +99,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     if (!self) { res.status(403).set('Cache-Control', 'no-store').json({ ok: false, error: 'Mini-apps open only on this computer’s address.' }); return; }
     const port = self.split(':')[1];
     try {
-      const hosted = await host.ensure({
-        spec, key: keyOf(spec.id, req, p.root), dir: deps.env[spec.host!.sourceEnv]!,
-        dataDir: appDataDir(home, spec.id, projectId(p.root)), base: deps.env,
-        ancestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`], jobs: jobsOf(home), project: p.name,
-        revision: installedRevision(spec, deps.env),
-        // each of the app's ended jobs: one receipt in this project's runs chain (where its chat turns are sealed)
-        seal: (r) => appendReceipt('runs', { ...r, project_id: projectId(p.root) }, p.root).id,
-        principal: who(req),
-        known: () => readChain('runs', p.root).filter((r) => r.kind === 'miniapp' && r.miniapp?.app === spec.id && r.miniapp?.principal === who(req) && typeof r.job?.id === 'string').map((r) => r.job!.id),
-      });
+      const hosted = await ensureFor(spec, req, p, port);
       // (this principal's grants to the same app in their other projects end: an old tab cannot act in the project left)
       const revoked = host.revokeOthers(hosted.key);
       res.set('Cache-Control', 'no-store').json({ ok: true, id: spec.id, project: p.name, url: hosted.launch(), startedAt: hosted.startedAt, job: hosted.jobId, revokedElsewhere: revoked });
@@ -114,5 +131,90 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     res.set('Cache-Control', 'no-store').json({ ok: true, stopped });
   });
 
+  // the checklist's A6: which receipt names this project file, with exactly these bytes
+  app.get('/api/apps/provenance', ...guards, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const p = project(req);
+    if (!p) { res.status(404).json({ ok: false, error: APPS_NO_PROJECT }); return; }
+    const f = projectFile(p.root, String(req.query.path ?? ''));
+    if (!f.ok) { res.status(f.status).json({ ok: false, error: f.error }); return; }
+    res.json({ ok: true, path: f.rel, sha256: f.sha256, receipt: provenanceOf(p.root, f.rel, f.sha256) });
+  });
+
+  // the checklist's A11: one supported cross-app handoff — a project image as a new Card Lab run
+  app.post('/api/apps/card-lab/handoff', ...guards, express.json({ limit: '4kb' }), async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const spec = miniAppOf('card-lab')!;
+    const problem = hostProblem(spec, deps.env);
+    if (problem) { res.status(409).json({ ok: false, error: problem }); return; }
+    const p = project(req);
+    if (!p) { res.status(404).json({ ok: false, error: APPS_NO_PROJECT }); return; }
+    if (!p.env.TIMMY_HOME) { res.status(500).json({ ok: false, error: 'This principal has no Timmy home to keep the app’s data in.' }); return; }
+    const self = typeof req.headers.host === 'string' && HOST.test(req.headers.host) ? req.headers.host : null;
+    if (!self) { res.status(403).json({ ok: false, error: 'Mini-apps open only on this computer’s address.' }); return; }
+    const f = projectFile(p.root, String((req.body as { path?: unknown } | undefined)?.path ?? ''));
+    if (!f.ok) { res.status(f.status).json({ ok: false, error: f.error }); return; }
+    const mime = imageMime(f.bytes);
+    if (!mime) { res.status(415).json({ ok: false, error: 'Card Lab takes a PNG, JPEG or WebP image; this file is none of them (by its bytes).' }); return; }
+    if (f.bytes.length > 8 * 1024 * 1024) { res.status(413).json({ ok: false, error: 'Card Lab takes an image of at most 8 MB.' }); return; }
+    const source = provenanceOf(p.root, f.rel, f.sha256);
+    try {
+      const hosted = await ensureFor(spec, req, p, self.split(':')[1]);
+      const name = f.rel.split('/').pop()!.slice(0, 180);
+      const r = await hosted.request('POST', '/api/runs', { images: [{ dataUrl: `data:${mime};base64,${f.bytes.toString('base64')}`, name, view: 'front' }] });
+      const run = r.json as { id?: unknown; images?: Array<{ sha256?: unknown }> } | null;
+      if (r.status !== 201 || !run || typeof run.id !== 'string') { res.status(502).json({ ok: false, error: `Card Lab did not make the run (it answered ${r.status}${run && typeof (run as { error?: unknown }).error === 'string' ? `: ${(run as { error: string }).error}` : ''}). Nothing was sealed.` }); return; }
+      const held = run.images?.[0]?.sha256;
+      if (held !== f.sha256) { res.status(502).json({ ok: false, error: `Card Lab made run ${run.id}, but the image it holds is not this file's bytes (${String(held).slice(0, 12)} ≠ ${f.sha256.slice(0, 12)}). Nothing was sealed.` }); return; }
+      const rc = appendReceipt('runs', {
+        kind: 'handoff', subject: `handoff · ${f.rel} → Card Lab ${run.id}`, policy: 'human-gated', status: 'ok',
+        project: p.name, project_id: projectId(p.root),
+        files: [{ path: f.rel, sha256: f.sha256, bytes: f.bytes.length }],
+        handoff: {
+          from: { path: f.rel, sha256: f.sha256, receipt: source ? source.id : null, app: source ? source.app : null, job: source ? source.job : null },
+          to: { app: 'card-lab', run: run.id, image_sha256: String(held), revision: installedRevision(spec, deps.env) },
+          principal: who(req),
+        },
+      }, p.root);
+      res.json({ ok: true, run: run.id, receipt: rc.hash.slice(7, 15), source, sha256: f.sha256 });
+    } catch (e) {
+      res.status(502).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   return host;
+}
+
+/** A regular file inside the project, read whole (at most 64 MiB), its path relative to the project; never outside it. */
+function projectFile(root: string, given: string): { ok: true; rel: string; bytes: Buffer; sha256: string } | { ok: false; status: number; error: string } {
+  const rel = given.replace(/^\/+/, '');
+  if (!rel || rel.split(/[\\/]/).includes('..')) return { ok: false, status: 400, error: 'Name a file of the project by its path in it.' };
+  let real: string; let base: string;
+  try { base = realpathSync(root); real = realpathSync(resolve(root, rel)); } catch { return { ok: false, status: 404, error: 'No such file in the project.' }; }
+  if (!real.startsWith(`${base}${sep}`)) return { ok: false, status: 400, error: 'That path leaves the project.' };
+  const st = statSync(real);
+  if (!st.isFile()) return { ok: false, status: 400, error: 'That is not a file.' };
+  if (st.size > 64 * 1024 * 1024) return { ok: false, status: 413, error: 'The file is larger than this route reads.' };
+  const bytes = readFileSync(real);
+  return { ok: true, rel: relative(base, real).split(sep).join('/'), bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+/** The newest receipt in the project's chain that names this file with exactly these bytes, as an output or a file. */
+function provenanceOf(root: string, rel: string, sha256: string): { id: string; kind: string; app: string | null; job: string | null; at: string } | null {
+  let chain: ReturnType<typeof readChain> = [];
+  try { chain = readChain('runs', root); } catch { return null; }
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const r = chain[i];
+    const named = (r.outputs ?? []).some((o) => o.path === rel && o.sha256 === sha256) || (r.kind !== 'handoff' && (r.files ?? []).some((o) => o.path === rel && o.sha256 === sha256));
+    if (named) return { id: r.hash.slice(7, 15), kind: r.kind, app: r.miniapp?.app ?? null, job: r.job?.id ?? null, at: r.ts };
+  }
+  return null;
+}
+
+/** An image's type by its bytes (PNG, JPEG, WebP), as Card Lab checks it. */
+function imageMime(b: Buffer): string | null {
+  if (b.length > 8 && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (b.length > 3 && b[0] === 255 && b[1] === 216) return 'image/jpeg';
+  if (b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
 }

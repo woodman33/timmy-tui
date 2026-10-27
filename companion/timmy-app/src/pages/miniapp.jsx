@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Page, Panel } from '../shell.jsx';
-import { projectQuery, useApp } from '../store.js';
+import { PAGES, goBack, goTo, projectQuery, useApp } from '../store.js';
 import { Button, Facts, StateWord } from '../ui.jsx';
 import './miniapp.css';
 
@@ -36,6 +36,8 @@ export function MiniAppPage({ appId }) {
   const [words, setWords] = useState('');
   const a = apps && apps.ok ? apps.apps.find((x) => x.id === appId) : null;
   const projectNow = useApp((s) => s.projectId);
+  const from = useApp((s) => s.from);
+  const fromTitle = (PAGES.find((x) => x.id === from && x.id !== appId) || { title: 'Chat' }).title;
   // another project: the frame of the one left is closed (its grant there was ended by the companion when this one opens)
   useEffect(() => { setOpen(null); }, [projectNow]);
   // while framed, the grant is renewed with this page's own session; a page whose session ended cannot renew, so the app
@@ -73,10 +75,14 @@ export function MiniAppPage({ appId }) {
       <Page id={appId} fill head={false}>
         <div className="ta-miniapp" data-miniapp={appId} data-miniapp-state="open">
           <div className="ta-miniapp-bar" role="toolbar" aria-label={`${a.title} controls`}>
+            {/* the checklist's A1 and C8: the same way out of every app — back to the page the person came from (the app keeps
+                running for this project), its results in Files, or Stop */}
+            <Button onClick={goBack} className="ta-miniapp-back" title={`Back to ${fromTitle}; ${a.title} keeps running for this project`}>← {fromTitle}</Button>
             <span className="ta-miniapp-name">{a.title}</span>
             <StateWord word="running" live />
-            <span className="ta-muted">{apps.project ? `in ${apps.project}` : ''}</span>
+            <span className="ta-muted ta-miniapp-where">{apps.project ? `in ${apps.project}` : ''}</span>
             <span className="ta-miniapp-gap" />
+            <Button onClick={() => goTo('files')} title={`What ${a.title}'s jobs made, in this project's Files`}>Results in Files</Button>
             <Button onClick={stop} disabled={busy === 'stop'} title={`Stop ${a.title} for this project`}>Stop</Button>
           </div>
           <iframe className="ta-miniapp-frame" title={a.title} src={open.url} data-miniapp-frame={appId} />
@@ -89,7 +95,7 @@ export function MiniAppPage({ appId }) {
   return (
     <Page
       id={appId}
-      actions={hostable ? <Button kind="primary" onClick={start} disabled={busy === 'open'}>{busy === 'open' ? 'Opening…' : `Open ${a.title}`}</Button> : null}
+      actions={hostable ? <><Button kind="primary" onClick={start} disabled={busy === 'open'}>{busy === 'open' ? 'Opening…' : a.running ? `Return to ${a.title}` : `Open ${a.title}`}</Button><Button onClick={() => goTo('files')}>Results in Files</Button></> : <Button onClick={goBack}>← {fromTitle}</Button>}
       band={[['status', hostable ? (a.running ? 'running' : 'ready to open') : (a.problem ? 'not available here' : WAITING[a.availability] || a.availability)], ['project', apps.project || 'none open']]}
       note={words || null}
     >

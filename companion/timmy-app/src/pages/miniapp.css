@@ -6,3 +6,9 @@
 .ta-miniapp-frame { flex: 1 1 auto; width: 100%; min-height: 480px; border: 0; background: #0a0e12; display: block; }
 .ta-miniapp-lead { font-size: 15px; margin: 0 0 12px; }
 @media (max-width: 640px) { .ta-miniapp-frame { min-height: 70vh; } }
+/* the checklist's A1 / C8: the frame's bar on a phone — the way back and Stop stay in reach, the project word folds away */
+@media (max-width: 760px) {
+  .ta-miniapp-bar { flex-wrap: wrap; gap: 8px; padding: 8px; }
+  .ta-miniapp-where { display: none; }
+  .ta-miniapp-bar .ta-btn { min-height: 40px; }
+}

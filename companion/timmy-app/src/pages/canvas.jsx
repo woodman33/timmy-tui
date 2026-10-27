@@ -91,7 +91,7 @@ export const DESK_CARDS = Object.freeze({
 });
 
 function LiveLine({ at }) {
-  return at ? <p className="ta-desk-live">read on this page at {clock(at)} · GET /api/chat/view</p>
+  return at ? <p className="ta-desk-live" title="read from the companion's Chat view (the records below list the request)">read on this page at {clock(at)}</p>
     : <p className="ta-desk-live is-not">not live: nothing was read on this page yet (as saved with the desk)</p>;
 }
 

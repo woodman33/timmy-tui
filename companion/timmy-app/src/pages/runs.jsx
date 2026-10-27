@@ -137,7 +137,7 @@ export default function RunsPage() {
         <Tool glyph="⎙" label="Export receipts" why="not in this build" />
       </>}>
       <Panel id="runs" kicker="THE PROJECT" title="Runs and receipts"
-        tools={ok ? <span className="ta-muted">read {clock(answer.readAt)} · GET /api/panel/runs/list</span> : null}>
+        tools={ok ? <span className="ta-muted">read {clock(answer.readAt)}</span> : null}>
         {!answer ? <Empty>Reading the project’s runs…</Empty>
           : !ok ? <p className="ta-result" role="status">{answer.error || `The companion answered ${answer.status || 'nothing'}.`}</p>
             : !shown.length ? <Empty>{rows.length ? `No ${KINDS.find((k) => k[0] === kind)[1].toLowerCase()} in this list.` : 'Nothing has run in this project yet: no sealed turn, no job, no receipt.'}</Empty>
@@ -168,7 +168,7 @@ export default function RunsPage() {
         {notes.length ? <ul className="tx-runs-notes">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
       </Panel>
       <Panel id="answers" kicker="THE CHAT" title="This conversation’s answers"
-        tools={view ? <span className="ta-muted">read {clock(viewAt)} · GET /api/chat/view</span> : null}>
+        tools={view ? <span className="ta-muted">read {clock(viewAt)}</span> : null}>
         {!view ? <Empty>Reading the conversation…</Empty> : !answers.length ? <Empty>No answer in this conversation yet.</Empty> : (
           <ul className="tx-runs-answers">
             {answers.map((t, i) => {

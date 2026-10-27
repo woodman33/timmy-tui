@@ -26,3 +26,4 @@
   .tx-files-filter { width: 130px; }
   .tx-files-text, .tx-files-md { max-height: 50vh; }
 }
+.tx-files-prov { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ta-edge); } .tx-files-prov p { margin: 0; overflow-wrap: anywhere; }

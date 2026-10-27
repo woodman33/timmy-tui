@@ -231,7 +231,8 @@ export function Dock() {
       <button type="button" className="ta-dock-bar" aria-expanded={open} onClick={() => setDock(!open)}>
         <span className="ta-dock-k">RECORDS</span>
         <span className="ta-dock-sum">{lines.length} request{lines.length === 1 ? '' : 's'} to the companion{failed ? ` · ${failed} not ok` : ''}</span>
-        {last ? <span className="ta-dock-last"><code>{last.method} {last.path.split('?')[0]}</code> {last.status || 'no answer'} · {last.ms} ms · {clock(last.at)}</span> : null}
+        {/* the checklist's C7: which route answered is a technical detail, read in the opened records, not on the bar */}
+        {last ? <span className="ta-dock-last">last {clock(last.at)}{last.status === 0 || last.status >= 400 ? ' · not ok' : ''}</span> : null}
         <span className="ta-dock-caret" aria-hidden="true">{open ? '▾' : '▴'}</span>
       </button>
       {open ? (

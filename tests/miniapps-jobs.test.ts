@@ -5,14 +5,14 @@
  * server/store.mjs + server/runtime.mjs; Animate server.mjs): FAKE records, never an owner's data.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { animateJobs, APP_JOBS, cardLabJobs, filmRoomJobs, modelStudioJobs } from '../src/companion/miniapps/app-jobs.js';
-import { sealFinished, type AppJobReceipt } from '../src/companion/miniapps/receipts.js';
+import { deliveredPath, deliverInto, sealFinished, type AppJobReceipt } from '../src/companion/miniapps/receipts.js';
 import { localVision, miniAppOf } from '../src/companion/miniapps/registry.js';
 import { installedSource } from '../src/companion/miniapps/host.js';
 
@@ -118,6 +118,22 @@ describe('sealing an app’s ended jobs', () => {
       expect(good.outputs).toEqual([{ path: `apps/animate/${ok}/scene.blend`, sha256: createHash('sha256').update('FAKE blend').digest('hex'), bytes: 10 }]);
       expect(sealedReceipts.find((r) => r.job.id === bad)).toMatchObject({ status: 'failed', job: { state: 'failed', error: 'Blender did not complete all required outputs.' }, outputs: [] });
       expect(sealedReceipts.find((r) => r.job.id === bad)).not.toHaveProperty('outputs_unhashed');
+      // the checklist's A6: delivered into the project, the receipt names the file there (the same bytes), never over a file
+      const project = tmp();
+      mkdirSync(join(project, 'from-apps', 'animate', bad), { recursive: true });
+      const again: AppJobReceipt[] = [];
+      await sealFinished({ ...o, deliver: deliverInto(project), seal: (r: AppJobReceipt) => { again.push(r); return 'x'; } }, new Set());
+      const delivered = again.find((r) => r.job.id === ok)!;
+      expect(delivered.outputs).toEqual([{ path: `from-apps/animate/${ok}/scene.blend`, sha256: createHash('sha256').update('FAKE blend').digest('hex'), bytes: 10 }]);
+      expect(readFileSync(join(project, 'from-apps', 'animate', ok, 'scene.blend'), 'utf8')).toBe('FAKE blend');
+      // a file there with other bytes is kept, and the receipt keeps the app's own name for this output
+      writeFileSync(join(project, 'from-apps', 'animate', ok, 'scene.blend'), 'the person\'s edit');
+      const third: AppJobReceipt[] = [];
+      await sealFinished({ ...o, deliver: deliverInto(project), seal: (r: AppJobReceipt) => { third.push(r); return 'y'; } }, new Set());
+      expect(third.find((r) => r.job.id === ok)!.outputs[0].path).toBe(`apps/animate/${ok}/scene.blend`);
+      expect(readFileSync(join(project, 'from-apps', 'animate', ok, 'scene.blend'), 'utf8')).toBe('the person\'s edit');
+      expect(deliveredPath('animate', ok, '../x')).toBeNull();
+      expect(deliveredPath('card-lab', 'run 1', 'a/b c.png')).toBe('from-apps/card-lab/run 1/a/b c.png');
     } finally { server.close(); }
   });
 });

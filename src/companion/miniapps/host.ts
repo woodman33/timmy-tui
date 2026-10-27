@@ -202,6 +202,8 @@ export interface StartOptions {
   /** the principal's one-way key; the app job ids the chain already holds for this app, principal and project */
   principal?: string;
   known?: () => string[];
+  /** the checklist's A6: each hashed output written into the project too (receipts.ts deliverInto) */
+  deliver?: (rel: string, bytes: Buffer) => boolean;
   /** the installed copy's revision (its .timmy-source.json), sealed with each job */
   revision?: string | null;
 }
@@ -225,7 +227,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   if (ready.state !== 'ready') unlock();
   if (ready.state !== 'ready') throw new Error(`${o.spec.title} did not start (job ${job.id}: ${ready.state}${ready.error ? `, ${ready.error}` : ''}).`);
   const exited = () => { const j = o.jobs.get(job.id); return !j || (j.state !== 'ready' && j.state !== 'running'); };
-  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, workerSecret, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known }) : null;
+  const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, workerSecret, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known, ...(o.deliver ? { deliver: o.deliver } : {}) }) : null;
   // grants: one per launch (a browser), each its own secret, each ending at its own time unless renewed; revoke ends them all
   const grants = new Map<string, number>();
   const launches = new Map<string, number>();

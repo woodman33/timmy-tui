@@ -26,3 +26,23 @@
 .tx-ctl-fleet li { display: grid; gap: 4px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--ta-edge); background: var(--ta-sunk); min-width: 0; }
 .tx-ctl-facts { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: 12px; color: var(--timmy-ui-text-secondary, #BDCADA); overflow-wrap: anywhere; }
 @media (max-width: 760px) { .tx-ctl-panes, .tx-ctl-fleet { grid-template-columns: 1fr; } .ta-page[data-page="control"] .ta-panel-tools { display: none; } }
+/* the checklist's B1–B8: the AGENT RUNS panel (control-runs.jsx) */
+.tx-ctl-launch { display: grid; gap: 10px; }
+.tx-ctl-launch-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr) minmax(110px, .7fr); gap: 10px; }
+.tx-ctl-field { display: grid; gap: 4px; font-size: 12px; color: var(--timmy-ui-text-secondary, #BDCADA); min-width: 0; }
+.tx-ctl-field select, .tx-ctl-field input, .tx-ctl-field textarea { font: 14px/1.4 var(--timmy-ui-font, inherit); color: var(--timmy-ui-text, #ECF1F5); background: var(--ta-sunk); border: 1px solid var(--ta-edge); border-radius: 8px; padding: 8px 10px; min-height: 40px; min-width: 0; width: 100%; box-sizing: border-box; }
+.tx-ctl-field textarea { resize: vertical; }
+.tx-ctl-proposal { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--timmy-ui-focus, #FFB000); background: var(--ta-sunk); }
+.tx-ctl-proposal p { margin: 0; }
+.tx-ctl-runs { display: grid; gap: 10px; margin-top: 12px; }
+.tx-ctl-run { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--ta-edge); background: var(--ta-sunk); min-width: 0; }
+.tx-ctl-run.is-live { border-color: var(--timmy-ui-accent, #D6AA64); }
+.tx-ctl-run-head { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; align-items: start; }
+.tx-ctl-run-words { display: grid; gap: 6px; min-width: 0; }
+.tx-ctl-run-words p { margin: 0; }
+.tx-ctl-run-task { font-size: 13px; overflow-wrap: anywhere; }
+.tx-ctl-final { margin: 0; padding: 6px 10px; border-left: 2px solid var(--ta-edge); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tx-ctl-diff { display: grid; gap: 4px; margin-top: 6px; }
+.tx-ctl-diff-pre { max-height: 320px; }
+.ta-face-run { min-height: 90px; }
+@media (max-width: 760px) { .tx-ctl-launch-row { grid-template-columns: 1fr; } .tx-ctl-run-head { grid-template-columns: 1fr; } .ta-face-run { max-width: 220px; } }

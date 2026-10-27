@@ -59,6 +59,29 @@ function LiveTurn({ turn, theme, saved }) {
 /** Ways to begin, written into the composer (never sent by themselves). */
 const STARTS = ['What can you help me with in this project?', 'Read the project’s files and summarise them.', 'Plan the next step with me.'];
 
+/** Where the Agent & model column is: on the right of the chat, or below it (900 px and under: app.css stacks the page). */
+function useStacked() {
+  const q = '(max-width: 900px)';
+  const [stacked, setStacked] = useState(() => typeof matchMedia === 'function' && matchMedia(q).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return undefined;
+    const m = matchMedia(q);
+    const on = () => setStacked(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return stacked;
+}
+
+/** The chooser in the Agent & model column, brought into view and its first control focused (the phone's way to it, too). */
+export function showChooser() {
+  const el = typeof document !== 'undefined' ? document.querySelector('.ta-choose') : null;
+  if (!el) { goTo('models'); return; }
+  try { el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); } catch { el.scrollIntoView(); }
+  const first = el.querySelector('[role="tab"][aria-selected="true"]') || el.querySelector('button, input, select');
+  if (first) setTimeout(() => first.focus({ preventScroll: true }), 300);
+}
+
 /** The phone's software keyboard: the composer stays above it (the visual viewport's height, as a CSS variable). */
 function useKeyboardInset() {
   useEffect(() => {
@@ -79,6 +102,7 @@ function Conversation({ theme }) {
   const view = useApp((s) => s.view);
   const turn = useApp((s) => s.turn);
   const [draft, setDraft] = useState('');
+  const stacked = useStacked();
   const list = useRef(null);
   const input = useRef(null);
   useKeyboardInset();
@@ -105,7 +129,7 @@ function Conversation({ theme }) {
         {!shown.length && !turn ? (
           <li className="ta-turn ta-hello">
             <p className="ta-hello-title">{ready ? 'What are we working on?' : 'Choose a model to start'}</p>
-            <p className="ta-text">{ready ? 'Timmy runs the real agent here: its tools ask you first, and each answer is sealed with a receipt.' : 'Pick one in the column on the right (or on Models & accounts). Send stays off until a model is chosen.'}</p>
+            <p className="ta-text">{ready ? 'Its tools ask you first; each answer is sealed with a receipt.' : `Choose one in Agent & model, ${stacked ? 'below the chat' : 'on the right'}.`}</p>
             {ready ? <div className="ta-row ta-starts">{STARTS.map((t) => <button key={t} type="button" className="ta-chip" onClick={() => { setDraft(t); input.current && input.current.focus(); }}>{t}</button>)}</div> : null}
           </li>
         ) : null}
@@ -115,7 +139,7 @@ function Conversation({ theme }) {
       {elsewhere.length ? <p className="ta-elsewhere" role="status">A turn of this project is running in {elsewhere.map((r) => `${surfaceWord(r.surface)} (since ${clock(r.since)})`).join(', ')}: Send here waits for it.</p> : null}
       <form className="ta-composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <textarea ref={input} className="ta-input" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} enterKeyHint={coarse ? 'enter' : 'send'}
-          placeholder={ready ? 'Message Timmy' : 'Send is off until a model is chosen'} aria-label="Message Timmy" disabled={!view} />
+          placeholder={ready ? 'Message Timmy' : 'Choose a model first'} aria-label="Message Timmy" disabled={!view} />
         <div className="ta-composer-row">
           <p className="ta-route" title={route ? route.words : ''}>{route ? route.label : 'Reading the route…'}</p>
           {running ? <Button kind="primary" onClick={stop} disabled={turn.phase === 'stopping'} className="ta-send">{turn.phase === 'stopping' ? 'Stopping…' : '■ Stop'}</Button>
@@ -164,7 +188,8 @@ function Context({ theme }) {
         <ConsoleFace size="wide" theme={theme} />
       </div>
       <Facts rows={[
-        ['next turn', c.words || (view && view.route ? view.route.label : null)],
+        // (with no model chosen the chooser just below says it; the route's own words stay in the composer's line)
+        ['next turn', view && view.route && view.route.ready ? (c.words || view.route.label) : null],
         ['chosen in', c.from || null],
         ['policy', view && view.policy ? `free only ${view.policy.freeOnly ? 'on' : 'off'} · local only ${view.policy.localOnly ? 'on' : 'off'}` : null],
         ['turn', turn && turn.id ? <code key="t">{turn.id}</code> : null],
@@ -192,14 +217,14 @@ export default function ChatPage() {
   const project = config && config.project;
   const actions = running
     ? <Button kind="primary" onClick={stop} disabled={turn.phase === 'stopping'}>{turn.phase === 'stopping' ? 'Stopping…' : '■ Stop the turn'}</Button>
-    : !ready ? <Button kind="primary" onClick={() => goTo('models')}>Set up a model</Button>
+    : !ready ? <Button kind="primary" onClick={showChooser}>Choose a model</Button>
       : <Button onClick={newConversation}>New conversation</Button>;
   return (
     <Page id="chat" fill note={note}
       actions={actions}
       band={[
         ['WORKSPACE', project ? <span title={project.display || project.name}>{project.name}</span> : <span className="ta-muted">no project named</span>],
-        ['MODEL', !view ? <span className="ta-muted">{viewError || 'Reading…'}</span> : choice && choice.chosen ? <>{choice.model} <span className="ta-muted">· {whereOf(view.route)}</span></> : <span className="ta-muted">none chosen · Send is off</span>],
+        ['MODEL', !view ? <span className="ta-muted">{viewError || 'Reading…'}</span> : choice && choice.chosen ? <>{choice.model} <span className="ta-muted">· {whereOf(view.route)}</span></> : <span className="ta-muted">none chosen</span>],
         ['AGENT', elsewhere.length && !running ? <><StateWord word="working" /> <span className="ta-muted">in {surfaceWord(elsewhere[0].surface)}</span></> : <StateWord word={activityOf(turn)} />],
         ['RECORDS', last ? <><span className={last.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{last.receipt.verified ? '✓ verified' : '✕ not verified'}</span> <code>{last.receipt.id}</code> <span className="ta-muted">· {sealed.length} sealed</span></> : <span className="ta-muted">no sealed answer yet</span>],
       ]}

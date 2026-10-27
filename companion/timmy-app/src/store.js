@@ -102,7 +102,10 @@ export function setSearch(source, text) { set((s) => ({ search: { ...s.search, [
 
 // ── the person's choices ──
 
-export function goTo(page) { if (isPage(page)) { set({ page, drawer: false }); write(PAGE, page); try { window.scrollTo(0, 0); } catch { /* no window */ } } }
+// `from`: the page the person came from (a framed app's "Back" returns there)
+export function goTo(page) { if (isPage(page)) { set((s) => ({ page, drawer: false, from: s.page !== page ? s.page : s.from })); write(PAGE, page); try { window.scrollTo(0, 0); } catch { /* no window */ } } }
+/** The page the person came from, else Chat (Timmy's home). */
+export function goBack() { const s = getState(); goTo(s.from && s.from !== s.page && isPage(s.from) ? s.from : 'chat'); }
 export function setDrawer(open) { set({ drawer: !!open }); }
 export function setRailSlim(slim) { set((s) => ({ railFold: { ...(s.railFold || {}), [s.page]: !!slim } })); }
 export function setDock(open) { set({ dock: !!open }); write(DOCK, open ? 'open' : 'folded'); }
