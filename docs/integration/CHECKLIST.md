@@ -128,9 +128,10 @@ Each was found during this pass. None is needed for an acceptance criterion abov
    make its fixed 90 s per-call timeout a setting.
 5. **Qwen Code's version.** The installed CLI is 0.25.1; its stream reports `qwen_code_version` 0.22.2. The run records
    what the stream says. Not explained yet.
+6. **The Mac driver's phone pass** (test tooling, outside the repository) clicks "Open X", which an app still running
+   shows as "Return to X". The phone captures of those apps were not taken; the checks themselves passed. (Fixed in the
+   driver for 8113d1a8.)
 7. **Friendlier names for app files in Files** (G3): show `r2-inspect-job_<id>.json` as "inspection · rev 2", keeping
    the path under Details.
 8. **The walkthrough cut** shows Chat, Files and the Control Room. Recording the apps' own editors while they edit and
    export needs the driver to record inside their frames.
-6. **The Mac driver's phone pass** (test tooling, outside the repository) clicks "Open X", which an app still running
-   shows as "Return to X". The phone captures of those apps were not taken; the checks themselves passed.
