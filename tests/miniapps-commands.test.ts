@@ -57,12 +57,25 @@ describe('timmy video and timmy animate through the C1 host (FAKE app)', () => {
     try {
       const manifest = join(box, 'manifest.json');
       writeFileSync(manifest, JSON.stringify({ schema_version: 1, clips: [{ id: 'a', start_seconds: 0, end_seconds: 1 }, { id: 'b', start_seconds: 1, end_seconds: 2 }] }));
+      // the asset the render cuts: imported here (a manifest naming no asset gets the chosen one's, as Film Room asks)
+      const clip = join(box, 'cut.mp4'); writeFileSync(clip, 'FAKE video to cut');
       lines.length = 0;
-      expect(await runVideoCli(['render', '00000000-0000-4000-8000-000000000000', manifest, '--cancel-after', '0.05'], io())).toBe(130);
+      expect(await runVideoCli(['import', clip, '--json'], io())).toBe(0);
+      const asset = (JSON.parse(lines.join('\n')) as { result: { result: { asset: { id: string } } } }).result.result.asset.id;
+      lines.length = 0;
+      expect(await runVideoCli(['render', '00000000-0000-4000-8000-000000000000', manifest], io())).toBe(1);
+      expect(lines.join('\n')).toMatch(/Film Room has no asset 00000000-0000-4000-8000-000000000000/);
+      writeFileSync(join(box, 'wrong.json'), JSON.stringify({ schema_version: 1, asset: { name: 'other.mp4' }, clips: [{ id: 'a', start_seconds: 0, end_seconds: 1 }] }));
+      lines.length = 0;
+      expect(await runVideoCli(['render', asset, join(box, 'wrong.json')], io())).toBe(1);
+      expect(lines.join('\n')).toMatch(/Film Room refused the render \(409\): Manifest source name differs/);
+      lines.length = 0;
+      expect(await runVideoCli(['render', asset, manifest, '--cancel-after', '0.05'], io())).toBe(130);
+      expect(lines.join('\n')).toMatch(/The manifest names no asset: the chosen one \(cut\.mp4\) is named in it/);
       expect(lines.join('\n')).toMatch(/: cancelled \(cancel asked\)\.\nreceipt rc_\S+: cancelled/);
       expect(chain().at(-1)).toMatchObject({ status: 'cancelled', job: { kind: 'render', state: 'cancelled' }, outputs: [] });
       lines.length = 0;
-      expect(await runVideoCli(['render', '00000000-0000-4000-8000-000000000000', manifest, '--json'], io())).toBe(0);
+      expect(await runVideoCli(['render', asset, manifest, '--json'], io())).toBe(0);
       const out = JSON.parse(lines.join('\n'));
       expect(out).toMatchObject({ app: 'film-room', state: 'complete', cancelRequested: false, receipts: [{ status: 'ok', state: 'complete' }] });
       expect(chain().at(-1)!.outputs!.map((o) => o.path.split('/').pop())).toEqual(['clip-001.mp4', 'clip-002.mp4']);

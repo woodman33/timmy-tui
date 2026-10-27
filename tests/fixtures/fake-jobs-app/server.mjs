@@ -5,7 +5,7 @@
 // fails. No model, no network, no Blender, no ffmpeg: its "media" and "artifacts" are FAKE bytes.
 import http from 'node:http';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const port = Number(process.env.PORT);
@@ -21,6 +21,11 @@ const save = (j) => {
   else { mkdirSync(join(data, j.id), { recursive: true }); writeFileSync(join(data, j.id, 'job.json'), JSON.stringify(j)); }
 };
 const assets = new Map();
+const names = new Map();
+// (assets persist in the data folder, as the real app's do: a later worker for the same project still has them)
+const assetsDir = join(data, 'fake-assets');
+if (film && existsSync(assetsDir)) for (const f of readdirSync(assetsDir).filter((x) => x.endsWith('.json'))) { const a = JSON.parse(readFileSync(join(assetsDir, f), 'utf8')); assets.set(a.id, Buffer.from(a.b64, 'base64')); names.set(a.id, a.name); }
+const keepAsset = (id, name, bytes) => { mkdirSync(assetsDir, { recursive: true }); writeFileSync(join(assetsDir, `${id}.json`), JSON.stringify({ id, name, b64: bytes.toString('base64') })); };
 const body = (req) => new Promise((r) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => r(Buffer.concat(c))); });
 const server = http.createServer(async (req, res) => {
   const send = (s, v, type = 'application/json') => { res.writeHead(s, { 'content-type': type }); res.end(typeof v === 'string' || Buffer.isBuffer(v) ? v : JSON.stringify(v)); };
@@ -32,14 +37,18 @@ const server = http.createServer(async (req, res) => {
   if (film && req.method === 'POST' && url.pathname === '/api/assets') {
     const bytes = await body(req); const id = randomUUID(); const aid = randomUUID();
     const j = { id, type: 'ingest', state: 'running', progress: 0 }; jobs.set(id, j); save(j);
-    finish(j, (x) => { assets.set(aid, bytes); x.state = 'complete'; x.result = { asset: { id: aid, name: url.searchParams.get('name'), sha256: sha(bytes) } }; });
+    finish(j, (x) => { assets.set(aid, bytes); names.set(aid, url.searchParams.get('name')); keepAsset(aid, url.searchParams.get('name'), bytes); x.state = 'complete'; x.result = { asset: { id: aid, name: url.searchParams.get('name'), sha256: sha(bytes) } }; });
     return send(202, { jobId: id });
   }
-  if (film && req.method === 'GET' && url.pathname === '/api/assets') return send(200, { assets: [...assets.entries()].map(([id, b]) => ({ id, sha256: sha(b) })) });
+  if (film && req.method === 'GET' && url.pathname === '/api/assets') return send(200, { assets: [...assets.entries()].map(([id, b]) => ({ id, name: names.get(id), sha256: sha(b) })) });
   const media = /^\/api\/assets\/([a-f0-9-]{36})\/media$/.exec(url.pathname);
   if (film && media && assets.has(media[1])) return send(200, assets.get(media[1]), 'video/mp4');
   if (film && req.method === 'POST' && url.pathname === '/api/render-jobs') {
     const b = JSON.parse((await body(req)).toString() || '{}'); const id = randomUUID();
+    // (as the real app's validateManifest: the selected asset must exist, and the manifest must name it)
+    if (!assets.has(b.assetId)) return send(404, { error: 'Asset not found.' });
+    if (b.manifest?.asset?.name !== names.get(b.assetId)) return send(409, { error: 'Manifest source name differs from selected asset.' });
+    if (b.manifest?.asset?.id && b.manifest.asset.id !== b.assetId) return send(409, { error: 'Manifest asset ID differs from selected asset.' });
     const j = { id, type: 'render', state: 'running', progress: 0 }; jobs.set(id, j); save(j);
     finish(j, (x) => { x.state = 'complete'; x.result = { clips: (b.manifest?.clips ?? []).map((c, i) => ({ id: c.id, url: `/api/jobs/${id}/files/clip-${String(i + 1).padStart(3, '0')}.mp4` })) }; });
     return send(202, { jobId: id });

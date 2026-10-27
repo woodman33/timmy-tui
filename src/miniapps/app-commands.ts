@@ -93,6 +93,16 @@ export async function runVideoCli(argv: string[], io: Io = {}): Promise<number> 
   if (op === 'render' && a1 && a2) {
     let manifest: unknown;
     try { manifest = JSON.parse(readFileSync(resolve(a2), 'utf8')); } catch { err(`The manifest is not readable JSON: ${a2}`); return done(2); }
+    // R13 (the Mac run of 7bf70af): Film Room renders a manifest only when it names the asset it cuts (asset.name, and id and
+    // sha256 when given, must be the selected asset's: its runtime's validateManifest). A manifest that names none gets the
+    // chosen asset's, read from the app's own list, and the command says so; one that names an asset goes as written.
+    if (manifest && typeof manifest === 'object' && !(manifest as { asset?: unknown }).asset) {
+      const list = (await s.request('GET', '/api/assets')).json as { assets?: Array<{ id: string; name?: string; sha256?: string }> } | null;
+      const chosen = list?.assets?.find((x) => x.id === a1);
+      if (!chosen) { err(`Film Room has no asset ${a1} in ${s.project.name} (timmy video assets lists them).`); return done(1); }
+      (manifest as Record<string, unknown>).asset = { id: chosen.id, name: chosen.name, ...(chosen.sha256 ? { sha256: chosen.sha256 } : {}) };
+      if (!json) out(`The manifest names no asset: the chosen one (${chosen.name ?? chosen.id}) is named in it, as Film Room asks.`);
+    }
     const r = await s.request('POST', '/api/render-jobs', { assetId: a1, manifest, ...(args.includes('--reel') ? { reel: true } : {}), ...(args.includes('--otio') ? { otio: true } : {}) });
     if (r.status >= 400) { err(`Film Room refused the render (${r.status}): ${(r.json as { error?: string } | null)?.error ?? ''}`); return done(1); }
     return runJob(s, { ...common, started: r.json });

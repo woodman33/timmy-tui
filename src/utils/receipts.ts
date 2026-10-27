@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, appendFileSync, mkdirSync, rmdirSync, statSync, writeFileSync, renameSync, unlinkSync, rmSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
+import { homedir, userInfo } from 'os';
 import { spawnSync } from 'child_process';
 import crypto from 'crypto';
 import { publish as busPublish } from '../bus/index.js';
@@ -184,14 +185,27 @@ export function rootStoreDir(dir: string = process.cwd()): string | undefined {
     if (p === d) break;
     d = p;
   }
-  // Pass 2: legacy fallback — nearest package.json's store.
+  // Pass 2: legacy fallback — nearest package.json's store. R13 (found on the Mac qualifying 7bf70af): never a home
+  // folder's package.json — a stray ~/package.json made every Timmy project below the home folder that has no pin (the
+  // review package's demo projects among them) seal into ~/.timmy/receipts. A home folder is not a project: past it the
+  // search goes on, and with nothing else the project's own .timmy/receipts is the store (the legacy cwd rule).
+  const homes = homeFolders();
   d = dir;
   for (;;) {
-    if (existsSync(join(d, 'package.json'))) return join(d, '.timmy', 'receipts');
+    if (!homes.has(resolve(d)) && existsSync(join(d, 'package.json'))) return join(d, '.timmy', 'receipts');
     const p = dirname(d);
     if (p === d) return undefined;
     d = p;
   }
+}
+
+/** The folders that are a person's home here: HOME's (os.homedir) and the account's own (os.userInfo), which differ when a
+ * sandbox sets HOME (the review package does). Never a store root through a package.json (rootStoreDir, Pass 2). */
+export function homeFolders(): Set<string> {
+  const out = new Set<string>();
+  try { out.add(resolve(homedir())); } catch { /* none */ }
+  try { const h = userInfo().homedir; if (h) out.add(resolve(h)); } catch { /* no account entry */ }
+  return out;
 }
 
 export function receiptsDir(dir: string = process.cwd()): string {
