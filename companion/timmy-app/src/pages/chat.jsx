@@ -82,6 +82,42 @@ export function showChooser() {
   if (first) setTimeout(() => first.focus({ preventScroll: true }), 300);
 }
 
+/** The one setup action: on a phone the picker opens as a sheet over the chat; wide, the picker beside the chat takes the focus. */
+let openSheet = null;
+export function openChooser(stacked) {
+  if (stacked && openSheet) { openSheet(); return; }
+  showChooser();
+}
+
+function ChooserSheet() {
+  const view = useApp((s) => s.view);
+  const ready = !!(view && view.route && view.route.ready);
+  const ref = useRef(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { openSheet = () => setOpen(true); return () => { openSheet = null; }; }, []);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) { if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', ''); }
+    if (!open && d.open) d.close();
+  }, [open]);
+  useEffect(() => { if (ready) setOpen(false); }, [ready]);
+  // the picker is drawn only while the sheet is open: one chooser on the page at a time, its requests made once
+  return (
+    <dialog ref={ref} className="ta-sheet" aria-label="Choose a model" onClose={() => setOpen(false)} onClick={(e) => { if (e.target === ref.current) setOpen(false); }}>
+      {open ? (
+        <>
+          <div className="ta-sheet-head">
+            <p className="ta-sheet-title">Choose a model</p>
+            <button type="button" className="ta-sheet-close" onClick={() => setOpen(false)} aria-label="Close">✕</button>
+          </div>
+          <ChooseModel />
+        </>
+      ) : null}
+    </dialog>
+  );
+}
+
 /** The phone's software keyboard: the composer stays above it (the visual viewport's height, as a CSS variable). */
 function useKeyboardInset() {
   useEffect(() => {
@@ -128,9 +164,10 @@ function Conversation({ theme }) {
       <ol className="ta-turns" ref={list} aria-label="The conversation">
         {!shown.length && !turn ? (
           <li className="ta-turn ta-hello">
-            <p className="ta-hello-title">{ready ? 'What are we working on?' : 'Choose a model to start'}</p>
-            <p className="ta-text">{ready ? 'Its tools ask you first; each answer is sealed with a receipt.' : `Choose one in Agent & model, ${stacked ? 'below the chat' : 'on the right'}.`}</p>
-            {ready ? <div className="ta-row ta-starts">{STARTS.map((t) => <button key={t} type="button" className="ta-chip" onClick={() => { setDraft(t); input.current && input.current.focus(); }}>{t}</button>)}</div> : null}
+            <p className="ta-hello-title">{ready ? 'What are we working on?' : 'Pick the model Timmy talks with'}</p>
+            <p className="ta-text">{ready ? 'Its tools ask you first; each answer is sealed with a receipt.' : 'A model on this computer (Ollama) or one through your OpenRouter key.'}</p>
+            {ready ? <div className="ta-row ta-starts">{STARTS.map((t) => <button key={t} type="button" className="ta-chip" onClick={() => { setDraft(t); input.current && input.current.focus(); }}>{t}</button>)}</div>
+              : view ? <div className="ta-row"><Button kind="primary" onClick={() => openChooser(stacked)} data-setup="choose-model">Choose a model</Button></div> : null}
           </li>
         ) : null}
         {shown.map((t, i) => <Turn key={`${t.at}-${i}`} t={t} />)}
@@ -139,9 +176,9 @@ function Conversation({ theme }) {
       {elsewhere.length ? <p className="ta-elsewhere" role="status">A turn of this project is running in {elsewhere.map((r) => `${surfaceWord(r.surface)} (since ${clock(r.since)})`).join(', ')}: Send here waits for it.</p> : null}
       <form className="ta-composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <textarea ref={input} className="ta-input" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} enterKeyHint={coarse ? 'enter' : 'send'}
-          placeholder={ready ? 'Message Timmy' : 'Choose a model first'} aria-label="Message Timmy" disabled={!view} />
+          placeholder="Message Timmy" aria-label="Message Timmy" disabled={!view} />
         <div className="ta-composer-row">
-          <p className="ta-route" title={route ? route.words : ''}>{route ? route.label : 'Reading the route…'}</p>
+          <p className="ta-route" title={route ? route.words : ''}>{!view ? 'Reading the route…' : ready ? route.label : ''}</p>
           {running ? <Button kind="primary" onClick={stop} disabled={turn.phase === 'stopping'} className="ta-send">{turn.phase === 'stopping' ? 'Stopping…' : '■ Stop'}</Button>
             : <Button kind="primary" type="submit" disabled={!ready || !draft.trim()} className="ta-send">Send</Button>}
         </div>
@@ -159,7 +196,7 @@ function ChooseModel() {
   const cf = providerOf(view, 'cloudflare');
   return (
     <div className="ta-choose">
-      <p className="ta-choose-title">Choose your model</p>
+      <p className="ta-choose-title">Where the model runs</p>
       <div className="ta-seg ta-tabs" role="tablist" aria-label="Where the model runs">
         {TABS.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
@@ -217,14 +254,14 @@ export default function ChatPage() {
   const project = config && config.project;
   const actions = running
     ? <Button kind="primary" onClick={stop} disabled={turn.phase === 'stopping'}>{turn.phase === 'stopping' ? 'Stopping…' : '■ Stop the turn'}</Button>
-    : !ready ? <Button kind="primary" onClick={showChooser}>Choose a model</Button>
+    : !ready ? null
       : <Button onClick={newConversation}>New conversation</Button>;
   return (
     <Page id="chat" fill note={note}
       actions={actions}
       band={[
         ['WORKSPACE', project ? <span title={project.display || project.name}>{project.name}</span> : <span className="ta-muted">no project named</span>],
-        ['MODEL', !view ? <span className="ta-muted">{viewError || 'Reading…'}</span> : choice && choice.chosen ? <>{choice.model} <span className="ta-muted">· {whereOf(view.route)}</span></> : <span className="ta-muted">none chosen</span>],
+        ['MODEL', !view ? <span className="ta-muted">{viewError || 'Reading…'}</span> : choice && choice.chosen ? <>{choice.model} <span className="ta-muted">· {whereOf(view.route)}</span></> : <span className="ta-muted">—</span>],
         ['AGENT', elsewhere.length && !running ? <><StateWord word="working" /> <span className="ta-muted">in {surfaceWord(elsewhere[0].surface)}</span></> : <StateWord word={activityOf(turn)} />],
         ['RECORDS', last ? <><span className={last.receipt.verified ? 'ta-verified' : 'ta-unverified'}>{last.receipt.verified ? '✓ verified' : '✕ not verified'}</span> <code>{last.receipt.id}</code> <span className="ta-muted">· {sealed.length} sealed</span></> : <span className="ta-muted">no sealed answer yet</span>],
       ]}
@@ -239,6 +276,7 @@ export default function ChatPage() {
         <Tool glyph="☰" label="Records" onClick={() => goTo('runs')} />
       </>}>
       <Conversation theme={theme} />
+      <ChooserSheet />
     </Page>
   );
 }

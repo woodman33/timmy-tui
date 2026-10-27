@@ -8,6 +8,7 @@
  *   POST /api/apps/:id/stop      stop this principal's project's copy (the app's own SIGTERM path ends its native jobs)
  *   GET  /api/apps/provenance    ?path=<project file>: the receipt that names this file with these bytes (an app job's output
  *                                delivered into the project, the checklist's A6), or none
+ *   GET  /api/apps/outputs       the apps' results delivered into this project, newest first, each file with where it was sent
  *   POST /api/apps/card-lab/handoff  { path }: the checklist's A11 — an image of the project (an Animate preview, say) as a
  *                                new Card Lab run (Card Lab's own POST /api/runs, started for this principal and project when
  *                                it is not running), the bytes it holds checked against the file's, and ONE handoff receipt
@@ -86,7 +87,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     });
   });
 
-  app.post('/api/apps/:id/open', ...guards, async (req, res) => {
+  app.post('/api/apps/:id/open', ...guards, express.json({ limit: '2kb' }), async (req, res) => {
     const spec = miniAppOf(String(req.params.id));
     if (!spec) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: 'No such mini-app.' }); return; }
     const problem = hostProblem(spec, deps.env);
@@ -102,7 +103,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
       const hosted = await ensureFor(spec, req, p, port);
       // (this principal's grants to the same app in their other projects end: an old tab cannot act in the project left)
       const revoked = host.revokeOthers(hosted.key);
-      res.set('Cache-Control', 'no-store').json({ ok: true, id: spec.id, project: p.name, url: hosted.launch(), startedAt: hosted.startedAt, job: hosted.jobId, revokedElsewhere: revoked });
+      res.set('Cache-Control', 'no-store').json({ ok: true, id: spec.id, project: p.name, url: hosted.launch((req.body as { to?: unknown } | undefined)?.to as string | undefined), startedAt: hosted.startedAt, job: hosted.jobId, revokedElsewhere: revoked });
     } catch (e) {
       res.status(502).set('Cache-Control', 'no-store').json({ ok: false, error: e instanceof Error ? e.message : String(e) });
     }
@@ -138,7 +139,16 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     if (!p) { res.status(404).json({ ok: false, error: APPS_NO_PROJECT }); return; }
     const f = projectFile(p.root, String(req.query.path ?? ''));
     if (!f.ok) { res.status(f.status).json({ ok: false, error: f.error }); return; }
-    res.json({ ok: true, path: f.rel, sha256: f.sha256, receipt: provenanceOf(p.root, f.rel, f.sha256) });
+    res.json({ ok: true, path: f.rel, sha256: f.sha256, receipt: provenanceOf(p.root, f.rel, f.sha256), sent: handoffsOf(p.root, f.rel, f.sha256) });
+  });
+
+  // the 05:03 order's G3: the apps' results in this project, newest first — each job's delivered files by name, with where each
+  // was sent since (a handoff receipt naming it). Files shows these first; the from-apps/<app>/<job>/ paths stay underneath.
+  app.get('/api/apps/outputs', ...guards, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const p = project(req);
+    if (!p) { res.status(404).json({ ok: false, error: APPS_NO_PROJECT }); return; }
+    res.json({ ok: true, project: p.name, results: appOutputsOf(p.root, 24) });
   });
 
   // the checklist's A11: one supported cross-app handoff — a project image as a new Card Lab run
@@ -209,6 +219,47 @@ function provenanceOf(root: string, rel: string, sha256: string): { id: string; 
     if (named) return { id: r.hash.slice(7, 15), kind: r.kind, app: r.miniapp?.app ?? null, job: r.job?.id ?? null, at: r.ts };
   }
   return null;
+}
+
+/** The handoff receipts that sent this file, with exactly these bytes, to another app (oldest first). */
+function handoffsOf(root: string, rel: string, sha256: string): Array<{ app: string; run: string; receipt: string; at: string }> {
+  let chain: ReturnType<typeof readChain> = [];
+  try { chain = readChain('runs', root); } catch { return []; }
+  return chain.filter((r) => r.kind === 'handoff' && r.handoff && r.handoff.from.path === rel && r.handoff.from.sha256 === sha256)
+    .map((r) => ({ app: r.handoff!.to.app, run: r.handoff!.to.run, receipt: r.hash.slice(7, 15), at: r.ts }));
+}
+
+type AppResult = {
+  receipt: string; app: string; title: string; job: string | null; label: string | null; status: string; at: string;
+  files: Array<{ path: string; name: string; sha256: string | null; bytes: number; image: boolean; sent: Array<{ app: string; run: string; receipt: string; at: string }> }>;
+};
+
+/** The project chain's app jobs whose outputs were delivered into the project (from-apps/), newest first, at most `limit`. */
+function appOutputsOf(root: string, limit: number): AppResult[] {
+  let chain: ReturnType<typeof readChain> = [];
+  try { chain = readChain('runs', root); } catch { return []; }
+  const sent = new Map<string, Array<{ app: string; run: string; receipt: string; at: string }>>();
+  for (const r of chain) {
+    const h = r.handoff;
+    if (r.kind !== 'handoff' || !h) continue;
+    const key = `${h.from.path}@${h.from.sha256}`;
+    sent.set(key, [...(sent.get(key) ?? []), { app: h.to.app, run: h.to.run, receipt: r.hash.slice(7, 15), at: r.ts }]);
+  }
+  const out: AppResult[] = [];
+  for (let i = chain.length - 1; i >= 0 && out.length < limit; i--) {
+    const r = chain[i];
+    if (!r.miniapp) continue;
+    const files = (r.outputs ?? []).filter((o) => o.path.startsWith('from-apps/'));
+    if (!files.length) continue;
+    out.push({
+      receipt: r.hash.slice(7, 15), app: r.miniapp.app, title: r.miniapp.title, job: r.job?.id ?? null, label: r.job?.label ?? null, status: r.status ?? 'unknown', at: r.ts,
+      files: files.map((o) => ({
+        path: o.path, name: o.path.split('/').pop() ?? o.path, sha256: o.sha256 ?? null, bytes: o.bytes,
+        image: /\.(png|jpe?g|webp|gif)$/i.test(o.path), sent: o.sha256 ? sent.get(`${o.path}@${o.sha256}`) ?? [] : [],
+      })),
+    });
+  }
+  return out;
 }
 
 /** An image's type by its bytes (PNG, JPEG, WebP), as Card Lab checks it. */

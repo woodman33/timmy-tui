@@ -49,7 +49,7 @@ function Launch({ onStarted }) {
     setBusy(true);
     const r = await postJson(`/api/control/runs${projectQuery()}`, { proposal: proposal.id });
     setBusy(false);
-    if (r.ok) { setProposal(null); setTask(''); setNote(`Started run ${r.run.id}.`); onStarted(r.run); } else { setProposal(null); setNote(said(r)); }
+    if (r.ok) { setProposal(null); setTask(''); setNote(''); onStarted(r.run); } else { setProposal(null); setNote(said(r)); }
   };
   if (!h) return <p className="ta-muted">Reading what can run here…</p>;
   if (!h.ok) return <p className="ta-result" role="status">{said(h)}</p>;
@@ -125,46 +125,81 @@ function Diffs({ id }) {
   );
 }
 
+const OUTCOME = {
+  succeeded: { mark: '✓', word: 'Succeeded' },
+  stopped: { mark: '■', word: 'Stopped' },
+  failed: { mark: '!', word: 'Failed' },
+  interrupted: { mark: '!', word: 'Interrupted' },
+  refused: { mark: '!', word: 'Refused' },
+};
+
+/** An ended run's one outcome sentence: who or what ended it, when, and what it changed. */
+function outcomeLine(r, files) {
+  const at = r.ended_at ? clock(r.ended_at) : '';
+  const how = r.state === 'stopped' ? `Stopped${r.stop && r.stop.by ? ` by ${r.stop.by === 'operator' ? 'you' : r.stop.by}` : ''}${at ? ` at ${at}` : ''}`
+    : r.state === 'interrupted' ? `Interrupted${at ? ` at ${at}` : ''}: its launcher ended without its end. Recover settles it`
+      : `${(OUTCOME[r.state] || { word: r.state }).word}${at ? ` at ${at}` : ''}`;
+  const what = files.length ? `${files.length} file${files.length === 1 ? '' : 's'} changed in its copy` : 'no file changed';
+  return `${how}; ${what}.`;
+}
+
 function RunCard({ r, theme, onChange }) {
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
   const act = async (what) => {
     setBusy(true);
     const x = await postJson(`/api/control/runs/${r.id}/${what}${projectQuery()}`, {});
     setBusy(false);
-    setNote(x.ok ? (what === 'stop' ? 'Stop sent: the run ends through its own stop.' : 'Recovered: read again below.') : said(x));
+    setError(x.ok ? '' : said(x));
     onChange();
   };
   const res = r.result;
   const files = res && res.files ? [...res.files.added, ...res.files.changed, ...res.files.deleted] : [];
+  const out = OUTCOME[r.state];
+  const log = r.log && r.log.length ? <pre className="tx-ctl-tail" aria-label="The run's last log lines">{r.log.join('\n')}</pre> : <p className="ta-muted tx-ctl-tail-why">{r.live ? 'No log line yet.' : 'It wrote no log line.'}</p>;
+  // The run's event history, in order: kept for Details; the card's face says only the current state or the one outcome.
+  const history = [
+    ['approved', r.approved ? `${day(r.approved.at)} · plan ${r.approved.plan_sha256.slice(0, 12)}` : null],
+    ['started', r.started_at ? clock(r.started_at) : null],
+    ['stop asked', r.stop ? `${r.stop.by}, ${clock(r.stop.asked_at)}` : null],
+    ['timmy act ended', r.act ? `${r.act.outcome}, exit ${r.act.exit_code}` : r.exit ? `without its end (${r.exit.signal || `exit ${r.exit.code}`})` : null],
+    ['the agent said', res && res.outcome ? res.outcome : null],
+    ['why', r.why || null],
+    ['ended', r.ended_at ? clock(r.ended_at) : null],
+  ];
   return (
-    <article className={`tx-ctl-run${r.live ? ' is-live' : ''}`} data-run={r.id} data-state={r.state}>
+    <article className={`tx-ctl-run${r.live ? ' is-live' : ' is-ended'}`} data-run={r.id} data-state={r.state} data-outcome={r.live ? undefined : r.state}>
       <div className="tx-ctl-run-head">
-        <RunFace id={r.id} state={r.state} live={r.live} theme={theme} />
+        {r.live ? <RunFace id={r.id} state={r.state} live theme={theme} />
+          : <div className={`tx-ctl-outcome tx-ctl-outcome-${r.state}`} aria-hidden="true"><span className="tx-ctl-outcome-mark">{out ? out.mark : '·'}</span><span className="tx-ctl-outcome-word">{out ? out.word : r.state}</span></div>}
         <div className="tx-ctl-run-words">
-          <p className="tx-ctl-row"><strong>{r.title}</strong> <StateWord word={r.state} live={r.live} /> <span className="ta-muted">{r.model} · since {clock(r.started_at)}{r.ended_at ? ` · ended ${clock(r.ended_at)}` : ''}</span></p>
+          <p className="tx-ctl-row"><strong>{r.title}</strong> {r.live ? <StateWord word={r.state} live /> : null} <span className="ta-muted">{r.model} · {clock(r.started_at)}</span></p>
           <p className="tx-ctl-run-task">{r.task}</p>
-          {r.why && !r.live ? <p className="ta-muted">{r.why}</p> : null}
+          {r.live ? null : <p className="tx-ctl-outcome-line" role="status"><strong>{outcomeLine(r, files)}</strong></p>}
           <div className="ta-row">
             {r.live ? <Button kind="primary" onClick={() => act('stop')} disabled={busy || r.state === 'stopping'}>{r.state === 'stopping' ? 'Stopping…' : '■ Stop'}</Button> : null}
             {r.state === 'interrupted' ? <Button kind="primary" onClick={() => act('recover')} disabled={busy}>Recover</Button> : null}
-            {note ? <span className="ta-muted" role="status">{note}</span> : null}
+            {error ? <span className="ta-result" role="status">{error}</span> : null}
           </div>
         </div>
       </div>
-      {r.log && r.log.length ? <pre className="tx-ctl-tail" aria-label="The run's last log lines">{r.log.join('\n')}</pre> : <p className="ta-muted tx-ctl-tail-why">{r.live ? 'No log line yet.' : 'It wrote no log line.'}</p>}
+      {r.live ? log : null}
       {!r.live && res ? (
         <div className="tx-ctl-seal">
-          <p className="ta-context-k">ITS END</p>
-          <p>{res.outcome ? <StateWord word={res.outcome} /> : null} {files.length ? `${files.length} file${files.length === 1 ? '' : 's'} changed in its copy: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : 'No file changed.'}</p>
+          {files.length ? <ul className="tx-ctl-files" aria-label="Files the run changed">{files.slice(0, 8).map((f) => <li key={f}><code>{f}</code></li>)}{files.length > 8 ? <li className="ta-muted">and {files.length - 8} more</li> : null}</ul> : null}
           {res.final_message ? <blockquote className="tx-ctl-final">{res.final_message}</blockquote> : null}
-          {res.denied && res.denied.length ? <p className="ta-muted">It asked for {res.denied.join(', ')}: refused, because a run here has no one to answer a permission (only file edits are approved for it).</p> : null}
-          {res.tool_calls === 0 && !files.length ? <p className="ta-muted">It made no tool call: the model answered without using the agent’s tools.</p> : null}
+          {res.denied && res.denied.length ? <p className="ta-muted">It asked for {res.denied.join(', ')}: refused (a run here has no one to answer a permission; only file edits are approved for it).</p> : null}
+          {res.tool_calls === 0 && !files.length && r.state === 'succeeded' ? <p className="ta-muted">It made no tool call: the model answered without using the agent’s tools.</p> : null}
           {files.length ? <Diffs id={r.id} /> : null}
         </div>
       ) : null}
+      {!r.live ? <p className="tx-ctl-receipt">Receipt {r.receipt ? <code>{r.receipt}</code> : <span className="ta-muted">none sealed</span>}</p> : null}
       <details className="ta-details">
-        <summary>Details</summary>
+        <summary>Details: event history, log and identifiers</summary>
+        <p className="ta-context-k">EVENT HISTORY</p>
+        <Facts rows={history} />
+        {!r.live ? <><p className="ta-context-k">LOG</p>{log}</> : null}
+        <p className="ta-context-k">IDENTIFIERS</p>
         <Facts rows={[
           ['run', <code key="r">{r.id}</code>],
           ['operation', r.operation ? <code key="o">{r.operation}</code> : 'not yet'],
@@ -172,10 +207,7 @@ function RunCard({ r, theme, onChange }) {
           ['agent run', r.agent_run ? <code key="a">{r.agent_run}</code> : null],
           ['endpoint', `${r.where} (${r.charge})`],
           ['time limit', r.wall_time],
-          ['approved', `${day(r.approved.at)} · plan ${r.approved.plan_sha256.slice(0, 12)}`],
           ['copy', `${r.workspace.files} files, ${Math.round(r.workspace.bytes / 1024)} KB; left out: ${r.workspace.skipped.join(', ') || 'nothing'}`],
-          ['timmy act', r.act ? `${r.act.outcome}, exit ${r.act.exit_code}` : r.exit ? `ended without its end (${r.exit.signal || `exit ${r.exit.code}`})` : r.live ? 'running' : 'no end read'],
-          ['stopped by', r.stop ? `${r.stop.by}, ${clock(r.stop.asked_at)}` : null],
           ['agent receipt', res && res.agent_receipt ? <code key="ar">{res.agent_receipt}</code> : null],
           ['receipt here', r.receipt ? <code key="rc">{r.receipt}</code> : r.live ? 'sealed when it ends' : 'none'],
           ['read from', `GET /api/control/runs/${r.id}`],

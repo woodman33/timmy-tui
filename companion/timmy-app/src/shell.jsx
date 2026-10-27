@@ -230,7 +230,8 @@ export function Dock() {
     <section className={`ta-dock${open ? ' is-open' : ''}`} aria-label="Records">
       <button type="button" className="ta-dock-bar" aria-expanded={open} onClick={() => setDock(!open)}>
         <span className="ta-dock-k">RECORDS</span>
-        <span className="ta-dock-sum">{lines.length} request{lines.length === 1 ? '' : 's'} to the companion{failed ? ` · ${failed} not ok` : ''}</span>
+        {/* G4: diagnostics are secondary: the bar says only what needs a look (a request not ok); the count is in the records */}
+        {failed ? <span className="ta-dock-sum ta-dock-bad">{failed} request{failed === 1 ? '' : 's'} not ok</span> : null}
         {/* the checklist's C7: which route answered is a technical detail, read in the opened records, not on the bar */}
         {last ? <span className="ta-dock-last">last {clock(last.at)}{last.status === 0 || last.status >= 400 ? ' · not ok' : ''}</span> : null}
         <span className="ta-dock-caret" aria-hidden="true">{open ? '▾' : '▴'}</span>
@@ -242,7 +243,7 @@ export function Dock() {
               <button type="button" aria-pressed={source === 'local'} onClick={() => setSource('local')}>Local</button>
               <button type="button" aria-pressed={source === 'cloudflare'} onClick={() => setSource('cloudflare')}>Cloudflare</button>
             </div>
-            <p className="ta-muted">{source === 'local' ? 'This page’s own requests to the companion on this computer, newest last. The token rides in a header, never in these paths.' : 'Not connected here: this build reads no Cloudflare logs. Nothing below is from Cloudflare.'}</p>
+            <p className="ta-muted">{source === 'local' ? `${lines.length} request${lines.length === 1 ? '' : 's'}: this page’s own, to the companion on this computer, newest last. The token rides in a header, never in these paths.` : 'Not connected here: this build reads no Cloudflare logs. Nothing below is from Cloudflare.'}</p>
           </div>
           {source === 'local' ? (
             <ol className="ta-dock-lines">

@@ -94,6 +94,28 @@ blocker named. New features found along the way go to the backlog at the end, un
   5. **Hosting:** under C1, a receipt per export. No streaming service, no paid call.
 - **The four-app launch is not complete without it.** This candidate does not claim it.
 
+## G. The operator's 05:03 PT order (2026-10-27): the Rive UI, tldraw workspaces and the mini-app experience
+
+**The test record, as it stands:**
+- **4d59da6e:** the full suite failed (exit 1).
+- **fd866755:** only the four affected files passed on a clean checkout (23/23). No full suite has run on it, and none is
+  claimed.
+- **Mac results:** the 4d59da6e results stand for the product bytes; fd866755 changes a test fixture only.
+
+| # | Item | Owner and files | Observable acceptance criterion | Status |
+|---|---|---|---|---|
+| G1 | Control Room: one current outcome | lead: `pages/control-runs.jsx` | An ended run says one outcome, with its changed files or result and its receipt. "Started run", "Stop sent" and the raw lines move to Details (event history, logs). | open |
+| G2 | Phone Chat: one setup action | lead: `pages/chat.jsx` | With no model chosen, one action ("Choose a model") opens the picker at once. No repeat in the header, model cell, empty state and composer. The composer stays reachable with the keyboard open. | open |
+| G3 | Files after a handoff | lead: `pages/files.jsx` | "Sent to Card Lab" with a prominent "Open inspection". Output names and previews first. Paths, hashes, provenance and the receipt behind Details. | open |
+| G4 | Shared chrome | lead: `shell.jsx` | Request counts and diagnostics are secondary. Theme and model selection are consistent across the host and the apps (the apps' part: owner requests). | open |
+| G5 | Phone Canvas | lead: `pages/canvas.jsx` | An obvious Fit/Overview, controls reachable on a phone, a focused-card view with a readable inspector. Free pan and edit kept. Every action findable without a gesture. | open |
+| G6 | Rive and tldraw foundation | lead | Readable faces at their size. Live state, saved snapshots and final outcomes distinct; idle never reads as success. Reduced motion, keyboard and an asset-load fallback. On the Canvas: select and edit, undo and redo, Fit, save and reopen, switching projects; navigation and Stop outside pan and zoom; a stale result never replaces a newer edit. | open |
+| G7 | Model Studio embedded layout | Model Studio owner (its layout); lead (the frame) | One rail, one header, a larger viewport; the asset tree and inspector kept. Timmy's project named apart from the app's document. "App open" apart from "a modelling job runs". | lead's part open; owner request |
+| G8 | Card Lab: cite first, the schema second; a bounded, configurable timeout | Card Lab owner | One successful local inspection with an observed `cite` call. Invalid evidence rejected. Raw outputs and refusals kept. | owner request |
+| G9 | Stream Studio: Compose → Animate → Preview/Export | Animate owner (the app); lead (host integration) | A saved, editable scene; a Files import; the exports it actually supports; receipts. Broadcast stays pending. | owner request (acceptance to be confirmed) |
+| G10 | Sketch → Image → Generate 3D → Model Studio, and direct entry | lead | The path and a direct native-part or import entry, kept. | open (to verify) |
+| G11 | The walkthrough | lead | Choose a model → useful work → Rive and job state → edit the output → export and native source → Files and receipt → reopen. Desktop and phone, the apps' editors open. Idle cut and labelled; the full recording kept. | open |
+
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
 Each was found during this pass. None is needed for an acceptance criterion above.

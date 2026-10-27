@@ -46,3 +46,15 @@
 .tx-ctl-diff-pre { max-height: 320px; }
 .ta-face-run { min-height: 90px; }
 @media (max-width: 760px) { .tx-ctl-launch-row { grid-template-columns: 1fr; } .tx-ctl-run-head { grid-template-columns: 1fr; } .ta-face-run { max-width: 220px; } }
+
+/* G1: an ended run shows one outcome (a static tile, not the live face: idle never stands for success) and one sentence. */
+.tx-ctl-outcome { display: grid; place-items: center; gap: 4px; min-height: 90px; border: 1px solid var(--ta-edge); border-radius: 10px; background: var(--ta-sunk); color: var(--timmy-ui-text-secondary, #c9c9c9); }
+.tx-ctl-outcome-mark { font-size: 28px; line-height: 1; }
+.tx-ctl-outcome-word { font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tx-ctl-outcome-succeeded { border-color: var(--timmy-ui-verified-dim, #00D700); color: var(--timmy-ui-verified, #28FE14); }
+.tx-ctl-outcome-failed, .tx-ctl-outcome-interrupted, .tx-ctl-outcome-refused { border-color: var(--timmy-ui-focus, #FFB000); color: var(--timmy-ui-focus, #FFB000); }
+.tx-ctl-outcome-line { margin: 0; color: var(--timmy-ui-text, #f2f2f2); }
+.tx-ctl-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.tx-ctl-files li code { display: inline-block; padding: 2px 8px; border: 1px solid var(--ta-edge); border-radius: 6px; }
+.tx-ctl-receipt { margin: 0; font-size: 13px; color: var(--timmy-ui-text-muted, #9a9a9a); }
+@media (max-width: 760px) { .tx-ctl-outcome { max-width: 220px; } }

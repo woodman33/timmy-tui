@@ -133,6 +133,12 @@ describe('mini-apps hosted behind Timmy (FAKE app)', () => {
     const cookie = cookieOf(launched);
     expect(String(launched.headers['set-cookie'])).toMatch(/HttpOnly; SameSite=Strict; Path=\//);
     expect((await get(o.url)).status).toBe(403);
+    expect(launched.headers.location).toBe('/');
+    // G3: a launch may land on a path of the app (Files' Open inspection); anything else lands on its root
+    const at = JSON.parse((await get(`${timmy}/api/apps/model-studio/open`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', JSON.stringify({ to: '/?run=card_x' }))).body);
+    expect((await get(at.url)).headers.location).toBe('/?run=card_x');
+    const away = JSON.parse((await get(`${timmy}/api/apps/model-studio/open`, { authorization: 'Bearer FAKE', 'content-type': 'application/json' }, 'POST', JSON.stringify({ to: '//evil.example/' }))).body);
+    expect((await get(away.url)).headers.location).toBe('/');
 
     const pageRes = await get(`${gateway}/`, { cookie });
     expect(pageRes.status).toBe(200);

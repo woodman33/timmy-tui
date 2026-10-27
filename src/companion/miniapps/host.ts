@@ -39,8 +39,11 @@ export interface HostedApp {
   /** the durable job that runs the worker (<home>/jobs: its record, log, state and Stop are Timmy's own) */
   jobId: string;
   startedAt: string;
-  /** a one-time key for the gateway's launch address, valid for LAUNCH_MS */
-  launch(): string;
+  /**
+   * a one-time key for the gateway's launch address, valid for LAUNCH_MS; `to`, a path of the app (checked by launchTarget),
+   * is where the launch lands instead of the app's root (Files' "Open inspection": Card Lab's `/?run=<id>`)
+   */
+  launch(to?: string): string;
   /** extend every live grant of this gateway by GRANT_MS (the page renews while its session is valid); how many it kept */
   renew(): number;
   /** end every grant: each browser holding one is refused until it opens the app again from Timmy (sign-out, project switch) */
@@ -230,7 +233,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   const watcher = o.seal && h.receipts ? watchAppJobs({ spec: o.spec, workerPort, workerSecret, dataDir: o.dataDir, revision: o.revision ?? null, project: o.project, seal: o.seal, principal: o.principal ?? 'operator', known: o.known, ...(o.deliver ? { deliver: o.deliver } : {}) }) : null;
   // grants: one per launch (a browser), each its own secret, each ending at its own time unless renewed; revoke ends them all
   const grants = new Map<string, number>();
-  const launches = new Map<string, number>();
+  const launches = new Map<string, { at: number; to: string | null }>();
   let gatewayPort = 0;
   const cookieName = () => `timmy_app_${gatewayPort}`;
   const hasGrant = (header: string | undefined): boolean => {
@@ -253,14 +256,15 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
     const url = new URL(req.url ?? '/', self);
     if (url.pathname === '/__timmy/launch') {
       const k = url.searchParams.get('k') ?? '';
-      const at = launches.get(k);
+      const entry = launches.get(k);
       launches.delete(k);
+      const at = entry ? entry.at : undefined;
       if (at === undefined || Date.now() - at > LAUNCH_MS) { deny(403, 'This launch address was used or has expired: open the app again from Timmy.'); return; }
       const secret = randomBytes(32).toString('hex');
       grants.set(secret, Date.now() + GRANT_MS);
       // (at most MAX_GRANTS browsers at once: the one ending soonest gives way)
       while (grants.size > MAX_GRANTS) { let first: string | null = null; let at = Infinity; for (const [k, u] of grants) if (u < at) { at = u; first = k; } if (first) grants.delete(first); else break; }
-      res.writeHead(302, { location: '/', 'set-cookie': `${cookieName()}=${secret}; HttpOnly; SameSite=Strict; Path=/`, 'cache-control': 'no-store' });
+      res.writeHead(302, { location: entry && entry.to ? entry.to : '/', 'set-cookie': `${cookieName()}=${secret}; HttpOnly; SameSite=Strict; Path=/`, 'cache-control': 'no-store' });
       res.end();
       return;
     }
@@ -291,11 +295,11 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   let stopped = false;
   const hosted: HostedApp = {
     key: o.key, appId: o.spec.id, gatewayPort, workerPort, dataDir: o.dataDir, jobId: job.id, startedAt: new Date().toISOString(),
-    launch() {
+    launch(to?: string) {
       const k = randomBytes(24).toString('hex');
       const now = Date.now();
-      for (const [old, at] of launches) if (now - at > LAUNCH_MS) launches.delete(old);
-      launches.set(k, now);
+      for (const [old, e] of launches) if (now - e.at > LAUNCH_MS) launches.delete(old);
+      launches.set(k, { at: now, to: launchTarget(to) });
       return `http://127.0.0.1:${gatewayPort}/__timmy/launch?k=${k}`;
     },
     renew() { const now = Date.now(); for (const [k, until] of grants) { if (until <= now) grants.delete(k); else grants.set(k, now + GRANT_MS); } return grants.size; },
@@ -387,4 +391,10 @@ export class MiniAppHost {
     this.apps.clear();
     await Promise.all(all.map((a) => a.stop()));
   }
+}
+
+/** A launch's landing place inside the app: a path of its own origin only (no scheme, no second slash), short; else none. */
+export function launchTarget(to: unknown): string | null {
+  if (typeof to !== 'string' || to.length > 200) return null;
+  return /^\/(?![\/\\])[\w\-./?=&%~]*$/.test(to) ? to : null;
 }

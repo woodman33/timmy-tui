@@ -149,7 +149,7 @@ import { connectSrcFor } from './identity/config.js';
 // (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
 import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
 import { mountMiniApps } from './miniapps/routes.js';
-import { ControlRuns, mountControlRuns } from './control-runs.js';
+import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
@@ -235,6 +235,8 @@ export interface CompanionOptions {
    * process's environment, src/ops/workspace-frame.ts and src/workbench/settings.ts when absent.
    */
   workspace?: WorkspaceDeps;
+  /** the Control Room's runs (tests: a FAKE `timmy act` and a FAKE Ollama list); the real CLI and fetch when absent */
+  controlRuns?: ControlDeps;
   /**
    * R11 round 4 (H173): the identity routes' seams (a test's FAKE Clerk folder, origins, JWKS address or clock). The
    * configuration itself is read from `workspace.env` when given, else this process's environment (identityConfig).
@@ -904,7 +906,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // The integrated candidate's checklist B1–B8 (the order of 2026-10-27): the Control Room starts, follows, stops and inspects a
   // code-agent run (OpenHands or Qwen Code, a local model) on a copy of the principal's project, through `timmy act "/agent …"`
   // (src/companion/control-runs.ts); the runs it started are stopped with the companion, each through act's own stop
-  const controlRuns = new ControlRuns();
+  const controlRuns = new ControlRuns(options.controlRuns);
   mountControlRuns(app, {
     withToken, withUser: withUserOrOperator, json: express.json({ limit: '16kb' }), runs: controlRuns,
     scopeOf: (req) => {

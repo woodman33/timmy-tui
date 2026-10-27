@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mountMiniApps } from '../src/companion/miniapps/routes.js';
-import type { MiniAppHost } from '../src/companion/miniapps/host.js';
+import { launchTarget, type MiniAppHost } from '../src/companion/miniapps/host.js';
 import { appendReceipt, readChain } from '../src/utils/receipts.js';
 import { projectId } from '../src/project/index.js';
 
@@ -71,6 +71,25 @@ describe('a project image handed to Card Lab, with its provenance (A6, A11)', ()
     // another person's project has neither the file nor the run
     expect((await call('POST', '/api/apps/card-lab/handoff', { path: 'from-apps/animate/j1/preview.png' }, 'erin')).status).toBe(404);
   }, 60_000);
+
+  it('lists the apps\' results by name, newest first, each file with where it was sent (G3); the provenance names the handoff', async () => {
+    const o = await call('GET', '/api/apps/outputs');
+    expect(o.status).toBe(200);
+    const results = o.body.results as Array<{ app: string; job: string; files: Array<{ name: string; path: string; image: boolean; sent: Array<{ app: string; run: string }> }> }>;
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ app: 'animate', job: 'j1', files: [{ name: 'preview.png', path: 'from-apps/animate/j1/preview.png', image: true }] });
+    const h = readChain('runs', root).filter((x) => x.kind === 'handoff');
+    expect(results[0].files[0].sent).toEqual([expect.objectContaining({ app: 'card-lab', run: h[0].handoff!.to.run })]);
+    const p = await call('GET', '/api/apps/provenance?path=from-apps/animate/j1/preview.png');
+    expect(p.body.sent).toEqual([expect.objectContaining({ app: 'card-lab', run: h[0].handoff!.to.run })]);
+    // another person's project lists none of it
+    expect((await call('GET', '/api/apps/outputs', undefined, 'erin')).body).toMatchObject({ ok: true, results: [] });
+  });
+
+  it('a launch lands only on a path of the app\'s own origin (Open inspection: Card Lab at /?run=<id>)', () => {
+    expect(launchTarget('/?run=card_0f7c3e1a-1111-4222-8333-444455556666')).toBe('/?run=card_0f7c3e1a-1111-4222-8333-444455556666');
+    for (const bad of ['//evil.example/x', 'https://evil.example/', '/\\evil', 'javascript:alert(1)', '/x"><script>', `/${'a'.repeat(250)}`, 42, null]) expect(launchTarget(bad)).toBeNull();
+  });
 
   it('refuses what is not an image or leaves the project, and seals nothing', async () => {
     expect((await call('POST', '/api/apps/card-lab/handoff', { path: 'notes.txt' })).status).toBe(415);

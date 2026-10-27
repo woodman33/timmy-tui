@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Page, Panel } from '../shell.jsx';
-import { PAGES, goBack, goTo, projectQuery, useApp } from '../store.js';
+import { PAGES, goBack, goTo, projectQuery, takeAppTarget, useApp } from '../store.js';
 import { Button, Facts, StateWord } from '../ui.jsx';
 import './miniapp.css';
 
@@ -51,9 +51,9 @@ export function MiniAppPage({ appId }) {
     return () => clearInterval(t);
   }, [open, appId]);
 
-  const start = async () => {
+  const start = async (to) => {
     setBusy('open'); setWords('');
-    const r = await postJson(`/api/apps/${appId}/open${projectQuery()}`, {});
+    const r = await postJson(`/api/apps/${appId}/open${projectQuery()}`, typeof to === 'string' ? { to } : {});
     setBusy('');
     if (r.ok && r.url) setOpen({ url: r.url, startedAt: r.startedAt });
     else setWords(r.error || 'The companion did not open the app.');
@@ -67,6 +67,9 @@ export function MiniAppPage({ appId }) {
     read();
   };
 
+  const hostableNow = !!(a && a.hostable);
+  useEffect(() => { if (hostableNow) { const to = takeAppTarget(appId); if (to !== null && to !== undefined) start(to); } }, [hostableNow, appId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!apps) return <Page id={appId}><p className="ta-muted">Reading the mini-apps…</p></Page>;
   if (!apps.ok || !a) return <Page id={appId}><p className="ta-result" role="status">{apps.error || 'The companion did not list this app.'}</p></Page>;
 
@@ -79,8 +82,8 @@ export function MiniAppPage({ appId }) {
                 running for this project), its results in Files, or Stop */}
             <Button onClick={goBack} className="ta-miniapp-back" title={`Back to ${fromTitle}; ${a.title} keeps running for this project`}>← {fromTitle}</Button>
             <span className="ta-miniapp-name">{a.title}</span>
-            <StateWord word="running" live />
-            <span className="ta-muted ta-miniapp-where">{apps.project ? `in ${apps.project}` : ''}</span>
+            <StateWord word="app open" />
+            <span className="ta-muted ta-miniapp-where" title="The Timmy project this app keeps its work in (the app's own document titles are its own)">{apps.project ? `Timmy project: ${apps.project}` : ''}</span>
             <span className="ta-miniapp-gap" />
             <Button onClick={() => goTo('files')} title={`What ${a.title}'s jobs made, in this project's Files`}>Results in Files</Button>
             <Button onClick={stop} disabled={busy === 'stop'} title={`Stop ${a.title} for this project`}>Stop</Button>
@@ -95,7 +98,7 @@ export function MiniAppPage({ appId }) {
   return (
     <Page
       id={appId}
-      actions={hostable ? <><Button kind="primary" onClick={start} disabled={busy === 'open'}>{busy === 'open' ? 'Opening…' : a.running ? `Return to ${a.title}` : `Open ${a.title}`}</Button><Button onClick={() => goTo('files')}>Results in Files</Button></> : <Button onClick={goBack}>← {fromTitle}</Button>}
+      actions={hostable ? <><Button kind="primary" onClick={() => start()} disabled={busy === 'open'}>{busy === 'open' ? 'Opening…' : a.running ? `Return to ${a.title}` : `Open ${a.title}`}</Button><Button onClick={() => goTo('files')}>Results in Files</Button></> : <Button onClick={goBack}>← {fromTitle}</Button>}
       band={[['status', hostable ? (a.running ? 'running' : 'ready to open') : (a.problem ? 'not available here' : WAITING[a.availability] || a.availability)], ['project', apps.project || 'none open']]}
       note={words || null}
     >

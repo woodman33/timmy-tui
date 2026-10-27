@@ -1,5 +1,6 @@
 // A LABELLED FAKE of Card Lab's server for tests/miniapps-handoff.test.ts: its health, and POST /api/runs as the owner's
-// backend/core.mjs create() answers it (one to four base64 PNG/JPEG/WebP images, each kept with its sha256, the run 201).
+// backend/core.mjs create() answers it (one to four base64 PNG/JPEG/WebP images, each kept with its sha256, the run 201), and
+// its page at / naming the run its address asks for (?run=, as the owner's app reads it), for the app's browser test.
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
@@ -12,6 +13,12 @@ const sha = (b) => createHash('sha256').update(b).digest('hex');
 http.createServer((req, res) => {
   const json = (code, v) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
   if (req.method === 'GET' && req.url === '/api/health') return json(200, { status: 'ok', fake: true });
+  if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
+    const run = new URL(req.url, 'http://x').searchParams.get('run') || '';
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(`<!doctype html><title>FAKE Card Lab</title><p>A LABELLED FAKE of Card Lab.</p><p data-fake-run="${/^card_[a-f0-9-]{36}$/.test(run) ? run : ''}">${/^card_[a-f0-9-]{36}$/.test(run) ? `Inspection ${run}` : 'No run asked for'}</p>`);
+    return undefined;
+  }
   if (req.method === 'POST' && req.url === '/api/runs') {
     let b = ''; req.setEncoding('utf8'); req.on('data', (c) => { b += c; });
     req.on('end', () => {

@@ -106,6 +106,9 @@ export function setSearch(source, text) { set((s) => ({ search: { ...s.search, [
 export function goTo(page) { if (isPage(page)) { set((s) => ({ page, drawer: false, from: s.page !== page ? s.page : s.from })); write(PAGE, page); try { window.scrollTo(0, 0); } catch { /* no window */ } } }
 /** The page the person came from, else Chat (Timmy's home). */
 export function goBack() { const s = getState(); goTo(s.from && s.from !== s.page && isPage(s.from) ? s.from : 'chat'); }
+/** Open a mini-app at a place of its own (Files' "Open inspection": Card Lab at `/?run=<id>`): its page opens it there. */
+export function openApp(app, to) { set({ appTarget: { app, to: typeof to === 'string' ? to : null, at: Date.now() } }); goTo(app); }
+export function takeAppTarget(app) { const t = state.appTarget; if (!t || t.app !== app) return null; set({ appTarget: null }); return t.to; }
 export function setDrawer(open) { set({ drawer: !!open }); }
 export function setRailSlim(slim) { set((s) => ({ railFold: { ...(s.railFold || {}), [s.page]: !!slim } })); }
 export function setDock(open) { set({ dock: !!open }); write(DOCK, open ? 'open' : 'folded'); }
