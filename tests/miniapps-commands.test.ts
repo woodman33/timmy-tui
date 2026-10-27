@@ -112,6 +112,10 @@ describe('timmy video and timmy animate through the C1 host (FAKE app)', () => {
     try {
       expect(ANIMATE_TOOLS.map((t) => t.name)).toEqual(expect.arrayContaining(['timmy_animate_catalog', 'timmy_animate_svg', 'timmy_animate_export']));
       expect(ANIMATE_TOOLS.map((t) => t.name)).toEqual([...ANIMATE_TOOL_NAMES]);   // (the capability ladder's row names these)
+      // the owner's v7 catalog (host-catalog-reconciliation.patch): 10 templates and 14 path presets are accepted by the tools
+      const props = (n: string) => (ANIMATE_TOOLS.find((t) => t.name === n)!.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
+      expect(props('timmy_animate_template').id.enum).toEqual(['weather', 'hearth', 'botanical', 'orbit', 'rhythm', 'welcome', 'tidal', 'pollinator', 'listening', 'orchard']);
+      expect(props('timmy_animate_path_preset').presetId.enum).toHaveLength(14);
       expect(await callAnimateTool('timmy_animate_svg', { sceneJson: '{"version":1}', time: 1 }, env)).toEqual({ fake: true, name: 'studio_svg', input: { time: 1, scene: { version: 1 } } });
       expect(approvalNeeded('timmy_animate_svg', {})).toBeNull();
       expect(approvalNeeded('timmy_animate_export', { sceneJson: '{}' })).toMatchObject({ reason: expect.stringMatching(/Blender/) });

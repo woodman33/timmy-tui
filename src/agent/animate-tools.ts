@@ -6,7 +6,8 @@
  * (integrations/studio-dispatch.mjs) from the hosted copy Timmy names (TIMMY_ANIMATE_DIR, as the page's host reads it),
  * loaded lazily at call time. Each returns a candidate (a scene, source or SVG) in memory: no file, no open canvas, no server
  * and no receipt, exactly as the owner ships it. What changed from the owner's hunk: the engine is found through Timmy's
- * hosted copy rather than inside the Timmy package.
+ * hosted copy rather than inside the Timmy package. The template and path-preset enums follow the owner's v7 catalog
+ * (host-catalog-reconciliation.patch: 10 templates, 14 path presets), applied by hand to this adapted file.
  *
  * Export (timmy_animate_export, new here): the app's native Blender export as its own durable job, through the C1 host
  * (src/companion/miniapps/session.ts): it waits for the app's own end state and returns it with the receipt Timmy sealed in
@@ -26,14 +27,14 @@ const sceneOnly = z.object({ sceneJson }).strict();
 
 const authoring = [
   { suffix: 'catalog', description: 'List Timmy Animate templates, icons, primitives, path and state presets, themes and drawing guides. Local only.', schema: empty },
-  { suffix: 'template', description: 'Create an editable original animation starter in memory. Returns a scene; no files or open canvas are changed.', schema: z.object({ id: z.enum(['weather', 'hearth', 'botanical', 'orbit', 'rhythm', 'welcome']) }).strict() },
+  { suffix: 'template', description: 'Create an editable original animation starter in memory. Returns a scene; no files or open canvas are changed.', schema: z.object({ id: z.enum(['weather', 'hearth', 'botanical', 'orbit', 'rhythm', 'welcome', 'tidal', 'pollinator', 'listening', 'orchard']) }).strict() },
   { suffix: 'recipe', description: 'Apply a motion recipe to unlocked scene layers and return a candidate. Replaces their keys and paths; preserves locked layers.', schema: z.object({ sceneJson, recipeId: z.enum(['stagger-rise', 'settle', 'breathe']) }).strict() },
   { suffix: 'svg', description: 'Render one scene frame to SVG using the editor geometry and animation evaluator. Returns SVG text.', schema: z.object({ sceneJson, time: z.number().min(0).max(12).optional() }).strict() },
   { suffix: 'lottie', description: 'Export a visual animation to editable Lottie JSON. Audio and interactive state events are not included.', schema: sceneOnly },
   { suffix: 'after_effects', description: 'Generate an additive After Effects composition script. Returns source only; never launches or changes After Effects.', schema: sceneOnly },
   { suffix: 'xstate', description: 'Export the scene state graph as executable XState source. Returns source only.', schema: sceneOnly },
   { suffix: 'state_preview', description: 'Preview up to 64 events in a real local XState actor. Returns the active state and candidate scene; the open canvas stays unchanged.', schema: z.object({ sceneJson, events: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{0,31}$/)).max(64) }).strict() },
-  { suffix: 'path_preset', description: 'Apply an editable route to one unlocked layer and return a candidate scene. Does not overwrite the open document.', schema: z.object({ sceneJson, objectId, presetId: z.enum(['line', 'arc', 'wave', 'loop', 'figure8', 'zigzag', 'spiral', 'bounce']), width: z.number().min(1).max(2000).optional(), height: z.number().min(0).max(2000).optional(), mode: z.enum(['once', 'ping-pong']).optional(), orient: z.boolean().optional() }).strict() },
+  { suffix: 'path_preset', description: 'Apply an editable route to one unlocked layer and return a candidate scene. Does not overwrite the open document.', schema: z.object({ sceneJson, objectId, presetId: z.enum(['line', 'arc', 'wave', 'loop', 'figure8', 'zigzag', 'spiral', 'bounce', 'heart', 'diamond', 'rounded-box', 'staircase', 'petal', 'pendulum']), width: z.number().min(1).max(2000).optional(), height: z.number().min(0).max(2000).optional(), mode: z.enum(['once', 'ping-pong']).optional(), orient: z.boolean().optional() }).strict() },
   { suffix: 'layer', description: 'Set a scene layer visibility or lock flag and return a candidate. Does not change geometry or the open canvas.', schema: z.object({ sceneJson, objectId, hidden: z.boolean().optional(), locked: z.boolean().optional() }).strict().refine((a) => a.hidden !== undefined || a.locked !== undefined, 'Supply hidden or locked.') },
   { suffix: 'motion_react', description: 'Export a scene as an editable Motion React JSX component. Visual animation only; no audio or code execution.', schema: sceneOnly },
 ] as const;
