@@ -33,7 +33,8 @@ const initial = {
   license: null, // the canvas SDK's own licence readout (pages/canvas.jsx, license-state.js), once the Canvas opened
   canvasIo: null, // { export(), import() } while the Canvas is open
   canvasNote: null, // { text, from }: a host operation's result to put on the Canvas desk as a note (Tools & integrations)
-  theme: read(THEME, 'amber') === 'glacier' ? 'glacier' : 'amber',
+  // the 07:37 pass (I7): Card Lab's Glacier is the default family; Amber stays one press away
+  theme: read(THEME, 'glacier') === 'amber' ? 'amber' : 'glacier',
   /** 'unasked' | 'granted' | 'declined': whether this page may ask the Ollama on this computer for its list of models */
   localPermission: ['granted', 'declined'].includes(read(LOCAL_PERMISSION, '')) ? read(LOCAL_PERMISSION, '') : 'unasked',
   check: {}, // provider id → POST /api/connections/<id>/check's state
@@ -129,7 +130,7 @@ export async function loadProjects() {
   return r;
 }
 export function setTheme(theme) {
-  const t = theme === 'glacier' ? 'glacier' : 'amber';
+  const t = theme === 'amber' ? 'amber' : 'glacier';
   set({ theme: t });
   write(THEME, t);
   try { document.documentElement.dataset.theme = t; } catch { /* no document */ }

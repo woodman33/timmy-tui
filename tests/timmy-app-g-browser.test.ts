@@ -233,16 +233,16 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await frame.locator(`[data-fake-run="${run}"]`).waitFor({ timeout: 30_000 });
     await shot(page, 'g3-card-lab-inspection');
     // the theme contract v1 (Card Lab 6f166d2d): the launch path carried ?theme=, the server gave the app this page’s exact origin; the frame
-    // got the theme from this origin on load, and again when the person switched to Glacier — without a reload
+    // got the theme from this origin on load (Glacier, the default family), and again when the person switched to Amber — without a reload
     const body = frame.locator('body');
-    expect(await body.getAttribute('data-initial-theme')).toBe('amber');
+    expect(await body.getAttribute('data-initial-theme')).toBe('glacier');
     expect(await body.getAttribute('data-host-origin')).toBe(origin);
-    await expect.poll(() => body.getAttribute('data-theme')).toBe('amber');
-    expect(await body.getAttribute('data-theme-from')).toBe(origin);
-    await page.click('button:has-text("Glacier")');
     await expect.poll(() => body.getAttribute('data-theme')).toBe('glacier');
+    expect(await body.getAttribute('data-theme-from')).toBe(origin);
+    await page.click('button:has-text("Amber")');
+    await expect.poll(() => body.getAttribute('data-theme')).toBe('amber');
     await frame.locator(`[data-fake-run="${run}"]`).waitFor(); // the same page: not reloaded
-    expect(await body.getAttribute('data-initial-theme')).toBe('amber');
+    expect(await body.getAttribute('data-initial-theme')).toBe('glacier');
     // the bar names the Timmy project apart from the app's own documents, and says the app is open (not that a job runs)
     expect(await page.locator('.ta-miniapp-bar').innerText()).toMatch(/app open[\s\S]*Timmy project: project/);
     // the 08:10 word: any app sends its work to an agent — the Control Room's run form opens aimed at that app's outputs

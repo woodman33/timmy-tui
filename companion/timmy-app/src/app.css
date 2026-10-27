@@ -697,3 +697,17 @@ button.ta-cfg-pick:hover, button.ta-cfg-pick[aria-pressed="true"] { text-decorat
 .ta-import { max-height: min(60vh, 420px); overflow: auto; min-width: 240px; }
 .ta-import-group + .ta-import-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--ta-edge); }
 .ta-import .ta-context-k { margin: 2px 8px 4px; }
+
+/* The 07:37 completion pass, I7: Card Lab's own shell under both families (docs/MAIN-TIMMY-UI-HANDOFF.md at 16a6ac71: shell
+   #050607, surface #111316, foreground #F1F3F5, muted #A5A9B0, edge #34373C — the same in Glacier and Amber). Only the
+   neutral roles change; the families’ accents, the exact focus amber and the earned green keep their meanings. Contrast
+   (measured, on the raised #1A1D21 / its gradient top #202328): #F1F3F5 15.2 / 14.2, #C9CDD2 10.6 / 9.9, #A5A9B0 7.2 / 6.7 : 1. */
+html:root {
+  --timmy-ui-canvas: #050607; --timmy-ui-surface: #111316; --timmy-ui-raised: #1A1D21;
+  --timmy-ui-border: #34373C; --timmy-ui-border-quiet: #1E2124;
+  --timmy-ui-text: #F1F3F5; --timmy-ui-text-secondary: #C9CDD2; --timmy-ui-text-muted: #A5A9B0;
+  --timmy-ui-elev-surface: linear-gradient(140deg, #15181B, #0E1012 60%, #111316);
+  --timmy-ui-elev-raised: linear-gradient(145deg, #202328, #16181C);
+  --timmy-ui-elev-rail: linear-gradient(160deg, #0F1113, #070809 70%);
+  --timmy-ui-elev-top: #0B0C0E;
+}
