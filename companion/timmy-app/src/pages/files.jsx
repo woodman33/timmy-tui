@@ -124,13 +124,15 @@ function Thumb({ path, name }) {
 function AppResults({ onOpen, stamp }) {
   const projectId = useApp((s) => s.projectId);
   const [r, setR] = useState(null);
+  // the newest eight first; the rest one press away (the Mac pass of 1c5da0a: with five apps, an older handoff fell off the list)
+  const [all, setAll] = useState(false);
   useEffect(() => { let gone = false; getJson(`/api/apps/outputs${projectQuery()}`).then((x) => { if (!gone) setR(x); }); return () => { gone = true; }; }, [projectId, stamp]);
   if (!r || !r.ok || !r.results.length) return null;
   return (
     <section className="tx-files-results" aria-label="Results from the apps">
       <p className="ta-context-k">RESULTS FROM THE APPS</p>
       <ul className="tx-files-results-list">
-        {r.results.slice(0, 8).map((x) => {
+        {(all ? r.results : r.results.slice(0, 8)).map((x) => {
           const first = x.files.find((f) => f.image);
           return (
             <li key={x.receipt} className="tx-files-result" data-app={x.app}>
@@ -149,6 +151,7 @@ function AppResults({ onOpen, stamp }) {
           );
         })}
       </ul>
+      {r.results.length > 8 ? <button type="button" className="ta-link" data-action="all-results" aria-expanded={all} onClick={() => setAll(!all)}>{all ? 'Show the newest 8' : `Show all ${r.results.length} results`}</button> : null}
     </section>
   );
 }
