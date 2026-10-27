@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runAnimateCli, runVideoCli } from '../src/miniapps/app-commands.js';
 import { ANIMATE_TOOLS, callAnimateTool } from '../src/agent/animate-tools.js';
+import { ANIMATE_TOOL_NAMES } from '../src/agent/animate-tool-names.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { openAppSession } from '../src/companion/miniapps/session.js';
 import { readChain, verifyChain } from '../src/utils/receipts.js';
@@ -110,6 +111,7 @@ describe('timmy video and timmy animate through the C1 host (FAKE app)', () => {
     const prev = process.env.TIMMY_HOME; process.env.TIMMY_HOME = env.TIMMY_HOME;
     try {
       expect(ANIMATE_TOOLS.map((t) => t.name)).toEqual(expect.arrayContaining(['timmy_animate_catalog', 'timmy_animate_svg', 'timmy_animate_export']));
+      expect(ANIMATE_TOOLS.map((t) => t.name)).toEqual([...ANIMATE_TOOL_NAMES]);   // (the capability ladder's row names these)
       expect(await callAnimateTool('timmy_animate_svg', { sceneJson: '{"version":1}', time: 1 }, env)).toEqual({ fake: true, name: 'studio_svg', input: { time: 1, scene: { version: 1 } } });
       expect(approvalNeeded('timmy_animate_svg', {})).toBeNull();
       expect(approvalNeeded('timmy_animate_export', { sceneJson: '{}' })).toMatchObject({ reason: expect.stringMatching(/Blender/) });

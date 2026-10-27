@@ -30,6 +30,7 @@ import { ollamaRow, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
 import type { OllamaFrom } from './ollama-route.js'; // R6 (H140)
 import type { ChatRoute } from '../agent/chat-route.js'; // R4 (H103): the REPL row's route
 import { atWords } from '../setup/ollama-models.js';
+import { ANIMATE_TOOL_NAMES } from '../agent/animate-tool-names.js'; // R13
 
 export type { Rung } from './ladder.js';
 export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter' | 'vox';
@@ -261,6 +262,13 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   add(keySet(env.BREAK_MODE_API_BASE_URL ?? env.API_BASE_URL) && keySet(env.TIMMY_USERNAME)
     ? { id: 'listing', kind: 'tool', name: 'Card listing', rung: 'installed', detail: 'posts listings (asks first)', tools: ['list_card'] }
     : { id: 'listing', kind: 'tool', name: 'Card listing', rung: 'needs setup', detail: 'no listing service', setup: 'set BREAK_MODE_API_BASE_URL and TIMMY_USERNAME', tools: ['list_card'] });
+  // R13 (c296e14e): Timmy Animate's tools: the owner's authoring engine from the hosted copy Timmy names (TIMMY_ANIMATE_DIR, as
+  // the review package sets it), and its Blender export as a receipted job of the hosted app (asks first). Installed when that
+  // copy carries the engine; exercised only by a sealed turn that ran one (the exercised map, as every tool row).
+  const animateDir = env.TIMMY_ANIMATE_DIR;
+  add(animateDir && d.exists(`${animateDir}/integrations/studio-dispatch.mjs`)
+    ? { id: 'animate-tools', kind: 'tool', name: 'Timmy Animate tools', rung: 'installed', detail: '11 authoring tools in memory (read-only); timmy_animate_export runs Blender through the hosted app (asks first)', tools: [...ANIMATE_TOOL_NAMES] }
+    : { id: 'animate-tools', kind: 'tool', name: 'Timmy Animate tools', rung: 'needs setup', detail: 'no hosted Timmy Animate copy named', setup: 'set TIMMY_ANIMATE_DIR (the review package sets it)', tools: [...ANIMATE_TOOL_NAMES] });
   const spatial = ['list_local_spatial_models', 'review_spatial_with_local_model'];
   add(ollama.ok
     ? { id: 'spatial-review', kind: 'tool', name: 'Local spatial review', rung: 'reachable', detail: 'on the local Ollama models', tools: spatial }
