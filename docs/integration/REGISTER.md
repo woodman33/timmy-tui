@@ -405,3 +405,56 @@ Checklist section H.
 - **No live Treg call** was made by the lead in any check. The operator's one TikTok call and the checkpoint's catalog
   call (operation o46e6011a, receipt 5550b296) stay the only live Treg records; they are in the private checkpoint, not here.
 - **Not run on 92d2368c:** isolation, two users, Rive and tldraw, the commands (unchanged since 8113d1a8, where they passed).
+
+## The completion pass (2026-10-27, 07:37 PT): one Mac review candidate
+
+Checklist section I (gaps I1–I11). Owner revisions adopted, each checked against its own id before use:
+
+| Owner | Adopted | How its bytes were identified |
+|---|---|---|
+| Card Lab | runtime 6f166d2d, HEAD 16a6ac71 (documentation only) | git bundle of `codex/card-lab-checkpoint`; 10 uncommitted owner changes not imported |
+| Film Room | adfb7a74 | git bundle of `codex/film-room-checkpoint` |
+| Model Studio | 8266c20a (operator-approved; embedded layout 39633703/ba96a0a8 under it) | git bundle of `codex/model-studio` |
+| Stream Studio | content sha256 2be70c25… (no commit) | 64 files, each matching the owner's `source-revision.json` |
+| Animate | v8 by the owner's manifest: content revision 6e2151ab…, 262 files (the v7 archive plus the 11 v8 files `preservation.json` names) | not the enclosing repository's HEAD |
+| OpenHands | b56c36f0 (base 08006fb9) | its patch, applied with three conflicts resolved (38177536) |
+| Control Room | 2a798e1f handoff (review material) | read only; its connector-call card built on the host's records |
+
+| Revision | What | Checks |
+|---|---|---|
+| 38177536 | OpenHands attempts reconciled into dispatch/MCP | 32 files / 273 tests (OpenHands, dispatch, MCP), with the owner's 8 Python tests |
+| 22bd1f62 | Animate v7 catalog enums (by hand) | `tests/miniapps-commands.test.ts` 6/6 |
+| 28f1e920 | registry and package at the owners' checkpoints; Stream Studio hosted; server-derived theme origins | `tests/miniapps-*` 29/29 |
+| 790bfe07 | the rail as the operator set it (07:57); OpenHands sandbox, MCP → CLI and Timmy MCP pages | the app's browser tests |
+| f88990ce | Control Room connector-call cards | FAKE Treg browser test 2/2 |
+| 7345e9e8 | Control Room runs aimed at an app or one of its outputs (08:10) | `tests/control-runs.test.ts` 6/6 (FAKE act); browser |
+| 58e4b6ed | the Workspace canvas imports any app's results | browser (asset read through the companion, kept by path) |
+| 1495752c | Card Lab's neutral shell, measured; Glacier the default family | the app's browser tests |
+| e930d78c | every other adapter in the five words | browser |
+| 1c5da0a4 | checklist I | **full suite: 795 files passed, 16 skipped; 6,499 tests passed, 136 skipped, 0 failed (exit 0, 2,805 s)**. The app's built page was rebuilt with c6acfead's Files change while the suite ran, so its browser files may have read that build |
+| c6acfead | Files: all app results one press away (a Mac finding) | the Mac pass below |
+
+- **1c5da0a on the Mac** (package sha256 `a6400848…2f0b`, a fresh folder, the reviewer's entry point):
+  - the launch check passed at 1440 × 900 and 390 × 844: the Canvas is the licensed tldraw SDK (its LicenseManager says
+    licensed; no watermark). Its line "Stream Studio says it is not built (no owner)" is out of date: it now matched the
+    new lead "Broadcast is not built", and does not count;
+  - "Timmy app stopped."; the census clean after the app and at the end; the home store unchanged (53 lines,
+    `4410dc0ae942ca6c`) before and after;
+  - hosting and project switching (mac-q): 23/23; two users: 12/12; Rive: 7/7; the commands: 10/10;
+  - the journeys: 33 of 41 checks passed. Not passed:
+    - T and T2 (four apps' theme checks): the driver's same-address navigation did not reload the page (as at
+      92d2368c), so they never reached the apps. Corrected in the driver and run again below;
+    - WS: the driver read the import menu before it listed anything (the capture shows it listed). Corrected below;
+    - W9: a real finding: with five apps delivering, the handed-off image fell off the eight results shown, so a reopened
+      Files did not name the handoff. Fixed in c6acfead;
+    - A7 and A7-live: as at 92d2368c, Card Lab ended its inspection of an Animate image (not a card) ready, with one
+      observed cite call, and answered "unknown". Not a pass as written; not a regression;
+  - passed and new in this pass: the rail (R), Stream Studio composed, animated and exported as an SVG frame and an HTML
+    player with each export's receipt and files by hash and Broadcast reported not built (A12), an agent aimed at Model
+    Studio's outputs with the proposal bound to that target (K), the OpenHands page naming both images (OH), every other
+    adapter in five words with none qualified (I8), and captures in both themes at both sizes (TH, 20);
+  - the Stream journey and the Animate export were driven through each app's own HTTP API inside Timmy's frame, not by
+    clicking the app's editor; the recording shows Timmy's pages and the frames, not an edit inside the apps' editors.
+- **Blockers kept, not passes:** the OpenHands runner image `timmy-oh-runner:1.21.0-attempts-1` is not built on the Mac
+  (and no new paid run is authorized); Stream Studio's theme trust (query or referrer, any loopback origin) is asked of
+  its owner and not claimed at parity; Card Lab's identity on a real card (A7) needs a card image.
