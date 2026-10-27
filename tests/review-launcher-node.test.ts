@@ -29,7 +29,7 @@ function launcher(): { dir: string; box: string } {
   writeFileSync(join(bin, 'timmy'), `#!/usr/bin/env node
 const { existsSync } = require('node:fs');
 const first = (name) => (process.env.PATH || '').split(':').find((d) => existsSync(d + '/' + name)) || null;
-console.log(JSON.stringify({ node: process.version, timmy: first('timmy'), opencode: first('opencode'), clef: process.env.TIMMY_CLEF ?? null, rerun: process.env.TIMMY_RERUN ?? null }));
+console.log(JSON.stringify({ node: process.version, timmy: first('timmy'), opencode: first('opencode'), clef: process.env.TIMMY_CLEF ?? null, rerun: process.env.TIMMY_RERUN ?? null, logsOpen: process.env.TIMMY_LOGS_OPEN ?? null, args: process.argv.slice(2) }));
 `);
   chmodSync(join(bin, 'timmy'), 0o755);
   return { dir, box };
@@ -87,5 +87,18 @@ describe('the review launcher runs Timmy on the node install used (R5 lead, the 
     const seen = (r: ReturnType<typeof run>) => { expect(r.status, r.stderr).toBe(0); return JSON.parse(r.stdout.trim().split('\n').pop() as string) as { clef: string | null; rerun: string | null }; };
     expect(seen(run({ TIMMY_CLEF: '1', TIMMY_RERUN: '/opt/FAKE/rerun' }))).toMatchObject({ clef: '1', rerun: '/opt/FAKE/rerun' });
     expect(seen(run({}))).toMatchObject({ clef: null, rerun: null });
+  });
+
+  // R13 (the operator's 15:31 order, item 6): ./timmy-app is the review's entry point, so its app case may open the browser;
+  // the launcher set TIMMY_LOGS_OPEN=0 for every command, and `timmy app` then opened nothing while saying it had
+  it('the app case lets Timmy open the browser (TIMMY_LOGS_OPEN=1); every other command keeps it off, whatever the caller set', () => {
+    const { dir, box } = launcher();
+    writeFileSync(join(box, 'node.path'), `${process.execPath}\n`);
+    const path = `${join(process.execPath, '..')}:/usr/bin:/bin`;
+    const run = (args: string[], extra: Record<string, string> = {}) => spawnSync('bash', [join(dir, 'review.sh'), ...args], { cwd: dir, encoding: 'utf8', env: { PATH: path, HOME: dir, TIMMY_REVIEW_HOME: join(dir, 'sandbox'), ...extra } });
+    const seen = (r: ReturnType<typeof run>) => { expect(r.status, r.stderr).toBe(0); return JSON.parse(r.stdout.trim().split('\n').pop() as string) as { logsOpen: string | null; args: string[] }; };
+    expect(seen(run(['app']))).toMatchObject({ logsOpen: '1', args: ['app'] });
+    expect(seen(run(['timmy', '--version']))).toMatchObject({ logsOpen: '0' });
+    expect(seen(run(['timmy', '--version'], { REVIEW_OPENS_BROWSER: '1' }))).toMatchObject({ logsOpen: '0' });
   });
 });

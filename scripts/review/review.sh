@@ -64,7 +64,7 @@ run() {
     TERM="${TERM:-xterm-256color}" COLORTERM="${COLORTERM:-}" LANG="${LANG:-C.UTF-8}" LC_ALL="${LC_ALL:-}" \
     TMPDIR="$BOX/tmp" TMUX_TMPDIR="$BOX/tmux" \
     TIMMY_HOME="$H/timmy" TIMMY_SETTINGS_DIR="$BOX/settings" TIMMY_MCP_HOME="$BOX/mcp-home" \
-    TIMMY_STUDIO_PORT="$STUDIO_PORT" TIMMY_LOGS_PORT="$LOGS_PORT" TIMMY_COMPANION_PORT="$COMPANION_PORT" TIMMY_LOGS_OPEN=0 \
+    TIMMY_STUDIO_PORT="$STUDIO_PORT" TIMMY_LOGS_PORT="$LOGS_PORT" TIMMY_COMPANION_PORT="$COMPANION_PORT" TIMMY_LOGS_OPEN="${REVIEW_OPENS_BROWSER:-0}" \
     TIMMY_REVIEW="$REV" FAKE_LANES_LOG="$BOX/fake-lanes.log" ${TIMMY_CHAT_FREE_ONLY:+TIMMY_CHAT_FREE_ONLY="$TIMMY_CHAT_FREE_ONLY"} \
     ${TIMMY_PALETTE:+TIMMY_PALETTE="$TIMMY_PALETTE"} \
     ${TIMMY_CLEF:+TIMMY_CLEF="$TIMMY_CLEF"} ${TIMMY_RERUN:+TIMMY_RERUN="$TIMMY_RERUN"} \
@@ -135,6 +135,7 @@ license_key() {
 
 need_install() { [ -x "$PREFIX/node_modules/.bin/timmy" ] || die "not installed yet: run ./review.sh install first" 2; need_node; }
 
+REVIEW_OPENS_BROWSER=   # (only the app case below sets it; never taken from the caller)
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
@@ -257,7 +258,9 @@ HELP
     need_install
     license_key
     mini_apps
-    ( cd "$(start_dir)" && run timmy app "$@" )
+    # (R13: the one command that opens a browser: the app's page, through Timmy's private launch page; every other command
+    # keeps TIMMY_LOGS_OPEN=0, so the Workbench, logs and watch never open one)
+    ( cd "$(start_dir)" && REVIEW_OPENS_BROWSER=1 && run timmy app "$@" )
     ;;
   workbench|repl|watch)
     need_install
