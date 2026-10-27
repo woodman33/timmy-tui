@@ -14,6 +14,7 @@ import { goTo, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
 import { ConfigureRow, isConfigured, useInventory } from '../configure.jsx';
 import { AgentRuns } from './control-runs.jsx';
+import { ConnectorCalls } from './control-connectors.jsx';
 import './control.css';
 
 const usd = (n) => (typeof n === 'number' && Number.isFinite(n) ? (n === 0 || n >= 0.01 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`) : 'unknown');
@@ -204,6 +205,7 @@ export default function ControlPage() {
         {rOk ? <details className="ta-details"><summary>Details</summary><p className="ta-muted">Read from GET /api/panel/control/room and GET /api/panel/control/panes{panes && panes.ok ? `, ${clock(panes.readAt)}` : ''}.</p></details> : null}
       </Panel>
       <AgentRuns />
+      <ConnectorCalls />
       {/* the 05:03 order: an empty panes panel under a finished agent run read as a contradiction ("no job has run here");
           the panes are the project's terminal and workflow jobs, shown only when there is one (or when reading them failed) */}
       {!panes || !pOk || list.length ? (

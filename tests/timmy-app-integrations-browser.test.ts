@@ -133,6 +133,17 @@ describe.skipIf(!browserPath)('Tools & integrations: Treg through the host’s o
     await page.waitForTimeout(600);
     await shot(page, 'int-4-canvas-note');
 
+    // the Control Room's connector-call cards (the 07:37 pass, I6): the same operations, the process, outcome and check apart;
+    // the paid call's charge is Treg's own figure, a free lookup's says it is not paid
+    await page.click('.ta-rail-item[data-nav="control"]');
+    await page.waitForSelector('.ta-page[data-page="control"] [data-connector-op]', { timeout: 60_000 });
+    const cards = page.locator('[data-connector-op]');
+    expect(await cards.count()).toBe(4); // discover, search, price preview, the paid call
+    const paid = cards.filter({ hasText: 'Treg · call' });
+    expect(await paid.innerText()).toMatch(/process\s*ended[\s\S]*outcome\s*answered[\s\S]*check\s*receipt \S+[\s\S]*charge\s*\$0\.00\d* \(Treg’s charged_micro\)/);
+    expect(await cards.filter({ hasText: 'none: not a paid call' }).count()).toBe(3);
+    await shot(page, 'int-5-control-connector-cards', '#connector-calls');
+
     // no token anywhere on the page or in what the companion answered it
     expect(await page.content()).not.toContain(TOKEN);
     expect(bodies.join('\n')).not.toContain(TOKEN);
