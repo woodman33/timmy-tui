@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { call, getJson, postJson } from '../api.js';
 import { Markdown } from '../md.jsx';
 import { Page, Panel, Tool } from '../shell.jsx';
-import { goTo, openApp, projectQuery, useApp } from '../store.js';
+import { aimAgent, goTo, openApp, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, day } from '../ui.jsx';
 import './files.css';
 
@@ -91,6 +91,9 @@ function Provenance({ path, image, onSent }) {
           {sent && !sent.ok ? <span className="ta-result" role="status">{sent.error || `The companion answered ${sent.status}.`}</span> : null}
         </div>
       )) : null}
+      {rc && rc.app && /^from-apps\/[a-z-]+\//.test(path) ? (
+        <div className="ta-row"><Button onClick={() => aimAgent({ kind: 'app', app: rc.app, path })} data-action="send-file-to-agent">Send to an agent</Button><span className="ta-muted">A run in the Control Room on a copy of this file.</span></div>
+      ) : null}
       <details className="ta-details">
         <summary>Details: path, hash and receipts</summary>
         <Facts rows={[

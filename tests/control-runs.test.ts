@@ -109,6 +109,31 @@ describe('the Control Room runs a code agent through timmy act (B1–B8)', () =>
     }
   });
 
+  it('a run aimed at one app\'s output (the 08:10 word): the target is checked, bound into the plan, kept, and told to the agent', async () => {
+    const s = setup('ok');
+    mkdirSync(join(s.root, 'from-apps', 'model-studio', 'j1'), { recursive: true });
+    writeFileSync(join(s.root, 'from-apps', 'model-studio', 'j1', 'chair.glb'), 'FAKE glb');
+    const ask = (target: unknown) => s.runs.propose(s.scope, { harness: 'qwen', task: 'make the legs shorter', model: 'gemma4:12b-it-qat', target });
+    expect(await ask({ kind: 'app', app: 'nope' })).toMatchObject({ ok: false, refused: 'usage' });
+    expect(await ask({ kind: 'app', app: 'model-studio', path: 'a.txt' })).toMatchObject({ ok: false, refused: 'usage' });
+    expect(await ask({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/../../a.txt' })).toMatchObject({ ok: false, refused: 'usage' });
+    expect(await ask({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/j1/none.glb' })).toMatchObject({ ok: false, refused: 'usage' });
+    const whole = await ask(undefined);
+    const p = await ask({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/j1/chair.glb' });
+    if (!p.ok || !whole.ok) throw new Error('not proposed');
+    expect(p.proposal.target).toEqual({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/j1/chair.glb', words: 'from-apps/model-studio/j1/chair.glb (from Model Studio)' });
+    expect(whole.proposal.target.kind).toBe('project');
+    expect(p.proposal.plan_sha256).not.toBe(whole.proposal.plan_sha256);
+    const started = s.runs.start(s.scope, { proposal: p.proposal.id });
+    if (!started.ok) throw new Error(started.error);
+    expect(started.run.target.path).toBe('from-apps/model-studio/j1/chair.glb');
+    const done = await until(() => { const r = s.runs.read(s.scope, started.run.id); return r && r.state !== 'running' ? r : null; });
+    expect(done.target).toMatchObject({ kind: 'app', app: 'model-studio' });
+    const seen = JSON.parse(readFileSync(join(s.home, 'control-runs', done.project.id, started.run.id, 'work', 'fake-act-seen.json'), 'utf8'));
+    expect(seen.argv[1]).toBe('/agent qwen make the legs shorter — work on the file from-apps/model-studio/j1/chair.glb in this copy of the project (what the model-studio app delivered to Timmy); write any new or changed output beside it.');
+    expect(seen.copy).toContain('from-apps');
+  });
+
   it('stops through act\'s own stop: the run says stopped because act\'s end says so, its receipt says cancelled', async () => {
     const s = setup('wait');
     const p = await s.runs.propose(s.scope, { harness: 'qwen', task: 'long task', model: 'gemma4:12b-it-qat' });

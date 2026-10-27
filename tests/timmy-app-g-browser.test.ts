@@ -220,6 +220,18 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     expect(await body.getAttribute('data-initial-theme')).toBe('amber');
     // the bar names the Timmy project apart from the app's own documents, and says the app is open (not that a job runs)
     expect(await page.locator('.ta-miniapp-bar').innerText()).toMatch(/app open[\s\S]*Timmy project: project/);
+    // the 08:10 word: any app sends its work to an agent — the Control Room's run form opens aimed at that app's outputs
+    await page.click('[data-action="send-to-agent"]');
+    await page.waitForSelector('.ta-page[data-page="control"] [data-ctl="target"]', { timeout: 30_000 });
+    expect(await page.locator('[data-ctl="target"]').inputValue()).toBe('card-lab');
+    // and a delivered file from Files: the form aimed at that one file
+    await go(page, 'files');
+    await page.click('.tx-files-result .ta-chip:has-text("preview.png")');
+    await page.waitForSelector('.tx-files-open-name:text-is("preview.png")');
+    await page.click('[data-action="send-file-to-agent"]');
+    await page.waitForSelector('.ta-page[data-page="control"] [data-ctl="target"]', { timeout: 30_000 });
+    expect(await page.locator('[data-ctl="target"]').inputValue()).toBe('animate|from-apps/animate/j1/preview.png');
+    await shot(page, 'g4-control-aimed-at-a-file');
     await page.context().close();
     expect(problems).toEqual([]);
   }, 180_000);

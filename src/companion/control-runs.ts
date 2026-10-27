@@ -37,6 +37,7 @@ import { realOnPath } from '../repl/center.js';
 import { timmyHome } from '../setup/home.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { appendReceipt } from '../utils/receipts.js';
+import { MINI_APPS } from './miniapps/registry.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -45,6 +46,35 @@ export const CONTROL_RUN_SCHEMA = 'timmy.control-run/1' as const;
 export const CONTROL_HARNESSES = ['openhands', 'qwen'] as const satisfies readonly AgentName[];
 export type ControlHarness = (typeof CONTROL_HARNESSES)[number];
 export const PROPOSAL_MS = 10 * 60_000;
+
+/**
+ * The 07:37 completion pass, on the operator's 08:10 word ("prompt any agent with any agent harness in any mini app or tab"):
+ * what a run works on. The project (default), one mini-app's delivered outputs in the project (from-apps/<app>/, which the
+ * run's copy carries), or one file there. The agent edits its copy of those files; it does not drive the live app, and the
+ * project's own files are not changed. The target is bound into the proposal's plan hash and kept in the run's record.
+ */
+export interface ControlTarget { kind: 'project' | 'app'; app?: string; path?: string; words: string }
+export function controlTarget(root: string, raw: unknown): { ok: true; target: ControlTarget } | { ok: false; error: string } {
+  const t = (raw && typeof raw === 'object' ? raw : {}) as { kind?: unknown; app?: unknown; path?: unknown };
+  if (t.kind === undefined || t.kind === 'project') return { ok: true, target: { kind: 'project', words: 'the whole project' } };
+  if (t.kind !== 'app' || typeof t.app !== 'string') return { ok: false, error: 'A target is the project or one app. Nothing was started.' };
+  const app = MINI_APPS.find((a) => a.id === t.app);
+  if (!app) return { ok: false, error: `No app named ${String(t.app).slice(0, 40)} here. Nothing was started.` };
+  const folder = `from-apps/${app.id}`;
+  if (t.path === undefined || t.path === '') return { ok: true, target: { kind: 'app', app: app.id, words: `${app.title}'s outputs in ${folder}/` } };
+  if (typeof t.path !== 'string' || t.path.length > 400 || t.path.includes('\\') || t.path.split('/').some((x) => x === '..' || x === '') || !t.path.startsWith(`${folder}/`)) {
+    return { ok: false, error: `A target file is one of ${app.title}'s outputs, under ${folder}/. Nothing was started.` };
+  }
+  const abs = path.resolve(root, t.path);
+  if (!abs.startsWith(path.resolve(root, folder) + path.sep) || !fs.existsSync(abs)) return { ok: false, error: `${t.path} is not in this project. Nothing was started.` };
+  return { ok: true, target: { kind: 'app', app: app.id, path: t.path, words: `${t.path} (from ${app.title})` } };
+}
+/** The task as the agent reads it: the person's words, then where to work (one line: `timmy act` takes one /agent line). */
+export function targetedTask(task: string, target: ControlTarget): string {
+  if (target.kind === 'project') return task;
+  const where = target.path ? `the file ${target.path}` : `the folder from-apps/${target.app}/`;
+  return `${task} — work on ${where} in this copy of the project (what the ${target.app} app delivered to Timmy); write any new or changed output beside it.`;
+}
 export const TASK_MAX = 4000;
 /** the run's time limit, minutes: what the page offers and the most it takes */
 export const LIMIT_DEFAULT_MIN = 10;
@@ -83,6 +113,8 @@ export interface ControlRunRecord {
   wall_time: string;
   task: string;
   task_sha256: string;
+  /** what it works on (absent in a record made before targets: the project) */
+  target?: ControlTarget;
   /** the proposal the person approved: its id and the hash of what it showed */
   approved: { proposal: string; plan_sha256: string; at: string };
   workspace: { files: number; bytes: number; skipped: string[] };
@@ -181,6 +213,7 @@ export interface ControlProposal {
   charge: string;
   wall_time: string;
   task: string;
+  target: ControlTarget;
   /** what it works on: a copy of the project, made at the start */
   workspace: string;
   /** what the run may do, in words */
@@ -213,12 +246,15 @@ export class ControlRuns {
     return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
   }
 
-  async propose(scope: ControlScope, body: { harness?: unknown; task?: unknown; model?: unknown; limit?: unknown }): Promise<{ ok: true; proposal: ControlProposal } | Refusal> {
+  async propose(scope: ControlScope, body: { harness?: unknown; task?: unknown; model?: unknown; limit?: unknown; target?: unknown }): Promise<{ ok: true; proposal: ControlProposal } | Refusal> {
     if (!isHarness(body.harness)) return { ok: false, status: 400, refused: 'usage', error: `Choose ${CONTROL_HARNESSES.map(harnessTitle).join(' or ')}: the Control Room starts these two in this revision. Nothing was started.` };
     const h = body.harness;
     const task = typeof body.task === 'string' ? body.task.trim() : '';
     if (!task) return { ok: false, status: 400, refused: 'usage', error: `Say what ${harnessTitle(h)} should do. Nothing was started.` };
     if (task.length > TASK_MAX) return { ok: false, status: 400, refused: 'usage', error: `The task is ${task.length} characters; at most ${TASK_MAX} are taken. Nothing was started.` };
+    const tg = controlTarget(scope.project.root, body.target);
+    if (!tg.ok) return { ok: false, status: 400, refused: 'usage', error: tg.error };
+    const target = tg.target;
     const model = typeof body.model === 'string' ? body.model.trim() : '';
     if (!MODEL_NAME.test(model)) return { ok: false, status: 400, refused: 'usage', error: 'Choose a model this machine\'s Ollama lists. Nothing was started.' };
     const limit = body.limit === undefined || body.limit === '' ? LIMIT_DEFAULT_MIN : Number(body.limit);
@@ -226,7 +262,7 @@ export class ControlRuns {
     const env = this.childEnv(scope, model, `${limit}m`);
     const bin = agentBin(h, env, onPathOf(env));
     if (!bin) return { ok: false, status: 409, refused: 'missing', error: `Needs setup: ${harnessStates(env).find((s) => s.id === h)?.needs ?? 'its program is not here'}. Nothing was started.` };
-    const planned = planAgent(h, task, { env, paid: false, run: 'a00000000', bin, ...(h === 'openhands' ? { local: true, root: scope.project.root } : {}) });
+    const planned = planAgent(h, targetedTask(task, target), { env, paid: false, run: 'a00000000', bin, ...(h === 'openhands' ? { local: true, root: scope.project.root } : {}) });
     if (!planned.ok) return { ok: false, status: 409, refused: planned.refused === 'usage' ? 'usage' : planned.refused, error: planned.error };
     const plan = planned.plan;
     if (plan.endpoint !== 'local') return { ok: false, status: 409, refused: 'paid', error: `${plan.where} is not on this machine, so it may cost money: the Control Room starts local runs only. Nothing was started.` };
@@ -246,7 +282,7 @@ export class ControlRuns {
       ? ['edit the files of its copy of the project, inside its container (no browser; the terminal and the file editor only)', 'reach this machine\'s Ollama, and the network, from its container']
       : ['edit the files of its copy of the project (edits are approved automatically: --approval-mode auto-edit)', 'not run shell commands: Qwen Code asks for them, and a run here has no one to ask, so they are refused'];
     const base = {
-      harness: h, title: harnessTitle(h), model, endpoint: 'local' as const, where: plan.where, charge: plan.charge, wall_time: plan.wallTime, task,
+      harness: h, title: harnessTitle(h), model, endpoint: 'local' as const, where: plan.where, charge: plan.charge, wall_time: plan.wallTime, task, target,
       workspace: `a copy of ${scope.project.name}, made when you approve (without .git, .timmy and node_modules); ${scope.project.name} itself is not changed`,
       may: [...may, 'nothing that costs money: its model is this machine\'s'], preflight,
     };
@@ -304,7 +340,8 @@ export class ControlRuns {
     // Qwen Code's own HOME for this run (TIMMY_AGENT_HOME): what it discovers at its start (its settings, extensions, MCP
     // servers) is this run's, never the person's; OpenHands' docker keeps the principal's (its engine's context lives there)
     if (p.harness === 'qwen') { env.TIMMY_AGENT_HOME = path.join(dir, 'agent-home'); fs.mkdirSync(env.TIMMY_AGENT_HOME, { recursive: true, mode: 0o700 }); }
-    const line = p.harness === 'openhands' ? `/agent openhands --local ${p.task}` : `/agent qwen ${p.task}`;
+    const told = targetedTask(p.task, p.target);
+    const line = p.harness === 'openhands' ? `/agent openhands --local ${told}` : `/agent qwen ${told}`;
     const [cmd, ...pre] = this.timmy();
     const out = fs.openSync(path.join(dir, 'act.out'), 'w', 0o600);
     const err = fs.openSync(path.join(dir, 'act.err'), 'w', 0o600);
@@ -319,7 +356,7 @@ export class ControlRuns {
     const rec: ControlRunRecord = {
       schema: CONTROL_RUN_SCHEMA, id, principal: scope.principal, project: { id: projectId(scope.project.root), name: scope.project.name },
       harness: p.harness, title: p.title, model: p.model, endpoint: 'local', where: p.where, charge: p.charge, wall_time: p.wall_time,
-      task: p.task, task_sha256: sha(p.task), approved: { proposal: p.id, plan_sha256: p.plan_sha256, at: now() },
+      task: p.task, task_sha256: sha(p.task), target: p.target, approved: { proposal: p.id, plan_sha256: p.plan_sha256, at: now() },
       workspace: copied, started_at: now(), pid: child.pid ?? null, state: 'running',
     };
     writeRecord(dir, rec);
@@ -455,6 +492,7 @@ export class ControlRuns {
     const finalMessage = result?.final_message ? readText(path.join(dir, 'work', result.final_message.file), 4000) : null;
     return {
       id: r.id, harness: r.harness, title: r.title, model: r.model, where: r.where, charge: r.charge, wall_time: r.wall_time, task: r.task,
+      target: r.target ?? { kind: 'project', words: 'the whole project' },
       project: r.project, state: r.state, live, started_at: r.started_at, ...(r.ended_at ? { ended_at: r.ended_at } : {}),
       operation: r.act?.operation ?? runningOperation(dir), job: result?.job ?? null, agent_run: result?.run ?? r.act?.runs.find((x) => x.kind === 'agent')?.id ?? null,
       ...(r.stop ? { stop: r.stop } : {}), ...(r.why ? { why: scrub(r.why) } : {}),
@@ -520,6 +558,7 @@ export class ControlRuns {
 
 export interface ControlRunView {
   id: string; harness: ControlHarness; title: string; model: string; where: string; charge: string; wall_time: string; task: string;
+  target: ControlTarget;
   project: { id: string; name: string };
   state: ControlState; live: boolean; started_at: string; ended_at?: string;
   operation: string | null; job: string | null; agent_run: string | null;

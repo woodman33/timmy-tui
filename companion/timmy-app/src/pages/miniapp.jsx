@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Page, Panel } from '../shell.jsx';
-import { PAGES, goBack, goTo, projectQuery, takeAppTarget, useApp } from '../store.js';
+import { PAGES, aimAgent, goBack, goTo, projectQuery, takeAppTarget, useApp } from '../store.js';
 import { Button, Facts, StateWord } from '../ui.jsx';
 import './miniapp.css';
 
@@ -120,6 +120,7 @@ export function MiniAppPage({ appId }) {
             <span className="ta-muted ta-miniapp-where" title="The Timmy project this app keeps its work in (the app's own document titles are its own)">{apps.project ? `Timmy project: ${apps.project}` : ''}</span>
             <span className="ta-miniapp-gap" />
             <Button onClick={() => goTo('files')} title={`What ${a.title}'s jobs made, in this project's Files`}>Results in Files</Button>
+            <Button onClick={() => aimAgent({ kind: 'app', app: appId })} data-action="send-to-agent" title={`Start an agent run in the Control Room on ${a.title}'s outputs in this project`}>Send to an agent</Button>
             <Button onClick={stop} disabled={busy === 'stop'} title={`Stop ${a.title} for this project`}>Stop</Button>
           </div>
           <iframe ref={frame} className="ta-miniapp-frame" title={a.title} src={open.url} data-miniapp-frame={appId} onLoad={sendTheme} />

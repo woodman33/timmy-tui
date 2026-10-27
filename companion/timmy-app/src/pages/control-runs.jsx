@@ -5,12 +5,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Panel } from '../shell.jsx';
-import { projectQuery, useApp } from '../store.js';
+import { projectQuery, takeAgentTarget, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
 import { RunFace } from '../rive.jsx';
 
 const EVERY_MS = 1500;
 const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
+/** The apps a run can be aimed at (their outputs in from-apps/<app>/ of the run's copy). */
+const TARGET_APPS = [['card-lab', 'Card Lab'], ['film-room', 'Film Room'], ['model-studio', 'Model Studio'], ['stream-studio', 'Stream Studio'], ['animate', 'Animate']];
 const said = (r) => r.error || `The companion answered ${r.status || 'nothing'}.`;
 
 function useRuns() {
@@ -30,6 +32,8 @@ function useRuns() {
 function Launch({ onStarted, only }) {
   const [h, setH] = useState(null);
   const [harness, setHarness] = useState(only || 'qwen');
+  // what the run works on: the project, or an app's outputs (or one of them), as a page that sent it here aimed it
+  const [target, setTarget] = useState(() => takeAgentTarget() || { kind: 'project' });
   const [model, setModel] = useState('');
   const [task, setTask] = useState('');
   const [limit, setLimit] = useState(10);
@@ -40,7 +44,7 @@ function Launch({ onStarted, only }) {
   const review = async (e) => {
     e.preventDefault();
     setBusy(true); setNote(''); setProposal(null);
-    const r = await postJson(`/api/control/propose${projectQuery()}`, { harness, model, task, limit: Number(limit) });
+    const r = await postJson(`/api/control/propose${projectQuery()}`, { harness, model, task, limit: Number(limit), target: target.kind === 'app' ? { kind: 'app', app: target.app, ...(target.path ? { path: target.path } : {}) } : { kind: 'project' } });
     setBusy(false);
     if (r.ok) setProposal(r.proposal); else setNote(said(r));
   };
@@ -72,6 +76,14 @@ function Launch({ onStarted, only }) {
             </select>
           ) : <input value={model} onChange={(e) => { setModel(e.target.value); setProposal(null); }} placeholder="a name from ollama list" aria-describedby="tx-ctl-models-why" />}
         </label>
+        <label className="tx-ctl-field"><span>Works on</span>
+          <select value={target.kind === 'app' ? `${target.app}${target.path ? `|${target.path}` : ''}` : 'project'} data-ctl="target"
+            onChange={(e) => { const v = e.target.value; setProposal(null); if (v === 'project') setTarget({ kind: 'project' }); else { const [app, path] = v.split('|'); setTarget({ kind: 'app', app, ...(path ? { path } : {}) }); } }}>
+            <option value="project">This project</option>
+            {TARGET_APPS.map(([id, words]) => <option key={id} value={id}>{words}’s outputs</option>)}
+            {target.kind === 'app' && target.path ? <option value={`${target.app}|${target.path}`}>{target.path}</option> : null}
+          </select>
+        </label>
         <label className="tx-ctl-field tx-ctl-field-short"><span>Time limit (min)</span>
           <input type="number" min="1" max={h.limit ? h.limit.max : 60} value={limit} onChange={(e) => { setLimit(e.target.value); setProposal(null); }} />
         </label>
@@ -88,6 +100,7 @@ function Launch({ onStarted, only }) {
           <p className="ta-context-k">APPROVE THIS RUN</p>
           <Facts rows={[
             ['harness', proposal.title],
+            ['works on', proposal.target ? proposal.target.words : 'the whole project'],
             ['model', `${proposal.model} at ${proposal.where}`],
             ['charge', proposal.charge],
             ['time limit', proposal.wall_time],
@@ -179,6 +192,7 @@ function RunCard({ r, theme, onChange }) {
         <div className="tx-ctl-run-words">
           <p className="tx-ctl-row"><strong>{r.title}</strong> {r.live ? <StateWord word={r.state} live /> : null} <span className="ta-muted">{r.model} · {clock(r.started_at)}</span></p>
           <p className="tx-ctl-run-task">{r.task}</p>
+          {r.target && r.target.kind === 'app' ? <p className="ta-muted" data-run-target={r.target.app}>Works on {r.target.words}</p> : null}
           {r.live ? null : <p className="tx-ctl-outcome-line" role="status"><strong>{outcomeLine(r, files)}</strong></p>}
           <div className="ta-row">
             {r.live ? <Button kind="primary" onClick={() => act('stop')} disabled={busy || r.state === 'stopping'}>{r.state === 'stopping' ? 'Stopping…' : '■ Stop'}</Button> : null}
