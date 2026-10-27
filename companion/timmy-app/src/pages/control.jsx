@@ -195,26 +195,29 @@ export default function ControlPage() {
               <p className="tx-ctl-row"><StateWord word="answering" /> A chat turn sent from {a.chatTurn.surface}, since {clock(a.chatTurn.since)}: {a.chatTurn.words}</p>
             ) : null}
             {a.stop ? <p className="tx-ctl-row"><StateWord word={`${a.running} running`} /> {a.stop.words}</p> : null}
-            {!a.chatTurn && !a.running ? <Empty>Nothing runs in this project now, and nothing waits on you.</Empty> : null}
+            {!a.chatTurn && !a.running ? <Empty>No chat turn or terminal job runs in this project now, and nothing waits on you. Agent runs are below.</Empty> : null}
             {a.waitingOnYou ? <p className="tx-ctl-row"><StateWord word="waiting on you" /> {a.waitingOnYou} thing{a.waitingOnYou === 1 ? '' : 's'} wait{a.waitingOnYou === 1 ? 's' : ''} for your answer in the Chat.</p> : null}
-            <p className="ta-muted">The agent on the Chat page is {thisPage ? `working on this page’s turn (${turn.phase})` : 'not running a turn from this page'}; the panes below are the project’s runs, each in its own state.</p>
+            <p className="ta-muted">The agent on the Chat page is {thisPage ? `working on this page’s turn (${turn.phase})` : 'not running a turn from this page'}; the agent runs and the terminal jobs below each say their own state.</p>
           </>
         )}
         {rOk && room.notes && room.notes.length ? <ul className="tx-ctl-notes">{room.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
         {rOk ? <details className="ta-details"><summary>Details</summary><p className="ta-muted">Read from GET /api/panel/control/room and GET /api/panel/control/panes{panes && panes.ok ? `, ${clock(panes.readAt)}` : ''}.</p></details> : null}
       </Panel>
       <AgentRuns />
-      <Panel id="panes" kicker="PANES" title="The project’s runs, as panes"
-        tools={pOk ? <span className="ta-muted">{panes.running ? `read every ${Math.round((panes.every || 2000) / 1000)} s while it runs · ` : ''}read {clock(panes.readAt)}</span> : null}>
-        {!panes ? <Empty>Reading the panes…</Empty> : !pOk ? <p className="ta-result" role="status">{panes.error || `The companion answered ${panes.status || 'nothing'}.`}</p>
-          : !list.length ? <Empty>No pane: no job of this project has run here, and no chat turn is being answered. A workflow run started in the terminal shows here with its log.</Empty> : (
+      {/* the 05:03 order: an empty panes panel under a finished agent run read as a contradiction ("no job has run here");
+          the panes are the project's terminal and workflow jobs, shown only when there is one (or when reading them failed) */}
+      {!panes || !pOk || list.length ? (
+        <Panel id="panes" kicker="PANES" title="Terminal and workflow jobs of this project"
+          tools={pOk ? <span className="ta-muted">{panes.running ? `read every ${Math.round((panes.every || 2000) / 1000)} s while it runs · ` : ''}read {clock(panes.readAt)}</span> : null}>
+          {!panes ? <Empty>Reading the panes…</Empty> : !pOk ? <p className="ta-result" role="status">{panes.error || `The companion answered ${panes.status || 'nothing'}.`}</p> : (
             <div className="tx-ctl-panes">
               {list.map((p) => <PaneCard key={p.id} p={p} on={selId === p.id} onPick={() => setSelId(selId === p.id ? null : p.id)} />)}
             </div>
           )}
-        {pOk && panes.more ? <p className="ta-muted">{panes.more} more run{panes.more === 1 ? 's' : ''} than the panes shown.</p> : null}
-        {pOk && panes.notes && panes.notes.length ? <ul className="tx-ctl-notes">{panes.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
-      </Panel>
+          {pOk && panes.more ? <p className="ta-muted">{panes.more} more run{panes.more === 1 ? 's' : ''} than the panes shown.</p> : null}
+          {pOk && panes.notes && panes.notes.length ? <ul className="tx-ctl-notes">{panes.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
+        </Panel>
+      ) : null}
       <Panel id="fleet" kicker="FLEET" title="Lanes and integrations"
         tools={fleetRows.length ? <span className="ta-muted">{fleetRows.filter(isConfigured).length} of {fleetRows.length} configured</span> : null}>
         {!inv ? <Empty>Reading what is on this computer…</Empty> : !inv.ok ? <Empty>{inv.error || 'The companion did not answer the inventory.'}</Empty>

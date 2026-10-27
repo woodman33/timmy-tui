@@ -205,6 +205,17 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     const frame = page.frameLocator('iframe[data-miniapp-frame="card-lab"]');
     await frame.locator(`[data-fake-run="${run}"]`).waitFor({ timeout: 30_000 });
     await shot(page, 'g3-card-lab-inspection');
+    // the theme contract v1 (the owner's interface): the launch path carried ?theme= and this page's exact origin; the frame
+    // got the theme from this origin on load, and again when the person switched to Glacier — without a reload
+    const body = frame.locator('body');
+    expect(await body.getAttribute('data-initial-theme')).toBe('amber');
+    expect(await body.getAttribute('data-host-origin')).toBe(origin);
+    await expect.poll(() => body.getAttribute('data-theme')).toBe('amber');
+    expect(await body.getAttribute('data-theme-from')).toBe(origin);
+    await page.click('button:has-text("Glacier")');
+    await expect.poll(() => body.getAttribute('data-theme')).toBe('glacier');
+    await frame.locator(`[data-fake-run="${run}"]`).waitFor(); // the same page: not reloaded
+    expect(await body.getAttribute('data-initial-theme')).toBe('amber');
     // the bar names the Timmy project apart from the app's own documents, and says the app is open (not that a job runs)
     expect(await page.locator('.ta-miniapp-bar').innerText()).toMatch(/app open[\s\S]*Timmy project: project/);
     await page.context().close();

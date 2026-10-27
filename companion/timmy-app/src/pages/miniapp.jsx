@@ -3,7 +3,7 @@
 // address the companion gives for this principal and project (the launch address is one-time and short-lived); an app whose
 // reviewed source is not in hand says so with the integration register's record (owner, revision, date, the missing step).
 // Nothing here stands in for an app: no mock canvas, no sample data.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Page, Panel } from '../shell.jsx';
 import { PAGES, goBack, goTo, projectQuery, takeAppTarget, useApp } from '../store.js';
@@ -14,6 +14,18 @@ const WAITING = {
   'awaiting-owner-checkpoint': 'Waiting for the owner’s checkpoint',
   'no-owner': 'Not built: no owner assigned',
 };
+
+/**
+ * The launch path for an app with the theme contract: its own path (Open inspection's `/?run=<id>`, or its root) with
+ * `theme=` and, when the app reads it there, the exact origin of this page (Card Lab's themeHostOrigin); null for another app.
+ */
+export function themedPath(app, to, theme) {
+  if (!app || !app.theme) return to;
+  const u = new URL(to || '/', 'http://app.invalid');
+  u.searchParams.set('theme', theme === 'glacier' ? 'glacier' : 'amber');
+  if (app.theme.hostOriginParam && typeof location !== 'undefined') u.searchParams.set(app.theme.hostOriginParam, location.origin);
+  return `${u.pathname}${u.search}`;
+}
 
 function useApps() {
   const generation = useApp((s) => s.projectId);
@@ -51,9 +63,12 @@ export function MiniAppPage({ appId }) {
     return () => clearInterval(t);
   }, [open, appId]);
 
+  const theme = useApp((s) => s.theme);
+  const frame = useRef(null);
   const start = async (to) => {
     setBusy('open'); setWords('');
-    const r = await postJson(`/api/apps/${appId}/open${projectQuery()}`, typeof to === 'string' ? { to } : {});
+    const at = themedPath(a, typeof to === 'string' ? to : null, theme);
+    const r = await postJson(`/api/apps/${appId}/open${projectQuery()}`, at ? { to: at } : {});
     setBusy('');
     if (r.ok && r.url) setOpen({ url: r.url, startedAt: r.startedAt });
     else setWords(r.error || 'The companion did not open the app.');
@@ -67,6 +82,25 @@ export function MiniAppPage({ appId }) {
     read();
   };
 
+  // the theme contract v1 (an app that declares it): the frame's exact origin gets the theme on load, on its ready, on change
+  const frameOrigin = open ? (() => { try { return new URL(open.url).origin; } catch { return null; } })() : null;
+  const sendTheme = useCallback(() => {
+    const w = frame.current && frame.current.contentWindow;
+    if (!w || !frameOrigin || !a || !a.theme) return;
+    try { w.postMessage({ type: 'timmy:theme', version: 1, theme }, frameOrigin); } catch { /* the frame went away */ }
+  }, [frameOrigin, a, theme]);
+  useEffect(() => { sendTheme(); }, [sendTheme]);
+  useEffect(() => {
+    if (!open || !a || !a.theme || !a.theme.ready) return undefined;
+    const ready = (e) => {
+      const w = frame.current && frame.current.contentWindow;
+      if (!w || e.source !== w || e.origin !== frameOrigin) return;
+      const d = e.data;
+      if (d && typeof d === 'object' && d.type === 'timmy:theme-ready' && d.version === 1) sendTheme();
+    };
+    window.addEventListener('message', ready);
+    return () => window.removeEventListener('message', ready);
+  }, [open, a, frameOrigin, sendTheme]);
   const hostableNow = !!(a && a.hostable);
   useEffect(() => { if (hostableNow) { const to = takeAppTarget(appId); if (to !== null && to !== undefined) start(to); } }, [hostableNow, appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -88,7 +122,7 @@ export function MiniAppPage({ appId }) {
             <Button onClick={() => goTo('files')} title={`What ${a.title}'s jobs made, in this project's Files`}>Results in Files</Button>
             <Button onClick={stop} disabled={busy === 'stop'} title={`Stop ${a.title} for this project`}>Stop</Button>
           </div>
-          <iframe className="ta-miniapp-frame" title={a.title} src={open.url} data-miniapp-frame={appId} />
+          <iframe ref={frame} className="ta-miniapp-frame" title={a.title} src={open.url} data-miniapp-frame={appId} onLoad={sendTheme} />
         </div>
       </Page>
     );

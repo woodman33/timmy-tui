@@ -16,7 +16,9 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
     const run = new URL(req.url, 'http://x').searchParams.get('run') || '';
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(`<!doctype html><title>FAKE Card Lab</title><p>A LABELLED FAKE of Card Lab.</p><p data-fake-run="${/^card_[a-f0-9-]{36}$/.test(run) ? run : ''}">${/^card_[a-f0-9-]{36}$/.test(run) ? `Inspection ${run}` : 'No run asked for'}</p>`);
+    // (the owner's theme interface v1, as its app side reads it: ?theme= first, then timmy:theme messages from the parent)
+    const probe = "<script>const q=new URLSearchParams(location.search),b=document.body;b.dataset.initialTheme=q.get('theme')||'';b.dataset.hostOrigin=q.get('themeHostOrigin')||'';addEventListener('message',e=>{const d=e.data;if(e.source!==parent||!d||d.type!=='timmy:theme'||d.version!==1)return;b.dataset.theme=d.theme;b.dataset.themeFrom=e.origin;b.dataset.themeCount=String(Number(b.dataset.themeCount||0)+1)})</script>";
+    res.end(`<!doctype html><title>FAKE Card Lab</title><body><p>A LABELLED FAKE of Card Lab.</p><p data-fake-run="${/^card_[a-f0-9-]{36}$/.test(run) ? run : ''}">${/^card_[a-f0-9-]{36}$/.test(run) ? `Inspection ${run}` : 'No run asked for'}</p>${probe}</body>`);
     return undefined;
   }
   if (req.method === 'POST' && req.url === '/api/runs') {

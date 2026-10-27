@@ -60,6 +60,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
       spec, key: keyOf(spec.id, req, p.root), dir: deps.env[spec.host!.sourceEnv]!,
       dataDir: appDataDir(home, spec.id, projectId(p.root)), base: deps.env,
       ancestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`], jobs: jobsOf(home), project: p.name,
+      parentOrigin: typeof req.headers.host === 'string' && HOST.test(req.headers.host) ? `http://${req.headers.host}` : `http://127.0.0.1:${port}`,
       revision: installedRevision(spec, deps.env),
       // each of the app's ended jobs: one receipt in this project's runs chain (where its chat turns are sealed)
       seal: (r) => appendReceipt('runs', { ...r, project_id: projectId(p.root) }, p.root).id,
@@ -81,6 +82,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         return {
           id: a.id, title: a.title, kind: a.kind, lead: a.lead, availability: a.availability,
           hostable: a.availability === 'hostable' && problem === null, problem, running, observed: a.observed,
+          theme: a.host?.theme ?? null,
           installed: a.availability === 'hostable' ? installedSource(a, deps.env) : null,
         };
       }),

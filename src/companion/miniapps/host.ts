@@ -194,6 +194,8 @@ export interface StartOptions {
   base: Env;
   /** the origins that may frame the app (Timmy's own page) */
   ancestors: string[];
+  /** the exact origin of the Timmy page that opened it (an app's theme contract checks messages against it); ancestors[0] when absent */
+  parentOrigin?: string;
   /** the node that runs the app (this process's by default) */
   node?: string;
   /** the job manager of the principal's Timmy home (<home>/jobs) */
@@ -219,7 +221,7 @@ export async function startHostedApp(o: StartOptions): Promise<HostedApp> {
   const workerPort = await freePort();
   // (the worker's secret: only this host's gateway and receipt reader present it; the guard refuses every other client)
   const workerSecret = randomBytes(32).toString('hex');
-  const env = { ...h.env({ port: workerPort, dataDir: o.dataDir, base: o.base }), TIMMY_WORKER_SECRET: workerSecret };
+  const env = { ...h.env({ port: workerPort, dataDir: o.dataDir, base: o.base, parentOrigin: o.parentOrigin ?? o.ancestors[0] }), TIMMY_WORKER_SECRET: workerSecret };
   const guard = workerGuardFile(dirname(dirname(o.dataDir)));
   const job = o.jobs.start({
     kind: 'server', label: `${o.spec.title} (mini-app)`, project: o.project, root: o.dir,

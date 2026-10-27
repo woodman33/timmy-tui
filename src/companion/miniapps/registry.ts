@@ -46,7 +46,14 @@ export interface MiniAppSpec {
     /** the path a readiness probe asks (GET, answered 200 when the app serves) */
     readyPath: string;
     /** the app's own variables: its port and data folder, and which of the companion's variables it may see */
-    env: (a: { port: number; dataDir: string; base: Record<string, string | undefined> }) => Record<string, string>;
+    env: (a: { port: number; dataDir: string; base: Record<string, string | undefined>; parentOrigin: string }) => Record<string, string>;
+    /**
+     * The owner's app side of the Timmy theme contract v1 (Amber or Glacier; presentation only): the launch path carries
+     * `?theme=`, and the host posts `{ type: 'timmy:theme', version: 1, theme }` to the frame's exact origin on load, on its
+     * `timmy:theme-ready` and on every change. `hostOriginParam`: the app reads the exact parent origin from that query
+     * parameter (Card Lab's themeHostOrigin); otherwise it is given in its environment (see env's parentOrigin).
+     */
+    theme?: { hostOriginParam?: string; ready?: boolean };
     /**
      * How Timmy reads the app's ended jobs for its canonical receipts (./receipts.ts, ./app-jobs.ts): from the app's own
      * HTTP state or its own job files in the data folder Timmy gave it, each with the files it made as paths the app serves.
@@ -93,8 +100,8 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'hostable',
     observed: {
       owner: 'Codex: Timmy Card Lab (private standalone release)',
-      revision: 'codex/card-lab-checkpoint 7176ad97 (owner checkpoint of 6431f8fb + its working tree)',
-      observedAt: '2026-10-26',
+      revision: 'timmy-card-lab 342c0f72 (cite and answer in separate phases; the host theme interface v1)',
+      observedAt: '2026-10-27',
       next: 'Hosted in local mode as its owner built it. Its own app suite timed out at the owner (120 s, 90 s). Each ended launch is sealed as a Timmy receipt; shared assets and approvals are still to map.',
     },
     host: {
@@ -103,7 +110,10 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       builtFile: 'frontend/dist/index.html',
       readyPath: '/api/health',
       // local mode only (loopback, no hosted sign-in); no provider token reaches it (CARDLAB_*_TOKEN and keys are not passed)
-      env: ({ port, dataDir, base }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL'], {
+      // the owner's theme interface v1 (docs/HOST-THEME.md at 342c0f72): ?theme= and the exact loopback parent in themeHostOrigin
+      theme: { hostOriginParam: 'themeHostOrigin' },
+      // its provider call's bounded limit (10–600 s at the owner; default 90 s) when this computer's settings name one
+      env: ({ port, dataDir, base }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL', 'CARDLAB_PROVIDER_TIMEOUT_MS', 'CARDLAB_TIMMY_VISION_TIMEOUT_MS'], {
         CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1',
         ...localVision(base),
       }),
@@ -117,8 +127,8 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     availability: 'hostable',
     observed: {
       owner: 'Codex: Analyze NFL footage with AI',
-      revision: 'codex/film-room-checkpoint f9db9fe0 (131/131 app tests at the owner)',
-      observedAt: '2026-10-26',
+      revision: 'timmy-film-room 8c3cd19f (the host theme contract v1; 12 theme tests and 17 browser checks at the owner)',
+      observedAt: '2026-10-27',
       next: 'Hosted as its owner built it, blank; the owner’s private project stays outside. Airtable and Roboflow need their own sign-ins here. Its ended jobs are sealed as Timmy receipts; `timmy video` (import, render, jobs) runs through the same host. Shared assets are still to map.',
     },
     host: {
@@ -126,8 +136,11 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       entry: 'server.mjs',
       builtFile: 'dist/index.html',
       readyPath: '/api/config',
-      env: ({ port, dataDir, base }) => envOf(base, ['FILMROOM_TLDRAW_LICENSE_FILE', 'FILMROOM_FFMPEG', 'FILMROOM_PYTHON', 'FILMROOM_MAX_UPLOAD_BYTES'], {
-        PORT: String(port), FILMROOM_DATA_DIR: dataDir,
+      // the owner's theme contract v1 (docs/Theme-Contract.md at 8c3cd19c): the exact parent origin in its environment, and
+      // its timmy:theme-ready answered with the latest theme
+      theme: { ready: true },
+      env: ({ port, dataDir, base, parentOrigin }) => envOf(base, ['FILMROOM_TLDRAW_LICENSE_FILE', 'FILMROOM_FFMPEG', 'FILMROOM_PYTHON', 'FILMROOM_MAX_UPLOAD_BYTES'], {
+        PORT: String(port), FILMROOM_DATA_DIR: dataDir, FILMROOM_THEME_PARENT_ORIGIN: parentOrigin,
       }),
       // its jobs/<id>.json: renders with their accepted outputs, ingests with their managed asset
       receipts: { finished: APP_JOBS['film-room'] },
