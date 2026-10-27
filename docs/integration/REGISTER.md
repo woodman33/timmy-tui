@@ -326,7 +326,15 @@ with its owner, its criterion and its status.
 
 - **The review package** `timmy-review-4d59da6.tar.gz`, built from a clean tree (exit 0), sha256
   `4e00d337a451966cffaf437d7d3f24d69450b129171e0bdc451fe529d6c27a4a`. It carries the same owners' apps as 94b8979.
-- **Full suite** (frozen worktree, under the heavy lock): running at the time of this entry (started 03:14 PT).
+- **Full suite** (frozen worktree, clean, 2 workers, under the heavy lock, 03:14–04:05 PT, 3076 s): **exit 1**, kept as
+  run. 784 files passed, 1 failed, 16 skipped; 6451 tests passed, 2 failed, 136 skipped. Log sha256 in
+  `full-4d59da6e.log.sha256`.
+  - Both failures were in `tests/miniapps-handoff.test.ts`: the fake Card Lab's `frontend/dist/index.html` was ignored
+    by `.gitignore` (`dist/`). The working tree had it untracked; a clean checkout did not, so the host said the app was
+    not built (409). A test defect.
+  - **fd866755** tracks that file (test only; `src/`, `companion/` and `scripts/` are byte-identical to 4d59da6e). The
+    checks it needs, on a clean checkout of fd866755 under the lock: `miniapps-handoff`, `miniapps-jobs`, `miniapps-host`
+    and `control-runs`, 23/23, exit 0. The Mac results below stand for the product bytes.
 - **Mac, that package, a fresh folder (03:14–03:26 PT):** `npm ci` from the lock, real apps and engines, a local model
   (gemma4:12b-it-qat on Ollama) only, no key, no paid call.
 
