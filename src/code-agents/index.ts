@@ -52,6 +52,9 @@ export const AGENTS: Readonly<Record<AgentName, AgentInfo>> = {
   openhands: { title: 'OpenHands', bin: 'docker', binEnv: 'TIMMY_AGENT_DOCKER_BIN', harnessId: 'openhands', modelEnv: 'TIMMY_AGENT_MODEL', stream: 'openhands-jsonl', asNamed: true },
 };
 
+/** The integrated candidate: the file tools Qwen Code is given (--core-tools): read, search, create and edit; no shell. */
+export const QWEN_CORE_TOOLS: readonly string[] = ['read_file', 'write_file', 'edit', 'glob', 'grep_search', 'list_directory'];
+
 /** Qwen Code's endpoint when TIMMY_AGENT_BASE_URL is not set: a local Ollama's OpenAI-compatible API. */
 export const DEFAULT_BASE_URL = 'http://127.0.0.1:11434/v1';
 /** The key sent to a local endpoint when TIMMY_AGENT_API_KEY is not set (Ollama ignores it; it is not a secret). */
@@ -226,8 +229,14 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
     // round R3 checked that qwen 0.25.0 with --bare and --auth-type openai sends that variable as its bearer token
     // when --openai-api-key is absent (against a local fake server). Set even for a local endpoint, so a real
     // OPENAI_API_KEY in Timmy's own environment is never handed to the endpoint instead.
+    // The integrated candidate (observed on the Mac, 2026-10-27, qwen 0.25.1 with gemma4:12b-it-qat): in --bare mode Qwen
+    // Code's tools are read_file, edit, notebook_edit and run_shell_command, and a model that writes a new file with
+    // write_file is told "write_file is not listed in the active core tools allowlist"; --core-tools does not change that
+    // set in --bare mode. Without --bare, --core-tools names the agent's file tools (no shell, no web fetch), and the same
+    // model wrote the file. Its startup discovery is bounded by its HOME (TIMMY_AGENT_HOME; the Control Room gives each run
+    // its own) and the project. The array flag comes first, so the next flag ends it before the positional prompt.
     const args = [
-      '--bare',                              // "--bare  Minimal mode: skip implicit startup auto-discovery and only honor explicitly provided CLI inputs."
+      '--core-tools', ...QWEN_CORE_TOOLS,    // "--core-tools  Core tool paths  [array]"
       '--auth-type', 'openai',               // "--auth-type  Authentication type  [choices: "openai", ...]"
       '--openai-base-url', baseUrl,          // "--openai-base-url  OpenAI base URL (for custom endpoints)"
       '-m', model,                           // "-m, --model  Model"

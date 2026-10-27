@@ -301,6 +301,9 @@ export class ControlRuns {
       return { ok: false, status: 409, refused: 'setup', error: `The run's copy of ${scope.project.name} could not be made: ${scrubHomes(msg(e), scope.env as NodeJS.ProcessEnv)}. Nothing was started.` };
     }
     const env = this.childEnv(scope, p.model, p.wall_time);
+    // Qwen Code's own HOME for this run (TIMMY_AGENT_HOME): what it discovers at its start (its settings, extensions, MCP
+    // servers) is this run's, never the person's; OpenHands' docker keeps the principal's (its engine's context lives there)
+    if (p.harness === 'qwen') { env.TIMMY_AGENT_HOME = path.join(dir, 'agent-home'); fs.mkdirSync(env.TIMMY_AGENT_HOME, { recursive: true, mode: 0o700 }); }
     const line = p.harness === 'openhands' ? `/agent openhands --local ${p.task}` : `/agent qwen ${p.task}`;
     const [cmd, ...pre] = this.timmy();
     const out = fs.openSync(path.join(dir, 'act.out'), 'w', 0o600);
@@ -466,6 +469,9 @@ export class ControlRuns {
           outcome: result.outcome ?? null, why: result.why ? scrub(result.why) : null, agent_receipt: result.receipt ?? null,
           final_message: finalMessage ? scrub(finalMessage) : null,
           files: result.files ? { added: result.files.added.map((f) => f.path), changed: result.files.changed.map((f) => f.path), deleted: result.files.deleted.map((f) => f.path) } : null,
+          // the permissions it asked for that a run here cannot grant (no one to answer: Qwen Code refuses them itself)
+          denied: Array.isArray(result.progress?.denied) ? [...new Set(result.progress!.denied)].slice(0, 12) : [],
+          tool_calls: typeof result.progress?.tool_calls === 'number' ? result.progress.tool_calls : null,
         },
       } : {}),
     };
@@ -524,7 +530,7 @@ export interface ControlRunView {
   approved: { proposal: string; plan_sha256: string; at: string };
   workspace: { files: number; bytes: number; skipped: string[] };
   log: string[];
-  result?: { outcome: string | null; why: string | null; agent_receipt: string | null; final_message: string | null; files: { added: string[]; changed: string[]; deleted: string[] } | null };
+  result?: { outcome: string | null; why: string | null; agent_receipt: string | null; final_message: string | null; files: { added: string[]; changed: string[]; deleted: string[] } | null; denied: string[]; tool_calls: number | null };
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────────────

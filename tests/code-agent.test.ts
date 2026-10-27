@@ -77,12 +77,12 @@ function flagsIn(args: string[], help: string): string[] {
 }
 
 describe('the command lines, from the agents\' own help texts', () => {
-  it('Qwen Code on a local endpoint: one-shot, --bare, openai auth, the model, auto-edit, stream-json, a wall time, no chat recording', () => {
+  it('Qwen Code on a local endpoint: one-shot, its file tools (--core-tools; --bare has no write_file), openai auth, the model, auto-edit, stream-json, a wall time, no chat recording', () => {
     const r = planAgent('qwen', 'add a test', { env: { TIMMY_AGENT_MODEL: 'qwen3:4b' }, paid: false, run: 'a00000001', bin: 'qwen' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.plan.args).toEqual([
-      '--bare', '--auth-type', 'openai', '--openai-base-url', 'http://127.0.0.1:11434/v1', '-m', 'qwen3:4b',
+      '--core-tools', 'read_file', 'write_file', 'edit', 'glob', 'grep_search', 'list_directory', '--auth-type', 'openai', '--openai-base-url', 'http://127.0.0.1:11434/v1', '-m', 'qwen3:4b',
       '--approval-mode', 'auto-edit', '-o', 'stream-json', '--max-wall-time', '15m', '--chat-recording=false', 'add a test',
     ]);
     // the key travels in the child's environment, never on the command line (round R3)

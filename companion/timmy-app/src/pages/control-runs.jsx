@@ -158,6 +158,8 @@ function RunCard({ r, theme, onChange }) {
           <p className="ta-context-k">ITS END</p>
           <p>{res.outcome ? <StateWord word={res.outcome} /> : null} {files.length ? `${files.length} file${files.length === 1 ? '' : 's'} changed in its copy: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : 'No file changed.'}</p>
           {res.final_message ? <blockquote className="tx-ctl-final">{res.final_message}</blockquote> : null}
+          {res.denied && res.denied.length ? <p className="ta-muted">It asked for {res.denied.join(', ')}: refused, because a run here has no one to answer a permission (only file edits are approved for it).</p> : null}
+          {res.tool_calls === 0 && !files.length ? <p className="ta-muted">It made no tool call: the model answered without using the agent’s tools.</p> : null}
           {files.length ? <Diffs id={r.id} /> : null}
         </div>
       ) : null}
