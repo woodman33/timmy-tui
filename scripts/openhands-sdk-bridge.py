@@ -1,185 +1,153 @@
 #!/usr/bin/env python3
-"""TIMMY OpenHands SDK bridge — tools execute IN-PROCESS against the seeded
-workspace (LocalWorkspace), closing the headless-CLI tool-exec gap (Phase A2).
-Phase C: runs inside the ephemeral runner container; reports a host-path
-canary (isolation evidence) and a full patch lifecycle: generate the worktree
-patch, apply it to a PRISTINE clone, and assert acceptance there — proving the
-patch alone turns red→green, not container state.
+"""Real OpenHands SDK bridge; run inside the runner container for isolation.
 
-stdin: {"task": str, "workspace": str, "acceptance": [str], "pristine_dir": str}
-stdout: one JSON line (last line is the result envelope).
-Run with the uv tool python (host engine) or /bridge.py in the runner image.
-
-R4 (H104): the re-prompt. When the agent stops with the task's acceptance
-still failing, the bridge asks again, at most REPROMPT_ROUNDS times. It used to
-ask with an instruction written for one test fixture (one file and one edit,
-named), whatever the task was. Each re-prompt is now built from the task's
-own acceptance commands that still fail and the end of each one's last output,
-bounded (OUTPUT_TAIL characters a command, REPROMPT_MAX in all), and every
-re-prompt sent is recorded in the result (`reprompts`: its round, the commands
-that failed with their exit codes, and its text). The functions above main()
-need no SDK, so they can be checked on their own (tests/openhands-bridge.test.ts).
+stdin: task, workspace, acceptance, pristine_dir, optional max_iterations (1..16)
+and acceptance_timeout_s (1..60). stdout's last line is the result envelope.
+The iteration budget covers the initial run and one corrective run together.
+Host SDK mode is an explicit local execution mode, not a sandbox.
 """
 import json
 import os
-import re
+import signal
 import subprocess
 import sys
 
-# at most this many re-prompts after the first message (bounded, as before)
-REPROMPT_ROUNDS = 3
-# the end of each failing command's last output that a re-prompt quotes
-OUTPUT_TAIL = 1200
-# a whole re-prompt, at most
-REPROMPT_MAX = 4000
-# terminal control characters a command printed (colour codes and the like) are not quoted
-_CONTROL = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+def bounded_int(value, default, maximum):
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError('limits must be positive integers')
+    return min(value, maximum)
 
 
-def sh(cmd, cwd):
-    return subprocess.run(['bash', '-c', cmd], cwd=cwd, capture_output=True)
-
-
-def tail(text, limit):
-    """The last `limit` characters of a command's output, without terminal control codes; marked when cut."""
-    text = _CONTROL.sub('', text or '').strip()
-    if len(text) <= limit:
-        return text
-    return '[... ' + str(len(text) - limit) + ' earlier characters not shown]\n' + text[-limit:]
-
-
-def acceptance(commands, cwd):
-    """Each acceptance command run in `cwd`: its exit code and the end of what it printed (stdout, then stderr)."""
+def acceptance(commands, cwd, timeout_s):
+    """Keep checker execution in this bridge's workspace/container boundary."""
     out = []
-    for cmd in commands:
-        r = sh(cmd, cwd)
-        printed = (r.stdout or b'').decode('utf-8', 'replace') + (r.stderr or b'').decode('utf-8', 'replace')
-        out.append({'cmd': cmd, 'code': r.returncode, 'output': tail(printed, OUTPUT_TAIL)})
+    for command in commands:
+        child = subprocess.Popen(
+            ['bash', '-c', command], cwd=cwd, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        try:
+            code = child.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            # Stop descendants too; killing only bash leaves checker jobs behind.
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.wait()
+            out.append({'cmd': command, 'code': 124, 'timed_out': True})
+            continue
+        out.append({'cmd': command, 'code': code})
     return out
 
 
-def green(results):
-    """The acceptance passes: there are checks, and every one exited 0."""
-    return bool(results) and all(x['code'] == 0 for x in results)
+def green(checks):
+    return bool(checks) and all(check['code'] == 0 for check in checks)
 
 
-CUT_NOTE = '\n[... cut: this re-prompt is at its length limit]'
-
-
-def reprompt(results, round_no, rounds=REPROMPT_ROUNDS, max_chars=REPROMPT_MAX):
-    """The message a re-prompt sends: the task's own acceptance commands that still fail, each with its exit code and the
-    end of its last output, and what to do. Nothing in it is particular to one task. At most `max_chars` characters: each
-    failing command gets an even share of the room left, and a block cut short says so."""
-    failing = [r for r in results if r['code'] != 0]
-    if not failing:
-        return ''
-    total, n = len(results), len(failing)
-    if total == 1:
-        what = 'its acceptance check still fails'
-    else:
-        what = '%d of its %d acceptance checks still %s' % (n, total, 'fails' if n == 1 else 'fail')
-    head = ('The task is not finished: %s in the working directory (re-prompt %d of %d). %s, its exit code and the end '
-            'of its last output:' % (what, round_no, rounds, 'The command' if n == 1 else 'Each command'))
-    footer = ('Read that output, find the cause in the files of the working directory, and change them so that every '
-              'acceptance command exits 0; then run %s yourself with the terminal tool. Do not change the acceptance '
-              'command%s.' % ('it' if n == 1 else 'them', '' if n == 1 else 's'))
-    # the blank lines between the head, each block and the footer
-    budget = max_chars - len(head) - len(footer) - 2 * (n + 1)
-    blocks = []
-    for i, r in enumerate(failing):
-        block = '$ %s\n(exit code %s)\n%s' % (r['cmd'], r['code'], r.get('output') or '(it printed nothing)')
-        share = max(0, budget) // (n - i)
-        if len(block) > share:
-            block = block[:max(0, share - len(CUT_NOTE))].rstrip() + CUT_NOTE
-        blocks.append(block)
-        budget -= len(block)
-    # the bound holds even when there are so many failing commands that each gets almost no room
-    return '\n\n'.join([head] + blocks + [footer])[:max_chars]
-
-
-def main():
-    req = json.load(sys.stdin)
-    work = req.get('workspace', os.environ.get('OPENHANDS_WORK_DIR', '/work'))
-    pristine = req.get('pristine_dir', '/pristine')
-    commands = req.get('acceptance', [])
-
-    # Isolation evidence: host-OS paths that can ONLY exist inside the container
-    # via a leaked host mount (macOS/Windows dirs; /home exists on bare Debian so
-    # it is NOT a valid canary). The adapter interprets per engine (fail closed).
-    host_canary = any(os.path.exists(p) for p in ('/Users', '/Applications', 'C:\\'))
-
+def create_conversation(workspace, max_iterations):
+    # Imports are lazy so offline bridge tests do not load a model runtime.
     from openhands.sdk import LLM, Agent, LocalWorkspace, LocalConversation
     from openhands.sdk.security.confirmation_policy import NeverConfirm
     from openhands.tools.preset.default import register_default_tools, get_default_tools
 
-    register_default_tools()  # terminal, file_editor, … into the registry
+    register_default_tools()
+    model = os.environ.get('LLM_MODEL', 'ollama/qwen3.8:27b-mlx')
     llm = LLM(
-        model=os.environ.get('LLM_MODEL', 'ollama/qwen3.8:27b-mlx'),
+        model=model,
         base_url=os.environ.get('LLM_BASE_URL', 'http://localhost:11434'),
         api_key=os.environ.get('LLM_API_KEY', 'ollama'),
-        # ollama streaming mangles tool-call args (empty params observed);
-        # non-streaming parses them correctly
-        **({'stream': False} if os.environ.get('LLM_MODEL', '').startswith('ollama/') else {}),
+        **({'stream': False} if model.startswith('ollama/') else {}),
     )
-    agent = Agent(llm=llm, tools=get_default_tools())
-    conv = LocalConversation(agent=agent, workspace=LocalWorkspace(working_dir=work))
-    conv.set_confirmation_policy(NeverConfirm())  # headless: never block on confirm
+    conv = LocalConversation(
+        agent=Agent(llm=llm, tools=get_default_tools()),
+        workspace=LocalWorkspace(working_dir=workspace),
+        max_iteration_per_run=max_iterations,
+    )
+    conv.set_confirmation_policy(NeverConfirm())
+    return conv
 
-    result = {'ok': False, 'host_canary': host_canary, 'reprompt_rounds': REPROMPT_ROUNDS, 'reprompts': []}
+
+def run_bridge(req):
+    # A heuristic mount canary, not proof that arbitrary host access is absent.
+    result = {'ok': False, 'host_canary': any(
+        os.path.exists(path) for path in ('/Users', '/Applications', 'C:\\')
+    ), 'work_acceptance': [], 'pristine_acceptance': [], 'patch_applied': False}
+    conv = None
     try:
-        send = getattr(conv, 'send_message', None) or getattr(conv, 'ask_agent', None)
-        if send is None:
-            result['note'] = 'no send_message/ask_agent on LocalConversation'
-        else:
-            send(req['task'])
-            run = getattr(conv, 'run', None)  # send_message enqueues; run() drives the loop
-            if callable(run):
-                run()
-            # bounded re-prompt loop: the agent sometimes stops before its acceptance passes; ask again with what still
-            # fails, until it passes or the rounds are used (still agent-driven: the bridge edits nothing)
-            for round_no in range(1, REPROMPT_ROUNDS + 1):
-                results = acceptance(commands, work)
-                if not results or green(results):
-                    break
-                text = reprompt(results, round_no)
-                result['reprompts'].append({
-                    'round': round_no,
-                    'failing': [{'cmd': r['cmd'], 'code': r['code']} for r in results if r['code'] != 0],
-                    'text': text,
-                })
-                send(text)
-                if callable(run):
-                    run()
-            # ---- patch lifecycle (in-container) ----
-            patch = subprocess.run(['git', '-C', work, 'diff'],
-                                   capture_output=True, text=True).stdout or ''
-            result['patch'] = patch
-            result['work_acceptance'] = [{'cmd': r['cmd'], 'code': r['code']} for r in acceptance(commands, work)]
-            pristine_acceptance = []
-            patch_applied = False
-            if patch.strip():
-                c = subprocess.run(['git', 'clone', '-q', work, pristine],
-                                   capture_output=True)
-                if c.returncode == 0:
-                    ap = subprocess.run(['git', '-C', pristine, 'apply',
-                                         '--whitespace=nowarn', '-'],
-                                        input=patch, capture_output=True, text=True)
-                    patch_applied = ap.returncode == 0
-                    pristine_acceptance = ([{'cmd': r['cmd'], 'code': r['code']} for r in acceptance(commands, pristine)]
-                                           if patch_applied
-                                           else [{'cmd': 'git apply (pristine)', 'code': ap.returncode}])
-            result['patch_applied'] = patch_applied
-            result['pristine_acceptance'] = pristine_acceptance
-            result['ok'] = True
-    except Exception as e:  # honesty clause: surface why
-        result['note'] = str(e)[:300]
+        work = req.get('workspace', os.environ.get('OPENHANDS_WORK_DIR', '/work'))
+        pristine = req.get('pristine_dir', '/pristine')
+        commands = req.get('acceptance', [])
+        if not isinstance(commands, list) or not commands or not all(
+            isinstance(command, str) and command.strip() for command in commands
+        ):
+            raise ValueError('at least one nonempty acceptance command is required')
+        if not isinstance(req.get('task'), str) or not req['task'].strip():
+            raise ValueError('a nonempty task is required')
+        budget = bounded_int(req.get('max_iterations'), 4, 16)
+        timeout_s = bounded_int(req.get('acceptance_timeout_s'), 60, 60)
+        # Pin the source before the agent can create commits in its workspace.
+        base = subprocess.run(['git', '-C', work, 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+        initial_budget = max(1, budget - 1)
+        conv = create_conversation(work, initial_budget)
+        conv.send_message(req['task'])
+        conv.run()
+        checks = acceptance(commands, work, timeout_s)
+        if not green(checks) and budget > 1:
+            # Feedback describes the actual task's checks, never a canned fixture edit.
+            conv.send_message(
+                'The approved task is not yet accepted. These checks failed: '
+                + json.dumps([check for check in checks if check['code'] != 0])
+                + '. Inspect the relevant failure and correct the task implementation. '
+                'Do not weaken, replace, or bypass the acceptance checks.'
+            )
+            conv.max_iteration_per_run = 1
+            conv.run()
+            checks = acceptance(commands, work, timeout_s)
+        result['work_acceptance'] = checks
+        patch = subprocess.run(['git', '-C', work, 'diff', '--binary', base],
+                               capture_output=True, text=True, timeout=30, check=True).stdout
+        result['patch'] = patch
+        clone = subprocess.run(['git', 'clone', '-q', work, pristine],
+                               capture_output=True, timeout=60)
+        if clone.returncode != 0:
+            raise RuntimeError('pristine clone failed')
+        subprocess.run(['git', '-C', pristine, 'checkout', '--detach', base],
+                       capture_output=True, timeout=30, check=True)
+        if patch.strip():
+            applied = subprocess.run(['git', '-C', pristine, 'apply', '--whitespace=nowarn', '-'],
+                                     input=patch, capture_output=True, text=True, timeout=30)
+            if applied.returncode != 0:
+                raise RuntimeError('patch could not be applied to pristine source')
+        # An empty patch is valid only if the unchanged source also passes.
+        result['patch_applied'] = True
+        result['pristine_acceptance'] = acceptance(commands, pristine, timeout_s)
+        result['ok'] = green(checks) and green(result['pristine_acceptance'])
+        if not result['ok']:
+            result['note'] = 'working or pristine acceptance failed'
+    except Exception as exc:
+        result['note'] = str(exc)[:300]
     finally:
-        try:
-            conv.close()
-        except Exception:
-            pass
+        if conv is not None:
+            try:
+                conv.close()
+            except Exception:
+                pass
+    return result
+
+
+def main():
+    try:
+        result = run_bridge(json.load(sys.stdin))
+    except Exception as exc:
+        result = {'ok': False, 'host_canary': None, 'note': str(exc)[:300]}
     print(json.dumps(result))
+    return 0 if result['ok'] else 1
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

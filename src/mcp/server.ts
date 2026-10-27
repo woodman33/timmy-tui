@@ -649,7 +649,20 @@ const call = (name: string, args: any): unknown => {
     case 'timmy_apify_run': return apifyRun(args ?? { tool: '' });
     case 'timmy_3minapi_run': return threeminapiRun(args ?? { tool: '' });
     case 'timmy_judge_loop': return judgeLoop(args ?? { prompt: '' });
-    case 'timmy_openhands_run': return runOpenHandsTask((args ?? {}) as OpenHandsOpts);
+    case 'timmy_openhands_run': {
+      // MCP arguments are model-controlled. Select public options explicitly;
+      // dispatch authority and lifecycle hooks can only arrive from trusted code.
+      const a = args ?? {};
+      const options: OpenHandsOpts = {
+        task: a.task, acceptance: a.acceptance,
+        fixture_repo: a.fixture_repo, ref: a.ref,
+        wall_ms: a.wall_ms, no_activity_ms: a.no_activity_ms,
+        max_iterations: a.max_iterations, max_spend: a.max_spend,
+        llm: a.llm, local_model: a.local_model, engine: a.engine,
+        approval: a.approval, dir: a.dir,
+      };
+      return runOpenHandsTask(options);
+    }
     case 'timmy_roboflow_run': return roboflowRun((args ?? {}) as RoboflowReq);
     case 'timmy_oapi_run': return oapiRun((args ?? {}) as OapiReq);
     case 'timmy_list_lanes': return { ok: true, lanes: listLanes() };

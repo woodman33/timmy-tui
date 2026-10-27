@@ -37,7 +37,8 @@ describe('openhands docker engine: the runner image is inventoried, never built'
     const r = await runOpenHandsTask({ ...o, approval: issueApproval(openHandsPlanHash(o)).token });
     expect(r).toMatchObject({ ok: false, state: 'not_configured', note: OH_RUNNER_NOT_BUILT });
     expect(OH_RUNNER_NOT_BUILT).toBe(`the image ${OH_RUNNER_IMAGE} is not built; build it yourself, in the repository root: ${OH_RUNNER_BUILD} (Timmy never builds or pulls it by itself; nothing was started)`);
-    expect(OH_RUNNER_BUILD).toBe('docker build -f scripts/oh-runner.Dockerfile -t timmy-oh-runner:1.21.0 .');
+    // b56c36f0 renamed the image (the attempts bridge is baked in); a 1.21.0 image built earlier is not this one
+    expect(OH_RUNNER_BUILD).toBe('docker build -f scripts/oh-runner.Dockerfile -t timmy-oh-runner:1.21.0-attempts-1 .');
     // what docker was asked: the daemon, the image; never build, never run
     expect(readFileSync(join(dir, 'docker-calls.txt'), 'utf8').trim().split('\n')).toEqual(['info', `image inspect ${OH_RUNNER_IMAGE}`]);
     // the receipt says so, and no workspace was made (the adapter makes one in the OS temp folder, timmy-oh-*, once past this)
