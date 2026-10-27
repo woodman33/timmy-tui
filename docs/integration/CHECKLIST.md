@@ -130,6 +130,40 @@ The lead owns the host, the registry, the frame, Files, the receipts and Tools &
 | H6 | Real Card Lab inspection, cite first | Card Lab owner | One local inspection with an observed `cite` call; invalid evidence rejected | partly: on the Mac (Card Lab 342c0f72, gemma4:12b-it-qat) the inspection ended ready with one observed cite call of the run's own handle and revision; its answer was "unknown" (the image handed was an Animate export, not a card). The invalid-evidence rejection was not exercised live: the owner's tests only |
 | H7 | Model Studio embedded layout; Stream Studio's export milestone; Film Room's workflows kept | the owners | as in G7, G9 and A8 | owner work; the lead does not duplicate it |
 
+## I. The completion pass (2026-10-27, 07:37 PT): one Mac review candidate — the fixed list of remaining gaps
+
+Reconciled once from the operator's checkpoint map, against ad47f831 (92d2368c plus the docs commit). Each owner artifact
+below was read on the Mac without changing anything there, and its bytes were checked against its own id before use.
+
+| Owner | Checkpoint adopted | Its bytes, as checked |
+|---|---|---|
+| Card Lab | 6f166d2d (runtime), 16a6ac71 (a documentation-only reuse map on top) | git bundle of `codex/card-lab-checkpoint`; tip 16a6ac71. The owner's working tree has 10 uncommitted changes, left as they are and not imported |
+| Film Room | adfb7a74 | git bundle of `codex/film-room-checkpoint`; clean tree |
+| Model Studio | 8266c20a (operator-approved), with the embedded layout 39633703/ba96a0a8 under it | git bundle of `codex/model-studio`; clean tree |
+| Stream Studio | content revision 2be70c25… (not a commit) | the owner's source archive: 64 files, each matching `source-revision.json`; the canonical map's sha256 recomputed equal |
+| Animate | v7 source archive (app-source-delta.json); v8 is a mutable working tree with no content manifest of its own | v7 archive and the owner's v8 preservation and patches, copied as they are |
+| OpenHands attempts | b56c36f0 (on 08006fb9, an ancestor of this branch) | the commit's patch and its ten files from the operator's checkout (read only) |
+| Control Room behaviour | 2a798e1f on `codex/control-room-handoff-2026-10-27` | the branch's handoff documents (review material, no production code) |
+
+| # | Gap | Owner | Closes when | Status |
+|---|---|---|---|---|
+| I1 | The registry and the package carry the adopted owner checkpoints | lead | each app's page and its `.timmy-source.json` name the revision above; the package builds them | registry in 28f1e920 (Card 6f166d2d/16a6ac71, Film adfb7a74, Model 8266c20a, Stream 2be70c25, Animate v8 by manifest 6e2151ab); the package build is I9 |
+| I2 | Theme parent origins | lead (host); owners (apps) | Card Lab gets `CARDLAB_TIMMY_PARENT_ORIGIN`, Model Studio `STUDIO_THEME_PARENT_ORIGIN` and `theme: {ready: true}`, Film Room keeps its mapping; Stream Studio's query/referrer trust is relayed to its owner and not claimed at parity | host side in 28f1e920 (tests: miniapps-theme, timmy-app-g-browser with the FAKE Card Lab reading its env). Stream: **asked of its owner** (an exact, server-configured parent origin); not at parity. Live apps: I9 |
+| I3 | Stream Studio hosted | lead (host); Animate/Stream owner (app) | entered from Timmy; its SVG and HTML exports come back to Files with Timmy's receipts; Broadcast stays visibly not built | host side in 28f1e920 (registry, `GET /api/jobs` reader, package); live: I9 |
+| I4 | Animate's v7 host catalog patch | lead | the shared agent/MCP schemas list v7's paths and templates; their tests pass | **closed** in 22bd1f62 (applied by hand: the owner's patch did not apply to the adapted file) |
+| I5 | OpenHands attempts adopted | lead (shared dispatch/MCP); timmy-new-1 (its code) | b56c36f0 applied onto this branch, its own tests and the neighbouring dispatch/MCP tests pass | **closed** in 38177536: 32 files / 273 tests (OpenHands, dispatch, MCP) and the owner's 8 Python tests. Blocker kept: the runner image `timmy-oh-runner:1.21.0-attempts-1` is not built on the Mac (not a pass) |
+| I6 | The Control Room's connector-call card | lead | the existing room shows Treg operations as records: quote, charge as stated or unknown, call ids, operation, receipt, Stop and Recover | **closed** in f88990ce (FAKE Treg, browser) |
+| I7 | The main UI on Card Lab's foundation | lead | Timmy's Glacier uses Card Lab's silver/black/blue tokens and is the default; Amber kept; Animate keeps its own identity | in 1495752c (Card Lab's neutral shell, measured; Glacier default); captures: I9 |
+| I8 | Other integrations through their real state | lead | Roboflow, UPMD, Cloudflare and the other inventory rows read as the same five words, from their records | **closed** in e930d78c (qualified never claimed; discovered not checked on that page) |
+| I9 | Qualify one candidate | lead | the full suite on the candidate; on the Mac: launch, journeys over the five apps, a handoff, the Control Room, project switching, two users, the tldraw licence through the SDK, both themes at 1440 × 900 and 390 × 844, a recording | open |
+| I10 | The rail as the operator set it (07:57) | lead | Chat; APPS image/video/3D/2D animation; AGENTS Control Room and OpenHands sandbox; TOOLS MCP → CLI, Timmy MCP, Files, Workspace, Integrations; the rest behind WORKSPACES | **closed** in 790bfe07 and 58e4b6ed (browser) |
+| I11 | Agents aimed at any app; one Workspace canvas importing every app's results (08:10) | lead | a Control Room run's target (project, an app's outputs, one file), from every app's bar and from Files; the Workspace imports images and video as tldraw assets read from the project, anything else as a note with its receipt | **closed** in 7345e9e8 and 58e4b6ed (FAKE act, browser). Harnesses stay OpenHands and Qwen Code |
+
+Full suite on 92d2368c (before this pass's code): 6,472 passed, 3 failed, 136 skipped; the 3 (studio-cards-browser,
+studio-isolation-browser: 5 s waits) timed out while the OpenHands tests ran beside it, and passed 12/12 alone.
+
+Out of this pass: new frameworks, CAD rewrites, research lanes, private creative projects, live provider spend.
+
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
 Each was found during this pass. None is needed for an acceptance criterion above.
