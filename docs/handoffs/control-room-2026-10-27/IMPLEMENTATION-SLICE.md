@@ -1,6 +1,6 @@
 # One focused slice for the shared host integrator
 
-**Operator UI amendment (2026-10-27):** Card Lab's actual Rive UI is the main Timmy baseline. Reuse and adapt its native/editable components and interaction design with the host integrator and app owners. This packet's standalone HTML explains state/authority behavior; it is technical reference, not an approved visual redesign or a replacement for Card Lab Rive. Keep the real Rive source alongside actual integrated previews.
+**Operator UI amendment (2026-10-27):** [UI-DIRECTION.md](UI-DIRECTION.md) is binding: use Card Lab's actual sleek silver, black and blue Rive/tldraw foundation for main Timmy, its site and TUI. Mini-apps stay related offshoots with their own identities; Animator may retain brighter yellow. Preserve existing workflows and useful layouts. Coordinate reuse of actual native/editable components with the host integrator and app owners. The old amber HTML study is retired as visual direction. Keep real Rive/tldraw source alongside actual integrated previews.
 
 Extend the existing Control Room's attempt inspector with a connector-call card backed by the current jobs, operation/MCP records and canonical receipt readback. Keep the existing bus and writer. Do not duplicate the landed empty-panel/theme fixes or edit app-owner files. Governing references: root AGENTS.md §§4–8, DESIGN.md, DOCTRINE §§2–4 and 17, and decisions.md; this isolated study proposes no forge operation, theme adoption or release change.
 
