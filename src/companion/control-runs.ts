@@ -203,10 +203,14 @@ export class ControlRuns {
 
   private t(): number { return this.d.now ? this.d.now() : Date.now(); }
 
-  /** The command that is `timmy`: this package's own entry under this node (dist/src/companion → dist/timmy.js). */
+  /**
+   * The command that is `timmy act`: this package's CLI itself under this node (dist/src/companion → dist/src/cli.js), never
+   * the bin (dist/timmy.js), which runs the CLI as its own child: the pid kept would then be the bin's, and a launcher
+   * killed outright would leave the CLI running with its run (seen on the Mac, 2026-10-27: Recover found it still running).
+   */
   private timmy(): string[] {
     if (this.d.timmy) return this.d.timmy;
-    return [process.execPath, fileURLToPath(new URL('../../timmy.js', import.meta.url))];
+    return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
   }
 
   async propose(scope: ControlScope, body: { harness?: unknown; task?: unknown; model?: unknown; limit?: unknown }): Promise<{ ok: true; proposal: ControlProposal } | Refusal> {

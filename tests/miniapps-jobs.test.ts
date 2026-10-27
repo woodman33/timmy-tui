@@ -32,6 +32,13 @@ describe('each app’s ended jobs, from its own record', () => {
     expect(jobs[0]!.files).toEqual([{ name: 'a1/r1.glb', path: '/api/assets/a1/r1.glb' }]);
     expect(jobs[1]).toMatchObject({ error: 'restarted', files: [] });
     expect(modelStudioJobs(null)).toEqual([]);
+    // the checklist's A9: every file the job wrote at its revision (its editable source among them); an inspect, its report only
+    const made = modelStudioJobs({ jobs: [
+      { id: 'j4', kind: 'rebuild', status: 'succeeded', engine: 'openscad', result: { asset: { id: 'a1', revision: 2, previewFilename: 'r2-model.glb', nativeFilename: 'r2-model.blend', files: [{ filename: 'r1-model.glb' }, { filename: 'r1-source.scad' }, { filename: 'r2-model.glb' }, { filename: 'r2-model.blend' }, { filename: 'r2-source.scad' }, { filename: 'r2-parametric.json' }] } } },
+      { id: 'j5', kind: 'inspect', status: 'succeeded', engine: 'openscad', result: { asset: { id: 'a1', revision: 2, previewFilename: 'r2-model.glb', nativeFilename: 'r2-model.blend', files: [{ filename: 'r2-model.glb' }, { filename: 'r2-inspect-j5.json' }, { filename: 'r2-inspect-j0.json' }] } } },
+    ] });
+    expect(made[0]!.files.map((f) => f.name)).toEqual(['a1/r2-model.glb', 'a1/r2-model.blend', 'a1/r2-source.scad', 'a1/r2-parametric.json']);
+    expect(made[1]!.files.map((f) => f.name)).toEqual(['a1/r2-inspect-j5.json']);
   });
 
   it('Card Lab: one job per launch of a run; held is failed, cancel is cancelled; a launch still running is not reported; only the run’s latest ended launch carries its artifacts', () => {
