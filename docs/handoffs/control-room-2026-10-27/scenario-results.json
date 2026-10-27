@@ -1,0 +1,81 @@
+{
+  "schema": "timmy.control-room-scenarios/1",
+  "fixture": true,
+  "providerCalls": 0,
+  "passed": 11,
+  "cases": [
+    {
+      "id": "S01",
+      "description": "A worker completion proposal preserves independent pending review",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S02",
+      "description": "A worker claiming verifier authority in payload cannot clear review",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S03",
+      "description": "Only fixture checker plus host-authenticated verifier closes fixture work",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S04",
+      "description": "Out-of-order event requires replay before advancing the cursor",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S05",
+      "description": "Duplicate settlement replay never adds a second charge",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S06",
+      "description": "Same event id with different payload is refused",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S07",
+      "description": "Timeout leaves settlement unknown and keeps the reservation",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S08",
+      "description": "Cancellation request and acknowledgment differ; late charge still settles",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S09",
+      "description": "Stale attempt and source revision cannot finish the current job",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S10",
+      "description": "A replayed dispatch marker never re-dispatches and a second marker is refused",
+      "result": "passed",
+      "kind": "deterministic fixture; not live integration"
+    },
+    {
+      "id": "S11",
+      "description": "A fresh file read reconstructs the fixture cursor, reservation and consumed grant; no adapter exists",
+      "result": "passed",
+      "kind": "file replay fixture; no production crash-safety claim"
+    }
+  ],
+  "limits": [
+    "no provider adapter",
+    "no production auth enforcement",
+    "no concurrent writers or fsync crash proof",
+    "no evidence handles admitted",
+    "quote expiry and provider reconciliation require host implementation"
+  ]
+}

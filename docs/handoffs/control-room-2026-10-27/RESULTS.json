@@ -1,0 +1,91 @@
+{
+  "schema": "timmy.handoff-fixture-result/1",
+  "kind": "local technical reference fixture only; Card Lab actual Rive UI is main Timmy baseline",
+  "base": "37fa0cba217e89472d6c1475e6cfffbcc8438168",
+  "time": "2026-10-27T13:37:28.747177+00:00",
+  "checks": [
+    {
+      "check": "model",
+      "exit": 0
+    },
+    {
+      "check": "browser",
+      "exit": 0
+    },
+    {
+      "check": "privacy-negative",
+      "exit": 0
+    },
+    {
+      "check": "privacy-staged",
+      "exit": 0
+    },
+    {
+      "check": "gitleaks",
+      "exit": 0
+    }
+  ],
+  "source_preimages_unchanged": true,
+  "passed": true,
+  "providerCalls": 0,
+  "source_inputs": [
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/README.md",
+      "bytes": 3458,
+      "sha256": "3b872f1300a91e30f625a2ff3fa3e84134e424079e83ab9e1c476887720b1445"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/IMPLEMENTATION-SLICE.md",
+      "bytes": 5381,
+      "sha256": "6799b83c28c80ba8b2970d6c8ad29624fc1984fb61359501e27a4676584cff41"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/SOURCE-FINDINGS.md",
+      "bytes": 3739,
+      "sha256": "f91e818569c9b7ca3a10f3e472e1e9f7d6f2725a6bab3588a8562db71b84725e"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/CAD-CANDIDATES.md",
+      "bytes": 2947,
+      "sha256": "8fa351e15ddef3538c56affa5af56424da5a7c94a8d94ac6e187b7c88bdda06b"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/CHECKS.md",
+      "bytes": 3248,
+      "sha256": "cd13dc822003ba5d2d9c8bc710fcca03d1baa6cdf75794b07d376e248828b409"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/room.html",
+      "bytes": 8469,
+      "sha256": "46a29ca86479cb741e36a49aa602339b74a4e3192639e1682141854828ae9b56"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/room-ui.mjs",
+      "bytes": 3108,
+      "sha256": "3b7cac3a52d6771b10044c3e6dc04470861d5c118fc6916cb91c02e4d4e8a2b3"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/room-model.mjs",
+      "bytes": 3900,
+      "sha256": "79dfaddfbe9a29ed1bcc779ba9099af57296340d3c8788740373e9bb2ee0244d"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/room-scenarios.mjs",
+      "bytes": 4284,
+      "sha256": "056f0bfca4f1f9118e3132d74316b43deae67f6e6ce6f6b437a931cee3fa53b3"
+    },
+    {
+      "path": "docs/handoffs/control-room-2026-10-27/capture-study.mjs",
+      "bytes": 4238,
+      "sha256": "31f0cc410903bb4f55978d3da8fe5fdcb0e82bceb7693ea8d16c5ba16c4d8f95"
+    }
+  ],
+  "node": "v26.6.0",
+  "gitleaks": "8.30.1",
+  "limits": [
+    "production host unchanged",
+    "no remote UI sandbox qualification",
+    "no provider or financial records included",
+    "GitHub workflow result is separate"
+  ]
+}

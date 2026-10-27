@@ -1,0 +1,73 @@
+{
+  "kind": "actual browser interactions on a disconnected local fixture",
+  "checks": [
+    {
+      "id": "B01_blank_by_default",
+      "passed": true
+    },
+    {
+      "id": "B02_actions_disabled",
+      "passed": true
+    },
+    {
+      "id": "B03_no_loaded_fixture_identity",
+      "passed": true
+    },
+    {
+      "id": "B04_fixture_explicitly_loaded",
+      "passed": true
+    },
+    {
+      "id": "B05_proposal_keeps_review_pending",
+      "passed": true
+    },
+    {
+      "id": "B06_worker_cannot_self_clear",
+      "passed": true
+    },
+    {
+      "id": "B07_unknown_does_not_retry",
+      "passed": true
+    },
+    {
+      "id": "B08_late_settlement_recorded",
+      "passed": true
+    },
+    {
+      "id": "B09_duplicate_does_not_add_cost",
+      "passed": true
+    },
+    {
+      "id": "B10_attention_follows_settlement",
+      "passed": true
+    },
+    {
+      "id": "B11_stop_requested_is_explicit",
+      "passed": true
+    },
+    {
+      "id": "B12_gap_is_visible",
+      "passed": true
+    },
+    {
+      "id": "B13_stale_attempt_refused",
+      "passed": true
+    },
+    {
+      "id": "B14_replay_preserves_charge",
+      "passed": true
+    },
+    {
+      "id": "B15_clear_returns_blank",
+      "passed": true
+    },
+    {
+      "id": "B16_reload_starts_blank",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "browser": "156.0.8078.48",
+  "passed": true,
+  "providerCalls": 0
+}
