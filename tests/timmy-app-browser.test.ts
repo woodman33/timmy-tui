@@ -350,6 +350,9 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
       await or.locator('.ta-cfg-go').click();
       await page.waitForSelector('#ta-aid.is-landed', { timeout: 20_000 });
       expect(await page.locator('.ta-page').getAttribute('data-page')).toBe('models');
+      // the aid marks the page landed at once and moves the focus once its scroll has run (configure.jsx: 420 ms, at once under
+      // reduced motion): wait for the focus, not for a moment (R13: on an idle machine this line read the focus before it moved)
+      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Sign in with OpenRouter', null, { timeout: 5_000 }).catch(() => undefined);
       expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Sign in with OpenRouter');
       expect(await page.locator('.ta-aid-face').getAttribute('data-aid-state')).toBe('awaiting');
       await page.keyboard.press('Escape');
