@@ -355,3 +355,30 @@ with its owner, its criterion and its status.
 **Remaining blockers:** OpenHands (the image timmy-openhands:1.21.0 is not built; building it downloads python:3.12-slim
 and the OpenHands SDK: the operator's decision); a successful live Card Lab inspection (D3 and its 90 s timeout: owner
 requests); Stream Studio has no owner (F).
+
+## The operator's 05:03 PT order (2026-10-27): the Rive UI, tldraw workspaces and the mini-app experience
+
+Checklist section G. The test record of 4d59da6e and fd866755 stands as written above.
+
+| Revision | What | Checks |
+|---|---|---|
+| bb2b9583 | Control Room one outcome; phone Chat one setup action; Files results by name, Sent to Card Lab and Open inspection; quieter records; the app bar | targeted files and `tests/timmy-app-g-browser.test.ts` (FAKE Ollama, act, Card Lab) |
+| 8113d1a8 | a phone's Canvas (Overview first, buttons, a focused card); Rive faces drawn for their zoom | the same; **the Mac**, a fresh install of its package (sha256 `9555983d…7e9c`): launch 7/7, isolation 23/23, two users 12/12, journeys 25/27, Rive and tldraw 7/7, commands 10/10 |
+| b38e6896 | `timmy app` survives a second stop signal during shutdown (the Mac printed no "Timmy app stopped.") | `tests/timmy-app.test.ts`, `review-launcher-node`; the Mac below |
+| 0bde3030 | a stopped run says "Stopped from the Control Room" (the Mac: "Stopped by the Control Room's Stop") | **the Mac**, a fresh install of its package (sha256 `7599a3ed…f2c8`): the launch check, the stop line, the journeys 26/27 |
+
+- **8113d1a8 journeys, the two not passed:**
+  - G1: the stopped run's words; fixed in 0bde3030.
+  - A7-live: Card Lab held its inspection after its 90 s timeout.
+- **0bde3030 journeys:** the one not passed is A7-live. Card Lab held its inspection again, this time refused with "no
+  successful observed cite call" (checklist D3 and G8).
+- **0bde3030 checks:**
+  - the launch check passed, and the app printed "Timmy app stopped.";
+  - the census was clean after the app stopped and at the end;
+  - the home folder's store was unchanged (53 lines, `4410dc0ae942ca6c`).
+- **Not run on 0bde3030** (unchanged code since 8113d1a8, where they passed): isolation, two users, Rive and tldraw, and
+  the commands.
+- **No full suite** has run on any of these revisions.
+- **Owners:** not reachable from the lead's session. The relay messages (Card Lab: cite first, the schema second, and a
+  bounded timeout; Animate: the Stream Studio milestone; Model Studio: an embedded layout; all: the theme parameter) were
+  handed to the operator for the Codex coordination chat.
