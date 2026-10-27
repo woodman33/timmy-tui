@@ -260,17 +260,49 @@ The legacy store lookup (`rootStoreDir`, Pass 2: the nearest `package.json`) ski
   12/12, Rive 7/7, commands 9/10) found that `timmy animate render --cancel-after 1` printed no receipt; the receipt was
   sealed, cancelled, at the next open.
 
-### Candidate c4ef681d (2026-10-26)
+- **c4ef681d:** Mac 59/59 (the same five runs as below). Its full suite was cut off when the container restarted mid-run
+  (no exit line; kept as run). Before the restart it had failed two tests in `tests/capabilities.test.ts`: c296e14e gave
+  the 12 Animate tools no capability-ladder row. Fixed in f2e8fbc8.
+- **f2e8fbc8:** Mac 59/59. Its full suite: **exit 1**, 782 files passed, 1 failed, 16 skipped; 6444 tests passed, 1 failed.
+  The failure: `tests/timmy-app-browser.test.ts` "configure" read the focus right after the aid landed, but the aid moves
+  the focus 420 ms later (its smooth scroll; deliberate). It failed every time on the idle machine and passed whenever the
+  read came later. A test defect, fixed in 94b89793 (test only).
+  - **Disk:** the container's disk allowance was nearly spent: 32 MB free, from about 37,000 old test temporary folders in
+    `/tmp`. With the browser starved, the same file then failed 9 of 10 (`net::ERR_INSUFFICIENT_RESOURCES`). The lead freed
+    its own copies; sweeping `/tmp` was refused, as shared scratch.
+- **94b89793, first run:** with the suite's TMPDIR moved into a folder of the lead's (to spare the disk): exit 1, 4 files
+  failed, kept as run (`full-94b89793.tmpdir-run.log`).
+  - Three failures were caused by that long path, as each file showed when rerun: a banner wider than 60 columns, a tmux
+    socket path too long for its server ("server exited unexpectedly"), and an excerpt cut before `./notes`.
+  - The fourth (`recover-agent-record`) passed alone with both TMPDIRs. That one is not explained beyond this.
+  - The run below uses the default TMPDIR.
 
-- **Full suite** (frozen worktree, under the heavy lock, started 17:45 PT): **running** when this was written; its result goes in the next commit.
-- **Mac, the installed package c4ef681**, sha256 `f4e99aa3d8d330a348ba38b037b88c370e62fa6e19fee9a826a6a850cb690816`.
-  Fresh folder; `./timmy-app`'s first run did `npm ci` from the package's lock (Node 26.6.0, npm 11.18.0; the lock was
-  resolved with Node 24.21.0, npm 11.19.0) and built the four owners' apps inside the package. Everything ran on real apps
-  and engines, with a local model only, no key and no paid call:
-  - the entry point, desktop and phone: **7/7**;
-  - the isolation and receipts run: **23/23**;
-  - two users, the worker port: **12/12**;
-  - Rive and tldraw: **7/7**;
-  - the commands, agent and MCP tools: **10/10**;
+### The qualified candidate: 94b89793 (2026-10-26)
+
+Code as f2e8fbc8, plus the one test fix. Every check below ran on these exact bytes.
+
+- **Full suite** (frozen worktree, clean, 2 workers, under the heavy lock, the default TMPDIR, 21:04–21:47 PT): **exit 0**.
+  783 files passed, 0 failed, 16 skipped; 6445 tests passed, 0 failed, 136 skipped; 2581 s. 708 MB free at the end. The
+  log's sha256 is `d60b0c26b12a99b43d8065ff6cea7895e70e8134ed89cb979192327d56c97614`.
+- **The review package** `timmy-review-94b8979.tar.gz`, sha256
+  `4555a1942533c2dc5aa3d127eadb73041f7a53f92213a14ba802f0d837b9c28a`. It carries Model Studio a5264eb5, Card Lab 7176ad97,
+  Film Room f9db9fe0 and Timmy Animate (v6 archive 68c2f853).
+- **Mac, that package, fresh folder:**
+  - `./timmy-app`'s first run checked SHA256SUMS, did `npm ci` from the lock (Node 26.6.0, npm 11.18.0; resolved with Node
+    24.21.0, npm 11.19.0) and built the four owners' apps inside the package.
+  - Everything ran on real apps and engines, with a local model only, no key and no paid call.
+
+  | Run | Checks |
+  |---|---|
+  | Entry point, desktop and phone (launch page → app with its token; Chat; licensed Canvas; Card Lab framed; Stream Studio says not built) | **7/7** |
+  | Isolation and receipts, one principal, two projects, a restart | **23/23** |
+  | Two signed-in users, the worker port tested directly | **12/12** |
+  | Rive and tldraw (four real turns; the failure induced at a relay) | **7/7** |
+  | `timmy video`, `timmy animate`, the installed `timmy mcp serve` | **10/10** |
+
   - `timmy receipts` verified.
-  A census at the end counted no process in the sandbox.
+  - The census after the app stopped, and again at the end, counted no process in the sandbox.
+  - The home folder's store was unchanged: 53 lines, the same sha256 before and after.
+
+**Launch:** unpack, then double-click `Timmy App.command`, or `./timmy-app`. **Stop:** q or Ctrl+C in its Terminal window
+("Timmy app stopped."). Then `./review.sh census` should count no process. The terminal: `./timmy-review`.
