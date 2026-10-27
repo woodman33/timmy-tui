@@ -28,6 +28,7 @@ import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js
 const FAKE_ACT = fileURLToPath(new URL('./fixtures/fake-act.mjs', import.meta.url));
 const FAKE_CARD_LAB = fileURLToPath(new URL('./fixtures/fake-card-lab', import.meta.url));
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#8ABBE3"/><script>FAKE()</script></svg>';
 const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');
 const shots = process.env.TIMMY_G_SHOTS;
 
@@ -45,10 +46,11 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     writeFileSync(join(root, 'a.txt'), 'one\n');
     writeFileSync(join(root, 'from-apps', 'animate', 'j1', 'preview.png'), PNG);
     writeFileSync(join(root, 'from-apps', 'animate', 'j1', 'scene.json'), '{"fake":true}\n');
+    writeFileSync(join(root, 'from-apps', 'animate', 'j1', 'frame.svg'), SVG);
     appendReceipt('runs', {
       kind: 'miniapp', subject: 'miniapp · animate · export · succeeded', policy: 'app-initiated', status: 'ok', project: 'project', project_id: projectId(root),
       job: { id: 'j1', kind: 'export', label: 'export', state: 'succeeded' },
-      outputs: [{ path: 'from-apps/animate/j1/preview.png', sha256: sha(PNG), bytes: PNG.length }, { path: 'from-apps/animate/j1/scene.json', sha256: sha('{"fake":true}\n'), bytes: 14 }],
+      outputs: [{ path: 'from-apps/animate/j1/preview.png', sha256: sha(PNG), bytes: PNG.length }, { path: 'from-apps/animate/j1/scene.json', sha256: sha('{"fake":true}\n'), bytes: 14 }, { path: 'from-apps/animate/j1/frame.svg', sha256: sha(SVG), bytes: SVG.length }],
       miniapp: { app: 'animate', title: 'Timmy Animate', revision: null, record_sha256: sha('r'), started_by: 'test', principal: 'operator' },
     }, root);
     ollama = await startFakeOllama({ models: [{ name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] }], chat: [] });
@@ -118,6 +120,15 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.waitForSelector('.tl-shape[data-shape-type="image"]', { timeout: 30_000 });
     // drawn from the project's bytes through the companion (an object URL), not a data URL kept in the desk
     await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"] img').getAttribute('src'), { timeout: 20_000 }).toMatch(/^blob:/);
+    // an SVG export draws as an image too (GET /api/files/media: from-apps/ only, with a sandboxing CSP)
+    await page.click('[data-tool="Import"]');
+    await page.click('[data-import="from-apps/animate/j1/frame.svg"]');
+    await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"]').count(), { timeout: 20_000 }).toBe(2);
+    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.tl-shape[data-shape-type="image"] img')].map((i) => (i as HTMLImageElement).naturalWidth)), { timeout: 20_000 }).toEqual(expect.arrayContaining([120]));
+    // the media route serves only what an app delivered, and only media
+    const media = await page.evaluate(async (t) => Promise.all(['from-apps/animate/j1/frame.svg', 'a.txt', 'from-apps/animate/j1/scene.json'].map(async (p) => { const r = await fetch(`/api/files/media?path=${encodeURIComponent(p)}`, { headers: { authorization: `Bearer ${t}` } }); return [r.status, r.headers.get('content-security-policy') || '']; })), token);
+    expect(media[0][0]).toBe(200); expect(media[0][1]).toMatch(/sandbox/);
+    expect(media[1][0]).toBe(403); expect(media[2][0]).toBe(415);
     await page.click('[data-tool="Import"]');
     await page.click('[data-import="from-apps/animate/j1/scene.json"]');
     await expect.poll(() => page.locator('.tl-shape[data-shape-type="note"]').allInnerTexts().then((t) => t.join('\n')), { timeout: 20_000 }).toMatch(/Animate · scene\.json/);

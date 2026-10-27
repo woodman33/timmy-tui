@@ -307,6 +307,10 @@ export function listProjectFolder(root: string, rel: string): { entries: FileEnt
   return { entries: rows.slice(0, FILES_LIMIT), truncated: rows.length > FILES_LIMIT };
 }
 
+/** The media the Workspace canvas may draw from an app's delivered files (GET /api/files/media). */
+export const MEDIA_TYPES: Readonly<Record<string, string>> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime' };
+export const MEDIA_MAX = 200 * 1024 * 1024;
+
 /** A text file's contents (the first FILE_TEXT_MAX bytes) or an image's bytes, or why not. */
 export function readProjectFile(root: string, rel: string): { kind: 'text'; name: string; path: string; size: number; mtime: string; text: string; truncated: boolean } | { kind: 'image'; name: string; path: string; size: number; mtime: string; type: string; bytes: Buffer } | { error: string; status: 400 | 404 | 415 } {
   const at = resolveProjectPath(root, rel);
@@ -361,6 +365,27 @@ export function mountFiles(app: Application, deps: FilesDeps): void {
     const body: FilesListing = { ok: true, project: { id: project.id, name: project.name }, where: { root: tildePath(project.root), home: homeOf(deps.envOf(req)) }, path: at.rel, parent, entries: listed.entries, count: listed.entries.length, truncated: listed.truncated, words };
     res.json(body);
   });
+  // The 07:37 pass (the Mac pass of 1c5da0a): the Workspace canvas draws an app's delivered image, SVG or video from its
+  // bytes. Only files under from-apps/ (what the apps delivered, each with its receipt), only these media types, up to
+  // MEDIA_MAX; an SVG is sent with a sandboxing CSP (an <img> runs no script anyway). Everything else stays /api/files/file's.
+  app.get('/api/files/media', deps.withToken, deps.withUser, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const rel = typeof req.query.path === 'string' ? req.query.path : '';
+    const at = resolveProjectPath(project.root, rel);
+    if ('error' in at) { failRequest(res, at.status, at.error); return; }
+    if (!/^from-apps\//.test(at.rel)) { failRequest(res, 403, 'Only what an app delivered (from-apps/) is served as media.'); return; }
+    const type = MEDIA_TYPES[extname(at.real).toLowerCase()];
+    if (!type) { failRequest(res, 415, 'Not an image, SVG or video.'); return; }
+    let st; try { st = statSync(at.real); } catch { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (!st.isFile()) { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (st.size > MEDIA_MAX) { failRequest(res, 413, 'Larger than 200 MB: open it in its app.'); return; }
+    res.set('X-Content-Type-Options', 'nosniff').set('Content-Disposition', 'inline');
+    if (type === 'image/svg+xml') res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
+    res.type(type).sendFile(at.real);
+  });
+
   app.get('/api/files/file', deps.withToken, deps.withUser, (req, res) => {
     res.set('Cache-Control', 'no-store');
     const project = deps.projectFor(req);

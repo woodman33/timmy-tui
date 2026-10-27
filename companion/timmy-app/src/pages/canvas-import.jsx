@@ -29,7 +29,7 @@ const urls = new Map();
 async function fileUrl(path) {
   if (urls.has(path)) return urls.get(path);
   const p = (async () => {
-    const r = await call(`/api/files/file?path=${encodeURIComponent(path)}${projectQuery('&')}`);
+    const r = await call(`/api/files/media?path=${encodeURIComponent(path)}${projectQuery('&')}`);
     if (!r.ok) throw new Error(`the companion answered ${r.status}`);
     return URL.createObjectURL(await r.blob());
   })();
@@ -54,13 +54,13 @@ export const ASSET_STORE = {
   },
 };
 
-/** The size an image or video draws at, read from its bytes (bounded to 480 units on its long side). */
+/** The size an image or video draws at, read from its bytes (bounded to 320 units on its long side). */
 async function sizeOf(kind, url) {
   const natural = await new Promise((ok) => {
     if (kind === 'image') { const i = new Image(); i.onload = () => ok({ w: i.naturalWidth || 320, h: i.naturalHeight || 240 }); i.onerror = () => ok({ w: 320, h: 240 }); i.src = url; }
     else { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => ok({ w: v.videoWidth || 480, h: v.videoHeight || 270 }); v.onerror = () => ok({ w: 480, h: 270 }); v.src = url; }
   });
-  const k = Math.min(1, 480 / Math.max(natural.w, natural.h));
+  const k = Math.min(1, 320 / Math.max(natural.w, natural.h));
   return { w: Math.round(natural.w * k), h: Math.round(natural.h * k) };
 }
 
@@ -69,7 +69,15 @@ export async function importOutput(editor, file, result, place = null, focus = n
   const kind = nodeKindOf(file.path);
   const meta = { from: 'app-output', app: result.app, path: file.path, receipt: result.receipt || null };
   const c = editor.getViewportPageBounds().center;
-  const at = (w, h) => { const p = place ? place(w, h) : null; return p || { x: c.x - w / 2, y: c.y - h / 2 }; };
+  // the desk's free-space finder; when the desk is full, to the right of everything on it (never on a card)
+  const at = (w, h) => {
+    const p = place ? place(w, h) : null;
+    const taken = editor.getCurrentPageShapes().map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
+    const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 12 && q.x + w + 12 > b.x && q.y < b.y + b.h + 12 && q.y + h + 12 > b.y);
+    if (clear(p)) return p;
+    const b = editor.getCurrentPageBounds();
+    return b ? { x: b.x + b.w + 40, y: b.y } : { x: c.x - w / 2, y: c.y - h / 2 };
+  };
   const id = createShapeId();
   if (kind === 'note') {
     const words = `${APP_WORDS[result.app] || result.app} · ${file.name}\n${file.path}${result.receipt ? `\nreceipt ${result.receipt}` : ''}\nOpen it in ${APP_WORDS[result.app] || result.app} to edit it.`;
