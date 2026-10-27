@@ -382,3 +382,26 @@ Checklist section G. The test record of 4d59da6e and fd866755 stands as written 
 - **Owners:** not reachable from the lead's session. The relay messages (Card Lab: cite first, the schema second, and a
   bounded timeout; Animate: the Stream Studio milestone; Model Studio: an embedded layout; all: the theme parameter) were
   handed to the operator for the Codex coordination chat.
+
+## The shared-integrator order (2026-10-27, 06:11 PT): Treg, Tools & integrations
+
+Checklist section H.
+
+| Revision | What | Checks |
+|---|---|---|
+| 37fa0cba | the host side of the theme contract v1; no empty panes panel under a finished run | targeted files |
+| 92d2368c | Treg adopted: Timmy's bridge, the host's connector operations (discover, free calls, a paid call only from an approved proposal, Stop, Recover, a connector.call receipt); Tools & integrations' Treg and tldraw cards; review.sh's TREG_CONFIG | `tests/treg-bridge.test.ts` 7/7 (a FAKE remote), `tests/connector-ops.test.ts` 5/5 and `tests/timmy-app-integrations-browser.test.ts` 2/2 (a FAKE Treg server), with nine neighbouring files: 12 files, 102 tests. **The Mac**, a fresh install of its package (sha256 `6caea05d…c36f`), with Card Lab 342c0f72 and Film Room 8c3cd19f |
+
+- **92d2368c on the Mac:**
+  - the launch check passed; the app printed "Timmy app stopped."; the census was clean;
+  - the journeys: 28 of 32 checks passed. Two of the four failures came from the driver (its theme step waited for a page that a same-address
+    navigation never loaded). The theme check, run again alone with the corrected step, passed for both apps;
+  - A7 and A7-live are not passed as written: they ask for a named identity. Card Lab ended the inspection ready, with one
+    observed cite call (`call_kw72tmma`) of its run's handle and source revision, and answered "unknown": the image handed
+    to it was an Animate export, not a card. Its raw requests, responses and the cite record are kept in its run folder;
+  - Tools & integrations: Treg's bridge and both routes installed, not signed in (the review names no Treg sign-in),
+    Discover refused before anything was sent;
+  - the home folder's store was unchanged (53 lines, `4410dc0ae942ca6c`), before and after both passes.
+- **No live Treg call** was made by the lead in any check. The operator's one TikTok call and the checkpoint's catalog
+  call (operation o46e6011a, receipt 5550b296) stay the only live Treg records; they are in the private checkpoint, not here.
+- **Not run on 92d2368c:** isolation, two users, Rive and tldraw, the commands (unchanged since 8113d1a8, where they passed).
