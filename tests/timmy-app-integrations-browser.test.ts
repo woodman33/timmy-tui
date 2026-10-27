@@ -133,6 +133,15 @@ describe.skipIf(!browserPath)('Tools & integrations: Treg through the host’s o
     await page.waitForTimeout(600);
     await shot(page, 'int-4-canvas-note');
 
+    // I8: every other adapter in the same five words (from the inventory and the workflows reading), each word apart; none is
+    // shown qualified, and none discovered on this page
+    await page.click('.ta-rail-item[data-nav="tools"]');
+    await page.waitForSelector('[data-adapter="tool:upmd"]', { timeout: 60_000 });
+    expect(Number(await page.locator('[data-adapters]').getAttribute('data-adapters'))).toBeGreaterThan(5);
+    expect(await page.locator('[data-adapter] td[data-rung="qualified"][data-ok="yes"]').count()).toBe(0);
+    expect(await page.locator('[data-adapter] td[data-rung="discovered"][data-ok="yes"]').count()).toBe(0);
+    expect(await page.locator('[data-adapter="tool:upmd"] td[data-rung="signed_in"]').getAttribute('data-ok')).toBe('yes');
+
     // the Control Room's connector-call cards (the 07:37 pass, I6): the same operations, the process, outcome and check apart;
     // the paid call's charge is Treg's own figure, a free lookup's says it is not paid
     await page.click('.ta-rail-item[data-nav="control"]');

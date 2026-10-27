@@ -48,3 +48,9 @@
 .tx-int-ops td:nth-child(4) { font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) { .tx-int-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .tx-int-ladder li { grid-template-columns: minmax(0, 1fr); gap: 2px; } .tx-int-ops th:nth-child(1), .tx-int-ops td:nth-child(1) { display: none; } }
+/* I8: every other adapter in the five words, across both columns; the table scrolls inside its card on a phone */
+.tx-int-wide { grid-column: 1 / -1; }
+.tx-int-others { overflow-x: auto; }
+.tx-int-others td[data-rung] { text-align: center; width: 76px; }
+.tx-int-others td[data-ok="yes"] { color: var(--timmy-ui-verified, #00FF00); }
+.tx-int-others summary { cursor: pointer; }

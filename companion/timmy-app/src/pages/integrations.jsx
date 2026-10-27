@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { placeOnCanvas, projectQuery, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
+import { useInventory } from '../configure.jsx';
 
 const q = () => projectQuery('?');
 const usd = (n) => (typeof n !== 'number' ? '' : n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}` : `$${n.toFixed(2)}`);
@@ -225,6 +226,63 @@ export function TldrawCard({ picked }) {
   );
 }
 
+/**
+ * The 07:37 pass, I8: every other adapter in the same five words. From the capability inventory (src/capabilities/inventory.ts:
+ * available, configured, exercised, each with where it was read) and the workflows reading for UPMD (the runner on PATH):
+ * installed = available; signed in = configured (or no sign-in needed); discovered = not checked on this page (a listing
+ * through MCP → CLI is the check); ran here = a receipt of a real run; qualified = never claimed here (no qualification record
+ * is read for these). Installed is not working: each word is shown apart.
+ */
+export function adapterRungs(row) {
+  const needsNoKey = row.configured && /no key|not needed|no sign-in/i.test(row.configured.words || '');
+  return [
+    ['installed', { ok: !!(row.available && row.available.ok), words: row.available ? row.available.words : 'not read' }],
+    ['signed_in', { ok: !!(row.configured && row.configured.ok), words: needsNoKey ? 'no sign-in needed' : row.configured ? row.configured.words : 'not read' }],
+    ['discovered', { ok: false, words: 'not checked on this page: a listing through MCP → CLI is the check' }],
+    ['ran_here', { ok: !!(row.exercised && row.exercised.ok), words: row.exercised ? row.exercised.words : 'not read' }],
+    ['qualified', { ok: false, words: 'not qualified: no qualification record for it in this candidate' }],
+  ];
+}
+const NAMED = /roboflow|cloudflare|openhands|mcporter|sdk|ollama|openrouter|blender|vox/i;
+
+function OtherAdapters() {
+  const inv = useInventory();
+  const [wf, setWf] = useState(null);
+  useEffect(() => { getJson(`/api/panel/workflows/docs${q()}`).then(setWf); }, []);
+  if (!inv) return <Empty>Reading what is on this computer…</Empty>;
+  if (!inv.ok) return <Empty>{inv.error || 'The companion did not answer the inventory.'}</Empty>;
+  const rows = (inv.inventory && inv.inventory.rows ? inv.inventory.rows : []).filter((r) => r.group !== 'Receipts');
+  const upmd = wf && wf.ok ? {
+    id: 'tool:upmd', name: 'UPMD (workflow runner)', group: 'Tools',
+    available: { ok: !!wf.upmd, words: wf.upmd ? 'upmd is on this computer’s PATH' : 'upmd is not on this computer’s PATH' },
+    configured: { ok: true, words: 'no sign-in needed' },
+    exercised: { ok: false, words: 'read on the Workflows page: a run there is its record' },
+  } : null;
+  const all = [...(upmd ? [upmd] : []), ...rows].sort((a, b) => Number(NAMED.test(b.name)) - Number(NAMED.test(a.name)));
+  const mark = (r) => (r && r.ok ? '✓' : '–');
+  return (
+    <div className="tx-int-others" data-adapters={all.length}>
+      <table className="ta-table">
+        <thead><tr><th>Adapter</th><th>installed</th><th>signed in</th><th>discovered</th><th>ran here</th><th>qualified</th></tr></thead>
+        <tbody>
+          {all.map((r) => {
+            const rungs = adapterRungs(r);
+            return (
+              <tr key={r.id} data-adapter={r.id}>
+                <td>
+                  <details className="ta-details"><summary>{r.name}</summary><Ladder rungs={rungs} /></details>
+                </td>
+                {rungs.map(([w, x]) => <td key={w} data-rung={w} data-ok={x.ok ? 'yes' : 'no'} title={x.words} aria-label={`${w.replace('_', ' ')}: ${x.ok ? 'yes' : 'no'}`}>{mark(x)}</td>)}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="ta-muted">✓ is a word read from its record; – is not known or not true. Open an adapter for each word’s source.</p>
+    </div>
+  );
+}
+
 export function Integrations() {
   const config = useApp((s) => s.config);
   const [data, setData] = useState(null);
@@ -243,6 +301,10 @@ export function Integrations() {
     <div className="tx-int-grid">
       <TregCard data={data} reload={load} picked={picked} setPicked={setPicked} />
       <TldrawCard picked={op} />
+      <section className="tx-int-card tx-int-wide" aria-label="Every other adapter">
+        <p className="ta-context-k">EVERY OTHER ADAPTER · THE SAME FIVE WORDS</p>
+        <OtherAdapters />
+      </section>
     </div>
   );
 }
