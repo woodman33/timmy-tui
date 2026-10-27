@@ -136,7 +136,9 @@ const OUTCOME = {
 /** An ended run's one outcome sentence: who or what ended it, when, and what it changed. */
 function outcomeLine(r, files) {
   const at = r.ended_at ? clock(r.ended_at) : '';
-  const how = r.state === 'stopped' ? `Stopped${r.stop && r.stop.by ? ` by ${r.stop.by === 'operator' ? 'you' : r.stop.by}` : ''}${at ? ` at ${at}` : ''}`
+  // (who stopped it, as the record says: the page's Stop is "the Control Room's Stop"; the companion's own shutdown names itself)
+  const by = r.stop && r.stop.by ? r.stop.by : '';
+  const how = r.state === 'stopped' ? `Stopped${/Control Room/.test(by) ? ' from the Control Room' : by ? ` by ${by}` : ''}${at ? ` at ${at}` : ''}`
     : r.state === 'interrupted' ? `Interrupted${at ? ` at ${at}` : ''}: its launcher ended without its end. Recover settles it`
       : `${(OUTCOME[r.state] || { word: r.state }).word}${at ? ` at ${at}` : ''}`;
   const what = files.length ? `${files.length} file${files.length === 1 ? '' : 's'} changed in its copy` : 'no file changed';
