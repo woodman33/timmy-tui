@@ -1,7 +1,7 @@
 // R12 (the finish brief of 2026-10-25), regrouped in the 07:37 completion pass on the operator's 07:57 word: the permanent left rail
 // carries the top functions (Chat; the four apps — image, video, 3D, 2D animation; Control Room and the OpenHands sandbox; MCP →
-// CLI, Timmy MCP, Files and Integrations; Runs, Settings and Help at the foot). The other pages (Canvas, Workflows, Motion & 3D,
-// VoxVision, Animate, Models & accounts) sit behind the rail's WORKSPACES disclosure, each still its own page.
+// CLI, Timmy MCP, Files, the Workspace canvas and Integrations; Runs, Settings and Help at the foot). The other pages (Workflows,
+// Motion & 3D, VoxVision, Animate, Models & accounts) sit behind the rail's WORKSPACES disclosure, each still its own page.
 // Before that: one journey, account and
 // model setup → the agent's Chat → tools and workflows → the editable canvas → runs and receipts. Each page says what it is for
 // (its kicker, title and lead, in the page head), and `ready` says whether this build draws it: a page that is not drawn yet says
@@ -54,13 +54,14 @@ export const PAGES = Object.freeze([
   { id: 'files', group: 'tools', glyph: '▤', title: 'Files', kicker: 'TOOLS / THE PROJECT’S FILES',
     lead: 'The files of the project this page shows, and what the apps sent back. Open one to read it; nothing here edits a file.',
     context: 'The open file' },
+  // the 08:10 word: one workspace canvas (licensed tldraw, Rive nodes) that imports what every app made
+  { id: 'canvas', group: 'tools', glyph: '◫', title: 'Workspace', kicker: 'TOOLS / THE WORKSPACE CANVAS',
+    lead: 'One canvas for this project: import any app’s results (images, video, meshes, scenes, drawings), wire them with Rive nodes and arrows, saved per project.',
+    context: 'Selection' },
   { id: 'tools', group: 'tools', glyph: '⚙', title: 'Integrations', kicker: 'TOOLS / INTEGRATIONS',
     lead: 'Every adapter in five words kept apart: installed, signed in, discovered, ran here, qualified.',
     context: 'The selected tool' },
-  // behind the WORKSPACES disclosure: canvases and the pages that feed them
-  { id: 'canvas', group: 'more', glyph: '◫', title: 'Canvas', kicker: 'WORKSPACE / THE DESK',
-    lead: 'A bounded desk for this project: Timmy’s cards and Rive components beside your notes and drawings, saved per project.',
-    context: 'Selection' },
+  // behind the WORKSPACES disclosure: the pages that feed the Workspace canvas
   { id: 'workflows', group: 'more', glyph: '⇶', title: 'Workflows', kicker: 'WORKSPACE / PLAN & RUN',
     lead: 'The project’s workflows and their documents: what each one does, what it needs, and how it is started.',
     context: 'Workflow' },

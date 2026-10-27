@@ -12,7 +12,7 @@ import './help.css';
 const START = [
   { n: '1', title: 'Choose a model', words: 'On Models & accounts: let Timmy look for the models on this computer (it asks you first), or connect a cloud account. Use one.', page: 'models' },
   { n: '2', title: 'Work in Chat', words: 'Say what you want to work on. Its tools ask you first (NEEDS YOU); Stop ends a turn at any time; each answer is sealed with a receipt.', page: 'chat' },
-  { n: '3', title: 'Lay it out on the Canvas', words: 'A bounded desk for this project: the agent’s console, the chosen model, the last receipt, and your own notes and arrows.', page: 'canvas' },
+  { n: '3', title: 'Lay it out on the Workspace canvas', words: 'One canvas for this project: the agent’s console, the chosen model, the last receipt, any app’s results imported, and your own notes and arrows.', page: 'canvas' },
   { n: '4', title: 'Check the proof', words: 'Runs & receipts: what ran, the model or tool that did it, and whether its receipt verified.', page: 'runs' },
 ];
 

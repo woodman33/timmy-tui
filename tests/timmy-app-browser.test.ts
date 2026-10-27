@@ -99,11 +99,11 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     const page = await open(1440, 900);
     await page.waitForSelector('.ta-page[data-page="chat"] .ta-title', { timeout: 60_000 });
     expect(page.url()).toBe(`${origin}/app`);
-    // the 07:37 pass on the operator's 07:57 word: APPS (image, video, 3D, 2D animation), AGENTS, TOOLS on the rail, six more
-    // pages behind the WORKSPACES disclosure (closed while none of them is shown), Runs/Settings/Help at the foot: 20 pages
+    // the 07:37 pass on the operator's 07:57 word: APPS (image, video, 3D, 2D animation), AGENTS, TOOLS on the rail, the Workspace canvas among TOOLS,
+    // five pages behind the WORKSPACES disclosure (closed while none of them is shown), Runs/Settings/Help at the foot: 20 pages
     expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['APPS', 'AGENTS', 'TOOLS', 'WORKSPACES']);
     expect(await page.locator('.ta-rail-item').count()).toBe(20);
-    expect(await page.locator('.ta-rail-item:visible').count()).toBe(14);
+    expect(await page.locator('.ta-rail-item:visible').count()).toBe(15);
     expect(await page.locator('.ta-rail-apps .ta-rail-title').allInnerTexts()).toEqual(['Image · Card Lab', 'Video · Film Room', '3D · Model Studio', '2D Animation · Stream Studio']);
     expect(await page.locator('.ta-rail-item[aria-current="page"]').innerText()).toContain('Chat');
     expect(await page.locator('.ta-page[data-page="chat"] .ta-band .ta-cell-k').allInnerTexts()).toEqual(['WORKSPACE', 'MODEL', 'AGENT', 'RECORDS']);

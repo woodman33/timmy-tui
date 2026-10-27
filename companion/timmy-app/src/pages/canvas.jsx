@@ -22,6 +22,7 @@ import { Page, Tool } from '../shell.jsx';
 import { getJson, postJson } from '../api.js';
 import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
+import { ASSET_STORE, ImportMenu } from './canvas-import.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
 // ── the desk ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -450,6 +451,7 @@ const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
     <Tldraw
       licenseKey={licenseKey || undefined}
       shapeUtils={SHAPE_UTILS}
+      assets={ASSET_STORE}
       assetUrls={assetUrls || (assetUrls = getAssetUrls({ baseUrl: `${location.origin}/app/dist/assets/` }))}
       themes={themes || (themes = timmyThemes(DEFAULT_THEME, cssVar))}
       colorScheme="dark"
@@ -532,6 +534,7 @@ function DeskTools({ editor }) {
       <Tool glyph="⌖" label="Arrange" pressed={tool === 'select'} onClick={off ? null : () => set('select')} />
       <Tool glyph="✋" label="Hand" pressed={tool === 'hand'} onClick={off ? null : () => set('hand')} />
       <NodesMenu editor={editor} />
+      <ImportMenu editor={editor} />
       <Tool glyph="✎" label="Draw" pressed={tool === 'draw'} onClick={off ? null : () => set('draw')} />
       <Tool glyph="↗" label="Connect" pressed={tool === 'arrow'} onClick={off ? null : () => set('arrow')} />
       <Tool glyph="T" label="Text" pressed={tool === 'text'} onClick={off ? null : () => set('text')} />

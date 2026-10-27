@@ -692,3 +692,8 @@ button.ta-cfg-pick:hover, button.ta-cfg-pick[aria-pressed="true"] { text-decorat
 .ta-app.is-slim .ta-rail-more > summary { display: flex; justify-content: center; font-size: 0; }
 .ta-app.is-slim .ta-rail-more > summary::after { content: "⋯"; font-size: 16px; transform: none; }
 @media (prefers-reduced-motion: reduce) { .ta-rail-more > summary::after { transition: none; } }
+
+/* the Canvas's "Import from apps" menu (the 07:37 pass): grouped by app, scrolls within the stage */
+.ta-import { max-height: min(60vh, 420px); overflow: auto; min-width: 240px; }
+.ta-import-group + .ta-import-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--ta-edge); }
+.ta-import .ta-context-k { margin: 2px 8px 4px; }

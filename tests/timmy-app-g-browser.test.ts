@@ -109,6 +109,31 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.context().close();
   }, 120_000);
 
+  it('the 08:10 word: the Workspace canvas imports an app\'s results — an image as a tldraw image read from the project, anything else as a note — and the saved desk keeps only the path', async () => {
+    const page = await open(1440, 900);
+    await go(page, 'canvas');
+    await page.waitForSelector('.ta-stage .tl-container', { timeout: 60_000 });
+    await page.click('[data-tool="Import"]');
+    await page.click('[data-import="from-apps/animate/j1/preview.png"]');
+    await page.waitForSelector('.tl-shape[data-shape-type="image"]', { timeout: 30_000 });
+    // drawn from the project's bytes through the companion (an object URL), not a data URL kept in the desk
+    await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"] img').getAttribute('src'), { timeout: 20_000 }).toMatch(/^blob:/);
+    await page.click('[data-tool="Import"]');
+    await page.click('[data-import="from-apps/animate/j1/scene.json"]');
+    await expect.poll(() => page.locator('.tl-shape[data-shape-type="note"]').allInnerTexts().then((t) => t.join('\n')), { timeout: 20_000 }).toMatch(/Animate · scene\.json/);
+    await shot(page, 'g6-workspace-imported');
+    // the desk is saved with the asset as a project path, and each node names its app, path and receipt
+    const saved = await expect.poll(async () => {
+      const d = await page.evaluate(async (t) => (await fetch('/api/app/desk', { headers: { authorization: `Bearer ${t}` } })).text(), token);
+      return d.includes('asset:timmy-file/from-apps/animate/j1/preview.png') && d.includes('"from":"app-output"') ? d : '';
+    }, { timeout: 20_000 }).not.toBe('');
+    void saved;
+    const desk = await page.evaluate(async (t) => (await fetch('/api/app/desk', { headers: { authorization: `Bearer ${t}` } })).json(), token);
+    expect(JSON.stringify(desk.snapshot)).not.toMatch(/data:image\/png;base64/);
+    await page.context().close();
+    expect(problems).toEqual([]);
+  }, 120_000);
+
   it('G5: a phone\'s Canvas opens on the whole desk; Overview, the cards one by one (focused, the inspector open), Undo, Redo and the tools are buttons', async () => {
     const page = await open(390, 844);
     await go(page, 'canvas');
