@@ -61,7 +61,7 @@ export function modelStudioJobs(state: unknown): FinishedAppJob[] {
   const jobs = (state as { jobs?: unknown[] } | null)?.jobs;
   if (!Array.isArray(jobs)) return [];
   return jobs.flatMap((j) => {
-    const o = j as { id?: unknown; kind?: unknown; status?: unknown; engine?: unknown; error?: unknown; result?: { asset?: { id?: unknown; revision?: unknown; previewFilename?: unknown; nativeFilename?: unknown; files?: Array<{ filename?: unknown }> } } };
+    const o = j as { id?: unknown; kind?: unknown; status?: unknown; engine?: unknown; error?: unknown; result?: { asset?: { id?: unknown; revision?: unknown; previewFilename?: unknown; nativeFilename?: unknown; files?: Array<{ filename?: unknown }>; artifacts?: Array<{ name?: unknown }> } } };
     if (!str(o.id) || !str(o.status) || !(o.status in STUDIO)) return [];
     const a = o.result?.asset;
     // its preview and native files, and (the checklist's A9) every other file this job wrote at the asset's revision — its
@@ -69,7 +69,9 @@ export function modelStudioJobs(state: unknown): FinishedAppJob[] {
     // inspect, its own report (r<rev>-inspect-<job>.json); an earlier revision's files are another job's
     const rev = a && typeof a.revision === 'number' ? a.revision : null;
     const own = (f: string): boolean => (o.kind === 'inspect' ? f === `r${rev}-inspect-${o.id as string}.json` : f.startsWith(`r${rev}-`) && !f.includes('-inspect-'));
-    const listed = rev !== null && Array.isArray(a?.files) ? a!.files.map((f) => f?.filename).filter((f): f is string => str(f) && own(f)) : [];
+    // (its /api/state and a job's result name them `artifacts` [{ name }]: server/studio.mjs publicAsset; its own record `files`)
+    const named = [...(Array.isArray(a?.artifacts) ? a!.artifacts.map((f) => f?.name) : []), ...(Array.isArray(a?.files) ? a!.files.map((f) => f?.filename) : [])];
+    const listed = rev !== null ? named.filter((f): f is string => str(f) && own(f)) : [];
     const names = [...new Set([...(o.kind === 'inspect' ? [] : [a?.previewFilename, a?.nativeFilename]), ...listed])];
     const files = a && str(a.id) && SAFE.test(a.id)
       ? names.filter((f): f is string => str(f) && SAFE.test(f))

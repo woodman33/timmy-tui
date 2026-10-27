@@ -35,7 +35,8 @@ describe('each app’s ended jobs, from its own record', () => {
     // the checklist's A9: every file the job wrote at its revision (its editable source among them); an inspect, its report only
     const made = modelStudioJobs({ jobs: [
       { id: 'j4', kind: 'rebuild', status: 'succeeded', engine: 'openscad', result: { asset: { id: 'a1', revision: 2, previewFilename: 'r2-model.glb', nativeFilename: 'r2-model.blend', files: [{ filename: 'r1-model.glb' }, { filename: 'r1-source.scad' }, { filename: 'r2-model.glb' }, { filename: 'r2-model.blend' }, { filename: 'r2-source.scad' }, { filename: 'r2-parametric.json' }] } } },
-      { id: 'j5', kind: 'inspect', status: 'succeeded', engine: 'openscad', result: { asset: { id: 'a1', revision: 2, previewFilename: 'r2-model.glb', nativeFilename: 'r2-model.blend', files: [{ filename: 'r2-model.glb' }, { filename: 'r2-inspect-j5.json' }, { filename: 'r2-inspect-j0.json' }] } } },
+      // (as its /api/state answers: `artifacts` [{ name, url, sha256, bytes }], server/studio.mjs publicAsset)
+      { id: 'j5', kind: 'inspect', status: 'succeeded', engine: 'openscad', result: { asset: { id: 'a1', revision: 2, previewFilename: 'r2-model.glb', nativeFilename: 'r2-model.blend', artifacts: [{ name: 'r2-model.glb' }, { name: 'r2-inspect-j5.json' }, { name: 'r2-inspect-j0.json' }] } } },
     ] });
     expect(made[0]!.files.map((f) => f.name)).toEqual(['a1/r2-model.glb', 'a1/r2-model.blend', 'a1/r2-source.scad', 'a1/r2-parametric.json']);
     expect(made[1]!.files.map((f) => f.name)).toEqual(['a1/r2-inspect-j5.json']);
