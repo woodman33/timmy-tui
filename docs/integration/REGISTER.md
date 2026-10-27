@@ -473,3 +473,20 @@ Checklist section I (gaps I1–I11). Owner revisions adopted, each checked again
   opens in Glacier (RT); an imported SVG drew (960 px wide) and a Film Room clip played (WS2). Not passed: A7-live, as
   above. Its capture showed the video placed to the right of the desk, out of the desk camera's reach: fixed in 790477f
   (the Notes section when nothing on the desk is clear).
+- **The Mac restarted on its own at 10:29 PDT** (a kernel panic, during the first run of 790477f; the operator chose a
+  lighter re-run). The restart cleared the temporary folder that held that first run's results, so none of them are
+  claimed. The re-run kept its results in a folder under the operator's home that a restart does not clear, ran one stage
+  at a time with the local models unloaded between stages, and was meant to run no Blender job.
+- **790477f on the Mac, the lighter re-run** (package `timmy-review-790477f.tar.gz`, sha256
+  `738c2179c3af7f5b2c4711157a1969ec9d0da8113a2b8a9b829b0aa093b258f6`): launch passed ("Timmy app stopped."; the census
+  clean after the app and at the end); hosting and project switching 23/23; two users 12/12; Rive 7/7; commands 10/10;
+  the journeys 41 of 43; the home store 53 lines, `4410dc0ae942ca6c`, before and after. A fresh profile opens in Glacier
+  (RT); the Workspace imported a Film Room clip that plays and an SVG that draws, both inside the desk (WS). Not passed:
+  A7 and A7-live (Card Lab ended its inspection of an Animate image ready and answered "unknown": the image is not a
+  card). **Correction to the plan:** Blender did run. The run pointed `ANIMATE_BLENDER` and `STUDIO_BLENDER` at a missing
+  path, yet Animate's export (A10: `scene.blend`, `scene.usda`, `native-readback.json`) and Model Studio's create
+  (`r1-model.blend`) succeeded, so the apps found the installed Blender by their own defaults. The Mac stayed up.
+  The short recording (`journey-short.mp4`) is the journeys' 189 s at 2.5× and carries no labels (the Mac's ffmpeg has no
+  text filter).
+- **Full suite on bd3f3595** (code identical to 790477f8; only this register differs): 795 files, 6,499 tests passed,
+  0 failed, exit 0, 2,731 s.
