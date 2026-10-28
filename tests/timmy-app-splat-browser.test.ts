@@ -61,6 +61,12 @@ describe.skipIf(!browserPath)('Workspace splats: import → Spark → KIRI opera
     return page;
   };
   const shot = async (page: Page, name: string): Promise<void> => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`) }); };
+  // lit pixels on a splat node's WebGL canvas: the picture itself, not the file's count (a KIRI export once drew 4 Gaussians as 5 pixels)
+  const lit = async (page: Page, sel: string): Promise<number> => page.locator(`${sel} canvas`).first().evaluate((c: HTMLCanvasElement) => {
+    const g = (c.getContext('webgl2') || c.getContext('webgl')) as WebGLRenderingContext | null; if (!g) return -1;
+    const px = new Uint8Array(g.drawingBufferWidth * g.drawingBufferHeight * 4); g.readPixels(0, 0, g.drawingBufferWidth, g.drawingBufferHeight, g.RGBA, g.UNSIGNED_BYTE, px);
+    let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] > 60) n++; return n;
+  }).catch(() => -2);
   const desk = async (page: Page) => page.evaluate(async (t) => (await fetch('/api/app/desk', { headers: { authorization: `Bearer ${t}` } })).json(), token);
 
   it('3D Model Studio’s splat menu: KIRI and Brush offered; gsplat listed with its reason, never as a working item', async () => {
@@ -84,6 +90,7 @@ describe.skipIf(!browserPath)('Workspace splats: import → Spark → KIRI opera
     await page.waitForSelector(node, { timeout: 30_000 });
     await expect.poll(() => page.locator(`${node} [data-node-splat]`).getAttribute('data-node-splat'), { timeout: 30_000 }).toBe('ok');
     expect(await page.locator(`${node} [data-node-splat]`).getAttribute('data-splat-count')).toBe('2');
+    await expect.poll(() => lit(page, node), { timeout: 15_000 }).toBeGreaterThan(200);
     // its facts from the file's own values (the inspector)
     await page.click(`${node} [data-node-toggle]`);
     await expect.poll(() => page.locator(`${node} [data-splat-facts]`).innerText(), { timeout: 10_000 }).toMatch(/2 \(ascii, synthetic fixture\)/);
@@ -108,6 +115,10 @@ describe.skipIf(!browserPath)('Workspace splats: import → Spark → KIRI opera
     await expect.poll(() => page.locator(`${op} [data-op-readback]`).getAttribute('data-op-readback'), { timeout: 10_000 }).toBe('matched');
     expect(await page.locator(`${op} [data-op-receipt] code`).count()).toBe(1);
     await shot(page, 'splat-2-kiri');
+    // the edited splat (KIRI-shaped export: extra red/green/blue/alpha and Col_* columns) is drawn, not just counted
+    const edited = '[data-node-kind="splat"][data-node-path$="/edited.ply"]';
+    await expect.poll(() => page.locator(`${edited} [data-node-splat]`).getAttribute('data-splat-count'), { timeout: 20_000 }).toBe('1');
+    await expect.poll(() => lit(page, edited), { timeout: 15_000 }).toBeGreaterThan(200);
     // the edited splat is itself a splat node (1 Gaussian kept), the .blend a reference node; both from the run
     type Rec = { type?: string; meta?: Record<string, unknown>; props?: Record<string, unknown> };
     await expect.poll(async () => Object.values((await desk(page)).snapshot.store as Record<string, Rec>).filter((r) => r.type === 'timmy-display' && r.meta && r.meta.run).map((r) => `${r.props!.kind}:${String(r.props!.path).split('/').pop()}`).sort(), { timeout: 20_000 })

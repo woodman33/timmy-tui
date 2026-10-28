@@ -36,10 +36,16 @@ stage('imported', { vertices: 2 });
 if (input.includes('fail')) { write('failed', { error: "ValueError('FAKE failure after import')" }); console.error('Traceback: FAKE failure'); process.exit(11); }
 const lines = fs.readFileSync(input, 'utf8').split('\\n'); const end = lines.indexOf('end_header');
 const keepRows = lines.slice(end + 1).filter(Boolean).filter((l) => !req.crop_aabb || Number(l.split(' ')[0]) <= req.crop_aabb[1][0]);
-const header = lines.slice(0, end + 1).map((l) => l.startsWith('element vertex') ? 'element vertex ' + keepRows.length : l);
+// shaped like KIRI 5.1's raw Blender export (seen on the Mac, 2026-10-28): uchar red/green/blue/alpha after z and float
+// Col_r..Col_a at the end, beside the unchanged Gaussian values; its own comment line instead of the fixture's
+const header = lines.slice(0, end).filter((l) => !l.startsWith('comment')).map((l) => l.startsWith('element vertex') ? 'element vertex ' + keepRows.length : l)
+  .flatMap((l) => l === 'property float z' ? [l, 'property uchar red', 'property uchar green', 'property uchar blue', 'property uchar alpha'] : [l])
+  .concat(['property float Col_r', 'property float Col_g', 'property float Col_b', 'property float Col_a', 'end_header']);
+header.splice(2, 0, 'comment Created in FAKE Blender');
+const outRows = keepRows.map((l) => { const v = l.trim().split(' '); return [...v.slice(0, 3), '228', '201', '172', '224', ...v.slice(3), '0.78', '0.58', '0.41', '0.88'].join(' '); });
 stage('cropped', { kept: keepRows.length });
 for (const s of ['crop_values_verified', 'native_saved', 'native_reopened', 'native_values_verified', 'exported', 'export_reimported', 'export_values_verified']) stage(s, s.endsWith('_verified') ? { rows: keepRows.length, rtol: 1e-5, atol: 1e-6, max_abs_difference: { coordinates: 0 } } : {});
-fs.writeFileSync(path.join(out, 'edited.ply'), header.join('\\n') + '\\n' + keepRows.join('\\n') + '\\n');
+fs.writeFileSync(path.join(out, 'edited.ply'), header.join('\\n') + '\\n' + outRows.join('\\n') + '\\n');
 fs.writeFileSync(path.join(out, 'edited.blend'), Buffer.concat([Buffer.from('BLENDER-v502'), Buffer.alloc(64)]));
 write('success', { artifacts: ['edited.blend', 'edited.ply'] });
 `;

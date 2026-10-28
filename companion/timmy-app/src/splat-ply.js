@@ -85,12 +85,25 @@ export function splatFacts(bytes, header) {
   return { count: header.count, read: n, bounds: [lo, hi], opacity: [omin, omax], fixture: header.fixture, format: header.format, rows, cols, index: { x: ix, y: iy, z: iz } };
 }
 
-/** An ASCII PLY re-encoded as binary_little_endian float32 (display only), or the bytes as they are when already binary. */
+/** The columns a renderer is given: the 3DGS Gaussian properties only (centre, SH coefficients, opacity, scale, rotation). */
+const DRAWN = /^(x|y|z|f_dc_\d+|f_rest_\d+|opacity|scale_\d+|rot_\d+)$/;
+
+/**
+ * The splat re-encoded for display only: binary_little_endian float32 holding just its Gaussian columns. Extra vertex columns
+ * are left out of the picture (never out of the file): KIRI 5.1's Blender export adds uchar red/green/blue/alpha and float
+ * Col_r..Col_a beside the Gaussian values, and Spark 2.3 takes red/green/blue/alpha over f_dc/opacity, so those 0–255 bytes
+ * drew 4 kept Gaussians as 5 lit pixels where the same Gaussians alone draw ~14,500 (the 2026-10-28 Mac run's edited splat).
+ * A file that already is exactly the Gaussian columns in binary float is passed through unchanged.
+ */
 export function forRenderer(bytes, header) {
-  if (header.format !== 'ascii') return new Uint8Array(bytes);
+  const keep = header.props.map((p, i) => (DRAWN.test(p.name) ? i : -1)).filter((i) => i >= 0);
+  const clean = keep.length === header.props.length && header.props.every((p) => p.type === 'float' || p.type === 'float32');
+  if (header.format === 'binary_little_endian' && clean) return new Uint8Array(bytes);
   const rows = plyRows(bytes, header);
-  const f32 = Float32Array.from(rows);
-  const head = ['ply', 'format binary_little_endian 1.0', `element vertex ${header.count}`, ...header.props.map((p) => `property float ${p.name}`), 'end_header', ''].join('\n');
+  const n = rows.length / header.props.length;
+  const f32 = new Float32Array(n * keep.length);
+  for (let i = 0; i < n; i++) for (let k = 0; k < keep.length; k++) f32[i * keep.length + k] = rows[i * header.props.length + keep[k]];
+  const head = ['ply', 'format binary_little_endian 1.0', `element vertex ${n}`, ...keep.map((i) => `property float ${header.props[i].name}`), 'end_header', ''].join('\n');
   const hb = new TextEncoder().encode(head);
   const out = new Uint8Array(hb.length + f32.byteLength);
   out.set(hb, 0); out.set(new Uint8Array(f32.buffer), hb.length);
