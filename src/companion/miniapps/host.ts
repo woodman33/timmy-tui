@@ -346,6 +346,8 @@ export function principalKey(user: { id?: unknown; operator?: boolean } | undefi
 
 /** The running apps, one per (app, principal, project); stopped together when the companion ends. */
 export class MiniAppHost {
+  /** the apps as GET /api/apps lists them for a request's principal and project (set by mountMiniApps; the catalog reads it) */
+  listing: ((req: unknown) => import('../../capabilities/catalog.js').AppListingRow[] | null) | null = null;
   private apps = new Map<string, HostedApp>();
   private starting = new Map<string, Promise<HostedApp>>();
 

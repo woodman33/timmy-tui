@@ -150,7 +150,8 @@ import { connectSrcFor } from './identity/config.js';
 import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
 import { mountMiniApps } from './miniapps/routes.js';
 import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
-import { ConnectorOps, mountConnectorOps, type ConnectorDeps } from './connector-ops.js';
+import { mountCatalog } from './catalog-route.js';
+import { ConnectorOps, mountConnectorOps, tregState, type ConnectorDeps } from './connector-ops.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
@@ -935,6 +936,22 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       const env = own ? identity.envOf(req) : { ...chatEnv() };
       return { principal: own ? `user:${u.id}` : 'operator', operator: !own, project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
     },
+  });
+  // The unified Workspace order (2026-10-27): the one integration catalog (src/capabilities/catalog.ts) for the Integrations
+  // page, the Workspace's node picker and the Control Room: every registry's entries, each fact from its own source
+  mountCatalog(app, {
+    withToken, withUser: withUserOrOperator,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', operator: !own, project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+    apps: (req) => (miniApps.listing ? miniApps.listing(req) : null),
+    treg: (scope) => tregState(scope, connectorOps.list(scope), connectorOps.bridge()),
+    ...(options.inventory ? { inventory: async (req: express.Request) => { const p = scopedProjectFor(req); return p ? (await options.inventory!(p)).inventory : null; } } : {}),
   });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy

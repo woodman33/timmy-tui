@@ -95,8 +95,8 @@ export function localVision(base: Record<string, string | undefined>): Record<st
 
 export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
   {
-    id: 'card-lab', title: 'Card Lab', kind: 'image',
-    lead: 'Image analysis: inspect, research and decide on cards, with the broadcast controls for a reviewed card.',
+    id: 'card-lab', title: 'Image Analysis', kind: 'image',
+    lead: 'Image analysis with the native Rive scanner and capture workflow: inspect, research and decide on images (cards included), with the broadcast controls for a reviewed card.',
     availability: 'hostable',
     observed: {
       owner: 'Codex: Timmy Card Lab (private standalone release)',
@@ -123,7 +123,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     },
   },
   {
-    id: 'film-room', title: 'Film Room', kind: 'video',
+    id: 'film-room', title: 'Video Breakdown', kind: 'video',
     lead: 'Video analysis: saved projects, clips, annotations and stats, with Airtable for data and notes.',
     availability: 'hostable',
     observed: {
@@ -148,7 +148,7 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
     },
   },
   {
-    id: 'model-studio', title: 'Model Studio', kind: 'spatial',
+    id: 'model-studio', title: '3D Model Studio', kind: 'spatial',
     lead: 'The 3D workspace: sketch, image and generate, a real 3D viewport, native CAD engines, revisions and VoxVision inspection.',
     availability: 'hostable',
     observed: {

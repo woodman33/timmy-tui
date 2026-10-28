@@ -8,6 +8,7 @@
 // Each node's meta keeps where it came from (app, path, receipt), so the desk's arrows can wire it into a workflow and the
 // file it stands for stays the receipted one. The asset store reads a timmy-file: asset's bytes through the companion with
 // the page's token when the desk draws it (an object URL for this page only); the saved desk keeps only the path.
+import { APP_NAMES } from '../app-names.js';
 import { useEffect, useRef, useState } from 'react';
 import { AssetRecordType, createShapeId, toRichText } from 'tldraw';
 import { call, getJson } from '../api.js';
@@ -18,7 +19,7 @@ export const FILE_SRC = 'asset:timmy-file/';
 const IMAGE = /\.(png|jpe?g|webp|gif|svg)$/i;
 const VIDEO = /\.(mp4|webm|mov|m4v)$/i;
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/mp4' };
-const APP_WORDS = { 'card-lab': 'Card Lab', 'film-room': 'Film Room', 'model-studio': 'Model Studio', 'stream-studio': 'Stream Studio', animate: 'Animate' };
+const APP_WORDS = APP_NAMES;
 const ext = (p) => (/\.([a-z0-9]+)$/i.exec(p) || [])[1]?.toLowerCase() || '';
 
 /** What a delivered file becomes on the desk. */

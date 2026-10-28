@@ -133,14 +133,22 @@ describe.skipIf(!browserPath)('Tools & integrations: Treg through the host’s o
     await page.waitForTimeout(600);
     await shot(page, 'int-4-canvas-note');
 
-    // I8: every other adapter in the same five words (from the inventory and the workflows reading), each word apart; none is
-    // shown qualified, and none discovered on this page
+    // the unified Workspace order: every integration in ONE catalog (GET /api/catalog), each registry's entries with their
+    // source kept, six facts apart; a metadata-only provider is never callable; the search narrows the rows
     await page.click('.ta-rail-item[data-nav="tools"]');
-    await page.waitForSelector('[data-adapter="tool:upmd"]', { timeout: 60_000 });
-    expect(Number(await page.locator('[data-adapters]').getAttribute('data-adapters'))).toBeGreaterThan(5);
-    expect(await page.locator('[data-adapter] td[data-rung="qualified"][data-ok="yes"]').count()).toBe(0);
-    expect(await page.locator('[data-adapter] td[data-rung="discovered"][data-ok="yes"]').count()).toBe(0);
-    expect(await page.locator('[data-adapter="tool:upmd"] td[data-rung="signed_in"]').getAttribute('data-ok')).toBe('yes');
+    await page.waitForSelector('[data-catalog-entry="workflows:upmd"]', { timeout: 60_000 });
+    expect(Number(await page.locator('[data-catalog]').getAttribute('data-catalog'))).toBeGreaterThan(20);
+    for (const id of ['inventory:model:openrouter', 'native:blender', 'vision:openhands', 'provider:openai', 'apps:card-lab', 'connectors:treg']) expect(await page.locator(`[data-catalog-entry="${id}"]`).count(), id).toBe(1);
+    expect(await page.locator('[data-catalog-entry="provider:openai"]').getAttribute('data-callable')).toBe('no');
+    expect(await page.locator('[data-catalog-entry][data-metadata="yes"][data-callable="yes"]').count()).toBe(0);
+    expect(await page.locator('[data-catalog-entry="apps:card-lab"] .tx-cat-name').innerText()).toBe('Image Analysis');
+    await page.fill('[data-catalog-search]', 'openhands');
+    await expect.poll(async () => page.locator('[data-catalog-entry]').evaluateAll((els) => els.map((e) => e.getAttribute('data-catalog-entry')).sort())).toEqual(['inventory:agent:openhands', 'inventory:lane:openhands', 'vision:openhands']);
+    await page.fill('[data-catalog-search]', '');
+    await page.selectOption('[data-catalog-show]', 'metadata');
+    await expect.poll(async () => page.locator('[data-catalog-entry]').count()).toBeGreaterThan(2);
+    expect(await page.locator('[data-catalog-entry][data-metadata="no"]').count()).toBe(0);
+    await page.selectOption('[data-catalog-show]', 'all');
 
     // the Control Room's connector-call cards (the 07:37 pass, I6): the same operations, the process, outcome and check apart;
     // the paid call's charge is Treg's own figure, a free lookup's says it is not paid

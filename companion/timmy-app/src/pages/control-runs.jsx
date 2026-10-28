@@ -2,6 +2,7 @@
 // adapter's own plan, nothing started) → Approve and start (a copy of the project, through `timmy act "/agent …"`) → follow its
 // log and its face (fed by the run's own record) → Stop (act's own stop path) → its end: the changed files and their diffs, the
 // final message, the receipt in this project. An act gone without its end is interrupted, and Recover settles it.
+import { APP_NAMES } from '../app-names.js';
 import { useEffect, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Panel } from '../shell.jsx';
@@ -12,7 +13,7 @@ import { RunFace } from '../rive.jsx';
 const EVERY_MS = 1500;
 const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
 /** The apps a run can be aimed at (their outputs in from-apps/<app>/ of the run's copy). */
-const TARGET_APPS = [['card-lab', 'Card Lab'], ['film-room', 'Film Room'], ['model-studio', 'Model Studio'], ['stream-studio', 'Stream Studio'], ['animate', 'Animate']];
+const TARGET_APPS = Object.entries(APP_NAMES);
 const said = (r) => r.error || `The companion answered ${r.status || 'nothing'}.`;
 
 function useRuns() {

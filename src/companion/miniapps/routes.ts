@@ -71,22 +71,37 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     });
   };
 
+  /** this principal's ok receipts of each app's ended jobs in the project, newest first (hash prefixes) */
+  const receiptsOf = (appId: string, req: express.Request, root: string): string[] => {
+    try {
+      return readChain('runs', root).filter((r) => r.kind === 'miniapp' && r.miniapp?.app === appId && r.miniapp?.principal === who(req) && r.status === 'ok')
+        .map((r) => String(r.hash).slice(7, 15)).reverse();
+    } catch { return []; }
+  };
+  /** the operations the host itself starts for an app (each a route of this file) */
+  const HOST_OPERATIONS: Record<string, Array<{ id: string; label: string; where: Array<'canvas' | 'control-room' | 'terminal' | 'page'>; how: string }>> = {
+    'card-lab': [{ id: 'inspect-image', label: 'Inspect an image of the project', where: ['page'], how: 'POST /api/apps/card-lab/handoff (Files: Send to Image Analysis)' }],
+  };
+  const listing = (req: express.Request) => {
+    const p = project(req);
+    return MINI_APPS.map((a) => {
+      const problem = a.availability === 'hostable' ? hostProblem(a, deps.env) : null;
+      const running = p && a.availability === 'hostable' ? Boolean(host.get(keyOf(a.id, req, p.root))) : false;
+      return {
+        id: a.id, title: a.title, kind: a.kind, lead: a.lead, availability: a.availability,
+        hostable: a.availability === 'hostable' && problem === null, problem, running, observed: a.observed,
+        theme: a.host?.theme ?? null,
+        installed: a.availability === 'hostable' ? installedSource(a, deps.env) : null,
+        receipts: p ? receiptsOf(a.id, req, p.root) : [],
+        operations: HOST_OPERATIONS[a.id] ?? [],
+      };
+    });
+  };
+  host.listing = (req) => (project(req as express.Request) ? listing(req as express.Request) : null);
+
   app.get('/api/apps', ...guards, (req, res) => {
     const p = project(req);
-    res.set('Cache-Control', 'no-store').json({
-      ok: true,
-      project: p ? p.name : null,
-      apps: MINI_APPS.map((a) => {
-        const problem = a.availability === 'hostable' ? hostProblem(a, deps.env) : null;
-        const running = p && a.availability === 'hostable' ? Boolean(host.get(keyOf(a.id, req, p.root))) : false;
-        return {
-          id: a.id, title: a.title, kind: a.kind, lead: a.lead, availability: a.availability,
-          hostable: a.availability === 'hostable' && problem === null, problem, running, observed: a.observed,
-          theme: a.host?.theme ?? null,
-          installed: a.availability === 'hostable' ? installedSource(a, deps.env) : null,
-        };
-      }),
-    });
+    res.set('Cache-Control', 'no-store').json({ ok: true, project: p ? p.name : null, apps: listing(req) });
   });
 
   app.post('/api/apps/:id/open', ...guards, express.json({ limit: '2kb' }), async (req, res) => {

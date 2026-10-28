@@ -2,6 +2,7 @@
 // src/companion/workspace.ts). The folder in the work area (its breadcrumb, its entries), the open file in the context column:
 // a text file as text (Markdown drawn as React elements), an image as itself, anything else described, never guessed at.
 // Nothing here writes a file: the companion has no route for it, and the page says so.
+import { APP_NAMES } from '../app-names.js';
 import { useEffect, useRef, useState } from 'react';
 import { call, getJson, postJson } from '../api.js';
 import { Markdown } from '../md.jsx';
@@ -53,7 +54,7 @@ function Crumbs({ path, onGo, project }) {
   );
 }
 
-const APP_WORDS = { 'card-lab': 'Card Lab', 'film-room': 'Film Room', 'model-studio': 'Model Studio', animate: 'Animate', 'stream-studio': 'Stream Studio' };
+const APP_WORDS = APP_NAMES;
 const appWord = (id, title) => title || APP_WORDS[id] || id;
 /** Card Lab's own address for one run (its page reads `?run=`). */
 const inspectionAt = (run) => `/?run=${encodeURIComponent(run)}`;
@@ -80,14 +81,14 @@ function Provenance({ path, image, onSent }) {
         : p.ok ? <p className="ta-muted">Not made by an app job of this project.</p> : null}
       {image ? (done ? (
         <div className="tx-files-sent" role="status" data-sent="card-lab">
-          <p className="tx-files-sent-title">✓ Sent to Card Lab</p>
+          <p className="tx-files-sent-title">✓ Sent to Image Analysis</p>
           <div className="ta-row">
             <Button kind="primary" onClick={() => openApp('card-lab', inspectionAt(done.run))} data-action="open-inspection">Open inspection</Button>
           </div>
         </div>
       ) : (
         <div className="ta-row">
-          <Button onClick={send} disabled={busy}>{busy ? 'Sending…' : 'Send to Card Lab'}</Button>
+          <Button onClick={send} disabled={busy}>{busy ? 'Sending…' : 'Send to Image Analysis'}</Button>
           {sent && !sent.ok ? <span className="ta-result" role="status">{sent.error || `The companion answered ${sent.status}.`}</span> : null}
         </div>
       )) : null}
@@ -100,7 +101,7 @@ function Provenance({ path, image, onSent }) {
           ['path', <code key="p">{path}</code>],
           ['sha256', p.ok && p.sha256 ? <code key="h">{p.sha256}</code> : null],
           ['made by', rc ? `${rc.app ? `${appWord(rc.app)}’s job ${rc.job}` : rc.kind}; receipt ${rc.id}` : null],
-          ['Card Lab run', done ? <code key="r">{done.run}</code> : null],
+          ['Image Analysis run', done ? <code key="r">{done.run}</code> : null],
           ['handoff receipt', done ? <code key="hr">{done.receipt}</code> : null],
         ]} />
         {rc ? <Button onClick={() => goTo('runs')}>Open Runs &amp; receipts</Button> : null}

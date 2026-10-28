@@ -237,10 +237,10 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.click('.tx-files-result .ta-chip:has-text("preview.png")');
     await page.waitForSelector('.tx-files-open-name:text-is("preview.png")');
     expect(await page.locator('.tx-files-open').innerText()).not.toMatch(/from-apps\//); // the path is behind Details
-    await page.click('button:has-text("Send to Card Lab")');
+    await page.click('button:has-text("Send to Image Analysis")');
     await page.waitForSelector('[data-sent="card-lab"]', { timeout: 60_000 });
     await shot(page, 'g3-files-sent');
-    expect(await page.locator('[data-sent="card-lab"]').innerText()).toMatch(/Sent to Card Lab/);
+    expect(await page.locator('[data-sent="card-lab"]').innerText()).toMatch(/Sent to Image Analysis/);
     await page.click('.tx-files-prov summary');
     const details = await page.locator('.tx-files-prov details').innerText();
     expect(details).toContain('from-apps/animate/j1/preview.png');

@@ -121,7 +121,7 @@ describe('the Control Room runs a code agent through timmy act (B1–B8)', () =>
     const whole = await ask(undefined);
     const p = await ask({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/j1/chair.glb' });
     if (!p.ok || !whole.ok) throw new Error('not proposed');
-    expect(p.proposal.target).toEqual({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/j1/chair.glb', words: 'from-apps/model-studio/j1/chair.glb (from Model Studio)' });
+    expect(p.proposal.target).toEqual({ kind: 'app', app: 'model-studio', path: 'from-apps/model-studio/j1/chair.glb', words: 'from-apps/model-studio/j1/chair.glb (from 3D Model Studio)' });
     expect(whole.proposal.target.kind).toBe('project');
     expect(p.proposal.plan_sha256).not.toBe(whole.proposal.plan_sha256);
     const started = s.runs.start(s.scope, { proposal: p.proposal.id });

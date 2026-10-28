@@ -104,7 +104,7 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['APPS', 'AGENTS', 'TOOLS', 'WORKSPACES']);
     expect(await page.locator('.ta-rail-item').count()).toBe(20);
     expect(await page.locator('.ta-rail-item:visible').count()).toBe(15);
-    expect(await page.locator('.ta-rail-apps .ta-rail-title').allInnerTexts()).toEqual(['Image · Card Lab', 'Video · Film Room', '3D · Model Studio', '2D Animation · Stream Studio']);
+    expect(await page.locator('.ta-rail-apps .ta-rail-title').allInnerTexts()).toEqual(['Image Analysis', 'Video Breakdown', '3D Model Studio', 'Stream Studio']);
     expect(await page.locator('.ta-rail-item[aria-current="page"]').innerText()).toContain('Chat');
     expect(await page.locator('.ta-page[data-page="chat"] .ta-band .ta-cell-k').allInnerTexts()).toEqual(['WORKSPACE', 'MODEL', 'AGENT', 'RECORDS']);
     // one Send (in the composer), and the chat's tools on its tools row

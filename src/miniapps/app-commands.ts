@@ -51,7 +51,7 @@ async function runJob(s: AppSession, o: { started: unknown; read: (id: string) =
   return state === 'complete' || state === 'succeeded' ? 0 : state === 'cancelled' ? 130 : 1;
 }
 
-const VIDEO_HELP = `timmy video: Film Room (video analysis) through Timmy's mini-app host, in the active project
+const VIDEO_HELP = `timmy video: Video Breakdown (the Film Room app) through Timmy's mini-app host, in the active project
   status                         the app's capabilities here (ffmpeg, ffprobe, OpenTimelineIO, cloud: off)
   assets                         the project's media
   import <file>                  bring a video in (the app's own ingest job); prints the job's end and its receipt
@@ -87,7 +87,7 @@ export async function runVideoCli(argv: string[], io: Io = {}): Promise<number> 
     const file = resolve(a1);
     if (!existsSync(file)) { err(`No such file: ${a1}`); return done(2); }
     const r = await s.request('POST', `/api/assets?name=${encodeURIComponent(basename(file))}`, readFileSync(file), { 'content-type': 'application/octet-stream' });
-    if (r.status >= 400) { err(`Film Room refused the import (${r.status}): ${(r.json as { error?: string } | null)?.error ?? ''}`); return done(1); }
+    if (r.status >= 400) { err(`Video Breakdown refused the import (${r.status}): ${(r.json as { error?: string } | null)?.error ?? ''}`); return done(1); }
     return runJob(s, { ...common, started: r.json });
   }
   if (op === 'render' && a1 && a2) {
@@ -99,12 +99,12 @@ export async function runVideoCli(argv: string[], io: Io = {}): Promise<number> 
     if (manifest && typeof manifest === 'object' && !(manifest as { asset?: unknown }).asset) {
       const list = (await s.request('GET', '/api/assets')).json as { assets?: Array<{ id: string; name?: string; sha256?: string }> } | null;
       const chosen = list?.assets?.find((x) => x.id === a1);
-      if (!chosen) { err(`Film Room has no asset ${a1} in ${s.project.name} (timmy video assets lists them).`); return done(1); }
+      if (!chosen) { err(`Video Breakdown has no asset ${a1} in ${s.project.name} (timmy video assets lists them).`); return done(1); }
       (manifest as Record<string, unknown>).asset = { id: chosen.id, name: chosen.name, ...(chosen.sha256 ? { sha256: chosen.sha256 } : {}) };
-      if (!json) out(`The manifest names no asset: the chosen one (${chosen.name ?? chosen.id}) is named in it, as Film Room asks.`);
+      if (!json) out(`The manifest names no asset: the chosen one (${chosen.name ?? chosen.id}) is named in it, as Video Breakdown asks.`);
     }
     const r = await s.request('POST', '/api/render-jobs', { assetId: a1, manifest, ...(args.includes('--reel') ? { reel: true } : {}), ...(args.includes('--otio') ? { otio: true } : {}) });
-    if (r.status >= 400) { err(`Film Room refused the render (${r.status}): ${(r.json as { error?: string } | null)?.error ?? ''}`); return done(1); }
+    if (r.status >= 400) { err(`Video Breakdown refused the render (${r.status}): ${(r.json as { error?: string } | null)?.error ?? ''}`); return done(1); }
     return runJob(s, { ...common, started: r.json });
   }
   err(`Unknown or incomplete: timmy video ${args.join(' ')}\n${VIDEO_HELP}`);

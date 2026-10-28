@@ -46,7 +46,7 @@ describe('timmy video and timmy animate through the C1 host (FAKE app)', () => {
       const clip = join(box, 'clip.mp4'); writeFileSync(clip, 'FAKE video bytes');
       lines.length = 0;
       expect(await runVideoCli(['import', clip], io())).toBe(0);
-      expect(lines.join('\n')).toMatch(/Film Room job [a-f0-9-]{36}: complete\.\nreceipt rc_\S+: ok \(the app said complete\)/);
+      expect(lines.join('\n')).toMatch(/Video Breakdown job [a-f0-9-]{36}: complete\.\nreceipt rc_\S+: ok \(the app said complete\)/);
       const r = chain().at(-1)!;
       expect(r).toMatchObject({ status: 'ok', job: { kind: 'ingest', state: 'complete' }, miniapp: { app: 'film-room', principal: 'operator' } });
       expect(r.outputs?.[0]).toMatchObject({ sha256: createHash('sha256').update('FAKE video bytes').digest('hex'), bytes: 16 });
@@ -65,11 +65,11 @@ describe('timmy video and timmy animate through the C1 host (FAKE app)', () => {
       const asset = (JSON.parse(lines.join('\n')) as { result: { result: { asset: { id: string } } } }).result.result.asset.id;
       lines.length = 0;
       expect(await runVideoCli(['render', '00000000-0000-4000-8000-000000000000', manifest], io())).toBe(1);
-      expect(lines.join('\n')).toMatch(/Film Room has no asset 00000000-0000-4000-8000-000000000000/);
+      expect(lines.join('\n')).toMatch(/Video Breakdown has no asset 00000000-0000-4000-8000-000000000000/);
       writeFileSync(join(box, 'wrong.json'), JSON.stringify({ schema_version: 1, asset: { name: 'other.mp4' }, clips: [{ id: 'a', start_seconds: 0, end_seconds: 1 }] }));
       lines.length = 0;
       expect(await runVideoCli(['render', asset, join(box, 'wrong.json')], io())).toBe(1);
-      expect(lines.join('\n')).toMatch(/Film Room refused the render \(409\): Manifest source name differs/);
+      expect(lines.join('\n')).toMatch(/Video Breakdown refused the render \(409\): Manifest source name differs/);
       lines.length = 0;
       expect(await runVideoCli(['render', asset, manifest, '--cancel-after', '0.05'], io())).toBe(130);
       expect(lines.join('\n')).toMatch(/The manifest names no asset: the chosen one \(cut\.mp4\) is named in it/);
