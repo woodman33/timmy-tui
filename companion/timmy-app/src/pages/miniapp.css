@@ -27,5 +27,11 @@
   .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { height: auto; min-height: 52px; padding: 4px 8px; flex-wrap: nowrap; overflow-x: auto; }
   .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { min-height: 44px; white-space: nowrap; }
 }
+/* on a phone the app's name and its state word are in the breadcrumb and the page: the bar keeps its four actions */
+@media (max-width: 760px) {
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-name, .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar > .ta-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { gap: 6px; }
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { padding-inline: 10px; }
+}
 /* a phone page scrolls as a column: the frame takes the window below the bars, never a fixed 70vh box */
 @media (max-width: 760px) { .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-frame { min-height: 0; height: calc(100dvh - var(--ta-phone-chrome, 150px)); } }
