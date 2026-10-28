@@ -164,6 +164,23 @@ studio-isolation-browser: 5 s waits) timed out while the OpenHands tests ran bes
 
 Out of this pass: new frameworks, CAD rewrites, research lanes, private creative projects, live provider spend.
 
+## J. The unified Workspace order (2026-10-27, 16:56 PT)
+
+One licensed tldraw canvas with native Rive, several boards per project, display and operation nodes, an agent panel on
+the same validated operations, one integration catalog, and the Control Room's three targets.
+
+| # | Item | Closes when | Status |
+|---|---|---|---|
+| J1 | One integration catalog | the node picker, the inspectors and the Control Room read the same catalog rows | **closed** in 8239291f, dafd8922, cc059b21 (browser); on the Mac: 16 rows, "installed, not callable" stated (U9) |
+| J2 | Several boards per project | a new board is blank and saved in the project; another project has none of it | **closed** in 05181392 and c0c91611 (a new board draws no desk sections); Mac U1, U8 |
+| J3 | Display nodes | image, video, 3D, isolated HTML or Rive, native files, each with one header, view, actions and inspector | **closed** in 351e5d08; Mac U3, U7 (HTML preview sandboxed `allow-scripts` only, its receipt and hash in the inspector) |
+| J4 | Operation nodes with typed ports, run as the apps' durable jobs | validated before start; progress, cancellation, recovery and current-result fencing; outputs placed beside the node; every delivered file read back against its receipt | **closed** in c31a51c6, 12173405, d9aafbc0 (a run cut short in its collection is recovered), abd426b7 (outputs stack in columns). Mac U4 readback 7/7, U6 Recover. **Cancel not exercised live** (the real Stream Studio job completed before Cancel reached it); exercised against the FAKE app |
+| J5 | The agent panel: Plan / Run / Autopilot | the agent's steps go through the same functions as a person's edits; every name an enum of the board as saved at a source revision; a refused answer kept and never repaired | **closed** in a683764c, c58f6ad9, 84049327, 0038c387, c0c91611, d9aafbc0, 3b4fb885. Mac U4 at 3b4fb88: gemma4:12b-it-qat on this computer's Ollama, plan applied in 5.2 s, its run completed, readback 7/7 |
+| J6 | The Control Room's three targets | delivered files; an app's operation through its adapter with read-back; the canvas selection | **closed** in a683764c (browser, FAKE apps); captures U10 control in both themes at both sizes |
+| J7 | Glacier tokens (Card Lab blue/silver/white on black) | the default family; Amber kept | in 1495752c (earlier pass). **Decision for the operator:** focus and selection stay amber `#FFB000` in Glacier, as DESIGN.md's contract says; not changed |
+| J8 | Evidence policy | handles as enums for the run and source revision; empty means unknown or a refusal; Agent Archive disabled | the plan's names are enums of the board as saved (sha256 source revision); resolving a cited handle is the observation (the model's endpoint has no tools, so there is no cite tool call); an empty plan is the model's own "nothing to do". Agent Archive stays disabled |
+| J9 | One identified installed candidate | the demonstration on the Mac, captures at 1440 × 900 and 390 × 844 in both themes, a recording, the full suite | **candidate 3b4fb88** (see the register): 17 of 18 checks passed, U5 Cancel not exercised live; launch 7/7; home store unchanged; full suite 6,533 passed, 1 failed (G6 panning, flaky; 5/5 alone twice) — **closed with blockers** |
+
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
 Each was found during this pass. None is needed for an acceptance criterion above.

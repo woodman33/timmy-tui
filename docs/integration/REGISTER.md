@@ -490,3 +490,64 @@ Checklist section I (gaps I1–I11). Owner revisions adopted, each checked again
   text filter).
 - **Full suite on bd3f3595** (code identical to 790477f8; only this register differs): 795 files, 6,499 tests passed,
   0 failed, exit 0, 2,731 s.
+
+## The unified Workspace order (2026-10-27, 16:56 PT): one installed candidate
+
+Checklist section J. Code in this pass:
+
+| Revision | What | Checks |
+|---|---|---|
+| 8239291f, dafd8922, cc059b21 | U1: the approved app names; one integration catalog for the node picker, inspectors and Control Room | browser |
+| 05181392 | U2: several saved boards per project, one accessible dropdown | browser |
+| 351e5d08 | U3: display nodes (one header, view, action menu, inspector, primary action) | browser |
+| c31a51c6, 12173405 | U4: operation nodes; validated runs dispatched to the apps' own durable jobs; native Rive face | `tests/workflow-ops.test.ts`, browser (FAKE Stream Studio) |
+| a683764c | U5: the canvas agent (Plan / Run / Autopilot) and the Control Room's three targets | `tests/canvas-agent.test.ts`, browser (FAKE Ollama, FAKE apps) |
+| c58f6ad9, 84049327, 0038c387 | a refused plan asked again with every reason; a bounded context (8192); a thinking model asked not to think | unit |
+| c0c91611, ea4fba02, d9aafbc0, abd426b7, 3b4fb885 | the Mac findings below, each fixed | unit and browser |
+
+Full suite on a683764c (before the Mac findings): 798 of 820 files and 6,523 tests passed; 7 tests in 6 files failed,
+each passing alone at 0038c387 (74 tests). They ran while files were being edited and the tree was dirty; not claimed as
+a clean pass. The full suite on 3b4fb885: 804 of 821 files passed, 16 skipped; 6,533 tests passed, 136 skipped, **1 failed** (exit 1,
+2,187 s): `g-browser` G6, panning to the last import (the shape was culled, its box null). That file then passed 5/5 alone,
+twice. Recorded as run: not a clean suite pass.
+
+The Mac runs (each a fresh folder from the package, the reviewer's entry point `./timmy-app`, the launch check, the
+review's own Ollama route, then the driver; this computer's Ollama models unloaded between stages; results kept under
+the operator's home folder, which a restart does not clear; one Blender job, Animate's image):
+
+| Candidate | Package sha256 | Result | Found, then fixed |
+|---|---|---|---|
+| 0038c38 | `5cbb911d…` | the agent refused twice; three driver errors | (driver only) |
+| c0c9161 | `307449e9…` | the agent's plan applied in 4.8 s, readback 7/7, its face went running → completed | a duration typed as text through a generic set step (typed parameters on add); a new board drew the desk's sections; the stage scrolled sideways |
+| ea4fba0 | `e3513e5f…` | the agent refused twice (model variance) | the phone drawer under the Canvas layers (a flex item's z-index applies while static); a run left "collecting" after the companion stopped mid-collection |
+| d9aafbc | `fe3a764c…` | 16 of 17; U5 not exercised | an agent's later round took the default budget |
+| abd426b | `b05b8eb8…ca5ed` | 13 of 17: the agent's Run plan added and connected a node but had no run step, so nothing ran (U4 ×3, U7, U8 followed from it) | fixed in 3b4fb885: Run and Autopilot plans that run nothing are refused with that reason (never topped up) |
+| **3b4fb88** | `2047158135aadecabb82c53edfc53a758644db6f01a7de34b190c7393dc1947f` | **17 of 18 passed; U5 not exercised** | — |
+
+- **3b4fb88 on the Mac** (build info: revision 3b4fb885, branch r13/integration, not dirty):
+  - the launch check 7/7 (the Canvas is the licensed tldraw SDK, no watermark; phone nothing wider than the screen);
+    "Timmy app stopped."; the census clean at the end; the home store 53 lines, `4410dc0ae942ca6c`, before and after;
+  - U1 a new blank board in the project; U2 Animate's own job (Blender), **scripted through its API**, delivered an
+    image; U3 imported as a display node;
+  - U4 **live**: gemma4:12b-it-qat in this computer's Ollama (no charge), asked once (5.2 s, 156 tokens). Its plan: add
+    "Animate an image" (Motion pulse, Export html), connect preview.png, run it. Applied through the board's own
+    functions; the node is marked AGENT; Stream Studio's own job completed; receipt sealed; every delivered file read
+    back: 7 of 7 matched. The node's native Rive face went idle → running (bar) → completed;
+  - U5 **not exercised live**: Motion changed through the node's dropdown and Run again completed, but the app's job had
+    completed before Cancel reached it. Cancel is exercised against the FAKE app in `tests/workflow-ops` and the browser
+    tests; that is not a live pass;
+  - U6 a run left by a stopped companion said Recover; pressed, the app's own record decided (completed, collected);
+  - U7 the HTML player in an isolated preview (sandbox `allow-scripts` only) with its receipt and hash; Reopen opened its
+    editable source in Stream Studio, inside Timmy;
+  - U8 saved and reopened in a fresh browser (13 nodes); another project ("blank") has none of it;
+  - U9 **the unavailable integration**: OpenHands' setup refusal said with the exact build command (Timmy never builds
+    it). A correctly handled refusal; **not counted as a live harness run**. The catalog says "installed, not callable"
+    where that is true;
+  - U10 captures in Glacier and Amber at 1440 × 900 and 390 × 844 (canvas, agent, Control Room): nothing wider than the
+    screen; a recording `uw-demo.mp4` (344 frames, pauses over 3 s cut to 3 s).
+- **Live vs FAKE:** live on the Mac: the local model, Animate's and Stream Studio's own jobs, tldraw's licence, Rive.
+  FAKE (tests only): Ollama for unit and browser tests, Stream Studio for Cancel, Treg, OpenHands' runner.
+- **Blockers kept, not passes:** the OpenHands image is not built on the Mac (no build, no new paid run); Cancel on a
+  live job not exercised; Stream Studio's theme trust stays with its owner; Card Lab's identity on a real card (A7);
+  `g-browser` G6 (panning) flaky, 2 failures across several runs, 3/3 alone.
+- **Decision for the operator:** Glacier keeps amber focus and selection (`#FFB000`) as DESIGN.md's contract says.
