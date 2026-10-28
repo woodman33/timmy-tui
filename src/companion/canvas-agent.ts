@@ -142,7 +142,7 @@ export function planFormat(ops: readonly OperationSpec[], handles: Handle[], bud
             do: { type: 'string', enum: ['add', 'connect', 'set', 'run'] },
             ref: enumOr(refs), operation: enumOr(ops.map((o) => o.id)),
             node: enumOr([...refs, ...opNodes]), port: enumOr(ports), from: enumOr(files),
-            param: enumOr(params), value: { type: ['string', 'number'] },
+            param: enumOr(params), value: { type: 'string', maxLength: 80 },
           },
         },
       },
@@ -325,7 +325,8 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
       res.status(409).set('Cache-Control', 'no-store').json({ ok: false, error: h.words, plan: rec });
       return;
     }
-    const outcomes = previous ? previous.applied.map((x) => `step ${x.n}: ${x.words ?? 'applied'}`) : [];
+    // what the last round did, or (a refused answer) every reason it was refused: a new attempt, never a repair of the old one
+    const outcomes = previous ? (previous.state === 'refused' ? [`Your last answer was refused: ${(previous.problems.length ? previous.problems : [previous.refusal ?? 'no reason kept']).join(' ')}`] : previous.applied.map((x) => `step ${x.n}: ${x.words ?? 'applied'}`)) : [];
     const prompt = planPrompt({ goal, ops, unavailable, handles, budget, previous: previous ? { say: previous.say, outcomes } : null });
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(new Error('timeout')), PLAN_TIMEOUT_MS);

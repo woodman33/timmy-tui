@@ -79,7 +79,12 @@ export function AgentLayer({ editor, board, settle }) {
     }
     if (ctl.signal.aborted) return null;
     if (r.plan) setPlan(r.plan);
-    if (!r.ok) { setPhase('refused'); setWords(r.error || 'The agent refused.'); note(`Refused: ${r.error || ''}`); return null; }
+    if (!r.ok) {
+      note(`Refused: ${r.error || ''}`);
+      // Autopilot asks again, once per round left, telling the agent every reason (a new attempt, not a repaired answer)
+      if (mode === 'autopilot' && r.plan && r.plan.harnessRan && r.plan.round < r.plan.budget.rounds && !(stop.current && stop.current.stopped)) return ask(r.plan.id);
+      setPhase('refused'); setWords(r.error || 'The agent refused.'); return null;
+    }
     stop.current.plan = r.plan.id;
     note(`Plan ${r.plan.id}: ${r.plan.steps.length} step${r.plan.steps.length === 1 ? '' : 's'}${r.plan.say ? ` — ${r.plan.say}` : ''}`);
     return r.plan;
@@ -152,6 +157,16 @@ export function AgentLayer({ editor, board, settle }) {
     }
     setPhase('done'); setWords(p && p.done ? 'The agent says the board does what you asked.' : 'Done: the plan is applied.');
   };
+  /** A refused plan asked again: the agent is told every reason; the new answer is admitted (or refused) on its own. */
+  const again = async (previous) => {
+    const p = await ask(previous);
+    if (!p) return;
+    if (mode === 'plan') { setPhase('proposed'); setWords(p.steps.length ? 'Proposed. Nothing on the board has changed: apply it, or discard it.' : (p.say || 'The agent proposes nothing.')); return; }
+    const runs = await apply(p, true);
+    if (runs === null) return;
+    (await follow(runs)).forEach((o) => note(o));
+    if (!(stop.current && stop.current.stopped)) { setPhase('done'); setWords('Done: the plan is applied.'); }
+  };
   const applyProposed = async (withRuns) => {
     if (!plan) return;
     stop.current = { plan: plan.id };
@@ -209,6 +224,7 @@ export function AgentLayer({ editor, board, settle }) {
         <div className="ta-agent-actions">
           {busy ? <button type="button" className="ta-btn" onClick={halt} data-agent-stop>Stop</button>
             : <button type="button" className="ta-btn ta-btn-primary" onClick={go} disabled={!ready || !goal.trim() || !editor} data-agent-go>{mode === 'plan' ? 'Plan' : mode === 'run' ? 'Plan and run' : 'Start autopilot'}</button>}
+          {phase === 'refused' && plan && plan.harnessRan && plan.round < plan.budget.rounds ? <button type="button" className="ta-btn" onClick={() => again(plan.id)} data-agent-again>Ask again with the reasons</button> : null}
           {phase === 'proposed' && plan && plan.steps.length ? (
             <>
               <button type="button" className="ta-btn" onClick={() => applyProposed(false)} data-agent-apply>Apply edits</button>

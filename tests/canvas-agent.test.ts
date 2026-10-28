@@ -123,6 +123,11 @@ describe('the canvas agent: plans in the board’s own operations, admitted agai
     expect(all).toMatch(/Step 5: Seconds: 1–12/);
     expect(all).toMatch(/Step 7: a run over the budget of 1/);
     expect(p.raw.text).toContain('shape:ghost');
+    // asked again with the refused plan as the previous round: the model is told every reason; the new answer stands on its own
+    scripts.push(answer({ say: 'Cited this time.', cites: ['shape:img'], done: false, steps: [{ do: 'add', ref: 'n1', operation: 'stream-studio.animate-image' }, { do: 'connect', node: 'n1', port: 'image', from: 'shape:img' }] }));
+    const again = await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'do it', mode: 'plan', previous: p.id });
+    expect(again.json.plan).toMatchObject({ state: 'proposed', round: 2, previous: p.id });
+    expect(JSON.stringify(ollama.chats().at(-1).messages)).toContain('Your last answer was refused: It cites');
     // not JSON at all: refused, the text kept
     scripts.push(() => ({ chunks: textChunks(MODEL, ['I would animate it.']) }));
     const t = await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'do it', mode: 'plan' });
