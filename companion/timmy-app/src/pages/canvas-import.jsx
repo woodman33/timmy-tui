@@ -54,6 +54,26 @@ export const ASSET_STORE = {
 };
 
 /**
+ * A free place for a w × h node: the desk's own free-space finder first (`place`), else the next free place to the right of
+ * everything on the board that is not an imported node, along the desk's rows (the camera pans along them, and the desk's
+ * bounds grow to hold it); `near` (page coordinates) is tried first when given. Never on top of another shape.
+ */
+export function placeOnBoard(editor, w, h, place = null, c = null, near = null) {
+  const taken = editor.getCurrentPageShapes().filter((x) => x.type !== 'arrow').map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
+  const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 16 && q.x + w + 16 > b.x && q.y < b.y + b.h + 16 && q.y + h + 16 > b.y);
+  if (near) for (let dy = 0; dy <= 1200; dy += 20) { const q = { x: near.x, y: near.y + dy }; if (clear(q)) return q; }
+  const p = place ? place(w, h) : null;
+  if (clear(p)) return p;
+  const base = editor.getCurrentPageShapes().filter((x) => x.type !== DISPLAY_SHAPE && x.type !== 'timmy-op' && x.type !== 'arrow').map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
+  const all = base.length ? base.reduce((a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), r: Math.max(a.r, b.x + b.w), b: Math.max(a.b, b.y + b.h) }), { x: Infinity, y: Infinity, r: -Infinity, b: -Infinity }) : null;
+  const center = c || editor.getViewportPageBounds().center;
+  if (!all) return { x: center.x - w / 2, y: center.y - h / 2 };
+  const top = Math.min(all.y, 0); const bottom = Math.max(all.b, top + h);
+  for (let x = all.r + 40; x < all.r + 40 + 60 * (w + 40); x += 20) for (let y = top; y + h <= bottom; y += 20) if (clear({ x, y })) return { x, y };
+  return { x: all.r + 40, y: top };
+}
+
+/**
  * Place one app result on the board where it has room (`place`: the desk's own free-space finder), as a Timmy display node
  * (./display-node.jsx): an image, a video, a 3D model, an HTML or Rive preview, or a reference to a native/source file — each
  * with the node's header, view and actions, its inspector and its primary action. Its meta keeps where it came from.
@@ -72,24 +92,7 @@ export async function importOutput(editor, file, result, place = null, focus = n
       w = Math.max(260, Math.round(n.w * k)); h = Math.round(n.h * k) + 96;
     } catch { /* the default size */ }
   }
-  // the desk's free-space finder; when no place on the desk is clear, the next free place to the right of everything on the
-  // board, along the desk's rows (the camera pans along them, and the desk's bounds grow to hold it: `hold` re-holds the camera)
-  const at = () => {
-    const p = place ? place(w, h) : null;
-    const taken = editor.getCurrentPageShapes().map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
-    const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 16 && q.x + w + 16 > b.x && q.y < b.y + b.h + 16 && q.y + h + 16 > b.y);
-    if (clear(p)) return p;
-    // the columns start right of what is not an imported node (the desk's own cards), so the imports fill a column top to
-    // bottom before the next one
-    const base = editor.getCurrentPageShapes().filter((x) => x.type !== DISPLAY_SHAPE).map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
-    const all = base.length ? base.reduce((a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), r: Math.max(a.r, b.x + b.w), b: Math.max(a.b, b.y + b.h) }), { x: Infinity, y: Infinity, r: -Infinity, b: -Infinity }) : null;
-    if (!all) return { x: c.x - w / 2, y: c.y - h / 2 };
-    const top = Math.min(all.y, 0); const bottom = Math.max(all.b, top + h);
-    for (let x = all.r + 40; x < all.r + 40 + 60 * (w + 40); x += 20) {
-      for (let y = top; y + h <= bottom; y += 20) if (clear({ x, y })) return { x, y };
-    }
-    return { x: all.r + 40, y: top };
-  };
+  const at = () => ({ ...placeOnBoard(editor, w, h, place, c), w, h });
   const id = createShapeId();
   const p = at();
   editor.run(() => {

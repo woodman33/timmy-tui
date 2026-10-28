@@ -27,6 +27,7 @@ import { projectId } from '../../project/index.js';
 import { appDataDir, hostProblem, installedRevision, installedSource, MiniAppHost, principalKey } from './host.js';
 import { MINI_APPS, miniAppOf } from './registry.js';
 import { deliverInto } from './receipts.js';
+import { OPERATIONS } from '../workflow-ops.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -93,7 +94,8 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         theme: a.host?.theme ?? null,
         installed: a.availability === 'hostable' ? installedSource(a, deps.env) : null,
         receipts: p ? receiptsOf(a.id, req, p.root) : [],
-        operations: HOST_OPERATIONS[a.id] ?? [],
+        // the host's own routes for the app, and the Workspace's operations that dispatch to its jobs (src/companion/workflow-ops.ts)
+        operations: [...(HOST_OPERATIONS[a.id] ?? []), ...OPERATIONS.filter((o) => o.app === a.id).map((o) => ({ id: o.id, label: o.label, where: ['canvas' as const], how: `a Workspace operation node (${o.adapter})` }))],
       };
     });
   };

@@ -24,6 +24,8 @@ import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery
 import { ActionFace } from '../rive.jsx';
 import { ASSET_STORE, ImportMenu } from './canvas-import.jsx';
 import { DISPLAY_SHAPE, createDisplayUtil } from './display-node.jsx';
+import { OP_SHAPE, addOperationNode, createOpUtil, operations } from './op-node.jsx';
+import { useCatalog } from '../catalog.jsx';
 import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
@@ -86,8 +88,8 @@ export function focusShape(editor, id) {
   editor.select(id);
   const b = editor.getShapePageBounds(id);
   if (!b) return;
-  // after the inspector has opened under the stage (a resize re-holds the camera), the card fills the stage's width
-  const go = () => { const vp = editor.getViewportScreenBounds(); editor.zoomToBounds(b, { inset: 16, targetZoom: Math.min(2, Math.max(0.25, (vp.w - 32) / b.w)), animation: { duration: quick() } }); };
+  // after the inspector has opened under the stage (a resize re-holds the camera), the whole card fits the stage, clear of its floating tools and note (80 px above and below)
+  const go = () => { const vp = editor.getViewportScreenBounds(); editor.zoomToBounds(b, { inset: 16, targetZoom: Math.min(2, Math.max(0.25, Math.min((vp.w - 32) / b.w, (vp.h - 160) / b.h))), animation: { duration: quick() } }); };
   requestAnimationFrame(() => requestAnimationFrame(go));
 }
 export function fitDesk(editor, animate = true) {
@@ -167,7 +169,9 @@ let current = null;
 const rive = createRiveShape({ React, BaseBoxShapeUtil, HTMLContainer, T, useValue, resizeBox, createShapeId, editor: () => current });
 const license = createLicenseReadout({ react });
 const DisplayUtil = createDisplayUtil(() => current);
-const SHAPE_UTILS = [rive.util, DeskCardUtil, DisplayUtil];
+let currentBoard = 'desk';
+const OpUtil = createOpUtil(() => current, () => currentBoard, (editor, id) => focusShape(editor, id));
+const SHAPE_UTILS = [rive.util, DeskCardUtil, DisplayUtil, OpUtil];
 const OVERRIDES = { actions: (_e, actions) => { const { 'toggle-dark-mode': _d, ...kept } = actions; return kept; } };
 const cssVar = (name, fallback) => { try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; } catch { return fallback; } };
 
@@ -192,7 +196,7 @@ function DeskEdge() {
 /** tldraw's style panel only while the person draws (a card or a Rive shape has no style of its own). */
 function StylePanel(props) {
   const editor = useEditor();
-  const shown = useValue('timmy desk: style panel', () => !['select', 'hand'].includes(editor.getCurrentToolId()) || editor.getSelectedShapes().some((x) => x.type !== CARD_SHAPE && x.type !== RIVE_SHAPE && x.type !== DISPLAY_SHAPE), [editor]);
+  const shown = useValue('timmy desk: style panel', () => !['select', 'hand'].includes(editor.getCurrentToolId()) || editor.getSelectedShapes().some((x) => x.type !== CARD_SHAPE && x.type !== RIVE_SHAPE && x.type !== DISPLAY_SHAPE && x.type !== OP_SHAPE), [editor]);
   return shown ? <DefaultStylePanel {...props} /> : null;
 }
 const COMPONENTS = {
@@ -494,13 +498,16 @@ const Board = memo(function Board({ licenseKey, start, onKept, onEditor, board =
         else if (!opened) onKept({ phase: 'failed', words: 'the saved desk could not be opened here.' });
         const onResize = () => holdDesk(editor);
         editor.on('resize', onResize);
+        // a node made anywhere (an operation, its results, an agent's edit) grows the desk the camera is held on, once a frame
+        let growing = 0;
+        const stopGrow = editor.sideEffects.registerAfterCreateHandler('shape', () => { if (!growing) growing = requestAnimationFrame(() => { growing = 0; holdDesk(editor); }); });
         const stopLicense = license.watch(editor, (r) => setLicense(r));
         onEditor(editor);
         // a host operation's result sent here from Tools & integrations: a note on the desk (kept with it), selected
         const pending = keeper ? takeCanvasNote() : null;
         if (pending) placeNote(editor, pending.text);
         const mine = keeper;
-        return () => { editor.off('resize', onResize); stopLicense(); if (mine) mine.stop(); if (keeper === mine) keeper = null; if (current === editor) current = null; onEditor(null); };
+        return () => { editor.off('resize', onResize); stopGrow(); if (growing) cancelAnimationFrame(growing); stopLicense(); if (mine) mine.stop(); if (keeper === mine) keeper = null; if (current === editor) current = null; onEditor(null); };
       }}
     />
   );
@@ -587,6 +594,35 @@ function BoardMenu({ boards, board, onOpen, onChanged }) {
   );
 }
 
+/**
+ * The operations a node can run, from the ONE integration catalog (GET /api/catalog): each hosted app's Workspace
+ * operations, callable or not — one that cannot run here is listed with its precise reason, never as a working button.
+ */
+function OpPicker({ editor }) {
+  const { answer } = useCatalog();
+  const [specs, setSpecs] = useState([]);
+  useEffect(() => { operations().then(setSpecs); }, []);
+  const entries = answer && answer.ok ? answer.catalog.entries.filter((e) => e.kind === 'app' && e.operations.some((o) => o.where.includes('canvas'))) : [];
+  return (
+    <MenuButton label="Operations" glyph="⚙" title="Add an operation node" menuLabel="Add an operation node" buttonClass="ta-tool" disabled={!editor} data={{ 'data-menu': 'operations', 'data-tool': 'Operations' }}>
+      {(close) => (
+        <>
+          {!answer ? <p className="ta-menu-note">Reading the catalog…</p> : !entries.length ? <p className="ta-menu-note">No hosted app offers a Workspace operation here.</p> : entries.map((e) => (
+            <MenuGroup key={e.id} label={e.name}>
+              {e.operations.filter((o) => o.where.includes('canvas')).map((o) => {
+                const spec = specs.find((x) => x.id === o.id);
+                const why = e.states.installed.ok !== true ? e.states.installed.words : !spec ? 'not offered by this companion' : null;
+                return <MenuItem key={o.id} close={close} disabled={Boolean(why)} hint={why || (spec && spec.heavy ? `It ${spec.heavy}.` : spec ? spec.lead : '')} data={{ 'data-op-pick': o.id, 'data-op-available': why ? 'no' : 'yes' }} onSelect={() => { const id = addOperationNode(editor, spec); focusShape(editor, id); }}>{o.label}</MenuItem>;
+              })}
+            </MenuGroup>
+          ))}
+          <MenuGroup label="Everything"><MenuItem close={close} onSelect={() => goTo('tools')} data={{ 'data-act': 'catalog' }} hint="every integration, in six facts">The integration catalog…</MenuItem></MenuGroup>
+        </>
+      )}
+    </MenuButton>
+  );
+}
+
 function DeskTools({ editor }) {
   const tool = useValue('timmy desk: tool', () => (editor ? editor.getCurrentToolId() : 'select'), [editor]);
   const zoom = useValue('timmy desk: zoom', () => (editor ? editor.getZoomLevel() : 1), [editor]);
@@ -600,6 +636,7 @@ function DeskTools({ editor }) {
       <Tool glyph="⌖" label="Arrange" pressed={tool === 'select'} onClick={off ? null : () => set('select')} />
       <Tool glyph="✋" label="Hand" pressed={tool === 'hand'} onClick={off ? null : () => set('hand')} />
       <NodesMenu editor={editor} />
+      <OpPicker editor={editor} />
       <ImportMenu editor={editor} place={editor ? (w, h) => placeFor(editor, w, h) : null} focus={focusShape} hold={holdDesk} />
       <Tool glyph="✎" label="Draw" pressed={tool === 'draw'} onClick={off ? null : () => set('draw')} />
       <Tool glyph="↗" label="Connect" pressed={tool === 'arrow'} onClick={off ? null : () => set('arrow')} />
@@ -873,6 +910,7 @@ export default function CanvasPage() {
   // a board kept in this browser that the project no longer has (another principal's, a removed one): the desk
   useEffect(() => { if (boards && boards.ok && !boards.boards.some((b) => b.id === board)) setBoard(FIRST_BOARD); }, [boards, board]);
   const openBoard = (id) => { if (keeper) keeper.now(); keepBoard(deskKey, id); setBoard(id); };
+  currentBoard = board;
   // the project's desk, read before the board opens (again after Reload, when another window saved it first)
   useEffect(() => {
     if (!ready) return undefined;
