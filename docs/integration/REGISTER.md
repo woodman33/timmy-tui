@@ -551,3 +551,73 @@ the operator's home folder, which a restart does not clear; one Blender job, Ani
   live job not exercised; Stream Studio's theme trust stays with its owner; Card Lab's identity on a real card (A7);
   `g-browser` G6 (panning) flaky, 2 failures across several runs, 3/3 alone.
 - **Decision for the operator:** Glacier keeps amber focus and selection (`#FFB000`) as DESIGN.md's contract says.
+
+## The spatial tools order (2026-10-27, 23:40 PT): Brush, KIRI and gsplat in the unified Workspace
+
+Checklist section K. Owners: the host integration (catalog, jobs, canvas, Model Studio's splat menu) is this pass's, on
+r13/integration; the spatial tools package (2026-10-27) is its owner's and was only read (its scripts, manifests and
+fixture hashed `4589aafc37201604` before and after every Mac run); 3D Model Studio stays its owner's at 8266c20a (no
+splat renderer there, so none was reused); Brush 0.3.0, KIRI 5.1.0, gsplat 1.5.3, Blender 5.2.3 LTS and Spark 2.3.1 are
+upstream. Reconciled from 3b4fb885 (nothing newer on the branch from other owners).
+
+| Revision | What | Checks |
+|---|---|---|
+| fa8e0283 | the three tools in the shared catalog; `SpatialExecutor` on the existing job manager (own process group per job, SIGTERM then SIGKILL, stage words as progress, one canonical receipt, recovery from the record); three Workspace operations; import from this computer; the splat display node (Spark in the existing Three.js viewport); Model Studio's splat menu | `tests/spatial-jobs.test.ts`, `tests/timmy-app-splat-browser.test.ts` (FAKE Brush, FAKE Blender) |
+| 9c5c7ffd | KIRI completes only when its export matches the original file's kept rows (an independent compare, no Blender) | unit |
+| 79f8a896 | Spark as a devDependency, bundled into the app (no 17 MB runtime install); `app.js` 3.1 → 5.8 MB | build |
+| 4b5c80d2 | the renderer gets the Gaussian columns only: KIRI's export drew 4 Gaussians as 5 pixels | browser lit-pixel check; negative control: the old code fails it (0 lit) |
+
+Policy note: AGENTS.md §9 says new spatial work begins through `docs/WORKFLOW-BENCHMARK.md`, which is not in this
+checkout. This order is tool integration (catalog, jobs, display), not spatial benchmark or model work, and the operator's
+explicit order takes precedence (AGENTS.md §3); no benchmark, corpus or model claim is made.
+
+**Blender, diagnosed apart from KIRI (native, fixture only).** The package's fixture run exited -11 in 0.68 s; Blender's
+crash log faults in `MTLBackend::metal_is_supported` → `supports_barycentric_whitelist` → `strstr`, before any Python:
+a process that sees no Metal device. From the user session Blender 5.2.3 starts. Then the retained check, on the
+package's 8-Gaussian SYNTHETIC FIXTURE (keep `x ≤ 0`):
+- the package's own worker: failed with a TypeError (a name collision in its `stage()`); kept raw, the package not edited;
+- Timmy's worker (`workers/spatial/kiri_worker.py`, the fix): import 8 → crop 4 → native `.blend` saved and reopened →
+  raw Gaussian PLY exported and reimported; every field compared at each step, max difference 0; the independent
+  compare against the original file: coordinates exact, scale within 5.6e-8. Native artifacts kept on the Mac:
+  `edited.blend`, `edited.ply`, `result.json`, `independent-compare.json`, stdout and stderr. The export adds
+  red/green/blue/alpha and Col_* columns and drops the fixture's comment (Timmy keeps "fixture" in its receipt).
+
+The Mac runs (each a fresh folder from the package; launch check; then the spatial journey `sp-demo` in the candidate's
+sandbox home; one Blender job at a time; no training, no model, no spend):
+
+| Candidate | Package sha256 | Result | Found |
+|---|---|---|---|
+| 79f8a89 | `4558d0b6…ab03b1` | 14 of 14 checks passed | the edited splat's count was checked but not its picture; the capture showed it near-empty → 4b5c80d2 |
+| **4b5c80d** | `8c8e62362881f2fe19a3217139838701bc456e1db0ebc00a9aa8d05a2fc61322` | **14 of 14 checks passed** | — |
+
+- **4b5c80d on the Mac** (revision 4b5c80d2, branch r13/integration, not dirty):
+  - launch check exit 0, "Timmy app stopped."; the census clean; Blender processes left 0; the home store 53 lines,
+    `4410dc0ae942ca6c`, before and after; the spatial tools folder `4589aafc37201604` before and after;
+  - S1 the catalog: Brush and KIRI installed and callable, gsplat not installed and not callable; `verified` empty
+    before any run (a present executable is not a qualification);
+  - S2 3D Model Studio's "Gaussian splats" menu: KIRI and Brush offered, gsplat disabled with its reason;
+  - S3 the package's SYNTHETIC FIXTURE imported from this computer (import receipt `bc1bd540`), drawn by Spark (5,576
+    lit pixels), its facts from the file: 8 Gaussians, centres −0.4 to 0.4, opacity 0.880797;
+  - S4 **live**: "Crop with KIRI…" placed the operation beside the splat, input connected, keep `x ≤ 0`; Run: Blender
+    5.2.3 + KIRI 5.1.0 as a Timmy job `w29d5351ebec3` (not run → queued → running → completed): "Blender exit 0; KIRI
+    worker: success, 3/3 value checks; the export matches the original file's kept rows (4)"; six delivered files
+    (`edited.blend`, `edited.ply`, `result.json`, `job.log`, `request.json`, `independent-check.json`) read back 6/6;
+    one spatial receipt `dab665ce`; the edited splat drawn (4 Gaussians, 17,265 lit pixels);
+  - S5 **live Cancel**: a second KIRI job `w6304cb99553a` cancelled: "cancelled (signal SIGTERM; process group gone)";
+  - S6 saved and reopened in a fresh browser (2 splats, the node and its results); another project has none of it;
+  - S7 gsplat refused before anything started: 409, `setup`, "awaiting a powered NVIDIA worker"; **not a run**;
+  - S8 Glacier and Amber at 1440 × 900 and 390 × 844 (canvas, Model Studio): nothing wider than the screen; a
+    recording `sp-demo.mp4` (674 frames, pauses over 3 s cut to 3 s).
+- **Live vs FAKE:** live on the Mac: Blender 5.2.3, KIRI 5.1.0, Spark, tldraw's licence, the job manager and receipts.
+  FAKE (tests only, labelled): Brush and Blender in `tests/fixtures/fake-spatial-tools.ts`.
+- **Fixture, not real data:** every splat here is the package's 8-Gaussian synthetic fixture. A splat is an appearance
+  reconstruction: not measured geometry, a watertight mesh or verified CAD.
+- **Blockers kept, not passes:** Brush: reconstruction, the GPU, mid-training Cancel and resume not exercised (no posed
+  dataset; no training started); gsplat: not installed on an NVIDIA worker (the Sparks are unplugged; not probed);
+  KIRI: only the bounded raw-PLY route (no KIRI render, relighting or its own export presets); Blender crashes where no
+  Metal device is visible (a sandboxed process), so KIRI jobs run from the user session; the export drops the fixture
+  comment; `app.js` grows by 2.7 MB with Spark. Earlier blockers unchanged (OpenHands image, Stream Studio theme trust,
+  A7, G6).
+- **Follow-up candidates (not in this checkpoint):** CloudCompare, napari, Polyscope.
+- **Full suite on 4b5c80d2:** running when this entry was written; its result is recorded in the next commit. The
+  79f8a896 run was stopped part-way (the worktree changed under it), so no result is claimed for it.

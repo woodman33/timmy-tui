@@ -181,6 +181,21 @@ the same validated operations, one integration catalog, and the Control Room's t
 | J8 | Evidence policy | handles as enums for the run and source revision; empty means unknown or a refusal; Agent Archive disabled | the plan's names are enums of the board as saved (sha256 source revision); resolving a cited handle is the observation (the model's endpoint has no tools, so there is no cite tool call); an empty plan is the model's own "nothing to do". Agent Archive stays disabled |
 | J9 | One identified installed candidate | the demonstration on the Mac, captures at 1440 × 900 and 390 × 844 in both themes, a recording, the full suite | **candidate 3b4fb88** (see the register): 17 of 18 checks passed, U5 Cancel not exercised live; launch 7/7; home store unchanged; full suite 6,533 passed, 1 failed (G6 panning, flaky; 5/5 alone twice) — **closed with blockers** |
 
+## K. The spatial tools order (2026-10-27, 23:40 PT): Brush, KIRI and gsplat in the unified Workspace
+
+The prepared spatial tools package (another owner's, read and never written) brought into the existing catalog, durable
+jobs, operation nodes, 3D Model Studio and the licensed tldraw canvas. No new scheduler, receipt store, login or MCP server.
+
+| # | Item | Closes when | Status |
+|---|---|---|---|
+| K1 | The three tools in the shared catalog | operations, executable paths, readiness and precise blockers; a present file is never "qualified" | **closed** in fa8e0283: Brush 0.3.0 and KIRI 5.1.0 "installed, callable here"; gsplat 1.5.3 not installed, not callable ("awaiting a powered NVIDIA worker"). `verified` comes only from this project's spatial receipts and says "synthetic fixture only" when that is all there is. Mac S1 |
+| K2 | Timmy's own jobs and operation bridge | job identity, progress, cancellation to the native process group, output collection, recovery, one canonical receipt, current-result fencing; Brush's terminal output, KIRI's execution report and gsplat's NDJSON adapted, never fed to the vision parser | **closed** in fa8e0283 and 9c5c7ffd: KIRI completes only on Blender exit 0, the worker's success, its 3 value checks, a Gaussian export, a native .blend **and** an independent compare against the original file; Brush only when its export parses as Gaussian; gsplat refused 409 before anything starts. `tests/spatial-jobs.test.ts` (FAKE tools). Mac S4, S5 (live Cancel: SIGTERM, process group gone), S7 |
+| K3 | Blender's startup failure, diagnosed apart from KIRI | the bounded fixture check: import → crop → native .blend save/reopen → Gaussian PLY export/reimport, values and coordinates compared | **closed for the fixture**: the crash is Metal device discovery (`MTLBackend::metal_is_supported`) in a process with no Metal device; Blender 5.2.3 starts from the user session. KIRI fixture run: 8 → 4 kept, max difference 0 on every field at each step; independent compare ok. The package's own worker failed (TypeError, kept raw); Timmy's worker carries the fix. **Fixture only** |
+| K4 | Splats in 3D Model Studio and on the canvas | the supported operations in Model Studio's menu and the canvas; Spark inside the existing Three.js viewport; original Gaussian data kept; appearance, not measured geometry | **closed** in fa8e0283, 79f8a896, 4b5c80d2: Spark 2.3.1 (MIT, exact pin) draws the splat; its facts come from the file; "centres (exact)" view. 4b5c80d2 fixes a picture the 79f8a89 run counted but did not check: KIRI's extra red/green/blue/alpha columns drew 4 Gaussians as 5 pixels (now ~14,500; negative control fails the old code). Mac S2, S3, S8 |
+| K5 | One bounded Mac journey | import a synthetic splat, show it, crop/export with KIRI, save/reopen, the job, outputs and receipt; gsplat visibly awaiting an NVIDIA worker | **candidate 4b5c80d: 14 of 14 checks passed** (see the register), on the synthetic fixture only; the full suite on 4b5c80d2: running at this commit, recorded in the next |
+
+Follow-up candidates, not in this checkpoint: CloudCompare, napari, Polyscope.
+
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
 Each was found during this pass. None is needed for an acceptance criterion above.
