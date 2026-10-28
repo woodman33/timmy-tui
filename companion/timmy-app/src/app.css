@@ -846,3 +846,7 @@ html:root {
    page's scrollIntoView) can never scroll the stage itself sideways, which would shift every layer on it */
 .ta-stage { overflow: clip; }
 @media (max-width: 900px) { .ta-stage.is-page { overflow: visible; } .ta-stage.is-page > .tl-container { overflow: clip; } }
+/* a phone: the stage is a flex column, and a flex item's z-index applies even when it is static, so the layers' and the tool
+   bar's z-index (400, for the desktop's overlay) painted them over the rail's drawer (100) and took its taps. In the column
+   they are page content: no z-index of their own (found on the Mac at c0c9161) */
+@media (max-width: 900px) { .ta-stage.is-page > .ta-layer, .ta-stage.is-page > .ta-floatbar, .ta-stage.is-page > .ta-stage-note { z-index: auto; } }
