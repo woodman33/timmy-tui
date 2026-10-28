@@ -79,7 +79,7 @@ function EntryRow({ e, states, pick, pickLabel }) {
         </span>
         {canPick ? <button type="button" className="ta-btn ta-btn-quiet tx-cat-pick" data-action="catalog-pick" onClick={() => pick(e, true)}>{pickLabel || 'Use'}</button> : null}
       </div>
-      {e.setup ? <p className="tx-cat-setup" data-setup>{e.metadataOnly ? '' : 'Setup: '}{e.setup}</p> : null}
+      {e.setup ? <p className="tx-cat-setup" data-setup>{e.metadataOnly ? '' : e.states.callable.ok === true ? 'Next: ' : 'Setup: '}{e.setup}</p> : null}
       <details className="ta-details">
         <summary>Details · <code>{e.id}</code></summary>
         <EntryFacts e={e} states={states} />
