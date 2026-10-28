@@ -619,5 +619,5 @@ sandbox home; one Blender job at a time; no training, no model, no spend):
   comment; `app.js` grows by 2.7 MB with Spark. Earlier blockers unchanged (OpenHands image, Stream Studio theme trust,
   A7, G6).
 - **Follow-up candidates (not in this checkpoint):** CloudCompare, napari, Polyscope.
-- **Full suite on 4b5c80d2:** running when this entry was written; its result is recorded in the next commit. The
-  79f8a896 run was stopped part-way (the worktree changed under it), so no result is claimed for it.
+- **Full suite on 4b5c80d2:** 807 of 823 files passed, 16 skipped; 6,545 tests passed, 137 skipped, **0 failed**
+  (exit 0, 3,332 s). The 79f8a896 run was stopped part-way (the worktree changed under it), so no result is claimed for it.
