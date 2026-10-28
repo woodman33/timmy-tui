@@ -12,3 +12,20 @@
   .ta-miniapp-where { display: none; }
   .ta-miniapp-bar .ta-btn { min-height: 40px; }
 }
+/* The operator's canvas correction (2026-10-28): an open app's work fills the window. One shared sizing rule for every hosted
+   app: no page padding around the frame, a 40px bar (the project word folds away; it is in the breadcrumb), no minimum height
+   that forces the frame past the window, and the host footer folded away while an app is open (the records strip stays). */
+.ta-page.is-fill:has(> .ta-miniapp[data-miniapp-state="open"]), .ta-page.is-fill:has(.ta-miniapp[data-miniapp-state="open"]) { padding: 0; gap: 0; min-height: 0; }
+.ta-page.is-fill:has(.ta-miniapp[data-miniapp-state="open"]) .ta-body { min-height: 0; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { height: 40px; box-sizing: border-box; gap: 8px; padding: 0 10px; flex: none; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { min-height: 30px; padding-block: 0; font-size: 12px; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-name { font-size: 13px; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-where { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* read aloud, not drawn */
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-frame { min-height: 0; }
+.ta-main:has(.ta-miniapp[data-miniapp-state="open"]) .ta-footer { display: none; }
+@media (max-width: 760px), (pointer: coarse) {
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { height: auto; min-height: 52px; padding: 4px 8px; flex-wrap: nowrap; overflow-x: auto; }
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { min-height: 44px; white-space: nowrap; }
+}
+/* a phone page scrolls as a column: the frame takes the window below the bars, never a fixed 70vh box */
+@media (max-width: 760px) { .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-frame { min-height: 0; height: calc(100dvh - var(--ta-phone-chrome, 150px)); } }
