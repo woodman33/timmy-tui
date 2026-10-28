@@ -98,6 +98,20 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     });
   };
   host.listing = (req) => (project(req as express.Request) ? listing(req as express.Request) : null);
+  host.appFor = async (r, appId) => {
+    const req = r as express.Request;
+    const spec = miniAppOf(appId);
+    if (!spec) return { error: 'No such mini-app.', status: 404 };
+    const problem = hostProblem(spec, deps.env);
+    if (problem) return { error: problem, status: 409 };
+    const p = project(req);
+    if (!p) return { error: APPS_NO_PROJECT, status: 404 };
+    if (!p.env.TIMMY_HOME) return { error: 'This principal has no Timmy home to keep the app’s data in.', status: 500 };
+    const self = typeof req.headers.host === 'string' && HOST.test(req.headers.host) ? req.headers.host : null;
+    if (!self) return { error: 'Mini-apps open only on this computer’s address.', status: 403 };
+    try { return await ensureFor(spec, req, p, self.split(':')[1]); } catch (e) { return { error: e instanceof Error ? e.message : String(e), status: 502 }; }
+  };
+  host.runningFor = (r, appId) => { const req = r as express.Request; const p = project(req); return p ? host.get(keyOf(appId, req, p.root)) ?? null : null; };
 
   app.get('/api/apps', ...guards, (req, res) => {
     const p = project(req);
@@ -213,7 +227,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
 }
 
 /** A regular file inside the project, read whole (at most 64 MiB), its path relative to the project; never outside it. */
-function projectFile(root: string, given: string): { ok: true; rel: string; bytes: Buffer; sha256: string } | { ok: false; status: number; error: string } {
+export function projectFile(root: string, given: string): { ok: true; rel: string; bytes: Buffer; sha256: string } | { ok: false; status: number; error: string } {
   const rel = given.replace(/^\/+/, '');
   if (!rel || rel.split(/[\\/]/).includes('..')) return { ok: false, status: 400, error: 'Name a file of the project by its path in it.' };
   let real: string; let base: string;

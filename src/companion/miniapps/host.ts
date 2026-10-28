@@ -348,6 +348,10 @@ export function principalKey(user: { id?: unknown; operator?: boolean } | undefi
 export class MiniAppHost {
   /** the apps as GET /api/apps lists them for a request's principal and project (set by mountMiniApps; the catalog reads it) */
   listing: ((req: unknown) => import('../../capabilities/catalog.js').AppListingRow[] | null) | null = null;
+  /** the request's principal's copy of an app, started when it is not running (set by mountMiniApps; the Workspace's operations use it) */
+  appFor: ((req: unknown, appId: string) => Promise<HostedApp | { error: string; status: number }>) | null = null;
+  /** the request's principal's copy of an app when it is running now, else null (never starts one) */
+  runningFor: ((req: unknown, appId: string) => HostedApp | null) | null = null;
   private apps = new Map<string, HostedApp>();
   private starting = new Map<string, Promise<HostedApp>>();
 

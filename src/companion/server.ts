@@ -148,7 +148,8 @@ import { connectSrcFor } from './identity/config.js';
 // R11 round 4 (H171, the wiring): a user's own project and env for a request or a socket hello that carries a session
 // (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
 import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
-import { mountMiniApps } from './miniapps/routes.js';
+import { mountMiniApps, projectFile } from './miniapps/routes.js';
+import { mountWorkflowOps } from './workflow-ops.js';
 import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
 import { mountCatalog } from './catalog-route.js';
 import { ConnectorOps, mountConnectorOps, tregState, type ConnectorDeps } from './connector-ops.js';
@@ -937,6 +938,22 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       return { principal: own ? `user:${u.id}` : 'operator', operator: !own, project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
     },
   });
+  // The unified Workspace order (2026-10-27): the Workspace's executable operations (src/companion/workflow-ops.ts), each
+  // validated, then dispatched to the app's own durable job through the mini-app host above; followed, cancelled, recovered
+  const workflowRunner = mountWorkflowOps(app, {
+    withToken, withUser: withUserOrOperator,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...(options.workspace?.env ?? process.env) };
+      return { principal: own ? `user:${u.id}` : 'operator', home: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env), project: { name: p.name, root: p.root } };
+    },
+    appFor: (req, appId) => (miniApps.appFor ? miniApps.appFor(req, appId) : Promise.resolve({ error: 'The mini-app host is not running.', status: 503 })),
+    runningApp: (req, appId) => (miniApps.runningFor ? miniApps.runningFor(req, appId) : null),
+    readFile: (root, rel) => { const f = projectFile(root, rel); return f.ok ? f : { ok: false, error: f.error }; },
+  });
   // The unified Workspace order (2026-10-27): the one integration catalog (src/capabilities/catalog.ts) for the Integrations
   // page, the Workspace's node picker and the Control Room: every registry's entries, each fact from its own source
   mountCatalog(app, {
@@ -1147,6 +1164,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         // R4 (H84): a chat still streaming ends with the server
         httpServer.closeAllConnections();
       });
+      workflowRunner.stopAll();
       await miniApps.stopAll();
       await Promise.all([controlRuns.stopAll(), connectorOps.stopAll()]);
       await noteSelf('stopped');
