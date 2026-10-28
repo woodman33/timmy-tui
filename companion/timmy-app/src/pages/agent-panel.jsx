@@ -38,7 +38,7 @@ export function AgentLayer({ editor, board, settle }) {
   const [harness, setHarness] = useState(null);
   const [goal, setGoal] = useState('');
   const [mode, setMode] = useState('plan');
-  const [budget, setBudget] = useState({ steps: 8, runs: 1, rounds: 2 });
+  const [budget, setBudget] = useState({ steps: 8, runs: 1, rounds: 3 });
   const [phase, setPhase] = useState('idle'); // idle · asking · proposed · applying · waiting · done · stopped · refused
   const [plan, setPlan] = useState(null);
   const [words, setWords] = useState('');

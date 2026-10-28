@@ -267,8 +267,11 @@ export interface WorkflowDeps {
 
 export class WorkflowRunner {
   private followers = new Map<string, NodeJS.Timeout>();
+  private collecting = new Set<string>();
   constructor(private readonly everyMs = 700) {}
   following(id: string): boolean { return this.followers.has(id); }
+  /** whether this companion is collecting a completed run's receipts now */
+  isCollecting(id: string): boolean { return this.collecting.has(id); }
   stopAll(): void { for (const t of this.followers.values()) clearInterval(t); this.followers.clear(); }
   follow(scope: WorkflowScope, id: string, app: HostedApp): void {
     if (this.followers.has(id)) return;
@@ -302,6 +305,11 @@ export class WorkflowRunner {
   }
   /** Seals the ended job and records its receipts and delivered files (asked again for up to `ms` until a receipt is in). */
   async collect(scope: WorkflowScope, id: string, app: HostedApp, appId: string, job: string, ms = 15_000): Promise<void> {
+    if (this.collecting.has(id)) return;
+    this.collecting.add(id);
+    try { await this.collectNow(scope, id, app, appId, job, ms); } finally { this.collecting.delete(id); }
+  }
+  private async collectNow(scope: WorkflowScope, id: string, app: HostedApp, appId: string, job: string, ms: number): Promise<void> {
     const end = Date.now() + ms;
     let found = receiptsFor(scope.project.root, appId, job);
     while (!found.ids.length && Date.now() < end) {
@@ -407,8 +415,9 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
   app.get('/api/workflow/runs/:id', ...scoped((req, res, s) => {
     const r = readRun(s.home, s.project.root, String(req.params.id));
     if (!r || r.principal !== s.principal) { res.status(404).json({ ok: false, error: 'No such run in this project.' }); return; }
-    // a run that is not terminal and that no follower here follows was left by an earlier companion: interrupted, Recover reads it again
-    const left = !TERMINAL.has(r.state) && !runner.following(r.id);
+    // a run that is not terminal and that no follower here follows was left by an earlier companion: interrupted, Recover reads it
+    // again; so is a completed run whose receipts no collection here is reading (the companion stopped while it collected)
+    const left = (!TERMINAL.has(r.state) && !runner.following(r.id)) || (r.state === 'completed' && Boolean(r.job) && !r.collected && !runner.isCollecting(r.id));
     res.json({ ok: true, run: { ...view(s, r), ...(left ? { left: true } : {}) } });
   }));
   app.post('/api/workflow/runs/:id/cancel', ...scoped(async (req, res, s) => {
@@ -425,6 +434,14 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
   app.post('/api/workflow/runs/:id/recover', ...scoped(async (req, res, s) => {
     const r = readRun(s.home, s.project.root, String(req.params.id));
     if (!r || r.principal !== s.principal) { res.status(404).json({ ok: false, error: 'No such run in this project.' }); return; }
+    // a completed run left uncollected: the app opened again (its watcher seals what its record says ended), its receipts read
+    if (r.state === 'completed' && r.job && !r.collected) {
+      const hosted = await deps.appFor(req, r.app);
+      if ('error' in hosted) { res.status(hosted.status).json({ ok: false, error: hosted.error }); return; }
+      void runner.collect(s, r.id, hosted, r.app, r.job);
+      res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) });
+      return;
+    }
     if (TERMINAL.has(r.state)) { res.json({ ok: true, run: view(s, r) }); return; }
     if (!r.job) { write(s.home, s.project.root, { ...r, state: 'interrupted', error: 'The app never answered with a job id.', endedAt: new Date().toISOString() }); res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) }); return; }
     // the app is opened (its record of the job survives a restart of Timmy): its own word for the job is read again

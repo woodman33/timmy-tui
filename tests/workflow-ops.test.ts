@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { readRun } from '../src/companion/workflow-ops.js';
+import { projectId } from '../src/project/index.js';
 
 const STREAM = fileURLToPath(new URL('./fixtures/fake-stream-studio', import.meta.url));
 const ANIMATE = fileURLToPath(new URL('./fixtures/fake-jobs-app', import.meta.url));
@@ -144,4 +145,21 @@ describe('Workspace operations: validated, dispatched to the app’s own job, fo
     if (end.state === 'interrupted') expect(end.error).toMatch(/no longer knows this job|restart/);
     expect(existsSync(join(env.TIMMY_HOME!, 'workflow'))).toBe(true);
   }, 90_000);
+
+  it('a completed run whose collection a stopped companion cut short is left; Recover reads its receipts again (found on the Mac at ea4fba0)', async () => {
+    const r = (await api('POST', '/api/workflow/runs', { op: 'stream-studio.animate-image', inputs: { image: 'from-apps/card-lab/c1/card.png' }, board: 'desk', node: 'shape:cut' })).json.run;
+    const done = await until(r.id, (x) => x.terminal && x.collected);
+    expect(done.collected).toBe('sealed');
+    // as a companion stopped mid-collection leaves it: completed, nothing collected
+    const file = join(env.TIMMY_HOME!, 'workflow', projectId(root), 'runs', `${r.id}.json`);
+    const rec = JSON.parse(readFileSync(file, 'utf8'));
+    delete rec.collected; delete rec.readback; rec.receipts = []; rec.outputs = [];
+    writeFileSync(file, JSON.stringify(rec));
+    const seen = (await api('GET', `/api/workflow/runs/${r.id}`)).json.run;
+    expect(seen).toMatchObject({ state: 'completed', left: true });
+    expect((await api('POST', `/api/workflow/runs/${r.id}/recover`)).status).toBe(200);
+    const back = await until(r.id, (x) => Boolean(x.collected));
+    expect(back).toMatchObject({ collected: 'sealed', readback: { matched: 2, checked: 2 } });
+    expect(back.left).toBeUndefined();
+  }, 60_000);
 });

@@ -44,7 +44,7 @@ type Env = Record<string, string | undefined>;
 export const PLAN_SCHEMA = 'timmy.canvas-agent-plan/1' as const;
 export const MODES = ['plan', 'run', 'autopilot'] as const;
 export type Mode = (typeof MODES)[number];
-export const DEFAULT_BUDGET = Object.freeze({ steps: 8, runs: 1, rounds: 2 });
+export const DEFAULT_BUDGET = Object.freeze({ steps: 8, runs: 1, rounds: 3 });
 const PLAN_ID = /^p[0-9a-f]{12}$/;
 const REF = /^n[1-9]$/;
 const MAX_HANDLES = 40;
@@ -167,7 +167,7 @@ export function planPrompt(o: { goal: string; ops: readonly OperationSpec[]; una
   const system = [
     'You edit a Timmy Workspace board: a canvas of files and executable operation nodes. You answer with JSON only, in the given schema.',
     'Steps: {"do":"add","ref":"n1","operation":<id>,"params":{…}} adds an operation node with the parameters the goal asks for (leave out the rest: they keep their defaults); {"do":"connect","node":<ref or operation node>,"port":<port>,"from":<file node>} connects a file on the board to one of its input ports; {"do":"set","node":…,"param":<name>,"value":…} sets a parameter; {"do":"run","node":…} runs it.',
-    'Name only what is listed. A file can feed a port only when its extension is one the port accepts. List in "cites" every node you name. Use at most the step and run budget. If the goal cannot be done with what is listed, give no steps and say why in "say". Set "done" true when the board already does what the goal asks.',
+    'Name only what is listed. A file can feed a port only when its extension is one the port accepts. Every board node a step names (a shape:… id) must also be listed in "cites"; a node you add is named by its ref (n1…) and is not cited. Use at most the step and run budget. If the goal cannot be done with what is listed, give no steps and say why in "say". Set "done" true when the board already does what the goal asks.',
   ].join('\n');
   const opLines = o.ops.map((op) => `- ${op.id}: ${op.label}. Inputs: ${op.inputs.map((p) => `${p.name} (${p.accepts.map((x) => `.${x}`).join(' ')})`).join(', ') || 'none'}. Parameters: ${op.params.map((p) => `${p.kind === 'choice' ? `${p.name} one of ${p.choices!.join('/')}` : p.kind === 'number' ? `${p.name} a whole number ${p.min}–${p.max}` : `${p.name} text`} (default ${JSON.stringify(p.default)})`).join(', ') || 'none'}.`);
   const handleLines = o.handles.map((h) => (h.kind === 'file' ? `- ${h.id}: file ${h.path} (${h.type})` : `- ${h.id}: operation node ${h.op} "${h.title}"${h.connected && h.connected.length ? `, connected: ${h.connected.join(', ')}` : ', nothing connected'}`));
@@ -316,8 +316,9 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
     const board = typeof b.board === 'string' && b.board ? b.board : 'desk';
     const bud = (b.budget && typeof b.budget === 'object' ? b.budget : {}) as Record<string, unknown>;
     const clampInt = (v: unknown, lo: number, hi: number, d: number) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
-    const budget = { steps: clampInt(bud.steps, 1, 9, DEFAULT_BUDGET.steps), runs: clampInt(bud.runs, 0, 3, DEFAULT_BUDGET.runs), rounds: clampInt(bud.rounds, 1, 4, DEFAULT_BUDGET.rounds) };
     const previous = typeof b.previous === 'string' && PLAN_ID.test(b.previous) ? readPlan(sc.home, sc.project.root, b.previous) : null;
+    // a later round keeps the first round's budget (a request cannot widen it midway)
+    const budget = previous ? { ...previous.budget } : { steps: clampInt(bud.steps, 1, 9, DEFAULT_BUDGET.steps), runs: clampInt(bud.runs, 0, 3, DEFAULT_BUDGET.runs), rounds: clampInt(bud.rounds, 1, 4, DEFAULT_BUDGET.rounds) };
     if (typeof b.previous === 'string' && b.previous && !previous) { no(res, 404, 'No such earlier plan.'); return; }
     const round = previous ? previous.round + 1 : 1;
     if (previous && round > previous.budget.rounds) { no(res, 409, `The budget's ${previous.budget.rounds} rounds are used: the agent stops here.`); return; }
