@@ -112,17 +112,17 @@ describe('spatial tools: catalog rows and Workspace operations as Timmy’s own 
     first = r.json.run.id;
     const done = await until(first, (x) => x.terminal && Boolean(x.collected));
     expect(done).toMatchObject({ state: 'completed', progress: 100, collected: 'sealed', current: true });
-    expect(done.appWord).toMatch(/success, 3\/3 value checks/);
+    expect(done.appWord).toMatch(/success, 3\/3 value checks; the export matches the original file's kept rows \(1\)/);
     const names = (done.outputs as Array<{ path: string }>).map((o) => o.path.split('/').pop()).sort();
-    expect(names).toEqual(['edited.blend', 'edited.ply', 'job.log', 'request.json', 'result.json']);
+    expect(names).toEqual(['edited.blend', 'edited.ply', 'independent-check.json', 'job.log', 'request.json', 'result.json']);
     expect(done.outputs.every((o: { path: string }) => o.path.startsWith(`from-apps/spatial/${first}/`))).toBe(true);
-    expect(done.readback).toMatchObject({ checked: 5, matched: 5, missing: [], mismatched: [] });
+    expect(done.readback).toMatchObject({ checked: 6, matched: 6, missing: [], mismatched: [] });
     // the crop kept the x ≤ 0 Gaussian only (the FAKE does what it was asked; the real check runs in Blender on the Mac)
     expect(readFileSync(join(root, `from-apps/spatial/${first}/edited.ply`), 'utf8')).toMatch(/element vertex 1\n/);
     const rc = readChain('runs', root).filter((x) => x.kind === 'spatial');
     expect(rc).toHaveLength(1);
     expect(rc[0]).toMatchObject({ status: 'ok', subject: 'kiri.spatial.kiri-crop-export', job: { id: first, state: 'completed' }, spatial: { tool: 'kiri', version: '5.1.0', fixture: true, run: first, attempt: 1, input: { path: fixture, sha256: sha(FIXTURE_PLY) } } });
-    expect(rc[0].spatial!.checks.map((c) => c.stage)).toEqual(['crop_values_verified', 'native_values_verified', 'export_values_verified']);
+    expect(rc[0].spatial!.checks.map((c) => c.stage)).toEqual(['crop_values_verified', 'native_values_verified', 'export_values_verified', 'independent_original_file_compare']);
     expect(rc[0].spatial!.log_sha256).toMatch(/^[0-9a-f]{64}$/);
     // the catalog now says verified, and that it was the synthetic fixture only
     const kiri = (await api('GET', '/api/catalog')).json.catalog.entries.find((e: { id: string }) => e.id === 'spatial:kiri');
@@ -205,5 +205,19 @@ describe('spatial tools: catalog rows and Workspace operations as Timmy’s own 
     expect(back).toMatchObject({ state: 'completed', collected: 'sealed' });
     expect(readChain('runs', root).filter((x) => x.kind === 'spatial').length).toBe(sealed); // the same receipt, not a new run
     expect(existsSync(join(process.env.TIMMY_HOME!, 'spatial', projectId(root), 'runs', id, 'sealed.json'))).toBe(true);
+  });
+});
+
+describe('the independent check (no Blender): the export against the original file’s kept rows', () => {
+  it('passes on the kept rows in order; fails on a changed value, a lost row or a missing field', async () => {
+    const { compareCrop } = await import('../src/spatial/jobs.js');
+    const keep: [[number, number, number], [number, number, number]] = [[-1e6, -1e6, -1e6], [0, 1e6, 1e6]];
+    const lines = FIXTURE_PLY.split('\n'); const end = lines.indexOf('end_header');
+    const head = lines.slice(0, end + 1).map((l) => (l.startsWith('element vertex') ? 'element vertex 1' : l));
+    const row = lines[end + 1];
+    expect(compareCrop(FIXTURE_PLY, `${head.join('\n')}\n${row}\n`, keep)).toMatchObject({ ok: true, expected: 1, exported: 1 });
+    expect(compareCrop(FIXTURE_PLY, `${head.join('\n')}\n${row.replace(/^-0\.4/, '-0.41')}\n`, keep)).toMatchObject({ ok: false });
+    expect(compareCrop(FIXTURE_PLY, `${head.join('\n')}\n`, keep).why).toMatch(/0 rows exported, 1 expected/);
+    expect(compareCrop(FIXTURE_PLY, FIXTURE_PLY.replace('property float opacity\n', ''), null).ok).toBe(false);
   });
 });

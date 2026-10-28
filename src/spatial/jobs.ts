@@ -64,6 +64,41 @@ export interface SpatialStart {
 }
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
+
+const GAUSSIAN = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
+/** An ASCII PLY's vertex properties and rows (numbers as written), or null when it is not one. */
+export function asciiPlyRows(text: string): { props: string[]; rows: number[][] } | null {
+  const lines = text.split(/\r?\n/); const end = lines.indexOf('end_header');
+  if (end < 0 || !lines.slice(0, end).some((l) => /^format ascii 1\.0/.test(l))) return null;
+  const props = lines.slice(0, end).filter((l) => l.startsWith('property')).map((l) => l.trim().split(/\s+/).pop()!);
+  const rows = lines.slice(end + 1).filter((l) => l.trim()).map((l) => l.trim().split(/\s+/).map(Number));
+  return { props, rows };
+}
+/**
+ * The independent check (no Blender): the exported splat's rows against the ORIGINAL input's rows the crop keeps, in order,
+ * every coordinate and Gaussian field within rtol 1e-5 / atol 1e-6. What KIRI's own reimport check cannot show: that the
+ * import itself kept the file's values.
+ */
+export function compareCrop(input: string, output: string, crop: [[number, number, number], [number, number, number]] | null): { ok: boolean; why?: string; expected: number; exported: number; max_abs_difference: Record<string, number> } {
+  const a = asciiPlyRows(input); const b = asciiPlyRows(output);
+  if (!a || !b) return { ok: false, why: 'both files must be ASCII PLY for this check', expected: 0, exported: 0, max_abs_difference: {} };
+  const ix = ['x', 'y', 'z'].map((k) => a.props.indexOf(k));
+  const keep = a.rows.filter((r) => !crop || ix.every((i, k) => r[i] >= crop[0][k] && r[i] <= crop[1][k]));
+  const worst: Record<string, number> = {};
+  if (keep.length !== b.rows.length) return { ok: false, why: `${b.rows.length} rows exported, ${keep.length} expected`, expected: keep.length, exported: b.rows.length, max_abs_difference: worst };
+  for (const k of GAUSSIAN) {
+    const ia = a.props.indexOf(k); const ib = b.props.indexOf(k);
+    if (ia < 0 || ib < 0) return { ok: false, why: `field ${k} missing`, expected: keep.length, exported: b.rows.length, max_abs_difference: worst };
+    let d = 0;
+    for (let i = 0; i < keep.length; i++) {
+      const diff = Math.abs(keep[i][ia] - b.rows[i][ib]);
+      if (!(diff <= 1e-6 + 1e-5 * Math.abs(keep[i][ia]))) return { ok: false, why: `field ${k} differs at row ${i} by ${diff}`, expected: keep.length, exported: b.rows.length, max_abs_difference: { ...worst, [k]: diff } };
+      d = Math.max(d, diff);
+    }
+    worst[k] = d;
+  }
+  return { ok: true, expected: keep.length, exported: b.rows.length, max_abs_difference: worst };
+}
 const fileSha = (p: string): string | null => { try { return sha(readFileSync(p)); } catch { return null; } };
 const readJson = (p: string): Record<string, unknown> | null => { try { return JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>; } catch { return null; } };
 
@@ -173,11 +208,15 @@ export class SpatialExecutor {
       const ply = join(out, 'edited.ply'); const blend = join(out, 'edited.blend');
       const plyOk = existsSync(ply) && gaussianPlyHeader(readFileSync(ply)).ok;
       const blendOk = existsSync(blend) && /^(BLENDER|\x28\xb5\x2f\xfd)/.test(readFileSync(blend).subarray(0, 8).toString('latin1'));
-      const ok = r?.status === 'success' && checks.length === KIRI_CHECKS.length && plyOk && blendOk;
+      const req = readJson(join(dir, 'request.json'));
+      const indep = plyOk && typeof req?.input_ply === 'string' && existsSync(req.input_ply) ? compareCrop(readFileSync(req.input_ply, 'latin1'), readFileSync(ply, 'latin1'), (req.crop_aabb ?? null) as [[number, number, number], [number, number, number]] | null) : null;
+      writeFileSync(join(dir, 'independent-check.json'), `${JSON.stringify(indep, null, 2)}\n`);
+      const ok = r?.status === 'success' && checks.length === KIRI_CHECKS.length && plyOk && blendOk && Boolean(indep?.ok);
       if (left) return ok ? { state: 'completed', appWord: `recovered: the worker’s own result says success (${checks.length}/3 value checks); Timmy did not see Blender end`, progress: 100 } : { state: 'interrupted', appWord: 'the companion that followed it stopped; its result is incomplete', progress: null, error: 'interrupted' };
-      if (rec.state === 'completed' && ok) return { state: 'completed', appWord: `Blender ${exit}; KIRI worker: success, ${checks.length}/3 value checks`, progress: 100 };
+      if (rec.state === 'completed' && ok) return { state: 'completed', appWord: `Blender ${exit}; KIRI worker: success, ${checks.length}/3 value checks; the export matches the original file's kept rows (${indep!.exported})`, progress: 100 };
       const why = typeof r?.error === 'string' ? r.error : rec.error ?? (r ? `worker status ${String(r.status)}` : 'no result.json from the worker');
-      return { state: 'failed', appWord: `Blender ${exit}; KIRI worker: ${String(r?.status ?? 'no result')}`, progress: null, error: `${why}${!plyOk && r?.status === 'success' ? '; the exported PLY did not parse as a Gaussian splat' : ''}`.slice(0, 400) };
+      const also = r?.status === 'success' ? (!plyOk ? '; the exported PLY did not parse as a Gaussian splat' : indep && !indep.ok ? `; the export does not match the original file's kept rows (${indep.why})` : '') : '';
+      return { state: 'failed', appWord: `Blender ${exit}; KIRI worker: ${String(r?.status ?? 'no result')}`, progress: null, error: `${r?.status === 'success' && also ? 'the independent check failed' : why}${also}`.slice(0, 400) };
     }
     if (tool === 'brush') {
       const req = readJson(join(dir, 'request.json'));
@@ -224,9 +263,12 @@ export class SpatialExecutor {
     // the raw evidence: the job's whole log (stdout and stderr as the tool wrote them) and Timmy's request
     if (rec?.logPath && existsSync(rec.logPath)) give('job.log', readFileSync(rec.logPath));
     if (existsSync(join(dir, 'request.json'))) give('request.json', readFileSync(join(dir, 'request.json')));
+    if (existsSync(join(dir, 'independent-check.json'))) give('independent-check.json', readFileSync(join(dir, 'independent-check.json')));
     const result = c.tool === 'kiri' ? readJson(join(out, 'result.json')) : null;
     const stages = Array.isArray(result?.stages) ? (result!.stages as Array<Record<string, unknown>>) : [];
     const checks = stages.filter((x) => typeof x.stage === 'string' && /_values_verified$/.test(x.stage)).map((x) => ({ stage: String(x.stage), rows: x.rows ?? null, rtol: x.rtol ?? null, atol: x.atol ?? null, max_abs_difference: x.max_abs_difference ?? null }));
+    const indep = readJson(join(dir, 'independent-check.json'));
+    if (indep && indep.ok) checks.push({ stage: 'independent_original_file_compare', rows: indep.exported ?? null, rtol: 1e-5, atol: 1e-6, max_abs_difference: indep.max_abs_difference ?? null });
     const status: 'ok' | 'failed' | 'cancelled' = c.view.state === 'completed' ? 'ok' : c.view.state === 'cancelled' ? 'cancelled' : 'failed';
     const def = SPATIAL_TOOLS[c.tool];
     const receipt = (this.o.seal ?? ((root, r) => appendReceipt('runs', r, root)))(c.root, {
