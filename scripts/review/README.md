@@ -28,6 +28,11 @@ cd timmy-review-__REV__
   absolute path of the file `treg login` wrote, or write that path on the one line of `treg-config.path` beside this README.
   Timmy's own bridge reads it for each request; its token never reaches a page, record or receipt. Catalog lookups and the
   balance are free; a paid call runs only after you approve its quoted price, once, without retry.
+- **Spatial tools (Brush, KIRI, gsplat):** the review never looks for them on its own. Set `TIMMY_SPATIAL_TOOLS` to the
+  absolute path of the prepared spatial tools folder (the one holding `brush/`, `kiri/` and `gsplat/`), for example
+  `TIMMY_SPATIAL_TOOLS=/absolute/path/to/timmy-spatial-tools ./timmy-app`. Without it they show "not configured". Start
+  the app from your own Terminal: Blender needs this computer's Metal device, which a background or sandboxed process may
+  not see. The folder is only read; every run writes in this package's sandbox.
 - **The terminal is still here:** `./timmy-review` opens the terminal Workbench on the active project (the same sandbox);
   `./review.sh repl` the REPL; `./review.sh timmy video …` and `./review.sh timmy animate …` drive Film Room and Timmy
   Animate from the terminal through the same host, each job receipted. `timmy` alone is your installed timmy, not this
