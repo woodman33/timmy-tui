@@ -49,11 +49,14 @@ const REF = /^n[1-9]$/;
 const MAX_HANDLES = 40;
 const MAX_RAW = 16_000;
 export const PLAN_TIMEOUT_MS = 180_000;
+/** the context a plan is asked in when the chat's setup names none: a plan's prompt is small, and a model's own default (some
+ *  are 256 K) would hold far more memory than it needs */
+export const PLAN_NUM_CTX = 8192;
 
 /** A node of the board the model may name: a file on the board (a display node) or an operation node. */
 export interface Handle { id: string; kind: 'file' | 'operation'; title: string; path?: string; type?: string; op?: string; connected?: string[] }
 export interface Step { n: number; do: 'add' | 'connect' | 'set' | 'run'; ref?: string; operation?: string; params?: Record<string, string | number>; node?: string; port?: string; from?: string; param?: string; value?: string | number; words: string }
-export interface Harness { ready: boolean; kind: 'ollama-local' | 'none'; model?: string; origin?: string; label: string; words: string }
+export interface Harness { ready: boolean; kind: 'ollama-local' | 'none'; model?: string; origin?: string; numCtx?: number; label: string; words: string }
 export interface PlanRecord {
   schema: typeof PLAN_SCHEMA; id: string; board: string; boardRevision: number; sourceRevision: string | null;
   goal: string; mode: Mode; budget: { steps: number; runs: number; rounds: number }; round: number; previous: string | null;
@@ -90,7 +93,7 @@ export function harnessNow(env: Env, cwd: string): Harness {
     if ('error' in at) return { ready: false, kind: 'none', label: 'Agent off: its Ollama address is not usable', words: `The chat's Ollama address is not one Timmy uses (${at.error}). Nothing is sent.` };
     if (r.cloud) return { ready: false, kind: 'none', model: r.model, label: `Agent off: ${r.model} is a cloud model`, words: `The chat's model ${r.model} runs on Ollama's servers, so the board would leave this computer under your Ollama account. The canvas agent uses a model on this computer only. Nothing is sent.` };
     if (!r.loopback) return { ready: false, kind: 'none', model: r.model, label: 'Agent off: Ollama is on another computer', words: `The chat's Ollama (${at.host}) is not this computer. The canvas agent uses a model on this computer only. Nothing is sent.` };
-    return { ready: true, kind: 'ollama-local', model: r.model, origin: at.origin, label: `${r.model} · Ollama on this computer · no charge`, words: `The agent asks ${r.model} in this computer's Ollama (the chat's model), once per plan, with the board's nodes as saved. Nothing leaves this computer and nothing is charged.` };
+    return { ready: true, kind: 'ollama-local', model: r.model, origin: at.origin, numCtx: r.numCtx ?? PLAN_NUM_CTX, label: `${r.model} · Ollama on this computer · no charge`, words: `The agent asks ${r.model} in this computer's Ollama (the chat's model), once per plan, with the board's nodes as saved. Nothing leaves this computer and nothing is charged.` };
   }
   if (r.kind === 'openrouter') return { ready: false, kind: 'none', model: r.model, label: 'Agent off: the chat route is OpenRouter', words: `The chat's route is ${r.model} through OpenRouter. The canvas agent is wired to a model in this computer's Ollama only (and a paid model would spend credits, which this round holds). Choose a local model for chat (timmy init --chat local) to use it. Nothing is sent.` };
   return { ready: false, kind: 'none', label: 'Agent off: no chat model', words: `${r.words.replace(/^Send is off: /, 'No model for the agent: ')}`.slice(0, 600) };
@@ -335,7 +338,7 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
     const t0 = Date.now();
     try {
       const answer = await askOllama(f, h.origin!, {
-        model: h.model, stream: false, format: planFormat(ops, handles, budget), options: { temperature: 0 },
+        model: h.model, stream: false, format: planFormat(ops, handles, budget), options: { temperature: 0, num_ctx: h.numCtx ?? PLAN_NUM_CTX },
         messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
       }, ctl.signal);
       rec.harnessRan = true;
