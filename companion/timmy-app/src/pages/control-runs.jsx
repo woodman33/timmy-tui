@@ -9,6 +9,8 @@ import { Panel } from '../shell.jsx';
 import { projectQuery, takeAgentTarget, useApp } from '../store.js';
 import { Button, Empty, Facts, StateWord, clock, day } from '../ui.jsx';
 import { RunFace } from '../rive.jsx';
+import { AppOperationRun, CanvasSelectionTarget, TargetKinds } from './control-targets.jsx';
+import { STATE_WORDS, useCatalog } from '../catalog.jsx';
 
 const EVERY_MS = 1500;
 const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
@@ -41,6 +43,7 @@ function Launch({ onStarted, only }) {
   const [proposal, setProposal] = useState(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const { answer: catalog } = useCatalog();
   useEffect(() => { getJson(`/api/control/harnesses${projectQuery()}`).then((r) => { setH(r); if (r.ok && r.models && r.models.length) setModel((m) => m || r.models[0]); if (r.ok && r.limit) setLimit(r.limit.default); }); }, []);
   const review = async (e) => {
     e.preventDefault();
@@ -60,6 +63,10 @@ function Launch({ onStarted, only }) {
   if (!h.ok) return <p className="ta-result" role="status">{said(h)}</p>;
   const hs = h.harnesses || [];
   const cur = hs.find((x) => x.id === harness);
+  // the harness as the ONE integration catalog knows it (its six facts, each from its own source)
+  const entries = catalog && catalog.ok ? catalog.catalog.entries : [];
+  const entryOf = (x) => (x ? entries.find((e) => e.id.endsWith(`:lane:${x.id}`) || e.id.endsWith(`:${x.id}`) || e.name.toLowerCase() === String(x.title || '').toLowerCase()) : null);
+  const ce = entryOf(cur);
   return (
     <form className="tx-ctl-launch" onSubmit={review} aria-label="Start a code-agent run">
       <div className="tx-ctl-launch-row">
@@ -91,6 +98,7 @@ function Launch({ onStarted, only }) {
       </div>
       {h.modelsError ? <p className="ta-muted" id="tx-ctl-models-why">No model list: {h.modelsError}.</p> : null}
       {cur && cur.needs ? <p className="ta-muted">{cur.title} needs setup: {cur.needs}.</p> : null}
+      {cur ? <p className="ta-muted" data-ctl-catalog={ce ? ce.id : 'none'}>{ce ? `In the catalog: ${['installed', 'configured', 'callable', 'verified'].map((k) => `${STATE_WORDS[k]} ${ce.states[k].ok === true ? '✓' : ce.states[k].ok === false ? '–' : '?'}`).join(' · ')}` : !catalog ? 'Reading the catalog…' : `${cur.title} is not in the integration catalog here.`}</p> : null}
       <label className="tx-ctl-field"><span>Task</span>
         <textarea rows={3} value={task} onChange={(e) => { setTask(e.target.value); setProposal(null); }} placeholder={`What ${cur ? cur.title : 'the agent'} should do in a copy of ${h.project ? h.project.name : 'this project'}`} />
       </label>
@@ -242,10 +250,14 @@ export function AgentRuns({ only = null, title = 'Run a code agent on a copy of 
   const theme = useApp((s) => s.theme);
   const list = (runs && runs.ok ? runs.runs || [] : []).filter((r) => !only || r.harness === only);
   const live = list.filter((r) => r.live).length;
+  // what the run works on: files (a code agent on a copy), an app's operation (the app's own job, read back), or the canvas
+  // selection (the canvas agent); a page sent here aimed at an app's outputs opens on Files
+  const [kind, setKind] = useState('files');
   return (
     <Panel id={only ? `agent-runs-${only}` : 'agent-runs'} kicker="AGENT RUNS" title={title}
       tools={live ? <StateWord word={`${live} running`} live /> : null}>
-      <Launch onStarted={() => read()} only={only} />
+      {only ? null : <TargetKinds kind={kind} onKind={setKind} />}
+      {only || kind === 'files' ? <Launch onStarted={() => read()} only={only} /> : kind === 'app' ? <AppOperationRun /> : <CanvasSelectionTarget />}
       {!runs ? <Empty>Reading the runs…</Empty> : !runs.ok ? <p className="ta-result" role="status">{said(runs)}</p>
         : !list.length ? <Empty>{only ? 'No run of this harness yet. Review one above, on a model of this computer.' : 'No run yet. Review one above: OpenHands or Qwen Code, on a model of this computer.'}</Empty>
           : <div className="tx-ctl-runs">{list.map((r) => <RunCard key={r.id} r={r} theme={theme} onChange={read} />)}</div>}

@@ -120,6 +120,7 @@ describe.skipIf(!browserPath)('Workspace workflow: an app’s image → an opera
     await page.waitForSelector('[data-node-kind="html"][data-node-path$="/index.html"]', { timeout: 30_000 });
     await expect.poll(async () => page.frameLocator('[data-node-kind="html"] iframe[data-node-preview]').locator('#out').innerText(), { timeout: 20_000 }).toMatch(/FAKE Stream Studio player · pulse/);
     expect(await page.locator(`${op} [data-op-receipt] code`).count()).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => page.locator(`${op} [data-op-readback]`).getAttribute('data-op-readback'), { timeout: 10_000 }).toBe('matched');
     await shot(page, 'flow-3-results');
     // (kept in the project as the person works: the board's save follows its changes)
     type Rec = { type?: string; meta?: Record<string, unknown>; props?: Record<string, unknown> };

@@ -152,12 +152,13 @@ import { mountMiniApps, projectFile } from './miniapps/routes.js';
 import { mountWorkflowOps } from './workflow-ops.js';
 import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
 import { mountCatalog } from './catalog-route.js';
+import { mountCanvasAgent } from './canvas-agent.js';
 import { ConnectorOps, mountConnectorOps, tregState, type ConnectorDeps } from './connector-ops.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
 import { mountChatRun } from './chat-run.js';
-import { mountTimmyApp } from './timmy-app.js';
+import { boardDocsOf, mountTimmyApp } from './timmy-app.js';
 import { tildePath } from '../utils/home-scrub.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -953,6 +954,30 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     appFor: (req, appId) => (miniApps.appFor ? miniApps.appFor(req, appId) : Promise.resolve({ error: 'The mini-app host is not running.', status: 503 })),
     runningApp: (req, appId) => (miniApps.runningFor ? miniApps.runningFor(req, appId) : null),
     readFile: (root, rel) => { const f = projectFile(root, rel); return f.ok ? f : { ok: false, error: f.error }; },
+  });
+  // The unified Workspace order (2026-10-27): the canvas agent (src/companion/canvas-agent.ts): plans in the board's own
+  // operations, asked of the project's chat model when it is a model in this computer's Ollama; the page applies them
+  mountCanvasAgent(app, {
+    withToken, withUser: withUserOrOperator,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', home: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env), project: { name: p.name, root: p.root }, env };
+    },
+    boardOf: (req, board) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p) return null;
+      const docs = boardDocsOf(p.root, own ? identity.envOf(req) : (options.workspace?.env ?? process.env), board);
+      if (!docs) return null;
+      const st = docs.load();
+      return { revision: st.revision, sourceRevision: st.sourceRevision, snapshot: st.snapshot };
+    },
+    apps: (req) => (miniApps.listing ? (miniApps.listing(req) as Array<{ id: string; title: string; hostable: boolean; problem: string | null }> | null) : null),
   });
   // The unified Workspace order (2026-10-27): the one integration catalog (src/capabilities/catalog.ts) for the Integrations
   // page, the Workspace's node picker and the Control Room: every registry's entries, each fact from its own source

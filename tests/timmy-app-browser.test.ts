@@ -213,15 +213,15 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.waitForFunction(() => (document.querySelector('.ta-turnpanel')?.textContent ?? '').includes('receipt'), null, { timeout: 30_000 });
     await page.waitForSelector('.ta-desk-card[data-desk-card="receipt"] .ta-verified', { timeout: 30_000 });
     // the inspector is a layer on the stage: folded by default, opened, dragged by its header (kept where it was left)
-    expect(await page.locator('.ta-layer').getAttribute('class')).toContain('is-folded');
-    await page.click('.ta-layer-fold');
-    await page.waitForFunction(() => !document.querySelector('.ta-layer')?.classList.contains('is-folded'));
-    const head = await page.locator('.ta-layer-head').boundingBox();
+    expect(await page.locator('.ta-layer[aria-label="Inspector"]').getAttribute('class')).toContain('is-folded');
+    await page.click('.ta-layer[aria-label="Inspector"] .ta-layer-fold');
+    await page.waitForFunction(() => !document.querySelector('.ta-layer[aria-label="Inspector"]')?.classList.contains('is-folded'));
+    const head = await page.locator('.ta-layer[aria-label="Inspector"] .ta-layer-head').boundingBox();
     await page.mouse.move(head!.x + 40, head!.y + head!.height / 2);
     await page.mouse.down();
     await page.mouse.move(head!.x - 160, head!.y + 120, { steps: 8 });
     await page.mouse.up();
-    const moved = await page.locator('.ta-layer').boundingBox();
+    const moved = await page.locator('.ta-layer[aria-label="Inspector"]').boundingBox();
     expect(Math.round(moved!.x)).toBeLessThan(Math.round(head!.x) - 100);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('timmy-app:canvas-layer') || '{}').folded)).toBe(false);
     const count = async (): Promise<number> => page.evaluate(() => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1));

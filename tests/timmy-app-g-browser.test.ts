@@ -193,8 +193,8 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.click('[data-phone="next"]');
     await expect.poll(() => page.locator('.ta-phonebar-at').innerText()).toMatch(/^Card 1 of \d+$/);
     await page.waitForTimeout(500);
-    expect(await page.locator('.ta-layer').getAttribute('class')).not.toContain('is-folded');
-    expect(await page.locator('.ta-layer .ta-inspect-title').innerText()).not.toBe('Nothing selected');
+    expect(await page.locator('.ta-layer[aria-label="Inspector"]').getAttribute('class')).not.toContain('is-folded');
+    expect(await page.locator('.ta-layer[aria-label="Inspector"] .ta-inspect-title').innerText()).not.toBe('Nothing selected');
     await shot(page, 'g5-phone-canvas-focused');
     await page.click('[data-phone="next"]');
     await expect.poll(() => page.locator('.ta-phonebar-at').innerText()).toMatch(/^Card 2 of \d+$/);

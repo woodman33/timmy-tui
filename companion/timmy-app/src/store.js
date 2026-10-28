@@ -288,6 +288,12 @@ export function aimAgent(target) { set({ agentTarget: target && target.kind === 
 export function showInFiles(path) { set({ filesTarget: { path: String(path || ''), at: Date.now() } }); goTo('files'); }
 export function takeFilesTarget() { const t = state.filesTarget; if (!t) return null; set({ filesTarget: null }); return t; }
 export function takeAgentTarget() { const t = state.agentTarget; if (!t) return null; set({ agentTarget: null }); return t; }
+/** The canvas's current selection (its board and the files and operation nodes chosen), kept for the Control Room's
+ *  "canvas selection" target; the canvas page sets it as the selection changes. */
+export function setCanvasSelection(sel) { set({ canvasSelection: sel && sel.nodes && sel.nodes.length ? { board: sel.board, nodes: sel.nodes.slice(0, 40), at: Date.now() } : null }); }
+/** A goal for the canvas agent on that selection: the canvas opens with its agent panel aimed (the selection chosen again). */
+export function aimCanvasAgent(aim) { set({ canvasAim: { goal: String(aim.goal || '').slice(0, 600), board: aim.board || null, nodes: (aim.nodes || []).map((n) => n.id), at: Date.now() } }); goTo('canvas'); }
+export function takeCanvasAim() { const a = state.canvasAim; if (!a) return null; set({ canvasAim: null }); return a; }
 export function placeOnCanvas(text, from) { set({ canvasNote: { text: String(text || '').slice(0, 1200), from: from || null, at: Date.now() } }); goTo('canvas'); }
 export function takeCanvasNote() { const n = state.canvasNote; if (!n) return null; set({ canvasNote: null }); return n; }
 export { call };

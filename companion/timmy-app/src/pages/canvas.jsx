@@ -20,11 +20,12 @@ import { timmyThemes } from '../../../studio-canvas/src/theme.js';
 import { chosenOf, providerName, whereOf } from '../models-parts.jsx';
 import { Page, Tool } from '../shell.jsx';
 import { getJson, postJson } from '../api.js';
-import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
+import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setCanvasSelection, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
 import { ASSET_STORE, ImportMenu } from './canvas-import.jsx';
 import { DISPLAY_SHAPE, createDisplayUtil } from './display-node.jsx';
 import { OP_SHAPE, addOperationNode, createOpUtil, operations } from './op-node.jsx';
+import { AgentLayer } from './agent-panel.jsx';
 import { useCatalog } from '../catalog.jsx';
 import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
@@ -405,6 +406,8 @@ export function keepDesk(editor, start, onState, board = FIRST_BOARD) {
   document.addEventListener('visibilitychange', hidden);
   return {
     now: save,
+    /** the desk saved now and every save in flight finished: the revision the companion holds (for the agent's plan) */
+    settled: async () => { await save(); for (let i = 0; i < 200 && (saving || pending); i++) await new Promise((r) => setTimeout(r, 50)); return rev; },
     stop: () => { if (pending) save(); stopped = true; clearTimeout(timer); off(); document.removeEventListener('visibilitychange', hidden); },
   };
 }
@@ -959,6 +962,16 @@ export default function CanvasPage() {
     const stop = react('timmy desk: rive sharpness', () => { editor.getZoomLevel(); clearTimeout(t); t = setTimeout(sharpen, 150); });
     return () => { clearTimeout(t); stop(); };
   }, [editor]);
+  // the selection kept for the Control Room's "canvas selection" target: the board, its files and operation nodes
+  useEffect(() => {
+    if (!editor) return undefined;
+    let t = null;
+    const stopSel = react('timmy desk: selection kept', () => {
+      const nodes = editor.getSelectedShapes().filter((x) => x.type === DISPLAY_SHAPE || x.type === OP_SHAPE).map((x) => ({ id: x.id, kind: x.type === OP_SHAPE ? 'operation' : 'file', title: String(x.props.title || x.props.path || x.props.op || '').slice(0, 80), path: x.props.path || null, op: x.props.op || null }));
+      clearTimeout(t); t = setTimeout(() => setCanvasSelection({ board: currentBoard, nodes }), 120);
+    });
+    return () => { clearTimeout(t); stopSel(); };
+  }, [editor]);
   const shapes = useValue('timmy desk: count', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
   const phone = usePhone();
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -973,6 +986,7 @@ export default function CanvasPage() {
         {editor && board !== FIRST_BOARD && shapes === 0 && desk && desk.ok ? <p className="ta-stage-guide" data-board-empty>This board is empty. Import an app’s result, add a node, or draw: everything on it is kept in the project.</p> : null}
         {phone ? <PhoneBar editor={editor} toolsOpen={toolsOpen} onTools={() => setToolsOpen(!toolsOpen)} /> : null}
         <DeskLayer editor={editor} kept={kept} phone={phone} />
+        <AgentLayer editor={editor} board={board} settle={() => (keeper ? keeper.settled() : Promise.resolve(null))} />
         <div className={`ta-floatbar ta-toolsrow${phone && !toolsOpen ? ' is-phone-folded' : ''}`} role="toolbar" aria-label="Canvas tools">
           <BoardMenu boards={boards} board={board} onOpen={openBoard} onChanged={readBoards} />
           <span className="ta-toolsrow-sep" aria-hidden="true" />

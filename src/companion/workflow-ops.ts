@@ -23,7 +23,7 @@
 import express from 'express';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { projectId } from '../project/index.js';
 import { readChain } from '../utils/receipts.js';
 import type { HostedApp } from './miniapps/host.js';
@@ -107,16 +107,26 @@ export function validateRun(root: string, raw: { op?: unknown; inputs?: unknown;
     out.inputs[port.name] = { path: f.rel, sha256: f.sha256, bytes: f.bytes };
   }
   for (const k of Object.keys(given)) if (!op.inputs.some((p) => p.name === k)) problems.push(`${op.label} has no input ${JSON.stringify(k).slice(0, 40)}.`);
-  const params = raw.params && typeof raw.params === 'object' ? raw.params as Record<string, unknown> : {};
-  for (const prm of op.params) {
-    const v = params[prm.name] ?? prm.default;
-    if (prm.kind === 'choice') { if (typeof v !== 'string' || !prm.choices!.includes(v)) problems.push(`${prm.label}: choose one of ${prm.choices!.join(', ')}.`); else out.params[prm.name] = v; }
-    else if (prm.kind === 'number') { const n = Number(v); if (!Number.isFinite(n) || n < prm.min! || n > prm.max!) problems.push(`${prm.label}: ${prm.min}–${prm.max}.`); else out.params[prm.name] = n; }
-    else { const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : ''; if (t.length > (prm.maxLength ?? 200)) problems.push(`${prm.label}: at most ${prm.maxLength} characters.`); else out.params[prm.name] = t; }
-  }
-  for (const k of Object.keys(params)) if (!op.params.some((p) => p.name === k)) problems.push(`${op.label} has no parameter ${JSON.stringify(k).slice(0, 40)}.`);
+  const checked = checkParams(op, raw.params);
+  problems.push(...checked.problems);
+  out.params = checked.params;
   out.ok = problems.length === 0;
   return out;
+}
+
+/** An operation's parameters checked (each choice among its choices, each number in its range, each text within its length);
+ *  a missing one takes its default. The same check for a person's run and an agent's plan. */
+export function checkParams(op: OperationSpec, raw: unknown): { problems: string[]; params: Record<string, string | number> } {
+  const problems: string[] = []; const out: Record<string, string | number> = {};
+  const params = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  for (const prm of op.params) {
+    const v = params[prm.name] ?? prm.default;
+    if (prm.kind === 'choice') { if (typeof v !== 'string' || !prm.choices!.includes(v)) problems.push(`${prm.label}: choose one of ${prm.choices!.join(', ')}.`); else out[prm.name] = v; }
+    else if (prm.kind === 'number') { const n = Number(v); if (!Number.isFinite(n) || n < prm.min! || n > prm.max!) problems.push(`${prm.label}: ${prm.min}–${prm.max}.`); else out[prm.name] = n; }
+    else { const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : ''; if (t.length > (prm.maxLength ?? 200)) problems.push(`${prm.label}: at most ${prm.maxLength} characters.`); else out[prm.name] = t; }
+  }
+  for (const k of Object.keys(params)) if (!op.params.some((p) => p.name === k)) problems.push(`${op.label} has no parameter ${JSON.stringify(k).slice(0, 40)}.`);
+  return { problems, params: out };
 }
 
 // ── the adapters: each starts, reads and cancels the app's own job ──────────────────────────────────────────────────────
@@ -213,6 +223,9 @@ export interface RunRecord {
   outputs: Array<{ path: string; sha256: string; bytes: number }>;
   /** whether the ended job's receipt was read (sealed), or why not; absent while it runs */
   collected?: string;
+  /** each delivered file read back from the project after the receipt was read: its bytes hashed again and compared with the
+   *  receipt's sha256 (matched), or not there (missing), or different (mismatched); absent until collected */
+  readback?: { checked: number; matched: number; missing: string[]; mismatched: string[]; at: string };
   principal: string;
 }
 const RUN_ID = /^w[0-9a-f]{12}$/;
@@ -297,12 +310,26 @@ export class WorkflowRunner {
       if (!found.ids.length) await new Promise((r) => setTimeout(r, 400));
     }
     const r = readRun(scope.home, scope.project.root, id);
-    if (r) write(scope.home, scope.project.root, { ...r, receipts: found.ids, outputs: found.outputs, collected: found.ids.length ? 'sealed' : 'no receipt: the app never reported this job ended in its record' } as RunRecord);
+    if (r) write(scope.home, scope.project.root, { ...r, receipts: found.ids, outputs: found.outputs, collected: found.ids.length ? 'sealed' : 'no receipt: the app never reported this job ended in its record', ...(found.ids.length ? { readback: readBack(scope.project.root, found.outputs) } : {}) } as RunRecord);
   }
   private unfollow(id: string): void { const t = this.followers.get(id); if (t) clearInterval(t); this.followers.delete(id); }
 }
 
 /** The receipts sealed for an app's job in this project, and every file they name as delivered (newest receipt last). */
+/** The delivered files read back from the project: each hashed again and compared with what its receipt says. */
+export function readBack(root: string, outputs: RunRecord['outputs']): NonNullable<RunRecord['readback']> {
+  const out = { checked: outputs.length, matched: 0, missing: [] as string[], mismatched: [] as string[], at: new Date().toISOString() };
+  const base = resolve(root);
+  for (const o of outputs) {
+    const abs = resolve(base, o.path);
+    if (!abs.startsWith(base + sep)) { out.missing.push(o.path); continue; }
+    let bytes: Buffer;
+    try { bytes = readFileSync(abs); } catch { out.missing.push(o.path); continue; }
+    if (createHash('sha256').update(bytes).digest('hex') === o.sha256) out.matched += 1; else out.mismatched.push(o.path);
+  }
+  return out;
+}
+
 export function receiptsFor(root: string, app: string, job: string): { ids: string[]; outputs: RunRecord['outputs'] } {
   let chain: ReturnType<typeof readChain> = [];
   try { chain = readChain('runs', root); } catch { return { ids: [], outputs: [] }; }
@@ -341,7 +368,8 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
   app.post('/api/workflow/runs', ...scoped(async (req, res, s) => {
     const b = (req.body ?? {}) as { op?: unknown; inputs?: unknown; params?: unknown; board?: unknown; node?: unknown; label?: unknown; by?: unknown };
     const board = typeof b.board === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(b.board) ? b.board : null;
-    const node = typeof b.node === 'string' && /^shape:[\w-]{1,80}$/.test(b.node) ? b.node : null;
+    // a node is a canvas shape, or the Control Room's own place for an app's operation (control:<operation>, board control-room)
+    const node = typeof b.node === 'string' && (/^shape:[\w-]{1,80}$/.test(b.node) || (board === 'control-room' && /^control:[\w.-]{1,80}$/.test(b.node))) ? b.node : null;
     if (!board || !node) { res.status(400).json({ ok: false, error: 'A run names its board and its node.' }); return; }
     const v = validateRun(s.project.root, b, deps.readFile);
     if (!v.ok || !v.op) { res.status(422).json({ ok: false, refused: 'invalid', problems: v.problems, error: v.problems.join(' ') }); return; }

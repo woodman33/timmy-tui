@@ -92,6 +92,8 @@ describe('Workspace operations: validated, dispatched to the app’s own job, fo
     const paths = end.outputs.map((o: { path: string }) => o.path).sort();
     expect(paths).toEqual([`from-apps/stream-studio/${end.job}/index.html`, `from-apps/stream-studio/${end.job}/scene.json`]);
     for (const o of end.outputs) expect(sha(readFileSync(join(root, o.path)))).toBe(o.sha256);
+    // read back: each delivered file hashed again from the project and compared with its receipt
+    expect(end.readback).toMatchObject({ checked: 2, matched: 2, missing: [], mismatched: [] });
     expect(readFileSync(join(root, `from-apps/stream-studio/${end.job}/index.html`), 'utf8')).toContain('FAKE Stream Studio player · sway');
   }, 60_000);
 

@@ -57,16 +57,26 @@ export function connectPort(editor, opId, port, sourceId) {
   return { ok: true };
 }
 
-/** A new operation node beside `near` (or where the board has room). */
-export function addOperationNode(editor, spec, at = null) {
+/** A new operation node where the board has room (or at `at`); `meta` marks who made it (the agent: { by: 'agent', plan }). */
+export function addOperationNode(editor, spec, at = null, meta = null) {
   const id = createShapeId();
   const defaults = Object.fromEntries(spec.params.map((p) => [p.name, p.default]));
   const p = at || placeOnBoard(editor, 380, 420);
   editor.run(() => {
-    editor.createShape({ id, type: OP_SHAPE, x: p.x, y: p.y, props: { w: 380, h: 420, op: spec.id, spec: JSON.stringify(spec), title: spec.label, inputs: '{}', params: JSON.stringify(defaults), run: '', applied: '', panel: true } });
+    editor.createShape({ id, type: OP_SHAPE, x: p.x, y: p.y, ...(meta ? { meta } : {}), props: { w: 380, h: 420, op: spec.id, spec: JSON.stringify(spec), title: spec.label, inputs: '{}', params: JSON.stringify(defaults), run: '', applied: '', panel: true } });
     editor.select(id);
   });
   return id;
+}
+
+/** One parameter of an operation node set (the value checked by the companion when the node is validated or run). */
+export function setNodeParam(editor, id, name, value) {
+  const op = editor.getShape(id);
+  if (!op || op.type !== OP_SHAPE) return { ok: false, why: 'not an operation node on this board' };
+  const spec = parse(op.props.spec, null);
+  if (!spec || !spec.params.some((x) => x.name === name)) return { ok: false, why: `${spec ? spec.label : 'This operation'} has no parameter ${name}` };
+  editor.updateShape({ id, type: OP_SHAPE, props: { params: JSON.stringify({ ...parse(op.props.params, {}), [name]: value }) } });
+  return { ok: true };
 }
 
 /** The board's executable edges from a node (what it feeds), for the agent's plan and the inspector. */
@@ -220,6 +230,7 @@ function OpNode({ shape, editor, board, focus }) {
     <div className="ta-node ta-op" data-op={shape.props.op} data-op-state={state || 'idle'}>
       <header className="ta-node-head">
         <span className="ta-node-kind">OPERATION</span>
+        {shape.meta && shape.meta.by === 'agent' ? <span className="ta-node-by" data-op-by="agent" title={`Added by the canvas agent (plan ${shape.meta.plan || ''})`}>AGENT</span> : null}
         <strong className="ta-node-title" title={spec.lead}>{shape.props.title}</strong>
         <span className="ta-node-status" data-op-word>{word}</span>
         <MenuButton label="Actions" glyph="⋯" title="Actions" menuLabel={`${shape.props.title}: actions`} buttonClass="ta-node-btn is-icon" data={{ 'data-menu': 'op-actions' }}>
@@ -253,6 +264,7 @@ function OpNode({ shape, editor, board, focus }) {
               const name = o.path.split('/').pop();
               return <button key={o.path} type="button" className="ta-linkbtn ta-op-output" data-op-output={o.path} onClick={() => (node && focus ? focus(editor, node.id) : showInFiles(o.path))} title={node ? `Show ${name} on the board` : `Show ${name} in Files`}>{name}</button>;
             })}</dd></> : null}
+            {run.readback ? <><dt>Read back</dt><dd data-op-readback={run.readback.checked && run.readback.matched === run.readback.checked ? 'matched' : 'not-matched'}>{run.readback.checked ? `${run.readback.matched} of ${run.readback.checked} match their receipt` : 'the receipt names no file'}{run.readback.missing.length ? ` · missing ${run.readback.missing.length}` : ''}{run.readback.mismatched.length ? ` · different ${run.readback.mismatched.length}` : ''}</dd></> : null}
           </dl>
         ) : <p className="ta-node-fact">{spec.lead}</p>}
       </div>
