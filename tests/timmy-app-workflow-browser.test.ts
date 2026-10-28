@@ -128,6 +128,10 @@ describe.skipIf(!browserPath)('Workspace workflow: an app’s image → an opera
     const store1 = Object.values((await desk(page)).snapshot.store as Record<string, Rec>);
     const results = store1.filter((r) => r.type === 'timmy-display' && r.meta && r.meta.run);
     expect(results.map((r) => String(r.props!.path).split('/').pop()).sort()).toEqual(['index.html', 'scene.json']);
+    // nothing placed on top of anything (the image, the operation, its results): found overlapping on the Mac at d9aafbc
+    const boxes = (store1 as Array<Rec & { x?: number; y?: number }>).filter((r) => r.type === 'timmy-display' || r.type === 'timmy-op').map((r) => ({ x: r.x!, y: r.y!, w: Number(r.props!.w), h: Number(r.props!.h) }));
+    const overlaps = boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y).map(() => i));
+    expect(overlaps).toEqual([]);
 
     // Run again, then Cancel: the cancelled attempt attaches nothing; attempt 1's results stay
     // the node is brought back into view first (the person's own Fit-workspace control), so its footer is on screen

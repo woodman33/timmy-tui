@@ -61,13 +61,21 @@ export const ASSET_STORE = {
 export function placeOnBoard(editor, w, h, place = null, c = null, near = null) {
   const taken = editor.getCurrentPageShapes().filter((x) => x.type !== 'arrow').map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
   const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 16 && q.x + w + 16 > b.x && q.y < b.y + b.h + 16 && q.y + h + 16 > b.y);
-  if (near) for (let dy = 0; dy <= 1200; dy += 20) { const q = { x: near.x, y: near.y + dy }; if (clear(q)) return q; }
+  // beside `near`: down its column, then the next columns to the right (results of several runs stack in columns)
+  if (near) for (let col = 0; col < 8; col++) for (let dy = 0; dy <= 1600; dy += 20) { const q = { x: near.x + col * (w + 40), y: near.y + dy }; if (clear(q)) return q; }
   const p = place ? place(w, h) : null;
   if (clear(p)) return p;
   const base = editor.getCurrentPageShapes().filter((x) => x.type !== DISPLAY_SHAPE && x.type !== 'timmy-op' && x.type !== 'arrow').map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
   const all = base.length ? base.reduce((a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), r: Math.max(a.r, b.x + b.w), b: Math.max(a.b, b.y + b.h) }), { x: Infinity, y: Infinity, r: -Infinity, b: -Infinity }) : null;
   const center = c || editor.getViewportPageBounds().center;
-  if (!all) return { x: center.x - w / 2, y: center.y - h / 2 };
+  if (!all) {
+    // a board with only imported and operation nodes: the viewport's centre if it is clear, else right of all of them
+    const q = { x: center.x - w / 2, y: center.y - h / 2 };
+    if (clear(q) || !taken.length) return q;
+    const r = Math.max(...taken.map((b) => b.x + b.w)); const t = Math.min(...taken.map((b) => b.y));
+    for (let x = r + 40; x < r + 40 + 20 * (w + 40); x += 20) if (clear({ x, y: t })) return { x, y: t };
+    return { x: r + 40, y: t };
+  }
   const top = Math.min(all.y, 0); const bottom = Math.max(all.b, top + h);
   for (let x = all.r + 40; x < all.r + 40 + 60 * (w + 40); x += 20) for (let y = top; y + h <= bottom; y += 20) if (clear({ x, y })) return { x, y };
   return { x: all.r + 40, y: top };
