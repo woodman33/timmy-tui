@@ -34,7 +34,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectId } from '../project/index.js';
-import { ollamaAt } from '../setup/ollama-models.js';
+import { showModelOnce } from '../agent/local-chat.js';
+import { ollamaAt, type OllamaAt } from '../setup/ollama-models.js';
 import { pageRoute } from './chat-route.js';
 import { checkParams, compatible, operationOf, OPERATIONS, type OperationSpec } from './workflow-ops.js';
 
@@ -52,11 +53,13 @@ export const PLAN_TIMEOUT_MS = 180_000;
 /** the context a plan is asked in when the chat's setup names none: a plan's prompt is small, and a model's own default (some
  *  are 256 K) would hold far more memory than it needs */
 export const PLAN_NUM_CTX = 8192;
+/** the most tokens a plan's answer may take: a plan is a few hundred; a model that runs on is stopped, its answer refused */
+export const PLAN_NUM_PREDICT = 1536;
 
 /** A node of the board the model may name: a file on the board (a display node) or an operation node. */
 export interface Handle { id: string; kind: 'file' | 'operation'; title: string; path?: string; type?: string; op?: string; connected?: string[] }
 export interface Step { n: number; do: 'add' | 'connect' | 'set' | 'run'; ref?: string; operation?: string; params?: Record<string, string | number>; node?: string; port?: string; from?: string; param?: string; value?: string | number; words: string }
-export interface Harness { ready: boolean; kind: 'ollama-local' | 'none'; model?: string; origin?: string; numCtx?: number; label: string; words: string }
+export interface Harness { ready: boolean; kind: 'ollama-local' | 'none'; model?: string; origin?: string; at?: OllamaAt; numCtx?: number; label: string; words: string }
 export interface PlanRecord {
   schema: typeof PLAN_SCHEMA; id: string; board: string; boardRevision: number; sourceRevision: string | null;
   goal: string; mode: Mode; budget: { steps: number; runs: number; rounds: number }; round: number; previous: string | null;
@@ -93,7 +96,7 @@ export function harnessNow(env: Env, cwd: string): Harness {
     if ('error' in at) return { ready: false, kind: 'none', label: 'Agent off: its Ollama address is not usable', words: `The chat's Ollama address is not one Timmy uses (${at.error}). Nothing is sent.` };
     if (r.cloud) return { ready: false, kind: 'none', model: r.model, label: `Agent off: ${r.model} is a cloud model`, words: `The chat's model ${r.model} runs on Ollama's servers, so the board would leave this computer under your Ollama account. The canvas agent uses a model on this computer only. Nothing is sent.` };
     if (!r.loopback) return { ready: false, kind: 'none', model: r.model, label: 'Agent off: Ollama is on another computer', words: `The chat's Ollama (${at.host}) is not this computer. The canvas agent uses a model on this computer only. Nothing is sent.` };
-    return { ready: true, kind: 'ollama-local', model: r.model, origin: at.origin, numCtx: r.numCtx ?? PLAN_NUM_CTX, label: `${r.model} · Ollama on this computer · no charge`, words: `The agent asks ${r.model} in this computer's Ollama (the chat's model), once per plan, with the board's nodes as saved. Nothing leaves this computer and nothing is charged.` };
+    return { ready: true, kind: 'ollama-local', model: r.model, origin: at.origin, at, numCtx: r.numCtx ?? PLAN_NUM_CTX, label: `${r.model} · Ollama on this computer · no charge`, words: `The agent asks ${r.model} in this computer's Ollama (the chat's model), once per plan, with the board's nodes as saved. Nothing leaves this computer and nothing is charged.` };
   }
   if (r.kind === 'openrouter') return { ready: false, kind: 'none', model: r.model, label: 'Agent off: the chat route is OpenRouter', words: `The chat's route is ${r.model} through OpenRouter. The canvas agent is wired to a model in this computer's Ollama only (and a paid model would spend credits, which this round holds). Choose a local model for chat (timmy init --chat local) to use it. Nothing is sent.` };
   return { ready: false, kind: 'none', label: 'Agent off: no chat model', words: `${r.words.replace(/^Send is off: /, 'No model for the agent: ')}`.slice(0, 600) };
@@ -337,15 +340,20 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
     res.on('close', () => { if (!res.writableEnded) ctl.abort(new Error('stopped')); });
     const t0 = Date.now();
     try {
+      // a model that thinks before it answers is asked not to (the plan is the answer; its thinking would run on for
+      // thousands of tokens): Ollama's own capability list says which (/api/show, asked once per model)
+      let think: false | undefined;
+      try { const { shown } = await showModelOnce(h.at!, h.model!, ctl.signal); if (shown.capabilities?.includes('thinking')) think = false; } catch { /* not said: asked as it is */ }
       const answer = await askOllama(f, h.origin!, {
-        model: h.model, stream: false, format: planFormat(ops, handles, budget), options: { temperature: 0, num_ctx: h.numCtx ?? PLAN_NUM_CTX },
+        model: h.model, stream: false, ...(think === false ? { think } : {}), format: planFormat(ops, handles, budget), options: { temperature: 0, num_ctx: h.numCtx ?? PLAN_NUM_CTX, num_predict: PLAN_NUM_PREDICT },
         messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
       }, ctl.signal);
       rec.harnessRan = true;
       rec.model = { evalCount: answer.evalCount, promptEvalCount: answer.promptEvalCount, ms: Date.now() - t0, doneReason: answer.doneReason };
       rec.raw = { sha256: createHash('sha256').update(answer.content).digest('hex'), text: answer.content.slice(0, MAX_RAW), truncated: answer.content.length > MAX_RAW };
       let parsed: unknown = null;
-      try { parsed = JSON.parse(answer.content); } catch { rec.problems.push('The answer is not JSON.'); }
+      if (answer.doneReason === 'length') rec.problems.push(`The answer ran past ${PLAN_NUM_PREDICT} tokens and was cut there.`);
+      else try { parsed = JSON.parse(answer.content); } catch { rec.problems.push('The answer is not JSON.'); }
       if (parsed !== null) {
         const a = admitPlan(parsed, { handles, ops, budget });
         Object.assign(rec, { steps: a.steps, cites: a.cites, say: a.say, done: a.done });

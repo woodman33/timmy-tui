@@ -94,7 +94,8 @@ describe('the canvas agent: plans in the board’s own operations, admitted agai
     // what Ollama was asked: the chat's model, temperature 0, a schema whose names are the board's handles and the installed operations
     const sent = ollama.chats().at(-1);
     expect(sent.model).toBe(MODEL);
-    expect(sent.options).toEqual({ temperature: 0, num_ctx: 8192 });
+    expect(sent.options).toEqual({ temperature: 0, num_ctx: 8192, num_predict: 1536 });
+    expect(sent.think).toBeUndefined(); // the FAKE lists no thinking capability
     expect(sent.format.properties.cites.items.enum.sort()).toEqual(['shape:img', 'shape:scene']);
     expect(sent.format.properties.steps.items.properties.operation.enum).toEqual(['stream-studio.animate-image']);
     expect(JSON.stringify(sent.messages)).toMatch(/animate\.export: .*not installed|Not available here/);
