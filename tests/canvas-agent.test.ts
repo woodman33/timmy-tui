@@ -148,6 +148,25 @@ describe('the canvas agent: plans in the board’s own operations, admitted agai
     expect(bad.problems.join(' ')).toMatch(/Step 1: Seconds: 1–12\. Animate an image has no parameter "scene"/);
   });
 
+  it('found on the Mac at abd426b: in Run, a plan that changes the board and runs nothing is refused with that reason, never topped up', async () => {
+    const noRun = { say: 'Pulse it.', cites: ['shape:img'], done: false, steps: [{ do: 'add', ref: 'n1', operation: 'stream-studio.animate-image', params: { motion: 'pulse' } }, { do: 'connect', node: 'n1', port: 'image', from: 'shape:img' }] };
+    scripts.push(answer(noRun));
+    const r = await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'pulse it', mode: 'run' });
+    expect(r.status).toBe(422);
+    expect(r.json.plan).toMatchObject({ state: 'refused', steps: [], problems: ['In Run, the plan changes the board but runs nothing: it ends with a run step.'] });
+    expect(JSON.stringify(ollama.chats().at(-1).messages)).toContain('Mode: the plan is applied and run at once.');
+    // the same answer in Plan is a proposal (the person applies it and runs it, or not)
+    scripts.push(answer(noRun));
+    const plan = (await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'pulse it', mode: 'plan' })).json.plan;
+    expect(plan.state).toBe('proposed');
+    expect(JSON.stringify(ollama.chats().at(-1).messages)).not.toContain('Mode: the plan is applied and run at once.');
+    // asked again with the reason: a new answer that runs is admitted on its own
+    scripts.push(answer({ ...noRun, steps: [...noRun.steps, { do: 'run', node: 'n1' }] }));
+    const again = await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'pulse it', mode: 'run', previous: r.json.plan.id });
+    expect(again.json.plan).toMatchObject({ state: 'proposed', round: 2 });
+    expect(JSON.stringify(ollama.chats().at(-1).messages)).toContain('runs nothing: it ends with a run step');
+  });
+
   it('a stale board revision is refused before any model is asked; an empty plan is the model’s own “nothing to do”', async () => {
     const before = ollama.chats().length;
     const r = await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'x', mode: 'plan', revision: revision - 1 });

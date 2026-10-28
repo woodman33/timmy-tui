@@ -163,7 +163,7 @@ export function planFormat(ops: readonly OperationSpec[], handles: Handle[], bud
 }
 
 /** The words the model is asked with: what it may use, the goal, and (autopilot's next round) what the last round did. */
-export function planPrompt(o: { goal: string; ops: readonly OperationSpec[]; unavailable: Array<{ id: string; why: string }>; handles: Handle[]; budget: { steps: number; runs: number }; previous?: { say: string; outcomes: string[] } | null }): { system: string; user: string } {
+export function planPrompt(o: { goal: string; mode?: Mode; ops: readonly OperationSpec[]; unavailable: Array<{ id: string; why: string }>; handles: Handle[]; budget: { steps: number; runs: number }; previous?: { say: string; outcomes: string[] } | null }): { system: string; user: string } {
   const system = [
     'You edit a Timmy Workspace board: a canvas of files and executable operation nodes. You answer with JSON only, in the given schema.',
     'Steps: {"do":"add","ref":"n1","operation":<id>,"params":{…}} adds an operation node with the parameters the goal asks for (leave out the rest: they keep their defaults); {"do":"connect","node":<ref or operation node>,"port":<port>,"from":<file node>} connects a file on the board to one of its input ports; {"do":"set","node":…,"param":<name>,"value":…} sets a parameter; {"do":"run","node":…} runs it.',
@@ -177,13 +177,14 @@ export function planPrompt(o: { goal: string; ops: readonly OperationSpec[]; una
     ...(o.unavailable.length ? ['', 'Not available here (do not use):', ...o.unavailable.map((u) => `- ${u.id}: ${u.why}`)] : []),
     '', 'Nodes on the board:', ...(handleLines.length ? handleLines : ['(none)']),
     '', `Budget: at most ${o.budget.steps} steps and ${o.budget.runs} run step${o.budget.runs === 1 ? '' : 's'}.`,
+    ...(o.mode && o.mode !== 'plan' && o.budget.runs > 0 ? ['', 'Mode: the plan is applied and run at once. A plan that adds, connects or sets a node ends with a run step for that node.'] : []),
     ...(o.previous ? ['', `Last round: ${o.previous.say}`, ...o.previous.outcomes.map((x) => `- ${x}`)] : []),
   ].join('\n');
   return { system, user };
 }
 
 /** The model's answer admitted: every step checked against the board as saved, the operations here and the budget. */
-export function admitPlan(raw: unknown, o: { handles: Handle[]; ops: readonly OperationSpec[]; budget: { steps: number; runs: number } }): { steps: Step[]; cites: string[]; say: string; done: boolean | null; problems: string[] } {
+export function admitPlan(raw: unknown, o: { handles: Handle[]; ops: readonly OperationSpec[]; budget: { steps: number; runs: number }; mode?: Mode }): { steps: Step[]; cites: string[]; say: string; done: boolean | null; problems: string[] } {
   const problems: string[] = [];
   const a = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
   if (!a) return { steps: [], cites: [], say: '', done: null, problems: ['The answer is not a JSON object.'] };
@@ -253,6 +254,9 @@ export function admitPlan(raw: unknown, o: { handles: Handle[]; ops: readonly Op
       steps.push({ n, do: 'run', node: s.node as string, words: `Run ${String(s.node)} (${op.label})` });
     } else bad(`${JSON.stringify(String(s.do ?? '')).slice(0, 20)} is not a step.`);
   });
+  // Run and Autopilot apply and run at once: a plan that changes the board and runs nothing is incomplete. It is refused with
+  // that reason (and asked again), never topped up with a run the model did not give.
+  if (o.mode && o.mode !== 'plan' && o.budget.runs > 0 && steps.length && !steps.some((x) => x.do === 'run')) problems.push(`In ${o.mode === 'run' ? 'Run' : 'Autopilot'}, the plan changes the board but runs nothing: it ends with a run step.`);
   return { steps, cites, say, done, problems };
 }
 
@@ -348,7 +352,7 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
     }
     // what the last round did, or (a refused answer) every reason it was refused: a new attempt, never a repair of the old one
     const outcomes = previous ? (previous.state === 'refused' ? [`Your last answer was refused: ${(previous.problems.length ? previous.problems : [previous.refusal ?? 'no reason kept']).join(' ')}`] : previous.applied.map((x) => `step ${x.n}: ${x.words ?? 'applied'}`)) : [];
-    const prompt = planPrompt({ goal, ops, unavailable, handles, budget, previous: previous ? { say: previous.say, outcomes } : null });
+    const prompt = planPrompt({ goal, mode, ops, unavailable, handles, budget, previous: previous ? { say: previous.say, outcomes } : null });
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(new Error('timeout')), PLAN_TIMEOUT_MS);
     // the person left (Stop, or the page closed) while the model was asked: the request is abandoned and nothing is applied
@@ -370,7 +374,7 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
       if (answer.doneReason === 'length') rec.problems.push(`The answer ran past ${PLAN_NUM_PREDICT} tokens and was cut there.`);
       else try { parsed = JSON.parse(answer.content); } catch { rec.problems.push('The answer is not JSON.'); }
       if (parsed !== null) {
-        const a = admitPlan(parsed, { handles, ops, budget });
+        const a = admitPlan(parsed, { handles, ops, budget, mode });
         Object.assign(rec, { steps: a.steps, cites: a.cites, say: a.say, done: a.done });
         rec.problems.push(...a.problems);
       }
