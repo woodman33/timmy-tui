@@ -23,6 +23,7 @@ import { getJson, postJson } from '../api.js';
 import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
 import { ASSET_STORE, ImportMenu } from './canvas-import.jsx';
+import { DISPLAY_SHAPE, createDisplayUtil } from './display-node.jsx';
 import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
@@ -165,7 +166,8 @@ class DeskCardUtil extends BaseBoxShapeUtil {
 let current = null;
 const rive = createRiveShape({ React, BaseBoxShapeUtil, HTMLContainer, T, useValue, resizeBox, createShapeId, editor: () => current });
 const license = createLicenseReadout({ react });
-const SHAPE_UTILS = [rive.util, DeskCardUtil];
+const DisplayUtil = createDisplayUtil(() => current);
+const SHAPE_UTILS = [rive.util, DeskCardUtil, DisplayUtil];
 const OVERRIDES = { actions: (_e, actions) => { const { 'toggle-dark-mode': _d, ...kept } = actions; return kept; } };
 const cssVar = (name, fallback) => { try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; } catch { return fallback; } };
 
@@ -190,7 +192,7 @@ function DeskEdge() {
 /** tldraw's style panel only while the person draws (a card or a Rive shape has no style of its own). */
 function StylePanel(props) {
   const editor = useEditor();
-  const shown = useValue('timmy desk: style panel', () => !['select', 'hand'].includes(editor.getCurrentToolId()) || editor.getSelectedShapes().some((x) => x.type !== CARD_SHAPE && x.type !== RIVE_SHAPE), [editor]);
+  const shown = useValue('timmy desk: style panel', () => !['select', 'hand'].includes(editor.getCurrentToolId()) || editor.getSelectedShapes().some((x) => x.type !== CARD_SHAPE && x.type !== RIVE_SHAPE && x.type !== DISPLAY_SHAPE), [editor]);
   return shown ? <DefaultStylePanel {...props} /> : null;
 }
 const COMPONENTS = {
@@ -598,7 +600,7 @@ function DeskTools({ editor }) {
       <Tool glyph="⌖" label="Arrange" pressed={tool === 'select'} onClick={off ? null : () => set('select')} />
       <Tool glyph="✋" label="Hand" pressed={tool === 'hand'} onClick={off ? null : () => set('hand')} />
       <NodesMenu editor={editor} />
-      <ImportMenu editor={editor} place={editor ? (w, h) => placeFor(editor, w, h) : null} focus={focusShape} area={() => SECTIONS.find((x) => x.id === 'notes')} />
+      <ImportMenu editor={editor} place={editor ? (w, h) => placeFor(editor, w, h) : null} focus={focusShape} hold={holdDesk} />
       <Tool glyph="✎" label="Draw" pressed={tool === 'draw'} onClick={off ? null : () => set('draw')} />
       <Tool glyph="↗" label="Connect" pressed={tool === 'arrow'} onClick={off ? null : () => set('arrow')} />
       <Tool glyph="T" label="Text" pressed={tool === 'text'} onClick={off ? null : () => set('text')} />

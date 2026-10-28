@@ -182,8 +182,8 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
     const f = projectFile(p.root, String((req.body as { path?: unknown } | undefined)?.path ?? ''));
     if (!f.ok) { res.status(f.status).json({ ok: false, error: f.error }); return; }
     const mime = imageMime(f.bytes);
-    if (!mime) { res.status(415).json({ ok: false, error: 'Card Lab takes a PNG, JPEG or WebP image; this file is none of them (by its bytes).' }); return; }
-    if (f.bytes.length > 8 * 1024 * 1024) { res.status(413).json({ ok: false, error: 'Card Lab takes an image of at most 8 MB.' }); return; }
+    if (!mime) { res.status(415).json({ ok: false, error: 'Image Analysis takes a PNG, JPEG or WebP image; this file is none of them (by its bytes).' }); return; }
+    if (f.bytes.length > 8 * 1024 * 1024) { res.status(413).json({ ok: false, error: 'Image Analysis takes an image of at most 8 MB.' }); return; }
     const source = provenanceOf(p.root, f.rel, f.sha256);
     try {
       const hosted = await ensureFor(spec, req, p, self.split(':')[1]);

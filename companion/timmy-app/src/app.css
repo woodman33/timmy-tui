@@ -740,3 +740,46 @@ html:root {
 .ta-stage-guide { position: absolute; z-index: 3; left: 50%; top: 42%; transform: translate(-50%, -50%); max-width: min(440px, calc(100% - 32px)); margin: 0; padding: 14px 18px;
   border-radius: 14px; border: 1px dashed var(--timmy-ui-border, #34373C); background: color-mix(in srgb, var(--timmy-ui-surface, #111316) 88%, transparent);
   color: var(--timmy-ui-text-secondary, #C9CDD2); font-size: 14px; text-align: center; pointer-events: none; }
+
+/* The unified Workspace order (2026-10-27): the display node (src/pages/display-node.jsx) — Card Lab's Glacier composition:
+   the work on black, a compact silver-lit header (type, title, status, view, actions), one primary action in the foot. */
+.ta-node-shape { font-family: var(--timmy-ui-font, 'Outfit', system-ui, sans-serif); }
+.ta-node { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; border-radius: 14px;
+  border: 1px solid var(--timmy-ui-border, #34373C); background: var(--timmy-ui-surface, #111316); color: var(--timmy-ui-text, #F1F3F5);
+  box-shadow: 0 10px 28px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); }
+.ta-node-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 6px 4px 12px; cursor: grab;
+  background: linear-gradient(110deg, color-mix(in srgb, var(--timmy-ui-accent-soft, #BED9ED) 14%, transparent), transparent 70%); border-bottom: 1px solid var(--timmy-ui-border, #34373C); }
+.ta-node-kind { flex: none; font-size: 10px; letter-spacing: .12em; font-weight: 600; color: var(--timmy-ui-accent, #8ABBE3); }
+.ta-node-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ta-node-status { flex: none; font-size: 11px; color: var(--timmy-ui-text-muted, #A5A9B0); white-space: nowrap; }
+.ta-node-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--timmy-ui-border, #34373C);
+  background: var(--timmy-ui-canvas, #050607); color: var(--timmy-ui-text, #F1F3F5); font: inherit; font-size: 12px; cursor: pointer; }
+.ta-node-btn:focus-visible, .ta-node-toggle:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: 2px; }
+.ta-node-btn[aria-expanded="true"] { border-color: var(--timmy-ui-accent, #8ABBE3); }
+.ta-node-btn.is-icon .ta-tool-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ta-node-body { flex: 1; min-height: 0; position: relative; background: #000; display: flex; }
+.ta-node-media { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+.ta-node-interactive { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; cursor: auto; }
+.ta-node-3d { cursor: grab; }
+.ta-node-3d canvas { width: 100% !important; height: 100% !important; display: block; }
+.ta-node-frame { flex: 1; border: 0; background: #fff; }
+.ta-node-source { flex: 1; margin: 0; padding: 10px 12px; overflow: auto; font-family: var(--timmy-ui-font-mono, 'IBM Plex Mono', monospace); font-size: 11px; color: var(--timmy-ui-text-secondary, #C9CDD2); background: var(--timmy-ui-canvas, #050607); white-space: pre-wrap; }
+.ta-node-rive { flex-direction: column; background: var(--timmy-ui-canvas, #050607); }
+.ta-node-rive-canvas { flex: 1; min-height: 120px; width: 100%; }
+.ta-node-rive-inputs { flex: none; display: grid; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--timmy-ui-border, #34373C); font-size: 12px; max-height: 40%; overflow: auto; }
+.ta-node-input { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ta-node-input input[type="number"] { width: 72px; font: inherit; color: inherit; background: var(--ta-field, #0B1016); border: 1px solid var(--timmy-ui-border, #34373C); border-radius: 6px; padding: 2px 6px; }
+.ta-node-wait { margin: auto; padding: 12px; font-size: 13px; color: var(--timmy-ui-text-muted, #A5A9B0); text-align: center; }
+.ta-node-ref { margin: auto; padding: 14px 16px; display: grid; gap: 6px; text-align: left; width: 100%; box-sizing: border-box; background: var(--timmy-ui-canvas, #050607); align-self: stretch; }
+.ta-node-ref-kind { margin: 0; font-size: 18px; font-weight: 600; color: var(--timmy-ui-text, #F1F3F5); }
+.ta-node-ref-path { margin: 0; font-size: 11px; overflow-wrap: anywhere; color: var(--timmy-ui-text-secondary, #C9CDD2); }
+.ta-node-fact { margin: 0; font-size: 12px; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-node-inspector { flex: none; max-height: 45%; overflow: auto; padding: 8px 12px; border-top: 1px solid var(--timmy-ui-border, #34373C); background: var(--timmy-ui-surface, #111316); font-size: 12px; cursor: auto; }
+.ta-node-inspector .ta-facts { font-size: 12px; gap: 3px 10px; }
+.ta-node-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--timmy-ui-border, #34373C); cursor: auto; }
+.ta-node-primary { min-height: 30px; padding: 0 12px; font-size: 12px; }
+.ta-node-toggle { border: 0; background: none; color: var(--timmy-ui-text-muted, #A5A9B0); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.ta-node-toggle:hover { color: var(--timmy-ui-text, #F1F3F5); }
+/* a drag that starts in a menu or the tools never selects the page's words */
+.ta-menu-list, .ta-floatbar, .ta-node-head, .ta-node-foot { -webkit-user-select: none; user-select: none; }
+.ta-menu-list input, .ta-menu-list textarea { -webkit-user-select: text; user-select: text; }

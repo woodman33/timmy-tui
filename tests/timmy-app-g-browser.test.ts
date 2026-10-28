@@ -111,42 +111,59 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await page.context().close();
   }, 120_000);
 
-  it('the 08:10 word: the Workspace canvas imports an app\'s results — an image as a tldraw image read from the project, anything else as a note — and the saved desk keeps only the path', async () => {
+  it('the 08:10 word and the unified Workspace: an app\'s results come in as display nodes read from the project, and the saved board keeps only the path', async () => {
     const page = await open(1440, 900);
     await go(page, 'canvas');
     await page.waitForSelector('.ta-stage .tl-container', { timeout: 60_000 });
     await page.click('[data-tool="Import"]');
     await page.click('[data-import="from-apps/animate/j1/preview.png"]');
-    await page.waitForSelector('.tl-shape[data-shape-type="image"]', { timeout: 30_000 });
-    // drawn from the project's bytes through the companion (an object URL), not a data URL kept in the desk
-    await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"] img').getAttribute('src'), { timeout: 20_000 }).toMatch(/^blob:/);
+    await page.waitForSelector('.tl-shape[data-shape-type="timmy-display"] [data-node-kind="image"]', { timeout: 30_000 });
+    // drawn from the project's bytes through the companion (an object URL), not a data URL kept in the board
+    await expect.poll(() => page.locator('[data-node-kind="image"] img').first().getAttribute('src'), { timeout: 20_000 }).toMatch(/^blob:/);
     // an SVG export draws as an image too (GET /api/files/media: from-apps/ only, with a sandboxing CSP)
     await page.click('[data-tool="Import"]');
     await page.click('[data-import="from-apps/animate/j1/frame.svg"]');
-    await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"]').count(), { timeout: 20_000 }).toBe(2);
-    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.tl-shape[data-shape-type="image"] img')].map((i) => (i as HTMLImageElement).naturalWidth)), { timeout: 20_000 }).toEqual(expect.arrayContaining([120]));
-    // every import lands on the desk (inside what Fit workspace shows), never outside the camera's reach
-    // (the SVG again, five times: 120 × 80 each, until the free space runs out and the Notes section takes the rest)
+    await expect.poll(() => page.locator('[data-node-kind="image"]').count(), { timeout: 20_000 }).toBe(2);
+    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('[data-node-kind="image"] img')].map((i) => (i as HTMLImageElement).naturalWidth)), { timeout: 20_000 }).toEqual(expect.arrayContaining([120]));
+    // every import lands where the camera reaches: on a full desk, to the right along its rows (the desk grows to hold it),
+    // never on top of another card
     for (let i = 0; i < 5; i++) { await page.click('[data-tool="Import"]'); await page.click('[data-import="from-apps/animate/j1/frame.svg"]'); await page.waitForTimeout(400); }
-    await expect.poll(() => page.locator('.tl-shape[data-shape-type="image"]').count(), { timeout: 20_000 }).toBe(7);
-    await page.click('[data-tool="Fit workspace"]').catch(async () => page.click('button:has-text("Fit workspace")'));
-    await page.waitForTimeout(800);
-    const outside = await page.evaluate(() => { const c = document.querySelector('.ta-stage .tl-container')!.getBoundingClientRect(); return [...document.querySelectorAll('.tl-shape[data-shape-type="image"]')].map((e) => e.getBoundingClientRect()).filter((r) => r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1).length; });
-    expect(outside).toBe(0);
+    await expect.poll(() => page.locator('[data-node-kind="image"]').count(), { timeout: 20_000 }).toBe(7);
+    const overlaps = await page.evaluate(() => { const r = [...document.querySelectorAll('.tl-shape[data-shape-type="timmy-display"]')].map((e) => e.getBoundingClientRect()); let n = 0; for (let i = 0; i < r.length; i++) for (let k = i + 1; k < r.length; k++) { const a = r[i]; const b = r[k]; if (a.left < b.right - 2 && b.left < a.right - 2 && a.top < b.bottom - 2 && b.top < a.bottom - 2) n++; } return n; });
+    expect(overlaps).toBe(0);
+    // the last one is reached by panning along the rows (the Hand tool drags the camera): it comes into the stage (tldraw
+    // draws only what is in view)
+    const last = page.locator('.tl-shape[data-shape-type="timmy-display"]').last();
+    const stage = (await page.locator('.ta-stage .tl-container').boundingBox())!;
+    await page.click('[data-tool="Hand"]');
+    // (the camera may start on either side of it: along the rows first, then back)
+    for (let i = 0; i < 60; i++) {
+      const b = await last.boundingBox();
+      if (b && b.width > 0 && b.x + b.width <= stage.x + stage.width && b.x >= stage.x) break;
+      const y = stage.y + stage.height / 2;
+      const [from, to] = i < 20 ? [0.7, 0.4] : [0.3, 0.6];
+      await page.mouse.move(stage.x + stage.width * from, y); await page.mouse.down(); await page.mouse.move(stage.x + stage.width * to, y, { steps: 4 }); await page.mouse.up(); await page.waitForTimeout(120);
+    }
+    await shot(page, 'g6-panned');
+    const lb = (await last.boundingBox())!;
+    expect(lb.x).toBeGreaterThanOrEqual(stage.x - 1);
+    expect(lb.x + lb.width).toBeLessThanOrEqual(stage.x + stage.width + 1);
+    await page.click('[data-tool="Arrange"]');
     // the media route serves only what an app delivered, and only media
     const media = await page.evaluate(async (t) => Promise.all(['from-apps/animate/j1/frame.svg', 'a.txt', 'from-apps/animate/j1/scene.json'].map(async (p) => { const r = await fetch(`/api/files/media?path=${encodeURIComponent(p)}`, { headers: { authorization: `Bearer ${t}` } }); return [r.status, r.headers.get('content-security-policy') || '']; })), token);
     expect(media[0][0]).toBe(200); expect(media[0][1]).toMatch(/sandbox/);
     expect(media[1][0]).toBe(403); expect(media[2][0]).toBe(415);
+    // anything else: a reference node naming its app, with Reopen
     await page.click('[data-tool="Import"]');
     await page.click('[data-import="from-apps/animate/j1/scene.json"]');
-    await expect.poll(() => page.locator('.tl-shape[data-shape-type="note"]').allInnerTexts().then((t) => t.join('\n')), { timeout: 20_000 }).toMatch(/Animate · scene\.json/);
+    await page.waitForSelector('[data-node-kind="file"][data-node-path="from-apps/animate/j1/scene.json"]', { timeout: 20_000 });
+    expect(await page.locator('[data-node-kind="file"] [data-node-primary]').innerText()).toBe('Reopen in Animate');
     await shot(page, 'g6-workspace-imported');
-    // the desk is saved with the asset as a project path, and each node names its app, path and receipt
-    const saved = await expect.poll(async () => {
+    // the board is saved with each node's project path, app and receipt, never the bytes
+    await expect.poll(async () => {
       const d = await page.evaluate(async (t) => (await fetch('/api/app/desk', { headers: { authorization: `Bearer ${t}` } })).text(), token);
-      return d.includes('asset:timmy-file/from-apps/animate/j1/preview.png') && d.includes('"from":"app-output"') ? d : '';
-    }, { timeout: 20_000 }).not.toBe('');
-    void saved;
+      return d.includes('"path":"from-apps/animate/j1/preview.png"') && d.includes('"from":"app-output"') && d.includes('timmy-display');
+    }, { timeout: 20_000 }).toBe(true);
     const desk = await page.evaluate(async (t) => (await fetch('/api/app/desk', { headers: { authorization: `Bearer ${t}` } })).json(), token);
     expect(JSON.stringify(desk.snapshot)).not.toMatch(/data:image\/png;base64/);
     await page.context().close();

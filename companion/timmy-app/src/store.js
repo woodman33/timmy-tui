@@ -284,6 +284,9 @@ export function setCanvasIo(canvasIo) { set({ canvasIo }); }
 /** A host operation's result, put on the Canvas desk as a note the next time the desk opens (the 2026-10-27 order's tldraw card). */
 /** Aim a Control Room run at an app or one of its outputs (the 08:10 word): the run form opens with it filled in. */
 export function aimAgent(target) { set({ agentTarget: target && target.kind === 'app' ? { kind: 'app', app: target.app, ...(target.path ? { path: target.path } : {}), at: Date.now() } : null }); goTo('control'); }
+/** Show a project file in Files (its folder listed, the file opened): the unified Workspace's "Show in Files". */
+export function showInFiles(path) { set({ filesTarget: { path: String(path || ''), at: Date.now() } }); goTo('files'); }
+export function takeFilesTarget() { const t = state.filesTarget; if (!t) return null; set({ filesTarget: null }); return t; }
 export function takeAgentTarget() { const t = state.agentTarget; if (!t) return null; set({ agentTarget: null }); return t; }
 export function placeOnCanvas(text, from) { set({ canvasNote: { text: String(text || '').slice(0, 1200), from: from || null, at: Date.now() } }); goTo('canvas'); }
 export function takeCanvasNote() { const n = state.canvasNote; if (!n) return null; set({ canvasNote: null }); return n; }

@@ -1,18 +1,16 @@
-// The 07:37 completion pass, on the operator's 08:10 word: the Canvas as the one workspace that takes in what every app made.
-// "Import from apps" lists the apps' delivered results (GET /api/apps/outputs: each job's files under from-apps/<app>/<job>/,
-// with the receipt that sealed them) and places one on the licensed tldraw desk as a real node:
-//   - an image (png, jpg, webp, gif, svg): a tldraw image whose asset points at the project file (asset:timmy-file/<path>);
-//   - a video (mp4, webm, mov): a tldraw video the same way;
-//   - anything else (a mesh, a scene, a native Rive or CAD file, an HTML player): a note naming it, its app and its receipt
-//     (a mesh shows as its own app's preview, never as measured geometry here).
-// Each node's meta keeps where it came from (app, path, receipt), so the desk's arrows can wire it into a workflow and the
-// file it stands for stays the receipted one. The asset store reads a timmy-file: asset's bytes through the companion with
-// the page's token when the desk draws it (an object URL for this page only); the saved desk keeps only the path.
+// The 07:37 completion pass, on the operator's 08:10 word, and the unified Workspace order (2026-10-27): the Workspace takes in
+// what every app made. "Import from apps" lists the apps' delivered results (GET /api/apps/outputs: each job's files under
+// from-apps/<app>/<job>/, with the receipt that sealed them) and places each as a Timmy display node (./display-node.jsx):
+// an image, a video, an interactive 3D model (GLB), an isolated HTML preview, a Rive file on the Rive runtime, or a reference
+// to a native/source file (a mesh's .blend, a scene, CAD source) with its Reopen action — never shown as measured geometry.
+// Images and videos placed by an earlier build stay tldraw images and videos whose asset points at the project file
+// (asset:timmy-file/<path>): the asset store below still draws them.
 import { APP_NAMES } from '../app-names.js';
 import { useEffect, useRef, useState } from 'react';
-import { AssetRecordType, createShapeId, toRichText } from 'tldraw';
+import { createShapeId } from 'tldraw';
 import { call, getJson } from '../api.js';
 import { projectQuery } from '../store.js';
+import { DISPLAY_SHAPE, KINDS, NODE_SIZE, displayKindOf, mediaUrl } from './display-node.jsx';
 
 // tldraw accepts an asset src of http(s), data, blob or asset: — an imported result is asset:timmy-file/<project path>
 export const FILE_SRC = 'asset:timmy-file/';
@@ -55,59 +53,56 @@ export const ASSET_STORE = {
   },
 };
 
-/** The size an image or video draws at, read from its bytes (bounded to 320 units on its long side). */
-async function sizeOf(kind, url) {
-  const natural = await new Promise((ok) => {
-    if (kind === 'image') { const i = new Image(); i.onload = () => ok({ w: i.naturalWidth || 320, h: i.naturalHeight || 240 }); i.onerror = () => ok({ w: 320, h: 240 }); i.src = url; }
-    else { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => ok({ w: v.videoWidth || 480, h: v.videoHeight || 270 }); v.onerror = () => ok({ w: 480, h: 270 }); v.src = url; }
-  });
-  const k = Math.min(1, 320 / Math.max(natural.w, natural.h));
-  return { w: Math.round(natural.w * k), h: Math.round(natural.h * k) };
-}
-
-/** Place one app result on the desk where it has room (`place`: the desk's own free-space finder), else at the view's centre. */
-export async function importOutput(editor, file, result, place = null, focus = null, area = null) {
-  const kind = nodeKindOf(file.path);
+/**
+ * Place one app result on the board where it has room (`place`: the desk's own free-space finder), as a Timmy display node
+ * (./display-node.jsx): an image, a video, a 3D model, an HTML or Rive preview, or a reference to a native/source file — each
+ * with the node's header, view and actions, its inspector and its primary action. Its meta keeps where it came from.
+ */
+export async function importOutput(editor, file, result, place = null, focus = null, hold = null) {
+  const kind = displayKindOf(file.path);
   const meta = { from: 'app-output', app: result.app, path: file.path, receipt: result.receipt || null };
   const c = editor.getViewportPageBounds().center;
-  // the desk's free-space finder; when no place on the desk is clear, inside the Notes section (the person's own area of the
-  // desk, where the camera can reach), fitted to it and stepped so imports do not stack exactly; never outside the desk
-  const at = (w, h) => {
+  let [w, h] = NODE_SIZE[kind] || NODE_SIZE.file;
+  // an image keeps its own proportions (read from its bytes; at most 360 units on its long side, plus the node's header and foot)
+  if (kind === 'image') {
+    try {
+      const url = await mediaUrl(file.path);
+      const n = await new Promise((ok) => { const i = new Image(); i.onload = () => ok({ w: i.naturalWidth || 320, h: i.naturalHeight || 240 }); i.onerror = () => ok({ w: 320, h: 240 }); i.src = url; });
+      const k = Math.min(1, 360 / Math.max(n.w, n.h));
+      w = Math.max(260, Math.round(n.w * k)); h = Math.round(n.h * k) + 96;
+    } catch { /* the default size */ }
+  }
+  // the desk's free-space finder; when no place on the desk is clear, the next free place to the right of everything on the
+  // board, along the desk's rows (the camera pans along them, and the desk's bounds grow to hold it: `hold` re-holds the camera)
+  const at = () => {
     const p = place ? place(w, h) : null;
     const taken = editor.getCurrentPageShapes().map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
-    const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 12 && q.x + w + 12 > b.x && q.y < b.y + b.h + 12 && q.y + h + 12 > b.y);
-    if (clear(p)) return { ...p, w, h };
-    const a = area ? area() : null;
-    if (!a) return { x: c.x - w / 2, y: c.y - h / 2, w, h };
-    const k = Math.min(1, (a.w - 32) / w, (a.h - 64) / h);
-    const n = editor.getCurrentPageShapes().filter((x) => x.meta && x.meta.from === 'app-output').length % 6;
-    return { x: a.x + 16 + n * 14, y: a.y + 40 + n * 14, w: Math.round(w * k), h: Math.round(h * k) };
+    const clear = (q) => q && !taken.some((b) => q.x < b.x + b.w + 16 && q.x + w + 16 > b.x && q.y < b.y + b.h + 16 && q.y + h + 16 > b.y);
+    if (clear(p)) return p;
+    // the columns start right of what is not an imported node (the desk's own cards), so the imports fill a column top to
+    // bottom before the next one
+    const base = editor.getCurrentPageShapes().filter((x) => x.type !== DISPLAY_SHAPE).map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
+    const all = base.length ? base.reduce((a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), r: Math.max(a.r, b.x + b.w), b: Math.max(a.b, b.y + b.h) }), { x: Infinity, y: Infinity, r: -Infinity, b: -Infinity }) : null;
+    if (!all) return { x: c.x - w / 2, y: c.y - h / 2 };
+    const top = Math.min(all.y, 0); const bottom = Math.max(all.b, top + h);
+    for (let x = all.r + 40; x < all.r + 40 + 60 * (w + 40); x += 20) {
+      for (let y = top; y + h <= bottom; y += 20) if (clear({ x, y })) return { x, y };
+    }
+    return { x: all.r + 40, y: top };
   };
   const id = createShapeId();
-  if (kind === 'note') {
-    const words = `${APP_WORDS[result.app] || result.app} · ${file.name}\n${file.path}${result.receipt ? `\nreceipt ${result.receipt}` : ''}\nOpen it in ${APP_WORDS[result.app] || result.app} to edit it.`;
-    const p = at(168, 250);
-    const sc = Math.min(0.8, 0.8 * p.w / 168);
-    editor.run(() => { editor.createShape({ id, type: 'note', x: p.x, y: p.y, meta, props: { richText: toRichText(words), size: 's', scale: sc } }); editor.select(id); });
-    if (focus) focus(editor, id);
-    return id;
-  }
-  const url = await fileUrl(file.path);
-  const natural = await sizeOf(kind, url);
-  const assetId = AssetRecordType.createId();
-  const p = at(natural.w, natural.h);
-  const { w, h } = p;
+  const p = at();
   editor.run(() => {
-    editor.createAssets([{ id: assetId, typeName: 'asset', type: kind, meta, props: { name: file.name, src: `${FILE_SRC}${file.path}`, w, h, mimeType: MIME[ext(file.path)] || null, isAnimated: kind === 'video' || ext(file.path) === 'gif' } }]);
-    editor.createShape({ id, type: kind, x: p.x, y: p.y, meta, props: { assetId, w, h } });
+    editor.createShape({ id, type: DISPLAY_SHAPE, x: p.x, y: p.y, meta, props: { w, h, kind, title: file.name, path: file.path, app: result.app, receipt: result.receipt || '', job: result.job || '', mode: (KINDS[kind] || KINDS.file).modes[0][0], panel: false } });
     editor.select(id);
   });
+  if (hold) hold(editor);
   if (focus) focus(editor, id);
   return id;
 }
 
 /** The desk's "Import from apps" menu: the apps' newest results, each file a choice. */
-export function ImportMenu({ editor, place = null, focus = null, area = null }) {
+export function ImportMenu({ editor, place = null, focus = null, hold = null }) {
   const [open, setOpen] = useState(false);
   const [r, setR] = useState(null);
   const [note, setNote] = useState('');
@@ -124,7 +119,7 @@ export function ImportMenu({ editor, place = null, focus = null, area = null }) 
     return () => { gone = true; document.removeEventListener('pointerdown', off); document.removeEventListener('keydown', esc); };
   }, [open]);
   const pick = async (file, result) => {
-    try { await importOutput(editor, file, result, place, focus, area); setOpen(false); } catch (e) { setNote(`Not placed: ${e instanceof Error ? e.message : String(e)}.`); }
+    try { await importOutput(editor, file, result, place, focus, hold); setOpen(false); } catch (e) { setNote(`Not placed: ${e instanceof Error ? e.message : String(e)}.`); }
   };
   const results = r && r.ok ? r.results || [] : [];
   return (
@@ -142,7 +137,7 @@ export function ImportMenu({ editor, place = null, focus = null, area = null }) 
                     <p className="ta-context-k">{(APP_WORDS[x.app] || x.app).toUpperCase()} · {x.label || 'job'}</p>
                     {x.files.slice(0, 8).map((f) => (
                       <button key={f.path} type="button" role="menuitem" className="ta-popover-item" data-import={f.path} onClick={() => pick(f, x)}>
-                        <span className="ta-tool-glyph" aria-hidden="true">{nodeKindOf(f.path) === 'image' ? '▧' : nodeKindOf(f.path) === 'video' ? '▶' : '◇'}</span>{f.name}
+                        <span className="ta-tool-glyph" aria-hidden="true">{({ image: '▧', video: '▶', model: '◭', html: '⧉', rive: '◎' })[displayKindOf(f.path)] || '◇'}</span>{f.name}
                       </button>
                     ))}
                   </div>

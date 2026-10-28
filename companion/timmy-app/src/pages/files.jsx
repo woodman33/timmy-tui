@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { call, getJson, postJson } from '../api.js';
 import { Markdown } from '../md.jsx';
 import { Page, Panel, Tool } from '../shell.jsx';
-import { aimAgent, goTo, openApp, projectQuery, useApp } from '../store.js';
+import { aimAgent, goTo, openApp, projectQuery, useApp, takeFilesTarget } from '../store.js';
 import { Button, Empty, Facts, day } from '../ui.jsx';
 import './files.css';
 
@@ -180,9 +180,12 @@ function OpenFile({ file, onSent }) {
 export default function FilesPage() {
   const config = useApp((s) => s.config);
   const projectId = useApp((s) => s.projectId);
-  const [path, setPath] = useState('');
+  // a file shown from elsewhere ("Show in Files" on a Workspace node): its folder listed, then the file opened
+  const [target] = useState(() => takeFilesTarget());
+  const [path, setPath] = useState(() => (target && target.path.includes('/') ? target.path.slice(0, target.path.lastIndexOf('/')) : ''));
   const [list, setList] = useState(null);
   const [file, setFile] = useState(null);
+  const shownTarget = useRef(false);
   const [filter, setFilter] = useState('');
   const urlRef = useRef(null);
   const [stamp, setStamp] = useState(0);
@@ -205,6 +208,12 @@ export default function FilesPage() {
     // a phone shows the open file under the list: bring it into view
     if (typeof matchMedia === 'function' && matchMedia('(max-width: 900px)').matches) requestAnimationFrame(() => { const el = document.querySelector('[data-page="files"] .ta-context'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   };
+  useEffect(() => {
+    if (!target || shownTarget.current || !list || !list.ok) return;
+    shownTarget.current = true;
+    const e = (list.entries || []).find((x) => x.path === target.path);
+    if (e) open(e);
+  }, [list]); // eslint-disable-line react-hooks/exhaustive-deps
   const entries = list && list.ok && Array.isArray(list.entries) ? list.entries : [];
   const shown = filter ? entries.filter((e) => e.name.toLowerCase().includes(filter.toLowerCase())) : entries;
   const folders = entries.filter((e) => e.kind === 'dir').length;

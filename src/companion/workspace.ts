@@ -25,6 +25,7 @@
  * What it reads and writes is the environment it is given (CompanionOptions.workspace, a test's), else this process's.
  */
 import type { Application, RequestHandler } from 'express';
+import { randomBytes } from 'node:crypto';
 import { closeSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { basename, extname, isAbsolute, join, posix, resolve, sep } from 'node:path';
 import type { WorkspaceFrame } from '../contracts/workspace.js';
@@ -308,7 +309,19 @@ export function listProjectFolder(root: string, rel: string): { entries: FileEnt
 }
 
 /** The media the Workspace canvas may draw from an app's delivered files (GET /api/files/media). */
-export const MEDIA_TYPES: Readonly<Record<string, string>> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime' };
+export const MEDIA_TYPES: Readonly<Record<string, string>> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  // the unified Workspace order: a 3D model (GLB) and a Rive file, read as bytes by the page's own viewers (never run by the browser)
+  '.glb': 'model/gltf-binary', '.riv': 'application/octet-stream' };
+/** The unified Workspace order: an app's HTML export, shown only in an isolated preview (a sandboxed frame of its own origin). */
+export const PREVIEW_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8' };
+export const PREVIEW_MAX = 20 * 1024 * 1024;
+export const PREVIEW_MS = 5 * 60_000;
+/**
+ * The policy an HTML preview is sent with: a sandbox WITHOUT allow-same-origin (its origin is opaque: it cannot read Timmy's
+ * page, storage or token, and it sends no request back to Timmy), its own inline script and style, images and media only from
+ * itself (data:, blob:), no network, framed only by Timmy's own page.
+ */
+export const PREVIEW_POLICY = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-ancestors 'self'";
 export const MEDIA_MAX = 200 * 1024 * 1024;
 
 /** A text file's contents (the first FILE_TEXT_MAX bytes) or an image's bytes, or why not. */
@@ -377,13 +390,44 @@ export function mountFiles(app: Application, deps: FilesDeps): void {
     if ('error' in at) { failRequest(res, at.status, at.error); return; }
     if (!/^from-apps\//.test(at.rel)) { failRequest(res, 403, 'Only what an app delivered (from-apps/) is served as media.'); return; }
     const type = MEDIA_TYPES[extname(at.real).toLowerCase()];
-    if (!type) { failRequest(res, 415, 'Not an image, SVG or video.'); return; }
+    if (!type) { failRequest(res, 415, 'Not an image, SVG, video, GLB model or Rive file.'); return; }
     let st; try { st = statSync(at.real); } catch { failRequest(res, 404, FILES_WORDS.outside); return; }
     if (!st.isFile()) { failRequest(res, 404, FILES_WORDS.outside); return; }
     if (st.size > MEDIA_MAX) { failRequest(res, 413, 'Larger than 200 MB: open it in its app.'); return; }
     res.set('X-Content-Type-Options', 'nosniff').set('Content-Disposition', 'inline');
     if (type === 'image/svg+xml') res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
     res.type(type).sendFile(at.real);
+  });
+
+  // The unified Workspace order: an app's HTML export (an animation's player, a page) in an ISOLATED preview. The page asks for a
+  // grant (POST, with its token: only from-apps/ HTML up to PREVIEW_MAX); the grant is an unguessable address of that one file,
+  // good for PREVIEW_MS, that a sandboxed frame loads without the token (a frame cannot send one). The bytes are read when the
+  // frame loads them and sent with PREVIEW_POLICY (an opaque origin: nothing in the file can reach Timmy).
+  const grants = new Map<string, { real: string; until: number }>();
+  app.post('/api/files/preview', deps.withToken, deps.withUser, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const rel = typeof req.query.path === 'string' ? req.query.path : '';
+    const at = resolveProjectPath(project.root, rel);
+    if ('error' in at) { failRequest(res, at.status, at.error); return; }
+    if (!/^from-apps\//.test(at.rel)) { failRequest(res, 403, 'Only what an app delivered (from-apps/) is previewed.'); return; }
+    if (!PREVIEW_TYPES[extname(at.real).toLowerCase()]) { failRequest(res, 415, 'Not an HTML file.'); return; }
+    let st; try { st = statSync(at.real); } catch { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (!st.isFile()) { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (st.size > PREVIEW_MAX) { failRequest(res, 413, 'Larger than 20 MB: open it in its app.'); return; }
+    const now = Date.now();
+    for (const [k, g] of grants) if (g.until < now) grants.delete(k);
+    const id = randomBytes(24).toString('hex');
+    grants.set(id, { real: at.real, until: now + PREVIEW_MS });
+    res.json({ ok: true, url: `/files-preview/${id}`, until: new Date(now + PREVIEW_MS).toISOString(), policy: PREVIEW_POLICY });
+  });
+  app.get('/files-preview/:id', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const g = grants.get(String(req.params.id));
+    if (!g || g.until < Date.now()) { res.status(404).type('text/plain').send('This preview has ended: open it again from the Workspace.'); return; }
+    res.set('Content-Security-Policy', PREVIEW_POLICY).set('X-Frame-Options', 'SAMEORIGIN').set('X-Content-Type-Options', 'nosniff').set('Referrer-Policy', 'no-referrer').set('Cross-Origin-Resource-Policy', 'same-origin');
+    res.type(PREVIEW_TYPES[extname(g.real).toLowerCase()] ?? 'text/plain').sendFile(g.real);
   });
 
   app.get('/api/files/file', deps.withToken, deps.withUser, (req, res) => {
