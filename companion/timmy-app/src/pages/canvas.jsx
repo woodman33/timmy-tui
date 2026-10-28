@@ -23,6 +23,7 @@ import { getJson, postJson } from '../api.js';
 import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
 import { ASSET_STORE, ImportMenu } from './canvas-import.jsx';
+import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
 // ── the desk ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -325,6 +326,19 @@ function firstDesk(editor) {
 
 // ── the desk kept in the project (the companion's /api/app/desk) ─────────────────────────────────────────────────────────
 
+/** The project's first board (its desk); the unified Workspace order (2026-10-27) adds more boards beside it. */
+export const FIRST_BOARD = 'desk';
+/** The query of a board's desk route: the page's project and, for a board other than the desk, ?board=<id>. */
+export function deskQuery(board) {
+  const q = projectQuery();
+  const b = board && board !== FIRST_BOARD ? `board=${encodeURIComponent(board)}` : '';
+  return q ? (b ? `${q}&${b}` : q) : (b ? `?${b}` : '');
+}
+/** The board this browser last had open for a principal's project (a per-viewer convenience; the boards are the project's). */
+const BOARD_KEPT = (deskKey) => `timmy-app:board:${deskKey}`;
+function boardKept(deskKey) { try { return localStorage.getItem(BOARD_KEPT(deskKey)) || FIRST_BOARD; } catch { return FIRST_BOARD; } }
+function keepBoard(deskKey, id) { try { localStorage.setItem(BOARD_KEPT(deskKey), id); } catch { /* not kept */ } }
+
 /** The desk's document as the project keeps it: without the records of whoever had it open (tldraw's `user` records are per viewer). */
 export function deskDocument(editor) {
   const doc = getSnapshot(editor.store).document;
@@ -348,8 +362,8 @@ export const SAVE_AFTER_MS = 700;
  * desk another window saved since is never written over (the companion keeps this page's version beside it as a copy, and
  * saving stops until the desk is opened again). The project is the one this page showed when the desk opened.
  */
-export function keepDesk(editor, start, onState) {
-  const q = projectQuery();
+export function keepDesk(editor, start, onState, board = FIRST_BOARD) {
+  const q = deskQuery(board);
   let rev = start && Number.isInteger(start.revision) ? start.revision : 0;
   let timer = 0;
   let pending = false;
@@ -446,7 +460,7 @@ function importDesk(editor) {
 
 // ── the board ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
+const Board = memo(function Board({ licenseKey, start, onKept, onEditor, board = FIRST_BOARD }) {
   return (
     <Tldraw
       licenseKey={licenseKey || undefined}
@@ -469,9 +483,10 @@ const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
           }
         }
         holdDesk(editor);
-        firstDesk(editor);
+        // the desk starts with Timmy's sections; a board made later starts blank (the page says how to begin)
+        if (board === FIRST_BOARD) firstDesk(editor);
         fitDesk(editor, false);
-        keeper = start && start.ok && opened ? keepDesk(editor, start, onKept) : null;
+        keeper = start && start.ok && opened ? keepDesk(editor, start, onKept, board) : null;
         if (keeper && !start.revision && editor.getCurrentPageShapeIds().size) keeper.now();
         if (start && !start.ok) onKept({ phase: 'failed', words: start.error || 'the companion did not answer.' });
         else if (!opened) onKept({ phase: 'failed', words: 'the saved desk could not be opened here.' });
@@ -518,6 +533,55 @@ function NodesMenu({ editor }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The boards of this project (the unified Workspace order): which is open, open another, make a new one (blank), rename the one
+ * open. The list is the project's (GET /api/app/boards); a board's work is saved in the project as the desk's is.
+ */
+function BoardMenu({ boards, board, onOpen, onChanged }) {
+  const [name, setName] = useState('');
+  const [mode, setMode] = useState(null);
+  const [words, setWords] = useState('');
+  const list = boards && boards.ok ? boards.boards : [];
+  const here = list.find((b) => b.id === board);
+  const submit = async (close) => {
+    const n = name.trim();
+    if (!n) { setWords('A board needs a name.'); return; }
+    const r = mode === 'rename' ? await postJson(`/api/app/boards/${encodeURIComponent(board)}/rename${projectQuery()}`, { name: n }) : await postJson(`/api/app/boards${projectQuery()}`, { name: n });
+    if (!r.ok) { setWords(r.error || `The companion answered ${r.status}.`); return; }
+    await onChanged();
+    setName(''); setMode(null); setWords('');
+    if (mode !== 'rename') onOpen(r.board.id);
+    say(mode === 'rename' ? `Board renamed: ${r.board.name}.` : `Board made: ${r.board.name} (blank, kept in the project).`);
+    close(true);
+  };
+  return (
+    <MenuButton label={here ? here.name : 'Desk'} glyph="▦" title="Boards of this project" menuLabel="Boards of this project" data={{ 'data-menu': 'boards', 'data-board': board }} onOpen={() => { setMode(null); setWords(''); }}>
+      {(close) => (
+        <>
+          <MenuGroup label="Boards">
+            {list.length ? list.map((b) => (
+              <MenuItem key={b.id} checked={b.id === board} close={close} onSelect={() => onOpen(b.id)} data={{ 'data-board-item': b.id }}
+                hint={b.revision ? `revision ${b.revision}${b.savedAt ? ` · ${clock(b.savedAt)}` : ''}` : 'not saved yet'}>{b.name}</MenuItem>
+            )) : <p className="ta-menu-note">{boards && !boards.ok ? boards.error : 'Reading the boards…'}</p>}
+          </MenuGroup>
+          <MenuGroup label="Change">
+            <MenuItem keepOpen close={close} onSelect={() => { setMode('new'); setName(''); setWords(''); }} data={{ 'data-action': 'board-new' }}>New board…</MenuItem>
+            <MenuItem keepOpen close={close} onSelect={() => { setMode('rename'); setName(here ? here.name : ''); setWords(''); }} data={{ 'data-action': 'board-rename' }}>Rename this board…</MenuItem>
+          </MenuGroup>
+          {mode ? (
+            <form className="ta-menu-form" onSubmit={(e) => { e.preventDefault(); submit(close); }}>
+              <label className="tr-visually-hidden" htmlFor="ta-board-name">{mode === 'rename' ? 'New name of this board' : 'Name of the new board'}</label>
+              <input id="ta-board-name" autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={mode === 'rename' ? 'New name' : 'Board name'} data-board-name />
+              <button type="submit" className="ta-btn ta-btn-primary" data-action={mode === 'rename' ? 'board-rename-save' : 'board-create'}>{mode === 'rename' ? 'Rename' : 'Make'}</button>
+            </form>
+          ) : null}
+          {words ? <p className="ta-menu-note" role="status">{words}</p> : null}
+        </>
+      )}
+    </MenuButton>
   );
 }
 
@@ -798,20 +862,29 @@ export default function CanvasPage() {
   const [opening, setOpening] = useState(0);
   const deskKey = deskKeyOf(config);
   const ready = Boolean(config && config.ok);
+  // the project's boards (the desk first) and the one open here
+  const [boards, setBoards] = useState(null);
+  const [board, setBoard] = useState(FIRST_BOARD);
+  useEffect(() => { if (ready) setBoard(boardKept(deskKey)); }, [ready, deskKey]);
+  const readBoards = async () => { const r = await getJson(`/api/app/boards${projectQuery()}`); setBoards(r); return r; };
+  useEffect(() => { if (ready) readBoards(); }, [ready, deskKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a board kept in this browser that the project no longer has (another principal's, a removed one): the desk
+  useEffect(() => { if (boards && boards.ok && !boards.boards.some((b) => b.id === board)) setBoard(FIRST_BOARD); }, [boards, board]);
+  const openBoard = (id) => { if (keeper) keeper.now(); keepBoard(deskKey, id); setBoard(id); };
   // the project's desk, read before the board opens (again after Reload, when another window saved it first)
   useEffect(() => {
     if (!ready) return undefined;
     let live = true;
     setDesk(null);
     setKept({ phase: 'loading' });
-    getJson(`/api/app/desk${projectQuery()}`).then((d) => {
+    getJson(`/api/app/desk${deskQuery(board)}`).then((d) => {
       if (!live) return;
       setDesk(d);
       if (d.ok) setKept({ phase: d.revision ? 'saved' : 'new', revision: d.revision, savedAt: d.savedAt });
       if (d.notice) say(d.notice);
     });
     return () => { live = false; };
-  }, [ready, opening]);
+  }, [ready, opening, board]);
   useEffect(() => {
     if (!editor) { setCanvasIo(null); return undefined; }
     setCanvasIo({ export: () => exportDesk(editor, config && config.project), import: () => importDesk(editor) });
@@ -853,13 +926,16 @@ export default function CanvasPage() {
   return (
     <Page id="canvas" fill head={false}>
       <div className="ta-stage is-page" aria-label="The desk">
-        {ready && desk ? <Board key={`${deskKey}:${opening}`} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
+        {ready && desk ? <Board key={`${deskKey}:${board}:${opening}`} board={board} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
           : ready ? <p className="ta-empty ta-pad">Reading the project’s desk…</p>
           : <p className="ta-empty ta-pad">{config ? config.error || 'The companion did not answer.' : 'Opening the desk…'}</p>}
         {note ? <p className="ta-stage-note" role="status">{note}</p> : null}
+        {editor && board !== FIRST_BOARD && shapes === 0 && desk && desk.ok ? <p className="ta-stage-guide" data-board-empty>This board is empty. Import an app’s result, add a node, or draw: everything on it is kept in the project.</p> : null}
         {phone ? <PhoneBar editor={editor} toolsOpen={toolsOpen} onTools={() => setToolsOpen(!toolsOpen)} /> : null}
         <DeskLayer editor={editor} kept={kept} phone={phone} />
         <div className={`ta-floatbar ta-toolsrow${phone && !toolsOpen ? ' is-phone-folded' : ''}`} role="toolbar" aria-label="Canvas tools">
+          <BoardMenu boards={boards} board={board} onOpen={openBoard} onChanged={readBoards} />
+          <span className="ta-toolsrow-sep" aria-hidden="true" />
           <DeskTools editor={editor} />
           {kept.phase === 'conflict' ? <Button kind="primary" onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
           <span className="ta-toolsrow-note" data-kept={kept.phase} title={keptWords(kept, config && config.project)}>{editor ? `${shapes} shape${shapes === 1 ? '' : 's'} · ` : ''}{deskWord(kept)}</span>
