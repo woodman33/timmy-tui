@@ -762,6 +762,9 @@ html:root {
 .ta-node-interactive { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; cursor: auto; }
 .ta-node-3d { cursor: grab; }
 .ta-node-3d canvas { width: 100% !important; height: 100% !important; display: block; }
+/* the spatial tools order: a Gaussian splat (Spark in the Three.js viewport), its one-line note over the picture */
+.ta-node-splat { position: relative; background: var(--timmy-ui-shell, #050607); }
+.ta-node-splat-note { position: absolute; left: 8px; bottom: 6px; margin: 0; padding: 2px 8px; border-radius: 6px; font-size: 11px; color: var(--timmy-ui-text-muted, #A5A9B0); background: color-mix(in srgb, var(--timmy-ui-shell, #050607) 70%, transparent); pointer-events: none; }
 .ta-node-frame { flex: 1; border: 0; background: #fff; }
 .ta-node-source { flex: 1; margin: 0; padding: 10px 12px; overflow: auto; font-family: var(--timmy-ui-font-mono, 'IBM Plex Mono', monospace); font-size: 11px; color: var(--timmy-ui-text-secondary, #C9CDD2); background: var(--timmy-ui-canvas, #050607); white-space: pre-wrap; }
 .ta-node-rive { flex-direction: column; background: var(--timmy-ui-canvas, #050607); }
@@ -805,6 +808,7 @@ html:root {
 .ta-op-param { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .ta-op-param select, .ta-op-param input { font: inherit; font-size: 12px; min-height: 28px; color: inherit; background: var(--ta-field, #0B1016); border: 1px solid var(--timmy-ui-border, #34373C); border-radius: 7px; padding: 2px 8px; max-width: 60%; }
 .ta-op-param select:focus-visible, .ta-op-param input:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: 1px; }
+.ta-op-off { margin: 0; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--timmy-ui-edge, #34373C); color: var(--timmy-ui-text-muted, #A5A9B0); font-size: 12px; }
 .ta-op-problems { margin: 0; padding: 6px 10px 6px 24px; border-radius: 8px; background: color-mix(in srgb, #E38A8A 12%, transparent); color: #F3C6C6; font-size: 12px; }
 .ta-op-facts { font-size: 12px; gap: 3px 10px; }
 .ta-op[data-op-state="running"] .ta-node-status, .ta-op[data-op-state="held"] .ta-node-status { color: var(--timmy-ui-accent, #8ABBE3); }

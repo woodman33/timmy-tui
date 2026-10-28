@@ -20,11 +20,11 @@ import { timmyThemes } from '../../../studio-canvas/src/theme.js';
 import { chosenOf, providerName, whereOf } from '../models-parts.jsx';
 import { Page, Tool } from '../shell.jsx';
 import { getJson, postJson } from '../api.js';
-import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setCanvasSelection, setLicense, stop, takeCanvasNote, useApp } from '../store.js';
+import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setCanvasSelection, setLicense, stop, takeCanvasNote, takeCanvasOperation, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
-import { ASSET_STORE, ImportMenu } from './canvas-import.jsx';
+import { ASSET_STORE, ImportMenu, placeOnBoard } from './canvas-import.jsx';
 import { DISPLAY_SHAPE, createDisplayUtil } from './display-node.jsx';
-import { OP_SHAPE, addOperationNode, createOpUtil, operations } from './op-node.jsx';
+import { OP_SHAPE, addOperationNode, connectPort, createOpUtil, operations } from './op-node.jsx';
 import { AgentLayer } from './agent-panel.jsx';
 import { useCatalog } from '../catalog.jsx';
 import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
@@ -606,16 +606,19 @@ function OpPicker({ editor }) {
   const { answer } = useCatalog();
   const [specs, setSpecs] = useState([]);
   useEffect(() => { operations().then(setSpecs); }, []);
-  const entries = answer && answer.ok ? answer.catalog.entries.filter((e) => e.kind === 'app' && e.operations.some((o) => o.where.includes('canvas'))) : [];
+  // each hosted app's canvas operations, and (the spatial tools order) the spatial tools' for 3D Model Studio: those listed
+  // even where they cannot run here (gsplat awaits an NVIDIA worker), with the reason
+  const spatial = (e) => e.id.startsWith('spatial:');
+  const entries = answer && answer.ok ? answer.catalog.entries.filter((e) => (e.kind === 'app' && e.operations.some((o) => o.where.includes('canvas'))) || spatial(e)) : [];
   return (
     <MenuButton label="Operations" glyph="⚙" title="Add an operation node" menuLabel="Add an operation node" buttonClass="ta-tool" disabled={!editor} data={{ 'data-menu': 'operations', 'data-tool': 'Operations' }}>
       {(close) => (
         <>
           {!answer ? <p className="ta-menu-note">Reading the catalog…</p> : !entries.length ? <p className="ta-menu-note">No hosted app offers a Workspace operation here.</p> : entries.map((e) => (
-            <MenuGroup key={e.id} label={e.name}>
-              {e.operations.filter((o) => o.where.includes('canvas')).map((o) => {
+            <MenuGroup key={e.id} label={spatial(e) ? `3D Model Studio · ${e.name}` : e.name}>
+              {e.operations.filter((o) => o.where.includes('canvas') || spatial(e)).map((o) => {
                 const spec = specs.find((x) => x.id === o.id);
-                const why = e.states.installed.ok !== true ? e.states.installed.words : !spec ? 'not offered by this companion' : null;
+                const why = !spec ? 'not offered by this companion' : spec.available && spec.available.ok === false ? spec.available.why : !spatial(e) && e.states.installed.ok !== true ? e.states.installed.words : null;
                 return <MenuItem key={o.id} close={close} disabled={Boolean(why)} hint={why || (spec && spec.heavy ? `It ${spec.heavy}.` : spec ? spec.lead : '')} data={{ 'data-op-pick': o.id, 'data-op-available': why ? 'no' : 'yes' }} onSelect={() => { const id = addOperationNode(editor, spec); focusShape(editor, id); }}>{o.label}</MenuItem>;
               })}
             </MenuGroup>
@@ -962,6 +965,26 @@ export default function CanvasPage() {
     };
     const stop = react('timmy desk: rive sharpness', () => { editor.getZoomLevel(); clearTimeout(t); t = setTimeout(sharpen, 150); });
     return () => { clearTimeout(t); stop(); };
+  }, [editor]);
+  // the spatial tools order: an operation node asked for elsewhere — a splat node's "Crop with KIRI…" (beside it, its input
+  // connected) or 3D Model Studio's splat menu (where the board has room) — added through the board's own functions
+  useEffect(() => {
+    if (!editor) return undefined;
+    const add = async ({ op, port = null, from = null }) => {
+      const spec = (await operations()).find((o) => o.id === op);
+      if (!spec) { say(`This companion does not offer ${op}.`); return; }
+      const src = from ? editor.getShapePageBounds(from) : null;
+      const at = src ? placeOnBoard(editor, 380, 420, null, null, { x: src.x + src.w + 80, y: src.y }) : null;
+      const id = addOperationNode(editor, spec, at);
+      if (port && from) { const r = connectPort(editor, id, port, from); if (!r.ok) say(`Not connected: ${r.why}.`); }
+      focusShape(editor, id);
+      if (spec.available && spec.available.ok === false) say(`${spec.label}: ${spec.available.why}`);
+    };
+    const pending = takeCanvasOperation();
+    if (pending) void add(pending);
+    const on = (e) => { void add(e.detail || {}); };
+    window.addEventListener('timmy:operation-for', on);
+    return () => window.removeEventListener('timmy:operation-for', on);
   }, [editor]);
   // the selection kept for the Control Room's "canvas selection" target: the board, its files and operation nodes
   useEffect(() => {

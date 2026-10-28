@@ -294,6 +294,10 @@ export function setCanvasSelection(sel) { set({ canvasSelection: sel && sel.node
 /** A goal for the canvas agent on that selection: the canvas opens with its agent panel aimed (the selection chosen again). */
 export function aimCanvasAgent(aim) { set({ canvasAim: { goal: String(aim.goal || '').slice(0, 600), board: aim.board || null, nodes: (aim.nodes || []).map((n) => n.id), at: Date.now() } }); goTo('canvas'); }
 export function takeCanvasAim() { const a = state.canvasAim; if (!a) return null; set({ canvasAim: null }); return a; }
+/** The spatial tools order: an operation node to add on the Workspace (from 3D Model Studio's splat menu): kept until the
+ *  canvas takes it (the page opens the canvas), then added through the board's own functions like any operation node. */
+export function aimCanvasOperation(op) { set({ canvasOperation: { op: String(op), at: Date.now() } }); goTo('canvas'); }
+export function takeCanvasOperation() { const a = state.canvasOperation; if (!a) return null; set({ canvasOperation: null }); return a; }
 export function placeOnCanvas(text, from) { set({ canvasNote: { text: String(text || '').slice(0, 1200), from: from || null, at: Date.now() } }); goTo('canvas'); }
 export function takeCanvasNote() { const n = state.canvasNote; if (!n) return null; set({ canvasNote: null }); return n; }
 export { call };

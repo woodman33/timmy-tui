@@ -43,7 +43,7 @@ const entry = (id: string) => catalog().entries.find((e) => e.id === id)!;
 describe('the integration catalog', () => {
   it('reads every registry and keeps each entry’s source', () => {
     const c = catalog();
-    expect(c.registries.map((r) => r.registry).sort()).toEqual(['apps', 'connectors', 'inventory', 'native', 'providers', 'vision', 'workflows']);
+    expect(c.registries.map((r) => r.registry).sort()).toEqual(['apps', 'connectors', 'inventory', 'native', 'providers', 'spatial', 'vision', 'workflows']);
     for (const r of c.registries) expect(r.error).toBeUndefined();
     for (const e of c.entries) {
       expect(e.sources.length).toBeGreaterThan(0);

@@ -2,7 +2,8 @@
 // with the same contextual controls everywhere (the addendum's table):
 //   header     its type and title, its status, the view/mode selector and the action menu (the shared dropdown, src/menu.jsx)
 //   body       the work itself — an image, a video, an interactive 3D model, an isolated HTML preview, a Rive file playing on
-//              the Rive runtime with its state machine's inputs, or, for a native/source file, a reference to reopen
+//              the Rive runtime with its state machine's inputs, a Gaussian splat (Spark in the Three.js viewport; the spatial
+//              tools order, 2026-10-28), or, for a native/source file, a reference to reopen
 //   inspector  collapsible: where it came from (app, document, job, receipt, the file's hash as its receipt names it) and its
 //              parameters
 //   foot       ONE primary action, and the source, the outputs and the receipt
@@ -11,9 +12,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BaseBoxShapeUtil, HTMLContainer, T, resizeBox } from 'tldraw';
 import { call, getJson, postJson } from '../api.js';
-import { appName } from '../app-names.js';
+import { appName, isHostedApp } from '../app-names.js';
 import { MenuButton, MenuGroup, MenuItem, keepOut } from '../menu.jsx';
 import { aimAgent, openApp, projectQuery, say, showInFiles } from '../store.js';
+import { forRenderer, plyHeader, splatFacts } from '../splat-ply.js';
 
 export const DISPLAY_SHAPE = 'timmy-display';
 const EXT = (p) => (/\.([a-z0-9]+)$/i.exec(String(p || '')) || [])[1]?.toLowerCase() || '';
@@ -23,6 +25,7 @@ export const KINDS = Object.freeze({
   model: { word: '3D', exts: ['glb'], modes: [['solid', 'Solid'], ['wireframe', 'Wireframe']] },
   html: { word: 'HTML', exts: ['html', 'htm'], modes: [['preview', 'Preview'], ['source', 'Source']] },
   rive: { word: 'RIVE', exts: ['riv'], modes: [['play', 'Playing'], ['paused', 'Paused']] },
+  splat: { word: 'SPLAT', exts: ['ply'], modes: [['splats', 'Splats'], ['centers', 'Centers (exact)']] },
   file: { word: 'FILE', exts: [], modes: [['reference', 'Reference']] },
 });
 /** What a file becomes on the canvas, by its extension. */
@@ -224,13 +227,76 @@ function RiveBody({ shape, onApi }) {
   );
 }
 
+/**
+ * A Gaussian splat (PLY) in the Three.js viewport, drawn by Spark (@sparkjsdev/spark): orbit (drag), zoom (wheel), Fit and
+ * Reset. "Centers (exact)" draws each Gaussian's centre from the file's own values as points (Spark packs centres at reduced
+ * precision for drawing, so its picture is never read back as data). Its facts come from the file: count, centre bounds,
+ * opacity range. A splat is an appearance reconstruction: not measured geometry, a watertight mesh or verified CAD.
+ */
+function SplatBody({ shape, onApi }) {
+  const host = useRef(null);
+  const [s, setS] = useState({ state: 'reading' });
+  const api = useRef(null);
+  useEffect(() => {
+    let gone = false; let cleanup = () => {};
+    (async () => {
+      try {
+        const bytes = await mediaBytes(shape.props.path);
+        const header = plyHeader(bytes);
+        if (!header.ok) { if (!gone) setS({ state: 'not-splat', why: header.why }); return; }
+        const facts = splatFacts(bytes, header);
+        const [THREE, { OrbitControls }, { SparkRenderer, SplatMesh }] = await Promise.all([import('three'), import('three/examples/jsm/controls/OrbitControls.js'), import('@sparkjsdev/spark')]);
+        if (gone || !host.current) return;
+        const el = host.current;
+        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, preserveDrawingBuffer: true });
+        renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+        el.append(renderer.domElement);
+        const scene = new THREE.Scene(); scene.background = new THREE.Color(0x050607);
+        const spark = new SparkRenderer({ renderer }); scene.add(spark);
+        const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+        const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
+        const mesh = new SplatMesh({ fileBytes: forRenderer(bytes, header), fileName: shape.props.title || 'splat.ply' });
+        scene.add(mesh);
+        // the exact centres, from the file's own values (the "Centers" view)
+        const pos = new Float32Array(facts.read * 3);
+        for (let i = 0; i < facts.read; i++) { pos[i * 3] = facts.rows[i * facts.cols + facts.index.x]; pos[i * 3 + 1] = facts.rows[i * facts.cols + facts.index.y]; pos[i * 3 + 2] = facts.rows[i * facts.cols + facts.index.z]; }
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const points = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x8abbe3, size: 4, sizeAttenuation: false }));
+        scene.add(points);
+        await mesh.initialized;
+        if (gone) { renderer.dispose(); return; }
+        const [lo, hi] = facts.bounds;
+        const center = new THREE.Vector3((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
+        const r = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+        const fit = () => { camera.position.copy(center).add(new THREE.Vector3(r * 0.9, r * 0.7, r * 1.6)); camera.near = r / 200; camera.far = r * 200; camera.updateProjectionMatrix(); controls.target.copy(center); controls.update(); };
+        const resize = () => { const w = el.clientWidth || 1; const h = el.clientHeight || 1; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+        const ro = new ResizeObserver(resize); ro.observe(el); resize(); fit();
+        let raf = 0; const tick = () => { controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(tick); }; tick();
+        api.current = { fit, reset: fit, view: (m) => { mesh.visible = m !== 'centers'; points.visible = m === 'centers'; }, facts };
+        onApi(api.current);
+        setS({ state: 'ok', facts });
+        cleanup = () => { cancelAnimationFrame(raf); ro.disconnect(); controls.dispose(); try { mesh.dispose(); } catch { /* gone */ } geo.dispose(); renderer.dispose(); renderer.domElement.remove(); onApi(null); };
+      } catch (e) { if (!gone) setS({ state: 'failed', why: e instanceof Error ? e.message : String(e) }); }
+    })();
+    return () => { gone = true; cleanup(); };
+  }, [shape.props.path]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (api.current) api.current.view(shape.props.mode); }, [shape.props.mode, s.state]);
+  if (s.state === 'not-splat') return <div className="ta-node-ref"><p className="ta-node-ref-kind">PLY</p><p className="ta-node-fact">Not drawn as a splat: {s.why}.</p></div>;
+  return (
+    <div className="ta-node-interactive ta-node-3d ta-node-splat" ref={host} {...stopAll} data-node-splat={s.state} data-splat-count={s.facts ? s.facts.count : undefined} aria-label={`${shape.props.title}: a Gaussian splat; drag to orbit, wheel to zoom`}>
+      {s.state !== 'ok' ? <p className="ta-node-wait" role="status">{s.state === 'reading' ? 'Opening the splat…' : `Not opened: ${s.why}.`}</p>
+        : <p className="ta-node-splat-note">{s.facts.count.toLocaleString()} Gaussians{s.facts.fixture ? ' · synthetic fixture' : ''} · appearance, not measured geometry</p>}
+    </div>
+  );
+}
+
 function FileBody({ shape }) {
   const e = EXT(shape.props.path);
   return (
     <div className="ta-node-ref">
       <p className="ta-node-ref-kind">{NATIVE[e] || `.${e || 'file'}`}</p>
       <p className="ta-node-ref-path"><code>{shape.props.path}</code></p>
-      <p className="ta-node-fact">Not drawn here: {appName(shape.props.app)} keeps it editable. Reopen it there; the receipt below names its bytes.</p>
+      <p className="ta-node-fact">{isHostedApp(shape.props.app) ? <>Not drawn here: {appName(shape.props.app)} keeps it editable. Reopen it there; the receipt below names its bytes.</> : e === 'blend' ? <>Not drawn here: a native Blender scene, editable in Blender. The receipt below names its bytes.</> : <>Not drawn here. The receipt below names its bytes.</>}</p>
     </div>
   );
 }
@@ -271,8 +337,12 @@ const PRIMARY = {
   model: () => ({ label: 'Open in 3D Model Studio', run: () => openApp('model-studio') }),
   html: (shape) => ({ label: `Open in ${appName(shape.props.app)}`, run: () => openApp(shape.props.app) }),
   rive: (shape) => ({ label: `Open in ${appName(shape.props.app)}`, run: () => openApp(shape.props.app) }),
-  file: (shape) => ({ label: `Reopen in ${appName(shape.props.app)}`, run: () => openApp(shape.props.app) }),
+  file: (shape) => (isHostedApp(shape.props.app) ? { label: `Reopen in ${appName(shape.props.app)}`, run: () => openApp(shape.props.app) } : { label: 'Show in Files', run: () => showInFiles(shape.props.path) }),
+  // a splat's primary action: KIRI's bounded crop and export, as an operation node beside it, its input connected (the canvas
+  // adds it through the board's own functions: the same validated operation a person or the agent uses)
+  splat: (shape) => ({ label: 'Crop with KIRI…', run: () => window.dispatchEvent(new CustomEvent('timmy:operation-for', { detail: { op: 'spatial.kiri-crop-export', port: 'splat', from: shape.id } })) }),
 };
+const fmt = (v) => Number(v.toPrecision(6));
 
 function DisplayNode({ shape, editor }) {
   const kind = KINDS[shape.props.kind] ? shape.props.kind : 'file';
@@ -282,7 +352,8 @@ function DisplayNode({ shape, editor }) {
   const set = (props) => editor.updateShape({ id: shape.id, type: DISPLAY_SHAPE, props });
   const primary = PRIMARY[kind](shape);
   const mode = def.modes.find(([m]) => m === shape.props.mode) || def.modes[0];
-  const Body = { image: ImageBody, video: VideoBody, model: ModelBody, html: HtmlBody, rive: RiveBody, file: FileBody }[kind];
+  const Body = { image: ImageBody, video: VideoBody, model: ModelBody, html: HtmlBody, rive: RiveBody, splat: SplatBody, file: FileBody }[kind];
+  const facts = kind === 'splat' && api && api.facts ? api.facts : null;
   return (
     <div className="ta-node" data-node-kind={kind} data-node-path={shape.props.path}>
       <header className="ta-node-head">
@@ -298,13 +369,14 @@ function DisplayNode({ shape, editor }) {
           {(close) => (
             <>
               <MenuGroup label="This node">
-                {kind === 'model' ? <><MenuItem close={close} disabled={!api} onSelect={() => api.fit()} data={{ 'data-act': 'fit' }}>Fit the model</MenuItem><MenuItem close={close} disabled={!api} onSelect={() => api.reset()} data={{ 'data-act': 'reset' }}>Reset the view</MenuItem></> : null}
+                {kind === 'model' || kind === 'splat' ? <><MenuItem close={close} disabled={!api} onSelect={() => api.fit()} data={{ 'data-act': 'fit' }}>{kind === 'splat' ? 'Fit the splat' : 'Fit the model'}</MenuItem><MenuItem close={close} disabled={!api} onSelect={() => api.reset()} data={{ 'data-act': 'reset' }}>Reset the view</MenuItem></> : null}
+                {kind === 'splat' ? <MenuItem close={close} onSelect={() => primary.run()} data={{ 'data-act': 'kiri' }} hint="a KIRI operation node beside it, its input connected">Crop and export with KIRI…</MenuItem> : null}
                 {kind === 'video' || kind === 'rive' ? <><MenuItem close={close} disabled={!api} onSelect={() => api.play()} data={{ 'data-act': 'play' }}>Play</MenuItem><MenuItem close={close} disabled={!api} onSelect={() => api.pause()} data={{ 'data-act': 'pause' }}>Pause</MenuItem></> : null}
                 {kind === 'html' ? <MenuItem close={close} disabled={!api} onSelect={() => api.refresh()} data={{ 'data-act': 'refresh' }}>Reload the preview</MenuItem> : null}
                 <MenuItem close={close} onSelect={() => set({ panel: !shape.props.panel })} data={{ 'data-act': 'inspector' }}>{shape.props.panel ? 'Hide the inspector' : 'Show the inspector'}</MenuItem>
               </MenuGroup>
               <MenuGroup label="Its source">
-                <MenuItem close={close} onSelect={() => openApp(shape.props.app)} data={{ 'data-act': 'reopen' }} hint="its editable source and revisions">Reopen in {appName(shape.props.app)}</MenuItem>
+                {isHostedApp(shape.props.app) ? <MenuItem close={close} onSelect={() => openApp(shape.props.app)} data={{ 'data-act': 'reopen' }} hint="its editable source and revisions">Reopen in {appName(shape.props.app)}</MenuItem> : null}
                 <MenuItem close={close} onSelect={() => showInFiles(shape.props.path)} data={{ 'data-act': 'files' }}>Show in Files</MenuItem>
                 <MenuItem close={close} onSelect={() => aimAgent({ kind: 'app', app: shape.props.app, path: shape.props.path })} data={{ 'data-act': 'agent' }}>Send to an agent</MenuItem>
               </MenuGroup>
@@ -316,7 +388,8 @@ function DisplayNode({ shape, editor }) {
         </MenuButton>
       </header>
       <div className="ta-node-body"><Body shape={shape} onApi={onApi} /></div>
-      {shape.props.panel ? <Inspector shape={shape} extra={kind === 'model' && api && api.facts ? <><dt>Meshes</dt><dd>{api.facts.meshes}</dd><dt>Size (model units)</dt><dd>{api.facts.size.join(' × ')}</dd></> : null} /> : null}
+      {shape.props.panel ? <Inspector shape={shape} extra={kind === 'model' && api && api.facts ? <><dt>Meshes</dt><dd>{api.facts.meshes}</dd><dt>Size (model units)</dt><dd>{api.facts.size.join(' × ')}</dd></>
+        : facts ? <><dt>Gaussians</dt><dd data-splat-facts>{facts.count.toLocaleString()} ({facts.format}{facts.fixture ? ', synthetic fixture' : ''})</dd><dt>Centres (file values)</dt><dd>{facts.bounds[0].map(fmt).join(', ')} to {facts.bounds[1].map(fmt).join(', ')}</dd><dt>Opacity</dt><dd>{fmt(facts.opacity[0])}–{fmt(facts.opacity[1])}</dd><dt>What it is</dt><dd>An appearance reconstruction: not measured geometry, a watertight mesh or verified CAD.</dd></> : null} /> : null}
       <footer className="ta-node-foot" {...stopAll}>
         <button type="button" className="ta-btn ta-btn-primary ta-node-primary" onClick={() => primary.run()} data-node-primary>{primary.label}</button>
         <button type="button" className="ta-node-toggle" aria-expanded={Boolean(shape.props.panel)} onClick={() => set({ panel: !shape.props.panel })} data-node-toggle>{shape.props.panel ? 'Less' : 'Source · receipt'}</button>
@@ -344,4 +417,4 @@ export function createDisplayUtil(editorOf) {
 }
 
 /** The size a new node of a kind is made at (page units). */
-export const NODE_SIZE = Object.freeze({ image: [340, 300], video: [400, 300], model: [380, 340], html: [420, 340], rive: [360, 360], file: [320, 220] });
+export const NODE_SIZE = Object.freeze({ image: [340, 300], video: [400, 300], model: [380, 340], html: [420, 340], rive: [360, 360], splat: [380, 340], file: [320, 220] });

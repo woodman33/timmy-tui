@@ -51,10 +51,12 @@ export function AppOperationRun() {
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; operations().then(setSpecs); getJson(`/api/apps/outputs${projectQuery()}`).then(setFiles); return () => { alive.current = false; }; }, []);
-  const entries = answer && answer.ok ? answer.catalog.entries.filter((e) => e.kind === 'app' && e.operations.some((o) => o.where.includes('canvas'))) : [];
-  const offered = entries.flatMap((e) => e.operations.filter((o) => o.where.includes('canvas')).map((o) => {
+  // each hosted app's operations, and (the spatial tools order) the spatial tools' (Timmy's own jobs; gsplat listed with its reason)
+  const spatial = (e) => e.id.startsWith('spatial:');
+  const entries = answer && answer.ok ? answer.catalog.entries.filter((e) => (e.kind === 'app' && e.operations.some((o) => o.where.includes('canvas'))) || spatial(e)) : [];
+  const offered = entries.flatMap((e) => e.operations.filter((o) => o.where.includes('canvas') || spatial(e)).map((o) => {
     const spec = specs.find((x) => x.id === o.id);
-    return { id: o.id, label: o.label, app: e.name, spec, why: e.states.installed.ok !== true ? e.states.installed.words : !spec ? 'not offered by this companion' : null };
+    return { id: o.id, label: o.label, app: spatial(e) ? `3D Model Studio · ${e.name}` : e.name, spec, why: !spec ? 'not offered by this companion' : spec.available && spec.available.ok === false ? spec.available.why : !spatial(e) && e.states.installed.ok !== true ? e.states.installed.words : null };
   }));
   const cur = offered.find((o) => o.id === opId && !o.why) || null;
   useEffect(() => { if (cur) { setParams(Object.fromEntries(cur.spec.params.map((p) => [p.name, p.default]))); setInputs({}); } }, [opId]); // eslint-disable-line react-hooks/exhaustive-deps

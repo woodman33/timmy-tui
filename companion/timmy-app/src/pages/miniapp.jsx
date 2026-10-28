@@ -6,7 +6,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJson, postJson } from '../api.js';
 import { Page, Panel } from '../shell.jsx';
-import { PAGES, aimAgent, goBack, goTo, projectQuery, takeAppTarget, useApp } from '../store.js';
+import { PAGES, aimAgent, aimCanvasOperation, goBack, goTo, projectQuery, takeAppTarget, useApp } from '../store.js';
+import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
+import { operations } from './op-node.jsx';
 import { Button, Facts, StateWord } from '../ui.jsx';
 import './miniapp.css';
 
@@ -39,6 +41,34 @@ function Record({ a }) {
   const o = a.observed;
   if (!o) return null;
   return <Facts rows={[['owner', o.owner], ['source', o.revision], ['recorded', o.observedAt], ...(a.installed ? [['installed here', /^[0-9a-f]{40}$/.test(a.installed) ? a.installed.slice(0, 8) : a.installed]] : []), ['next step', o.next]]} />;
+}
+
+/**
+ * The spatial tools order (2026-10-28): 3D Model Studio's Gaussian-splat operations (Timmy's own jobs: KIRI in Blender, Brush;
+ * gsplat awaiting an NVIDIA worker), each opening on the shared Workspace canvas as an operation node. One that cannot run here
+ * is listed with its precise reason, never as a working item. Model Studio's own page is its owner's; this menu is the host's.
+ */
+function SplatMenu() {
+  const [specs, setSpecs] = useState(null);
+  useEffect(() => { operations().then((all) => setSpecs(all.filter((o) => o.app === 'spatial'))); }, []);
+  return (
+    <MenuButton label="Gaussian splats" glyph="✷" title="Gaussian-splat operations on the Workspace" menuLabel="Gaussian-splat operations" buttonClass="ta-btn ta-splat-menu" data={{ 'data-menu': 'splats' }}>
+      {(close) => (
+        <>
+          <MenuGroup label="On the Workspace canvas">
+            {!specs ? <p className="ta-menu-note">Reading the operations…</p> : specs.map((o) => {
+              const why = o.available && o.available.ok === false ? o.available.why : null;
+              return <MenuItem key={o.id} close={close} disabled={Boolean(why)} hint={why || (o.heavy ? `${o.lead} It ${o.heavy}.` : o.lead)} data={{ 'data-splat-op': o.id, 'data-op-available': why ? 'no' : 'yes' }} onSelect={() => aimCanvasOperation(o.id)}>{o.label}</MenuItem>;
+            })}
+          </MenuGroup>
+          <MenuGroup label="Also">
+            <MenuItem close={close} onSelect={() => goTo('canvas')} data={{ 'data-act': 'import-splat' }} hint="Import from apps → From this computer: a splat (PLY) or a posed dataset (zip)">Bring a splat onto the Workspace…</MenuItem>
+          </MenuGroup>
+          <p className="ta-menu-note">A splat is an appearance reconstruction: not measured geometry, a watertight mesh or verified CAD.</p>
+        </>
+      )}
+    </MenuButton>
+  );
 }
 
 export function MiniAppPage({ appId }) {
@@ -119,6 +149,7 @@ export function MiniAppPage({ appId }) {
             <StateWord word="app open" />
             <span className="ta-muted ta-miniapp-where" title="The Timmy project this app keeps its work in (the app's own document titles are its own)">{apps.project ? `Timmy project: ${apps.project}` : ''}</span>
             <span className="ta-miniapp-gap" />
+            {appId === 'model-studio' ? <SplatMenu /> : null}
             <Button onClick={() => goTo('files')} title={`What ${a.title}'s jobs made, in this project's Files`}>Results in Files</Button>
             <Button onClick={() => aimAgent({ kind: 'app', app: appId })} data-action="send-to-agent" title={`Start an agent run in the Control Room on ${a.title}'s outputs in this project`}>Send to an agent</Button>
             <Button onClick={stop} disabled={busy === 'stop'} title={`Stop ${a.title} for this project`}>Stop</Button>
@@ -133,7 +164,7 @@ export function MiniAppPage({ appId }) {
   return (
     <Page
       id={appId}
-      actions={hostable ? <><Button kind="primary" onClick={() => start()} disabled={busy === 'open'}>{busy === 'open' ? 'Opening…' : a.running ? `Return to ${a.title}` : `Open ${a.title}`}</Button><Button onClick={() => goTo('files')}>Results in Files</Button></> : <Button onClick={goBack}>← {fromTitle}</Button>}
+      actions={hostable ? <><Button kind="primary" onClick={() => start()} disabled={busy === 'open'}>{busy === 'open' ? 'Opening…' : a.running ? `Return to ${a.title}` : `Open ${a.title}`}</Button>{appId === 'model-studio' ? <SplatMenu /> : null}<Button onClick={() => goTo('files')}>Results in Files</Button></> : <>{appId === 'model-studio' ? <SplatMenu /> : null}<Button onClick={goBack}>← {fromTitle}</Button></>}
       band={[['status', hostable ? (a.running ? 'running' : 'ready to open') : (a.problem ? 'not available here' : WAITING[a.availability] || a.availability)], ['project', apps.project || 'none open']]}
       note={words || null}
     >

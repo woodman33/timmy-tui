@@ -132,6 +132,20 @@ export function ImportMenu({ editor, place = null, focus = null, hold = null }) 
   const pick = async (file, result) => {
     try { await importOutput(editor, file, result, place, focus, hold); setOpen(false); } catch (e) { setNote(`Not placed: ${e instanceof Error ? e.message : String(e)}.`); }
   };
+  // the spatial tools order: a file from this computer (a splat, a posed dataset, a model, an image) brought into the project
+  // first (POST /api/files/import: from-apps/import/…, with its receipt), then placed like any app's result
+  const fileInput = useRef(null);
+  const fromComputer = async (f) => {
+    if (!f) return;
+    setNote(`Bringing ${f.name} into the project…`);
+    try {
+      const r = await call(`/api/files/import${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': f.name.slice(0, 120) }, body: f });
+      const j = await r.json().catch(() => ({ ok: false, error: `the companion answered ${r.status}` }));
+      if (!j.ok) { setNote(`Not brought in: ${j.error || r.status}.`); return; }
+      await importOutput(editor, j.result.files[0], j.result, place, focus, hold);
+      setOpen(false);
+    } catch (e) { setNote(`Not brought in: ${e instanceof Error ? e.message : String(e)}.`); }
+  };
   const results = r && r.ok ? r.results || [] : [];
   return (
     <div className="ta-menu-wrap" ref={box}>
@@ -148,11 +162,18 @@ export function ImportMenu({ editor, place = null, focus = null, hold = null }) 
                     <p className="ta-context-k">{(APP_WORDS[x.app] || x.app).toUpperCase()} · {x.label || 'job'}</p>
                     {x.files.slice(0, 8).map((f) => (
                       <button key={f.path} type="button" role="menuitem" className="ta-popover-item" data-import={f.path} onClick={() => pick(f, x)}>
-                        <span className="ta-tool-glyph" aria-hidden="true">{({ image: '▧', video: '▶', model: '◭', html: '⧉', rive: '◎' })[displayKindOf(f.path)] || '◇'}</span>{f.name}
+                        <span className="ta-tool-glyph" aria-hidden="true">{({ image: '▧', video: '▶', model: '◭', html: '⧉', rive: '◎', splat: '✷' })[displayKindOf(f.path)] || '◇'}</span>{f.name}
                       </button>
                     ))}
                   </div>
                 ))}
+          <div className="ta-import-group" role="group" aria-label="From this computer">
+            <p className="ta-context-k">FROM THIS COMPUTER</p>
+            <button type="button" role="menuitem" className="ta-popover-item" data-import-local onClick={() => fileInput.current && fileInput.current.click()}>
+              <span className="ta-tool-glyph" aria-hidden="true">⇪</span>A splat, dataset, model or image…
+            </button>
+            <input ref={fileInput} type="file" hidden accept=".ply,.zip,.glb,.png,.jpg,.jpeg,.webp" data-import-file onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; void fromComputer(f); }} />
+          </div>
           {note ? <p className="ta-result" role="status">{note}</p> : null}
         </div>
       ) : null}

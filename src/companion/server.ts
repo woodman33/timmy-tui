@@ -150,6 +150,7 @@ import { connectSrcFor } from './identity/config.js';
 import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
 import { mountMiniApps, projectFile } from './miniapps/routes.js';
 import { mountWorkflowOps } from './workflow-ops.js';
+import { SpatialExecutor } from '../spatial/jobs.js';
 import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
 import { mountCatalog } from './catalog-route.js';
 import { mountCanvasAgent } from './canvas-agent.js';
@@ -243,6 +244,8 @@ export interface CompanionOptions {
   controlRuns?: ControlDeps;
   /** test seams for the Treg connector's operations (the timmy command, a FAKE MCP server for the bridge) */
   connectorOps?: ConnectorDeps;
+  /** the spatial tools' executor (a test's FAKE tools); a SpatialExecutor on the workspace's environment otherwise */
+  spatial?: SpatialExecutor;
   /**
    * R11 round 4 (H173): the identity routes' seams (a test's FAKE Clerk folder, origins, JWKS address or clock). The
    * configuration itself is read from `workspace.env` when given, else this process's environment (identityConfig).
@@ -941,6 +944,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
   // The unified Workspace order (2026-10-27): the Workspace's executable operations (src/companion/workflow-ops.ts), each
   // validated, then dispatched to the app's own durable job through the mini-app host above; followed, cancelled, recovered
+  const spatialExecutor = options.spatial ?? new SpatialExecutor({ env: options.workspace?.env ?? process.env });
   const workflowRunner = mountWorkflowOps(app, {
     withToken, withUser: withUserOrOperator,
     scopeOf: (req) => {
@@ -954,6 +958,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     appFor: (req, appId) => (miniApps.appFor ? miniApps.appFor(req, appId) : Promise.resolve({ error: 'The mini-app host is not running.', status: 503 })),
     runningApp: (req, appId) => (miniApps.runningFor ? miniApps.runningFor(req, appId) : null),
     readFile: (root, rel) => { const f = projectFile(root, rel); return f.ok ? f : { ok: false, error: f.error }; },
+    // the spatial tools order (2026-10-28): Brush and KIRI as Timmy's own process jobs (the operator's environment names the
+    // prepared tools folder: TIMMY_SPATIAL_TOOLS; KIRI's Blender: TIMMY_KIRI_BLENDER or the Applications folder)
+    spatial: spatialExecutor,
   });
   // The unified Workspace order (2026-10-27): the canvas agent (src/companion/canvas-agent.ts): plans in the board's own
   // operations, asked of the project's chat model when it is a model in this computer's Ollama; the page applies them
@@ -978,6 +985,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       return { revision: st.revision, sourceRevision: st.sourceRevision, snapshot: st.snapshot };
     },
     apps: (req) => (miniApps.listing ? (miniApps.listing(req) as Array<{ id: string; title: string; hostable: boolean; problem: string | null }> | null) : null),
+    localRefusal: (op) => (op.tool ? spatialExecutor.refusal(op.tool) : 'not a spatial tool'),
   });
   // The unified Workspace order (2026-10-27): the one integration catalog (src/capabilities/catalog.ts) for the Integrations
   // page, the Workspace's node picker and the Control Room: every registry's entries, each fact from its own source

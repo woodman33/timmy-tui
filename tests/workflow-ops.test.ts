@@ -59,7 +59,8 @@ describe('Workspace operations: validated, dispatched to the app’s own job, fo
     const r = await api('GET', '/api/workflow/operations');
     expect(r.status).toBe(200);
     const ops = r.json.operations as Array<{ id: string; inputs: Array<{ type: string }>; adapter: string }>;
-    expect(ops.map((o) => o.id)).toEqual(['stream-studio.animate-image', 'animate.export']);
+    // the apps' operations first; the spatial tools' (Timmy's own jobs: tests/spatial-jobs.test.ts) after them
+    expect(ops.map((o) => o.id)).toEqual(['stream-studio.animate-image', 'animate.export', 'spatial.kiri-crop-export', 'spatial.brush-train', 'spatial.gsplat-smoke']);
     expect(ops[0].inputs[0].type).toBe('image');
     expect(ops[0].adapter).toMatch(/POST \/api\/jobs/);
   });

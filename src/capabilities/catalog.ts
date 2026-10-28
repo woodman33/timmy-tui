@@ -11,6 +11,7 @@
  *   apps        src/companion/miniapps/registry.ts   the hosted mini-apps (given by the companion: hostable, running, receipts)
  *   connectors  src/companion/connector-ops.ts       Treg's five words (given by the companion, each from a record)
  *   workflows   src/workflows/upmd.ts                the workflow runner (upmd) found the Workflows page's way
+ *   spatial     src/spatial/tools.ts                 Brush, KIRI (Blender) and gsplat in the prepared spatial tools folder
  *
  * Each entry keeps its source registry and namespaced id, its supported operations (with WHERE each can be started today),
  * the adapter that actually routes it, its setup blocker, and six facts kept apart:
@@ -32,6 +33,8 @@ import { auditProviders, getProviderRegistry, type ProviderId } from '../agent/p
 import { locateNative, NATIVE_APPS, type NativeApp } from '../native/index.js';
 import { integrationCatalog } from '../vision/integrations/registry.js';
 import { findUpmd } from '../workflows/upmd.js';
+import { SPATIAL_TOOLS, spatialToolStates, type SpatialToolState } from '../spatial/tools.js';
+import { readChain } from '../utils/receipts.js';
 import { whichOnPath } from './live.js';
 import type { Inventory, InventoryRow } from './inventory.js';
 
@@ -48,7 +51,7 @@ export const CATALOG_STATE_MEANS: Readonly<Record<CatalogState, string>> = {
 };
 
 export type CatalogKind = 'model' | 'tool' | 'mcp' | 'lane' | 'harness' | 'vision' | 'native' | 'provider' | 'app' | 'connector';
-export type CatalogRegistry = 'inventory' | 'lanes' | 'native' | 'vision' | 'providers' | 'apps' | 'connectors' | 'workflows';
+export type CatalogRegistry = 'inventory' | 'lanes' | 'native' | 'vision' | 'providers' | 'apps' | 'connectors' | 'workflows' | 'spatial';
 /** Where an operation can be started today: on the Workspace canvas (a node), in the Control Room, in the terminal, on its page. */
 export type OperationWhere = 'canvas' | 'control-room' | 'terminal' | 'page';
 
@@ -116,6 +119,8 @@ export interface CatalogParts {
   vision?: () => ReturnType<typeof integrationCatalog>;
   /** where a program is on the PATH (findUpmd's seam), or null; nothing is run */
   which?: (program: string) => string | null;
+  /** the spatial tools' states (a test's seam; src/spatial/tools.ts spatialToolStates from env otherwise) */
+  spatial?: () => SpatialToolState[];
   now?: number;
 }
 
@@ -123,7 +128,7 @@ const F = (ok: boolean | null, words: string, source: string): CatalogFact => ({
 const SRC = {
   inventory: 'src/capabilities/inventory.ts', lanes: 'src/agent/lanes.ts', native: 'src/native/index.ts', vision: 'src/vision/integrations/registry.ts',
   providers: 'src/agent/provider-registry.ts', apps: 'src/companion/miniapps/registry.ts', connectors: 'src/companion/connector-ops.ts',
-  workflows: 'src/workflows/upmd.ts',
+  workflows: 'src/workflows/upmd.ts', spatial: 'src/spatial/tools.ts',
 } as const;
 const researched = (registry: CatalogRegistry): CatalogFact => F(true, `named in ${SRC[registry]}`, SRC[registry]);
 const notDiscovered = (how: string, source: string): CatalogFact => F(null, `not observed on this surface: ${how}`, source);
@@ -335,6 +340,40 @@ function upmdEntry(parts: CatalogParts): CatalogEntry {
   };
 }
 
+// ── spatial tools (the 2026-10-28 order) ────────────────────────────────────────────────────────────────────────────────
+
+const SPATIAL_OP_LABEL: Record<string, string> = {
+  'spatial.kiri-crop-export': 'Crop and export a splat (KIRI in Blender)', 'spatial.brush-train': 'Reconstruct a splat (Brush)', 'spatial.gsplat-smoke': 'Check gsplat on an NVIDIA worker',
+};
+function spatialEntries(parts: CatalogParts): CatalogEntry[] {
+  const states = (parts.spatial ?? (() => spatialToolStates(parts.env ?? process.env)))();
+  let chain: ReturnType<typeof readChain> = [];
+  try { if (parts.cwd) chain = readChain('runs', parts.cwd); } catch { chain = []; }
+  return states.map((st) => {
+    const def = SPATIAL_TOOLS[st.id];
+    const mine = chain.filter((r) => r.kind === 'spatial' && r.spatial?.tool === st.id);
+    const ok = mine.filter((r) => r.status === 'ok');
+    const fixtureOnly = ok.length > 0 && ok.every((r) => r.spatial?.fixture);
+    return {
+      id: `spatial:${st.id}`, name: `${def.name} ${def.version}`, kind: 'tool' as const,
+      sources: [{ registry: 'spatial' as const, id: st.id, file: SRC.spatial }],
+      operations: def.operations.map((o) => ({ id: o, label: SPATIAL_OP_LABEL[o] ?? o, where: (st.callable.ok ? ['canvas', 'control-room'] : []) as OperationWhere[], how: st.callable.ok ? `a Workspace operation node, or the Control Room's app operation (a Timmy job on ${def.runs})` : `not runnable here: ${st.blocker ?? st.callable.words}` })),
+      adapter: st.id === 'gsplat' ? null : 'src/spatial/jobs.ts (a Timmy process job through src/companion/workflow-ops.ts)',
+      setup: st.blocker,
+      states: {
+        researched: researched('spatial'),
+        installed: F(st.installed.ok, st.installed.words, SRC.spatial),
+        configured: F(st.configured.ok, st.configured.words, SRC.spatial),
+        discovered: F(null, `not listed live: the package recorded its own checks (${st.packageSays})`, SRC.spatial),
+        callable: F(st.callable.ok, st.callable.words, 'src/spatial/jobs.ts'),
+        verified: F(ok.length > 0 ? true : mine.length ? false : null, ok.length
+          ? `${ok.length} ok run${ok.length === 1 ? '' : 's'} with receipts in this project${fixtureOnly ? ' (synthetic fixture only: not a qualification on real data)' : ''}; newest ${ok.at(-1)!.hash.slice(7, 15)}`
+          : mine.length ? `${mine.length} run${mine.length === 1 ? '' : 's'} in this project, none ok (newest ${mine.at(-1)!.status ?? 'unknown'})` : 'no run of it in this project yet', 'readChain (src/utils/receipts.ts)'),
+      },
+    };
+  });
+}
+
 /** The catalog: every registry's entries, each fact from its own source. Nothing is run or contacted. */
 export function buildCatalog(parts: CatalogParts): Catalog {
   const registries: Catalog['registries'] = [];
@@ -353,6 +392,7 @@ export function buildCatalog(parts: CatalogParts): Catalog {
   if (parts.treg) take('connectors', () => [tregEntry(parts.treg!)]);
   else registries.push({ registry: 'connectors', file: SRC.connectors, entries: 0, error: 'Treg’s state was not given (the operator’s connection)' });
   take('workflows', () => [upmdEntry(parts)]);
+  take('spatial', () => spatialEntries(parts));
   return {
     schema: CATALOG_SCHEMA, readAt: new Date(parts.now ?? Date.now()).toISOString(), states: CATALOG_STATES, means: CATALOG_STATE_MEANS,
     read: 'files, settings, this project’s receipts and the host’s own state; nothing run, nothing contacted',

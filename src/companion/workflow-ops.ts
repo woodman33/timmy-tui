@@ -19,6 +19,11 @@
  * the page shows indeterminate activity, never a made-up bar), the receipts sealed for the job and every file it delivered.
  * A newer attempt on the same node supersedes the older: the older keeps its record but is never the node's current result
  * (current-result fencing), and a still-running older attempt is asked to cancel.
+ *
+ * The spatial tools order (2026-10-28): an operation whose executor is 'local' is not a hosted app's job but Timmy's own
+ * durable process job (src/spatial/jobs.ts on src/jobs/index.ts JobManager: Brush, KIRI in Blender; gsplat awaits an NVIDIA
+ * worker). The same records, validation, supersede/fencing, follow, cancel, recover and collection apply; only the engine
+ * that starts, reads, cancels and seals differs. Its receipt is Timmy's (kind `spatial`), sealed from the tool's own result.
  */
 import express from 'express';
 import { createHash, randomBytes } from 'node:crypto';
@@ -27,13 +32,15 @@ import { join, resolve, sep } from 'node:path';
 import { projectId } from '../project/index.js';
 import { readChain } from '../utils/receipts.js';
 import type { HostedApp } from './miniapps/host.js';
+import { KIRI_KEEP, type SpatialExecutor } from '../spatial/jobs.js';
+import type { SpatialToolId } from '../spatial/tools.js';
 
 type Env = Record<string, string | undefined>;
 
 // ── the operation model ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A port's type: what a display node of the Workspace carries (./display-node.jsx kinds), or a scene file. */
-export type PortType = 'image' | 'video' | 'model' | 'html' | 'svg' | 'rive' | 'animate-scene' | 'file';
+export type PortType = 'image' | 'video' | 'model' | 'html' | 'svg' | 'rive' | 'animate-scene' | 'splat' | 'dataset' | 'file';
 export interface Port { name: string; label: string; type: PortType; required: boolean; accepts: string[] }
 export interface Param { name: string; label: string; kind: 'choice' | 'number' | 'text'; choices?: string[]; min?: number; max?: number; maxLength?: number; default: string | number }
 export interface OperationSpec {
@@ -43,6 +50,10 @@ export interface OperationSpec {
   adapter: string;
   /** an operation that runs a native engine or a model on this computer (Blender, a local model): said before it runs */
   heavy?: string;
+  /** who runs it: the app's own job (absent: 'app'), or Timmy's own process job ('local', a spatial tool) */
+  executor?: 'app' | 'local';
+  /** the spatial tool a local operation runs (src/spatial/tools.ts) */
+  tool?: SpatialToolId;
 }
 
 const IMG = ['png', 'jpg', 'jpeg', 'webp'];
@@ -67,6 +78,35 @@ export const OPERATIONS: readonly OperationSpec[] = Object.freeze([
     adapter: 'Timmy Animate: POST /api/jobs (GET /api/jobs/:id, POST /api/jobs/:id/cancel)',
     heavy: 'runs Blender on this computer',
   },
+  // the spatial tools (2026-10-28): 3D Model Studio's splat work, run as Timmy's own jobs (src/spatial/jobs.ts)
+  {
+    id: 'spatial.kiri-crop-export', app: 'spatial', executor: 'local', tool: 'kiri', label: 'Crop and export a splat (KIRI in Blender)',
+    lead: 'KIRI’s own importer brings the Gaussian PLY into Blender; Timmy’s bounded route keeps one side of it, saves and reopens a native .blend, exports raw Gaussian PLY and reimports it. Every coordinate and Gaussian value is compared after each step (rtol 1e-5).',
+    inputs: [{ name: 'splat', label: 'Gaussian splat', type: 'splat', required: true, accepts: ['ply'] }],
+    params: [{ name: 'keep', label: 'Keep', kind: 'choice', choices: Object.keys(KIRI_KEEP), default: 'all' }],
+    outputs: [{ name: 'ply', label: 'Edited splat', type: 'splat' }, { name: 'blend', label: 'Native .blend', type: 'file' }],
+    adapter: 'Timmy job: Blender 5.1/5.2 in the background with workers/spatial/kiri_worker.py (KIRI 5.1.0 from the spatial tools folder)',
+    heavy: 'runs Blender on this computer',
+  },
+  {
+    id: 'spatial.brush-train', app: 'spatial', executor: 'local', tool: 'brush', label: 'Reconstruct a splat (Brush)',
+    lead: 'Brush trains Gaussian splats from a posed dataset (COLMAP or Nerfstudio, zipped: photographs with their cameras) and exports Gaussian PLY. It does not solve camera poses from loose photos.',
+    inputs: [{ name: 'dataset', label: 'Posed dataset (.zip)', type: 'dataset', required: true, accepts: ['zip'] }],
+    params: [
+      { name: 'steps', label: 'Steps', kind: 'number', min: 100, max: 30000, default: 3000 },
+      { name: 'max_resolution', label: 'Max image size', kind: 'choice', choices: ['512', '1024', '1920'], default: '1024' },
+      { name: 'max_splats', label: 'Max splats', kind: 'choice', choices: ['100000', '250000', '1000000'], default: '250000' },
+    ],
+    outputs: [{ name: 'export', label: 'Gaussian splat', type: 'splat' }],
+    adapter: 'Timmy job: brush 0.3.0 (the spatial tools folder) with bounded steps, size and splat count; its final export must parse',
+    heavy: 'trains on this computer’s GPU (minutes to hours)',
+  },
+  {
+    id: 'spatial.gsplat-smoke', app: 'spatial', executor: 'local', tool: 'gsplat', label: 'Check gsplat on an NVIDIA worker',
+    lead: 'gsplat’s prepared check renders one synthetic Gaussian at 16 × 16 on CUDA and runs its gradients. It needs a powered NVIDIA worker.',
+    inputs: [], params: [], outputs: [{ name: 'render', label: 'Fixture render', type: 'file' }],
+    adapter: 'awaiting an NVIDIA worker (gsplat 1.5.3, CUDA): not runnable on this Mac',
+  },
 ]);
 export const operationOf = (id: string): OperationSpec | undefined => OPERATIONS.find((o) => o.id === id);
 
@@ -80,6 +120,8 @@ export function portTypeOf(path: string): PortType {
   if (['html', 'htm'].includes(e)) return 'html';
   if (e === 'riv') return 'rive';
   if (e === 'json') return 'animate-scene';
+  if (e === 'ply') return 'splat';
+  if (e === 'zip') return 'dataset';
   return 'file';
 }
 /** Whether a file can feed a port: its extension among the port's (types are words; the extension decides). */
@@ -261,9 +303,51 @@ export interface WorkflowDeps {
   runningApp: (req: express.Request, appId: string) => HostedApp | null;
   /** a project file read whole (inside the project only), with its hash */
   readFile: (root: string, rel: string) => { ok: true; rel: string; bytes: Buffer; sha256: string } | { ok: false; error: string };
+  /** the spatial tools' executor (Timmy's own process jobs); absent: local operations are refused as not set up */
+  spatial?: SpatialExecutor;
   /** how often a run is followed (ms) */
   everyMs?: number;
 }
+
+/** What starts, reads, cancels and seals a run's job: a hosted app's own job, or Timmy's own process job. */
+export interface Engine {
+  read(r: RunRecord): Promise<AppJobView | null>;
+  cancel(r: RunRecord): Promise<void>;
+  /** the ended job's receipts and delivered files (asked again for a while where the app seals later); `note`: 'sealed' or why not */
+  collect(r: RunRecord): Promise<{ ids: string[]; outputs: RunRecord['outputs']; note: string }>;
+}
+export function hostedEngine(app: HostedApp, root: string, ms = 15_000): Engine {
+  return {
+    read: async (r) => (r.job && ADAPTERS[r.op] ? ADAPTERS[r.op]!.read(app, r.job).catch(() => null) : null),
+    cancel: async (r) => { if (r.job && ADAPTERS[r.op]) await ADAPTERS[r.op]!.cancel(app, r.job); },
+    collect: async (r) => {
+      // the app's ended job is sealed by the host from the app's own record (its receipt names every file it delivered into
+      // from-apps/); an app's API can say "ended" before its record does, so the sealing is asked again for a while
+      const end = Date.now() + ms;
+      let found = receiptsFor(root, r.app, r.job!);
+      while (!found.ids.length && Date.now() < end) {
+        await app.sealNow().catch(() => []);
+        found = receiptsFor(root, r.app, r.job!);
+        if (!found.ids.length) await new Promise((x) => setTimeout(x, 400));
+      }
+      return { ...found, note: found.ids.length ? 'sealed' : 'no receipt: the app never reported this job ended in its record' };
+    },
+  };
+}
+export function localEngine(spatial: SpatialExecutor, scope: WorkflowScope): Engine {
+  const { home } = scope; const root = scope.project.root;
+  const tool = (r: RunRecord): SpatialToolId => operationOf(r.op)!.tool!;
+  return {
+    read: async (r) => (r.job ? spatial.read(home, root, r.id, tool(r), r.job) : null),
+    cancel: async (r) => { if (r.job) await spatial.cancel(home, root, r.job); },
+    collect: async (r) => {
+      const view = spatial.read(home, root, r.id, tool(r), r.job!) ?? { state: r.state, appWord: r.appWord ?? '', progress: null, ...(r.error ? { error: r.error } : {}) };
+      const input = Object.values(r.inputs)[0] ?? null;
+      return spatial.collect({ home, root, project: scope.project.name, principal: r.principal, run: r.id, op: r.op, tool: tool(r), label: r.label, attempt: r.attempt, job: r.job!, input, view });
+    },
+  };
+}
+const isLocal = (op: string): boolean => operationOf(op)?.executor === 'local';
 
 export class WorkflowRunner {
   private followers = new Map<string, NodeJS.Timeout>();
@@ -273,7 +357,7 @@ export class WorkflowRunner {
   /** whether this companion is collecting a completed run's receipts now */
   isCollecting(id: string): boolean { return this.collecting.has(id); }
   stopAll(): void { for (const t of this.followers.values()) clearInterval(t); this.followers.clear(); }
-  follow(scope: WorkflowScope, id: string, app: HostedApp): void {
+  follow(scope: WorkflowScope, id: string, engine: Engine): void {
     if (this.followers.has(id)) return;
     let busy = false;
     const tick = async (): Promise<void> => {
@@ -281,20 +365,17 @@ export class WorkflowRunner {
       try {
         const r = readRun(scope.home, scope.project.root, id);
         if (!r || !r.job || TERMINAL.has(r.state)) { this.unfollow(id); return; }
-        const a = ADAPTERS[r.op];
-        const v = a ? await a.read(app, r.job).catch(() => null) : null;
+        const v = await engine.read(r).catch(() => null);
         if (!v) return;
-        // (read again after the app answered: another request may have written the record meanwhile — a supersede, a cancel —
-        // and only the follower's own fields are written over it)
+        // (read again after the engine answered: another request may have written the record meanwhile — a supersede, a
+        // cancel — and only the follower's own fields are written over it)
         const now = readRun(scope.home, scope.project.root, id) ?? r;
         const next: RunRecord = { ...now, state: v.state, appWord: v.appWord, progress: v.progress, error: v.error ?? now.error };
         if (TERMINAL.has(v.state)) {
           next.endedAt = new Date().toISOString();
           this.unfollow(id);
           write(scope.home, scope.project.root, next);
-          // the app's ended job is sealed by the host from the app's own record (its receipt names every file it delivered
-          // into from-apps/); an app's API can say "ended" before its record does, so the sealing is asked again for a while
-          void this.collect(scope, id, app, r.app, r.job);
+          void this.collect(scope, id, engine);
           return;
         }
         write(scope.home, scope.project.root, next);
@@ -303,22 +384,17 @@ export class WorkflowRunner {
     this.followers.set(id, setInterval(() => { void tick(); }, this.everyMs));
     void tick();
   }
-  /** Seals the ended job and records its receipts and delivered files (asked again for up to `ms` until a receipt is in). */
-  async collect(scope: WorkflowScope, id: string, app: HostedApp, appId: string, job: string, ms = 15_000): Promise<void> {
+  /** Seals the ended job and records its receipts and delivered files. */
+  async collect(scope: WorkflowScope, id: string, engine: Engine): Promise<void> {
     if (this.collecting.has(id)) return;
     this.collecting.add(id);
-    try { await this.collectNow(scope, id, app, appId, job, ms); } finally { this.collecting.delete(id); }
-  }
-  private async collectNow(scope: WorkflowScope, id: string, app: HostedApp, appId: string, job: string, ms: number): Promise<void> {
-    const end = Date.now() + ms;
-    let found = receiptsFor(scope.project.root, appId, job);
-    while (!found.ids.length && Date.now() < end) {
-      await app.sealNow().catch(() => []);
-      found = receiptsFor(scope.project.root, appId, job);
-      if (!found.ids.length) await new Promise((r) => setTimeout(r, 400));
-    }
-    const r = readRun(scope.home, scope.project.root, id);
-    if (r) write(scope.home, scope.project.root, { ...r, receipts: found.ids, outputs: found.outputs, collected: found.ids.length ? 'sealed' : 'no receipt: the app never reported this job ended in its record', ...(found.ids.length ? { readback: readBack(scope.project.root, found.outputs) } : {}) } as RunRecord);
+    try {
+      const r0 = readRun(scope.home, scope.project.root, id);
+      if (!r0 || !r0.job) return;
+      const found = await engine.collect(r0).catch((e: unknown) => ({ ids: [] as string[], outputs: [] as RunRecord['outputs'], note: `not collected: ${e instanceof Error ? e.message : String(e)}` }));
+      const r = readRun(scope.home, scope.project.root, id);
+      if (r) write(scope.home, scope.project.root, { ...r, receipts: found.ids, outputs: found.outputs, collected: found.ids.length ? 'sealed' : found.note, ...(found.ids.length ? { readback: readBack(scope.project.root, found.outputs) } : {}) } as RunRecord);
+    } finally { this.collecting.delete(id); }
   }
   private unfollow(id: string): void { const t = this.followers.get(id); if (t) clearInterval(t); this.followers.delete(id); }
 }
@@ -359,9 +435,19 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
     try { await h(req, res, s); } catch (e) { if (!res.headersSent) res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
   }];
   const view = (s: WorkflowScope, r: RunRecord) => ({ ...r, following: runner.following(r.id), current: !r.supersededBy, terminal: TERMINAL.has(r.state) });
+  /** why a local operation cannot start here now, or null */
+  const localRefusal = (op: OperationSpec): string | null => (!deps.spatial ? 'the spatial tools are not set up in this companion' : deps.spatial.refusal(op.tool!));
+  /** the engine that answers for a run now without starting anything: a local job's, or its app's when the app runs */
+  const engineNow = (req: express.Request, s: WorkflowScope, r: RunRecord): Engine | null => {
+    if (isLocal(r.op)) return deps.spatial ? localEngine(deps.spatial, s) : null;
+    const hosted = deps.runningApp(req, r.app);
+    return hosted ? hostedEngine(hosted, s.project.root) : null;
+  };
 
   app.get('/api/workflow/operations', ...scoped((_req, res) => {
-    res.json({ ok: true, operations: OPERATIONS, ports: { image: IMG } });
+    // a local operation says whether it can run here now (its tool installed, its Blender found, a CUDA worker), and why not
+    const operations = OPERATIONS.map((o) => (o.executor === 'local' ? { ...o, available: (() => { const why = localRefusal(o); return why ? { ok: false, why } : { ok: true, why: null }; })() } : o));
+    res.json({ ok: true, operations, ports: { image: IMG } });
   }));
   app.post('/api/workflow/validate', ...scoped((req, res, s) => {
     const v = validateRun(s.project.root, req.body ?? {}, deps.readFile);
@@ -381,15 +467,24 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
     if (!board || !node) { res.status(400).json({ ok: false, error: 'A run names its board and its node.' }); return; }
     const v = validateRun(s.project.root, b, deps.readFile);
     if (!v.ok || !v.op) { res.status(422).json({ ok: false, refused: 'invalid', problems: v.problems, error: v.problems.join(' ') }); return; }
-    const hosted = await deps.appFor(req, v.op.app);
-    if ('error' in hosted) { res.status(hosted.status).json({ ok: false, refused: 'setup', error: hosted.error }); return; }
+    const local = v.op.executor === 'local';
+    let hosted: HostedApp | null = null;
+    if (local) {
+      const why = localRefusal(v.op);
+      if (why) { res.status(409).json({ ok: false, refused: 'setup', error: why }); return; }
+    } else {
+      const h = await deps.appFor(req, v.op.app);
+      if ('error' in h) { res.status(h.status).json({ ok: false, refused: 'setup', error: h.error }); return; }
+      hosted = h;
+    }
+    const engineOf = (r: RunRecord): Engine | null => (isLocal(r.op) ? (deps.spatial ? localEngine(deps.spatial, s) : null) : hosted && r.app === v.op!.app ? hostedEngine(hosted, s.project.root) : engineNow(req, s, r));
     // the node's earlier attempts: superseded (a still-running one asked to cancel); this run is the current one
     const earlier = listRuns(s.home, s.project.root).filter((r) => r.principal === s.principal && r.board === board && r.node === node);
     const attempt = earlier.reduce((m, r) => Math.max(m, r.attempt), 0) + 1;
     const id = `w${randomBytes(6).toString('hex')}`;
     for (const r of earlier) if (!r.supersededBy) {
       write(s.home, s.project.root, { ...r, supersededBy: id });
-      if (!TERMINAL.has(r.state) && r.job) { const a = ADAPTERS[r.op]; if (a) await a.cancel(hosted, r.job).catch(() => undefined); write(s.home, s.project.root, { ...readRun(s.home, s.project.root, r.id)!, cancelAsked: true }); }
+      if (!TERMINAL.has(r.state) && r.job) { const e = engineOf(r); if (e) await e.cancel(r).catch(() => undefined); write(s.home, s.project.root, { ...readRun(s.home, s.project.root, r.id)!, cancelAsked: true }); }
     }
     const label = typeof b.label === 'string' ? b.label.replace(/\s+/g, ' ').trim().slice(0, 80) : v.op.label;
     const inputs = Object.fromEntries(Object.entries(v.inputs).map(([k, x]) => [k, { path: x.path, sha256: x.sha256 }]));
@@ -400,16 +495,19 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
       startedAt: new Date().toISOString(), endedAt: null, cancelAsked: false, supersededBy: null, receipts: [], outputs: [], principal: s.principal,
     };
     write(s.home, s.project.root, rec);
-    const started = await ADAPTERS[v.op.id]!.start(hosted, v, label).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+    const first = Object.entries(v.inputs)[0];
+    const started = local
+      ? deps.spatial!.start({ home: s.home, root: s.project.root, project: s.project.name, principal: s.principal, run: id, op: v.op.id, tool: v.op.tool!, label, input: first ? { name: first[0], ...first[1] } : null, params: v.params })
+      : await ADAPTERS[v.op.id]!.start(hosted!, v, label).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     if ('error' in started) {
       const failed: RunRecord = { ...rec, state: 'failed', error: started.error, endedAt: new Date().toISOString() };
       write(s.home, s.project.root, failed);
-      res.status(502).json({ ok: false, refused: 'app', error: started.error, run: view(s, failed) });
+      res.status(502).json({ ok: false, refused: local ? 'tool' : 'app', error: started.error, run: view(s, failed) });
       return;
     }
     const running: RunRecord = { ...rec, job: started.job, state: 'running' };
     write(s.home, s.project.root, running);
-    runner.follow(s, id, hosted);
+    runner.follow(s, id, local ? localEngine(deps.spatial!, s) : hostedEngine(hosted!, s.project.root));
     res.json({ ok: true, run: view(s, running) });
   }, true));
   app.get('/api/workflow/runs/:id', ...scoped((req, res, s) => {
@@ -424,33 +522,47 @@ export function mountWorkflowOps(app: express.Express, deps: WorkflowDeps): Work
     const r = readRun(s.home, s.project.root, String(req.params.id));
     if (!r || r.principal !== s.principal) { res.status(404).json({ ok: false, error: 'No such run in this project.' }); return; }
     if (TERMINAL.has(r.state) || !r.job) { res.status(409).json({ ok: false, error: `The run has ended (${r.state}); nothing to cancel.` }); return; }
-    const hosted = deps.runningApp(req, r.app);
-    if (!hosted) { res.status(409).json({ ok: false, error: 'The app that runs this job is not running here: Recover reads what it left.' }); return; }
-    await ADAPTERS[r.op]!.cancel(hosted, r.job);
+    const engine = engineNow(req, s, r);
+    if (!engine) { res.status(409).json({ ok: false, error: isLocal(r.op) ? 'The spatial tools are not set up in this companion.' : 'The app that runs this job is not running here: Recover reads what it left.' }); return; }
+    // the cancel is recorded first (the node shows it at once), then the engine stops the job: a local job's whole process group
     write(s.home, s.project.root, { ...readRun(s.home, s.project.root, r.id)!, cancelAsked: true });
-    runner.follow(s, r.id, hosted);
+    await engine.cancel(r);
+    runner.follow(s, r.id, engine);
     res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) });
   }));
   app.post('/api/workflow/runs/:id/recover', ...scoped(async (req, res, s) => {
     const r = readRun(s.home, s.project.root, String(req.params.id));
     if (!r || r.principal !== s.principal) { res.status(404).json({ ok: false, error: 'No such run in this project.' }); return; }
-    // a completed run left uncollected: the app opened again (its watcher seals what its record says ended), its receipts read
-    if (r.state === 'completed' && r.job && !r.collected) {
+    let engine: Engine | null;
+    if (isLocal(r.op)) engine = deps.spatial ? localEngine(deps.spatial, s) : null;
+    else if (r.job && !(TERMINAL.has(r.state) && r.state !== 'completed')) {
+      // the app is opened (its record of the job survives a restart of Timmy): its own word for the job is read again
       const hosted = await deps.appFor(req, r.app);
       if ('error' in hosted) { res.status(hosted.status).json({ ok: false, error: hosted.error }); return; }
-      void runner.collect(s, r.id, hosted, r.app, r.job);
+      engine = hostedEngine(hosted, s.project.root);
+    } else engine = null;
+    // a completed run left uncollected: its receipts read (the app's watcher seals what its record says ended; a local
+    // job's own result is judged and sealed once)
+    if (r.state === 'completed' && r.job && !r.collected) {
+      if (!engine) { res.status(409).json({ ok: false, error: 'Nothing here can collect this run now.' }); return; }
+      void runner.collect(s, r.id, engine);
       res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) });
       return;
     }
     if (TERMINAL.has(r.state)) { res.json({ ok: true, run: view(s, r) }); return; }
-    if (!r.job) { write(s.home, s.project.root, { ...r, state: 'interrupted', error: 'The app never answered with a job id.', endedAt: new Date().toISOString() }); res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) }); return; }
-    // the app is opened (its record of the job survives a restart of Timmy): its own word for the job is read again
-    const hosted = await deps.appFor(req, r.app);
-    if ('error' in hosted) { res.status(hosted.status).json({ ok: false, error: hosted.error }); return; }
-    const v = await ADAPTERS[r.op]!.read(hosted, r.job).catch(() => null);
-    if (!v) { write(s.home, s.project.root, { ...r, state: 'interrupted', error: 'The app no longer knows this job (it was not kept across its restart).', endedAt: new Date().toISOString() }); res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) }); return; }
+    if (!r.job) { write(s.home, s.project.root, { ...r, state: 'interrupted', error: 'The job never started (no job id).', endedAt: new Date().toISOString() }); res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) }); return; }
+    if (!engine) { res.status(409).json({ ok: false, error: 'The spatial tools are not set up in this companion.' }); return; }
+    const v = await engine.read(r).catch(() => null);
+    if (!v) { write(s.home, s.project.root, { ...r, state: 'interrupted', error: isLocal(r.op) ? 'Timmy has no record of this job any more.' : 'The app no longer knows this job (it was not kept across its restart).', endedAt: new Date().toISOString() }); res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) }); return; }
+    if (TERMINAL.has(v.state)) {
+      // ended while no companion followed it (a local job's own result decides; never re-run): recorded, then collected
+      write(s.home, s.project.root, { ...r, state: v.state, appWord: v.appWord, progress: v.progress, error: v.error ?? r.error, endedAt: new Date().toISOString() });
+      void runner.collect(s, r.id, engine);
+      res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) });
+      return;
+    }
     write(s.home, s.project.root, { ...r, state: v.state, appWord: v.appWord, progress: v.progress });
-    runner.follow(s, r.id, hosted);
+    runner.follow(s, r.id, engine);
     res.json({ ok: true, run: view(s, readRun(s.home, s.project.root, r.id)!) });
   }));
   return runner;

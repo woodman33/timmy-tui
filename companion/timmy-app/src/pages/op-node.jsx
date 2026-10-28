@@ -215,7 +215,9 @@ function OpNode({ shape, editor, board, focus }) {
   if (!spec) return <div className="ta-node"><p className="ta-node-wait">This operation is not known to this Timmy.</p></div>;
   const state = run ? run.state : '';
   const live = run && !run.terminal;
-  const word = !run ? 'not run' : run.left ? 'left by an earlier Timmy' : state === 'completed' && !run.collected ? 'collecting' : state;
+  // a local operation (a spatial tool) that cannot run here says so on the node, never as a working button
+  const off = spec.available && spec.available.ok === false ? spec.available.why : null;
+  const word = !run ? (off ? 'not available here' : 'not run') : run.left ? 'left by an earlier Timmy' : state === 'completed' && !run.collected ? 'collecting' : state;
   const doRun = async () => {
     setBusy(true); setProblems([]);
     const v = await validateNode(shape);
@@ -237,7 +239,7 @@ function OpNode({ shape, editor, board, focus }) {
           {(close) => (
             <>
               <MenuGroup label="This operation">
-                <MenuItem close={close} disabled={busy || live} onSelect={doRun} data={{ 'data-act': 'run' }} hint={spec.heavy ? `It ${spec.heavy}.` : undefined}>Run</MenuItem>
+                <MenuItem close={close} disabled={busy || live || Boolean(off)} onSelect={doRun} data={{ 'data-act': 'run' }} hint={off || (spec.heavy ? `It ${spec.heavy}.` : undefined)}>Run</MenuItem>
                 <MenuItem close={close} disabled={!live || (run && run.left)} onSelect={cancel} data={{ 'data-act': 'cancel' }}>Cancel</MenuItem>
                 <MenuItem close={close} disabled={!run || !run.left} onSelect={recover} data={{ 'data-act': 'recover' }}>Recover</MenuItem>
                 <MenuItem close={close} onSelect={() => editor.updateShape({ id: shape.id, type: OP_SHAPE, props: { panel: !shape.props.panel } })} data={{ 'data-act': 'inspector' }}>{shape.props.panel ? 'Hide the parameters' : 'Show the parameters'}</MenuItem>
@@ -251,11 +253,12 @@ function OpNode({ shape, editor, board, focus }) {
         <div className="ta-op-live"><OpFace id={shape.id} state={state} theme={theme} /><Progress run={run} /></div>
         <Ports editor={editor} shape={shape} spec={spec} />
         {shape.props.panel ? <Params editor={editor} shape={shape} spec={spec} disabled={busy || live} /> : null}
+        {off ? <p className="ta-op-off" role="note" data-op-unavailable>{off}</p> : null}
         {problems.length ? <ul className="ta-op-problems" role="alert">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
         {run ? (
           <dl className="ta-facts ta-op-facts" data-op-run-id={run.id}>
             <dt>Run</dt><dd><code>{run.id}</code> · attempt {run.attempt}{run.current ? '' : ' (superseded)'}</dd>
-            <dt>{appName(spec.app)}</dt><dd>{run.job ? <>job <code>{run.job}</code> · the app says {run.appWord || '…'}</> : 'no job yet'}</dd>
+            <dt>{appName(spec.app)}</dt><dd>{run.job ? <>job <code>{run.job}</code> · {spec.executor === 'local' ? 'its own result says' : 'the app says'} {run.appWord || '…'}</> : 'no job yet'}</dd>
             {run.error ? <><dt>Why</dt><dd>{run.error}</dd></> : null}
             {run.receipts && run.receipts.length ? <><dt>Receipt</dt><dd data-op-receipt>{run.receipts.map((r) => <code key={r}>{r}</code>)}</dd></> : null}
             {run.outputs && run.outputs.length ? <><dt>Outputs</dt><dd data-op-outputs>{run.outputs.map((o) => {
@@ -271,7 +274,7 @@ function OpNode({ shape, editor, board, focus }) {
       <footer className="ta-node-foot" {...stopAll}>
         {live && !run.left ? <button type="button" className="ta-btn ta-node-primary" onClick={cancel} data-node-primary data-op-cancel>Cancel</button>
           : run && run.left ? <button type="button" className="ta-btn ta-btn-primary ta-node-primary" onClick={recover} data-node-primary data-op-recover>Recover</button>
-            : <button type="button" className="ta-btn ta-btn-primary ta-node-primary" disabled={busy} onClick={doRun} data-node-primary data-op-run>{busy ? 'Checking…' : run ? 'Run again' : 'Run'}</button>}
+            : <button type="button" className="ta-btn ta-btn-primary ta-node-primary" disabled={busy || Boolean(off)} onClick={doRun} data-node-primary data-op-run title={off || undefined}>{off ? (spec.tool === 'gsplat' ? 'Awaiting an NVIDIA worker' : 'Not available here') : busy ? 'Checking…' : run ? 'Run again' : 'Run'}</button>}
         <span className="ta-node-fact">{appName(spec.app)}{spec.heavy ? ` · ${spec.heavy}` : ''}</span>
       </footer>
     </div>

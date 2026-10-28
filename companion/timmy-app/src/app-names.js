@@ -7,6 +7,11 @@ export const APP_NAMES = Object.freeze({
   'model-studio': '3D Model Studio',
   'stream-studio': 'Stream Studio',
   animate: 'Animate',
+  // not hosted apps: the spatial tools Timmy runs as its own jobs (src/spatial/jobs.ts), and a file brought in from this computer
+  spatial: 'Spatial tools',
+  import: 'This computer',
 });
+/** Whether an id is a hosted app that can be opened (and its editable source reopened) in its own page. */
+export const isHostedApp = (id) => ['card-lab', 'film-room', 'model-studio', 'stream-studio', 'animate'].includes(id);
 /** An app's display name from its stable id (an unknown id is shown as it is). */
 export const appName = (id) => APP_NAMES[id] || id;

@@ -92,6 +92,19 @@ export interface Receipt {
   /** R13 (the integration order): a hosted mini-app's job (src/companion/miniapps/receipts.ts): the app, the revision it ran, the
    *  sha256 of the app's own record of the job (the record is the app's, unsigned; this receipt is Timmy's), and who started it */
   miniapp?: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string; principal?: string };
+  /** The spatial tools order (2026-10-28): a file brought into the project from this computer (POST /api/files/import): its
+   *  name and, for a PLY, its own header facts (whether it is a Gaussian splat, its vertex count, a synthetic-fixture comment) */
+  imported?: { name: string; gaussian?: boolean; format?: string | null; vertices?: number | null; fixture?: boolean; why?: string | null };
+  /** The spatial tools order (2026-10-28): a Workspace spatial operation Timmy ran as its own job (src/spatial/jobs.ts):
+   *  the tool and its version, the run and its attempt, the input's hash, the value checks that passed, and the raw
+   *  result's and log's hashes. A Gaussian splat stays an appearance reconstruction (not measured geometry). */
+  spatial?: {
+    tool: string; name: string; version: string; operation: string; run: string; job: string; attempt: number; principal: string;
+    fixture: boolean; input: { path: string; sha256: string } | null; word: string;
+    checks: Array<{ stage: string; rows: unknown; rtol: unknown; atol: unknown; max_abs_difference: unknown }>;
+    blender: string | null; result_sha256: string | null; log_sha256: string | null; worker_sha256: string | null;
+    not_delivered?: string[]; appearance_only: string;
+  };
   /** the integrated candidate's checklist A11: a project file handed to another app (src/companion/miniapps/routes.ts):
    *  the source file, the receipt that named it, and the run the target app made from it */
   handoff?: {

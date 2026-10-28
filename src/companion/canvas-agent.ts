@@ -82,6 +82,8 @@ export interface AgentDeps {
   boardOf: (req: express.Request, board: string) => { revision: number; sourceRevision: string | null; snapshot: unknown } | null;
   /** the hosted apps (the mini-app host's listing): an operation is offered only when its app can be hosted here */
   apps: (req: express.Request) => Array<{ id: string; title: string; hostable: boolean; problem: string | null }> | null;
+  /** the spatial tools order: why a local operation (Timmy's own job, src/spatial/jobs.ts) cannot run here now, or null */
+  localRefusal?: (op: OperationSpec) => string | null;
   /** tests: the fetch Ollama is asked through */
   fetch?: typeof fetch;
 }
@@ -334,8 +336,10 @@ export function mountCanvasAgent(app: express.Express, deps: AgentDeps): void {
     const handles = handlesOf(saved.snapshot, selection);
     const listing = deps.apps(req) ?? [];
     const can = (op: OperationSpec) => listing.find((a) => a.id === op.app);
-    const ops = OPERATIONS.filter((op) => { const a = can(op); return Boolean(a && a.hostable); });
-    const unavailable = OPERATIONS.filter((op) => !ops.includes(op)).map((op) => { const a = can(op); return { id: op.id, why: a ? (a.problem || 'its app is not installed here') : 'its app is not known here' }; });
+    // an app's operation is offered when its app is hostable here; a local one (a spatial tool) when its tool can run here now
+    const localWhy = (op: OperationSpec): string | null => (deps.localRefusal ? deps.localRefusal(op) : 'the spatial tools are not set up');
+    const ops = OPERATIONS.filter((op) => (op.executor === 'local' ? localWhy(op) === null : Boolean(can(op)?.hostable)));
+    const unavailable = OPERATIONS.filter((op) => !ops.includes(op)).map((op) => { if (op.executor === 'local') return { id: op.id, why: localWhy(op) ?? '' }; const a = can(op); return { id: op.id, why: a ? (a.problem || 'its app is not installed here') : 'its app is not known here' }; });
     const h = harnessNow(sc.env, sc.project.root);
     const now = new Date().toISOString();
     const rec: PlanRecord = {

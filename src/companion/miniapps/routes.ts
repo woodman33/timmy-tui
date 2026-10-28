@@ -249,7 +249,7 @@ function provenanceOf(root: string, rel: string, sha256: string): { id: string; 
   for (let i = chain.length - 1; i >= 0; i--) {
     const r = chain[i];
     const named = (r.outputs ?? []).some((o) => o.path === rel && o.sha256 === sha256) || (r.kind !== 'handoff' && (r.files ?? []).some((o) => o.path === rel && o.sha256 === sha256));
-    if (named) return { id: r.hash.slice(7, 15), kind: r.kind, app: r.miniapp?.app ?? null, job: r.job?.id ?? null, at: r.ts };
+    if (named) return { id: r.hash.slice(7, 15), kind: r.kind, app: r.miniapp?.app ?? (r.spatial ? 'spatial' : null), job: r.job?.id ?? null, at: r.ts };
   }
   return null;
 }
@@ -281,11 +281,14 @@ function appOutputsOf(root: string, limit: number): AppResult[] {
   const out: AppResult[] = [];
   for (let i = chain.length - 1; i >= 0 && out.length < limit; i--) {
     const r = chain[i];
-    if (!r.miniapp) continue;
+    // a hosted app's job, or (the spatial tools order) Timmy's own spatial job: both deliver into from-apps/
+    const who = r.miniapp ? { app: r.miniapp.app, title: r.miniapp.title } : r.kind === 'spatial' && r.spatial ? { app: 'spatial', title: `${r.spatial.name} ${r.spatial.version}${r.spatial.fixture ? ' · fixture' : ''}` }
+      : r.kind === 'import' && r.imported ? { app: 'import', title: `Imported from this computer${r.imported.fixture ? ' · synthetic fixture' : ''}` } : null;
+    if (!who) continue;
     const files = (r.outputs ?? []).filter((o) => o.path.startsWith('from-apps/'));
     if (!files.length) continue;
     out.push({
-      receipt: r.hash.slice(7, 15), app: r.miniapp.app, title: r.miniapp.title, job: r.job?.id ?? null, label: r.job?.label ?? null, status: r.status ?? 'unknown', at: r.ts,
+      receipt: r.hash.slice(7, 15), app: who.app, title: who.title, job: r.job?.id ?? null, label: r.job?.label ?? null, status: r.status ?? 'unknown', at: r.ts,
       files: files.map((o) => ({
         path: o.path, name: o.path.split('/').pop() ?? o.path, sha256: o.sha256 ?? null, bytes: o.bytes,
         image: /\.(png|jpe?g|webp|gif)$/i.test(o.path), sent: o.sha256 ? sent.get(`${o.path}@${o.sha256}`) ?? [] : [],
