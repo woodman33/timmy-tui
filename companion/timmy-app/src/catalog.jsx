@@ -20,6 +20,7 @@ export const SHOWS = Object.freeze([
   ['metadata', 'Metadata only'],
 ]);
 const mark = (ok) => (ok === true ? '✓' : ok === false ? '–' : '?');
+const SHORT = Object.freeze({ researched: 'res', installed: 'inst', configured: 'conf', discovered: 'disc', callable: 'call', verified: 'ver' });
 const said = (ok) => (ok === true ? 'yes' : ok === false ? 'no' : 'not read here');
 
 /** The catalog for the page's project (one reading per project; `refresh` reads again). */
@@ -74,7 +75,7 @@ function EntryRow({ e, states, pick, pickLabel }) {
         <span className="tx-cat-kind">{KIND_WORDS[e.kind] || e.kind}</span>
         <span className="tx-cat-src" title={e.sources.map((s) => `${s.file} · ${s.id}`).join('\n')}>{e.sources.map((s) => REGISTRY_WORDS[s.registry] || s.registry).join(' + ')}</span>
         <span className="tx-cat-marks" aria-label={states.map((s) => `${STATE_WORDS[s]}: ${said(e.states[s].ok)}`).join(', ')}>
-          {states.map((s) => <span key={s} data-state={s} data-ok={said(e.states[s].ok)} title={`${STATE_WORDS[s]}: ${e.states[s].words}`} aria-hidden="true">{mark(e.states[s].ok)}</span>)}
+          {states.map((s) => <span key={s} data-state={s} data-ok={said(e.states[s].ok)} title={`${STATE_WORDS[s]}: ${e.states[s].words}`} aria-hidden="true"><small>{SHORT[s] || s}</small>{mark(e.states[s].ok)}</span>)}
         </span>
         {canPick ? <button type="button" className="ta-btn ta-btn-quiet tx-cat-pick" data-action="catalog-pick" onClick={() => pick(e, true)}>{pickLabel || 'Use'}</button> : null}
       </div>

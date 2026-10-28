@@ -137,6 +137,8 @@ describe.skipIf(!browserPath)('Tools & integrations: Treg through the host’s o
     // source kept, six facts apart; a metadata-only provider is never callable; the search narrows the rows
     await page.click('.ta-rail-item[data-nav="tools"]');
     await page.waitForSelector('[data-catalog-entry="workflows:upmd"]', { timeout: 60_000 });
+    await page.locator('.tx-cat').evaluate((n) => n.scrollIntoView({ block: 'start' }));
+    await shot(page, 'int-5-catalog');
     expect(Number(await page.locator('[data-catalog]').getAttribute('data-catalog'))).toBeGreaterThan(20);
     for (const id of ['inventory:model:openrouter', 'native:blender', 'vision:openhands', 'provider:openai', 'apps:card-lab', 'connectors:treg']) expect(await page.locator(`[data-catalog-entry="${id}"]`).count(), id).toBe(1);
     expect(await page.locator('[data-catalog-entry="provider:openai"]').getAttribute('data-callable')).toBe('no');
