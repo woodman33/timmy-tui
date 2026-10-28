@@ -135,6 +135,10 @@ export function planFormat(ops: readonly OperationSpec[], handles: Handle[], bud
   const ports = [...new Set(ops.flatMap((o) => o.inputs.map((p) => p.name)))];
   const params = [...new Set(ops.flatMap((o) => o.params.map((p) => p.name)))];
   const enumOr = (xs: string[]) => (xs.length ? { type: 'string', enum: xs } : { type: 'string', maxLength: 0 });
+  // an added node's parameters, each typed as its operation declares it (a choice its choices, a number its range, a text
+  // its length): a value of the wrong kind is not expressible (a name two operations share takes the first one's type)
+  const paramProps: Record<string, unknown> = {};
+  for (const o of ops) for (const p of o.params) if (!(p.name in paramProps)) paramProps[p.name] = p.kind === 'choice' ? { type: 'string', enum: p.choices } : p.kind === 'number' ? { type: 'integer', minimum: p.min, maximum: p.max } : { type: 'string', maxLength: p.maxLength ?? 80 };
   return {
     type: 'object', additionalProperties: false, required: ['say', 'cites', 'steps', 'done'],
     properties: {
@@ -147,6 +151,7 @@ export function planFormat(ops: readonly OperationSpec[], handles: Handle[], bud
           properties: {
             do: { type: 'string', enum: ['add', 'connect', 'set', 'run'] },
             ref: enumOr(refs), operation: enumOr(ops.map((o) => o.id)),
+            params: { type: 'object', additionalProperties: false, properties: paramProps },
             node: enumOr([...refs, ...opNodes]), port: enumOr(ports), from: enumOr(files),
             param: enumOr(params), value: { type: 'string', maxLength: 80 },
           },
@@ -161,10 +166,10 @@ export function planFormat(ops: readonly OperationSpec[], handles: Handle[], bud
 export function planPrompt(o: { goal: string; ops: readonly OperationSpec[]; unavailable: Array<{ id: string; why: string }>; handles: Handle[]; budget: { steps: number; runs: number }; previous?: { say: string; outcomes: string[] } | null }): { system: string; user: string } {
   const system = [
     'You edit a Timmy Workspace board: a canvas of files and executable operation nodes. You answer with JSON only, in the given schema.',
-    'Steps: {"do":"add","ref":"n1","operation":<id>} adds an operation node; {"do":"connect","node":<ref or operation node>,"port":<port>,"from":<file node>} connects a file on the board to one of its input ports; {"do":"set","node":…,"param":<name>,"value":…} sets a parameter; {"do":"run","node":…} runs it.',
+    'Steps: {"do":"add","ref":"n1","operation":<id>,"params":{…}} adds an operation node with the parameters the goal asks for (leave out the rest: they keep their defaults); {"do":"connect","node":<ref or operation node>,"port":<port>,"from":<file node>} connects a file on the board to one of its input ports; {"do":"set","node":…,"param":<name>,"value":…} sets a parameter; {"do":"run","node":…} runs it.',
     'Name only what is listed. A file can feed a port only when its extension is one the port accepts. List in "cites" every node you name. Use at most the step and run budget. If the goal cannot be done with what is listed, give no steps and say why in "say". Set "done" true when the board already does what the goal asks.',
   ].join('\n');
-  const opLines = o.ops.map((op) => `- ${op.id}: ${op.label}. Inputs: ${op.inputs.map((p) => `${p.name} (${p.accepts.map((x) => `.${x}`).join(' ')})`).join(', ') || 'none'}. Parameters: ${op.params.map((p) => (p.kind === 'choice' ? `${p.name} one of ${p.choices!.join('/')}` : p.kind === 'number' ? `${p.name} ${p.min}–${p.max}` : `${p.name} text`)).join(', ') || 'none'}.`);
+  const opLines = o.ops.map((op) => `- ${op.id}: ${op.label}. Inputs: ${op.inputs.map((p) => `${p.name} (${p.accepts.map((x) => `.${x}`).join(' ')})`).join(', ') || 'none'}. Parameters: ${op.params.map((p) => `${p.kind === 'choice' ? `${p.name} one of ${p.choices!.join('/')}` : p.kind === 'number' ? `${p.name} a whole number ${p.min}–${p.max}` : `${p.name} text`} (default ${JSON.stringify(p.default)})`).join(', ') || 'none'}.`);
   const handleLines = o.handles.map((h) => (h.kind === 'file' ? `- ${h.id}: file ${h.path} (${h.type})` : `- ${h.id}: operation node ${h.op} "${h.title}"${h.connected && h.connected.length ? `, connected: ${h.connected.join(', ')}` : ', nothing connected'}`));
   const user = [
     `Goal: ${o.goal}`,
@@ -207,6 +212,15 @@ export function admitPlan(raw: unknown, o: { handles: Handle[]; ops: readonly Op
       const op = typeof s.operation === 'string' ? o.ops.find((p) => p.id === s.operation) : undefined;
       if (!op) { bad(`no operation ${JSON.stringify(String(s.operation ?? '')).slice(0, 60)} can be added here.`); return; }
       if (typeof s.ref !== 'string' || !REF.test(s.ref) || refs.has(s.ref)) { bad(`an added node needs a new ref (n1–n9), not ${JSON.stringify(String(s.ref ?? '')).slice(0, 20)}.`); return; }
+      const given = s.params && typeof s.params === 'object' && !Array.isArray(s.params) ? s.params as Record<string, unknown> : {};
+      if (Object.keys(given).length) {
+        const c = checkParams(op, given);
+        if (c.problems.length) { bad(c.problems.join(' ')); return; }
+        refs.set(s.ref, op);
+        const chosen = Object.fromEntries(Object.keys(given).map((k) => [k, c.params[k]]));
+        steps.push({ n, do: 'add', ref: s.ref, operation: op.id, params: chosen, words: `Add “${op.label}” (${s.ref}) with ${Object.entries(chosen).map(([k, v]) => `${op.params.find((p) => p.name === k)?.label ?? k} ${v}`).join(', ')}` });
+        return;
+      }
       refs.set(s.ref, op);
       steps.push({ n, do: 'add', ref: s.ref, operation: op.id, words: `Add “${op.label}” (${s.ref})` });
     } else if (s.do === 'connect') {

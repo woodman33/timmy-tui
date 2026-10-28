@@ -185,7 +185,8 @@ function DeskEdge() {
   const d = useValue('timmy desk: bounds', () => deskBounds(editor), [editor]);
   return (
     <div className="ta-desk" aria-hidden="true" style={{ left: d.x, top: d.y, width: d.w, height: d.h }}>
-      {SECTIONS.map((x) => (
+      {/* the desk's sections are the first board's own; a board made later is blank (only its edge is drawn) */}
+      {(currentBoard === FIRST_BOARD ? SECTIONS : []).map((x) => (
         <div key={x.id} className={`ta-desk-section is-${x.id}`} style={{ left: x.x - d.x - 12, top: x.y - d.y - 8, width: x.w + 24, height: x.h + 16 }}>
           {x.row ? <span className="ta-desk-section-k">{x.row}</span> : null}<span className={`ta-desk-section-label${x.row ? '' : ' is-alone'}`}>{x.label}</span>
         </div>

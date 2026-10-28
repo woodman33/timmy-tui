@@ -91,6 +91,8 @@ describe.skipIf(!browserPath)('Workspace boards: several saved boards per projec
     await page.waitForFunction(() => document.querySelector('button[data-menu="boards"]')?.getAttribute('data-board') === 'storyboard', null, { timeout: 20_000 });
     await page.waitForSelector('[data-board-empty]', { timeout: 20_000 });
     expect(await shapes(page)).toBe(0);
+    // blank also behind the shapes: the desk's sections are the first board's own (found on the Mac at 0038c38)
+    expect(await page.locator('.ta-desk-section').count()).toBe(0);
     await shot(page, 'boards-2-blank');
     // a node on the new board: saved in ITS folder, the desk untouched
     await page.click('.ta-tool[data-tool="Nodes"]');

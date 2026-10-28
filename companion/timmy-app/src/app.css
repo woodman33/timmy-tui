@@ -841,3 +841,8 @@ html:root {
 .ta-agent-log { max-height: 140px; overflow: auto; color: var(--timmy-ui-text-muted, #A5A9B0); }
 .ta-agent-raw { font-size: 11.5px; margin: 6px 0 0; }
 .ta-node-by { font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ta-hl-cool, #8ABBE3) 50%, transparent); color: var(--ta-hl-cool, #8ABBE3); }
+
+/* the stage clips rather than hides its overflow: a focused or scrolled-to control inside a node (keyboard focus, a
+   page's scrollIntoView) can never scroll the stage itself sideways, which would shift every layer on it */
+.ta-stage { overflow: clip; }
+@media (max-width: 900px) { .ta-stage.is-page { overflow: visible; } .ta-stage.is-page > .tl-container { overflow: clip; } }

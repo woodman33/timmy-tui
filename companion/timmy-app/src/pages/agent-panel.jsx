@@ -103,7 +103,10 @@ export function AgentLayer({ editor, board, settle }) {
       if (s.do === 'add') {
         const spec = specs.find((o) => o.id === s.operation);
         if (!spec) out = { ok: false, why: `this page does not offer ${s.operation}` };
-        else { shape = addOperationNode(editor, spec, null, { by: 'agent', plan: p.id }); refs[s.ref] = shape; }
+        else {
+          shape = addOperationNode(editor, spec, null, { by: 'agent', plan: p.id }); refs[s.ref] = shape;
+          for (const [k, v] of Object.entries(s.params || {})) { const r = setNodeParam(editor, shape, k, v); if (!r.ok) { out = r; break; } }
+        }
       } else if (s.do === 'connect') out = connectPort(editor, nodeOf(s.node), s.port, s.from);
       else if (s.do === 'set') out = setNodeParam(editor, nodeOf(s.node), s.param, s.value);
       else if (s.do === 'run') {

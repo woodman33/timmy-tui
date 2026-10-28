@@ -98,6 +98,8 @@ describe('the canvas agent: plans in the board’s own operations, admitted agai
     expect(sent.think).toBeUndefined(); // the FAKE lists no thinking capability
     expect(sent.format.properties.cites.items.enum.sort()).toEqual(['shape:img', 'shape:scene']);
     expect(sent.format.properties.steps.items.properties.operation.enum).toEqual(['stream-studio.animate-image']);
+    // an added node's parameters typed as the operation declares them
+    expect(sent.format.properties.steps.items.properties.params.properties).toMatchObject({ motion: { enum: ['float', 'sway', 'spin', 'pulse', 'flicker', 'orbit', 'still'] }, duration: { type: 'integer', minimum: 1, maximum: 12 } });
     expect(JSON.stringify(sent.messages)).toMatch(/animate\.export: .*not installed|Not available here/);
     const got = await api('GET', `/api/canvas-agent/plans/${p.id}`);
     expect(got.json.plan.id).toBe(p.id);
@@ -134,6 +136,16 @@ describe('the canvas agent: plans in the board’s own operations, admitted agai
     scripts.push(() => ({ chunks: textChunks(MODEL, ['I would animate it.']) }));
     const t = await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'do it', mode: 'plan' });
     expect(t.json.plan).toMatchObject({ state: 'refused', problems: ['The answer is not JSON.'], raw: { text: 'I would animate it.' } });
+  });
+
+  it('an added node may carry its parameters: checked as the operation declares them, applied with it', async () => {
+    scripts.push(answer({ say: 'ok', cites: ['shape:img'], done: false, steps: [{ do: 'add', ref: 'n1', operation: 'stream-studio.animate-image', params: { motion: 'pulse', duration: 6 } }, { do: 'connect', node: 'n1', port: 'image', from: 'shape:img' }] }));
+    const ok = (await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'pulse', mode: 'plan' })).json.plan;
+    expect(ok.steps[0]).toMatchObject({ do: 'add', params: { motion: 'pulse', duration: 6 } });
+    expect(ok.steps[0].words).toBe('Add “Animate an image” (n1) with Motion pulse, Seconds 6');
+    scripts.push(answer({ say: 'x', cites: [], done: false, steps: [{ do: 'add', ref: 'n1', operation: 'stream-studio.animate-image', params: { duration: 40, scene: 'x' } }] }));
+    const bad = (await api('POST', '/api/canvas-agent/plan', { board: 'desk', goal: 'pulse', mode: 'plan' })).json.plan;
+    expect(bad.problems.join(' ')).toMatch(/Step 1: Seconds: 1–12\. Animate an image has no parameter "scene"/);
   });
 
   it('a stale board revision is refused before any model is asked; an empty plan is the model’s own “nothing to do”', async () => {
