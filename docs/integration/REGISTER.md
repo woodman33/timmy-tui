@@ -649,3 +649,24 @@ The host frame at 1440×900: 1208×771 after (bar 40px); the earlier host frame 
 - **Not done here:** the licensed run on the Mac (the Mac's connected folder is gone after its restart, so the package
   cannot be copied); Card Lab's owner-local browser checks (they need the owner's paths and a licence); the other hosted
   apps' own inner layouts (only the shared host rule is applied to them).
+
+### The R18 review's three corrections (2026-10-28, 17:52 PT)
+
+Card Lab `claude/canvas-correction`: 96a66114 (the three corrections and `frontend/embedded-check.mjs`), f13930e9 (the
+phone header back to two rows). The R18 layout and owners are kept.
+
+- **Phone dossier:** its default hide came after the phone rule that shows it; now before every phone rule. Inside More at
+  390px: the dossier, its evidence review (three checks) and a check's action (Open Research) all work.
+- **Live status text:** on a phone the full words stay in the accessibility tree (role=status, visually hidden) and a short
+  state word is drawn (Idle, Working, Held, Failed, Done); the status canvas is aria-hidden.
+- **Cameras:** a camera the person chooses on a page (canvas or toolbar: pan, zoom, Fit, Focus, a panel jump) is recorded
+  for that page and kept across page switches and reopening; startup settling reframes only Timmy's own first framing of an
+  untouched page while nobody has acted; a restored saved camera is never reframed. A saved Fit re-fits a new size, as the
+  owner's "a fitted board stays fitted" rule intends.
+- **Checks:** `embedded-check.mjs` 16 of 16 (three consecutive runs; one earlier run ended in an exception without a
+  result); against 1ae8aa28 it fails at the phone dossier. Card Lab's suite 189 passed. Hosted (container, FAKE vision,
+  unlicensed tldraw): the R18 measurements unchanged (1440: 1208×645, 85/100/100%; 1280: 1048×545, 71/96/83%; 390: header
+  118, 390×476); the Rive run idle → active ("Working · predict") → held ("Needs attention").
+- **Package for the licensed Mac run:** `timmy-review-b074e91.tar.gz` (host b074e91e, Card Lab f13930e9), sha256
+  `6f1fa2f7cf9db0acae6ca2c129d477e0187ab545b9520a955be34c8d1517d0b9`, 49,086,418 bytes; copied to the Mac's review folder
+  and verified there (`shasum -c`: OK). Not yet extracted or run on the Mac.

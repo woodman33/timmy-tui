@@ -212,6 +212,7 @@ patches; their branch is not touched. Embedded mode only (framed, or `?embedded=
 | L5 | Native Rive interaction visible and tied to real status | a recording of a real run's state change | **closed with a FAKE model**: RiveStatus reuses the scanner's CardScanner state machine (isScanning bound to the run); a Card Lab run against a labelled FAKE loopback vision endpoint went idle → active ("Working · predict") → held ("Needs attention") after its refusal; recorded |
 | L6 | Glacier consistency, accessible tables | host theme; table roles | **closed**: the host's Glacier reaches the frame (theme bridge unchanged); the pricing table has table/row/cell roles |
 | L7 | Hosted captures at desktop and phone sizes | 1440×900, 1280×800, 390×844 | **in this container** (Linux Chromium, tldraw unlicensed here: the key is on the Mac only). The licensed Mac run waits for the Mac folder link |
+| L8 | The R18 review's three corrections | phone dossier in More; live status text; chosen and saved cameras kept | **closed** in Card Lab 96a66114, f13930e9; `embedded-check.mjs` 16 of 16. Package b074e91 (sha256 `6f1fa2f7…d0b9`) on the Mac, verified, not yet run |
 
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
