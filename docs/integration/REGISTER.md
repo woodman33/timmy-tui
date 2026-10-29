@@ -621,3 +621,31 @@ sandbox home; one Blender job at a time; no training, no model, no spend):
 - **Follow-up candidates (not in this checkpoint):** CloudCompare, napari, Polyscope.
 - **Full suite on 4b5c80d2:** 807 of 823 files passed, 16 skipped; 6,545 tests passed, 137 skipped, **0 failed**
   (exit 0, 3,332 s). The 79f8a896 run was stopped part-way (the worktree changed under it), so no result is claimed for it.
+
+## The canvas correction (2026-10-28, 16:16 PT): Image Analysis's work fills the window
+
+Checklist section L. Host: dd0bf98a (the shared sizing rule for every hosted app), add59bf1 (the phone bar). Card Lab,
+on its own branch `claude/canvas-correction` from the hosted 16a6ac71 (the owner's own work untouched): 887518d5 (embedded
+layout, readable framing, RiveStatus, table roles), 1ae8aa28 (an untouched page camera is framed; status words kept).
+Candidate package **add59bf** with Card Lab 1ae8aa28: sha256 `372cbde8c036727ee1685732d9e2259cf4a87e0002fffd0a287d996b3a853a65`.
+
+Measured in the real host hosting the real Card Lab build (headless Chromium in this container; a labelled FAKE vision
+endpoint; tldraw unlicensed here). Before = Card Lab 16a6ac71 in the same host frame:
+
+| Size | Before: chrome inside the frame | Before: viewport, zoom (Inspect / Research / Decide) | After: chrome | After: viewport, zoom | Fit workspace |
+|---|---|---|---|---|---|
+| 1440×900 | header 74, dossier, guide column 233w, scene heading 57, toolbar 114 (two rows), records 60, footer 35 | 892×289, 29% / 37% / 42% | header 44, toolbar 46, records 36 | 1208×645, 85% / 100% / 100% | 92% |
+| 1280×800 | the same | 735×258, 25% / **32%** / 36% | the same | 1048×545, 71% / 96% / 83% | 77% |
+| 390×844 | header 124, scene 57, toolbar 112, records 72, footer 77 | 360×469, 73% / 62% / 62% | header 118 (two rows), toolbar 56, records 44; every target ≥ 44px | 390×476, 61% / 67% / 67% | 31% |
+
+The host frame at 1440×900: 1208×771 after (bar 40px); the earlier host frame measured live on the Mac: 1152×703.
+
+- **Native Rive, recorded:** RiveStatus reuses the scanner's own `.riv` and its CardScanner state machine, `isScanning`
+  bound to the actual run. A SYNTHETIC FIXTURE photo, Start inspection: idle "No inspection yet" → active "Working ·
+  predict" (0.6 s) → held "Needs attention" (7.0 s later, the FAKE endpoint's refusal kept by Card Lab). One FAKE call;
+  `rive-run.mp4` (176 frames). The editable `.riv`/RML sources under `native-rive/` are unchanged.
+- **Tests:** Card Lab's own suite 189 passed (each commit); host `g-browser`, `miniapps-host`, `miniapps-theme`: 14 passed.
+  The full host suite was not re-run for these two CSS commits.
+- **Not done here:** the licensed run on the Mac (the Mac's connected folder is gone after its restart, so the package
+  cannot be copied); Card Lab's owner-local browser checks (they need the owner's paths and a licence); the other hosted
+  apps' own inner layouts (only the shared host rule is applied to them).

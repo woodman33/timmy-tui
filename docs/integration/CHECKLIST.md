@@ -196,6 +196,23 @@ jobs, operation nodes, 3D Model Studio and the licensed tldraw canvas. No new sc
 
 Follow-up candidates, not in this checkpoint: CloudCompare, napari, Polyscope.
 
+## L. The canvas correction (2026-10-28, 16:16 PT): Image Analysis's work fills the window
+
+The operator's screenshot: Research at 32% under stacked headers, a guidance column and a two-row footer. Owners: the host
+frame is this pass's; Card Lab's source is its owner's (Codex). The owner was not reachable here, so the change is on a
+separate Card Lab branch `claude/canvas-correction` (from the hosted 16a6ac71), delivered to the owner as a bundle and
+patches; their branch is not touched. Embedded mode only (framed, or `?embedded=1`): standalone Card Lab is unchanged.
+
+| # | Item | Closes when | Status |
+|---|---|---|---|
+| L1 | The canvas fills the working area | the frame and the tldraw viewport take the space the chrome gave up | **closed**: host add59bf1 (40px bar, no padding, no 480px minimum, footer folded); Card Lab 1ae8aa28: viewport 1208×645 at 1440×900 (was 892×289), 1048×545 at 1280×800 (was 735×258) |
+| L2 | Duplicate branding, dossier and copy collapse | one compact header; the dossier one line with its review one press away; help in Task | **closed** (Card Lab 887518d5) |
+| L3 | One 44–48px toolbar; secondary controls in menus; phone targets ≥ 44px | measured | **closed**: header 44px, toolbar 46px, records 36px on desktop; phone header two rows, toolbar 56px, smallest target 44px |
+| L4 | Readable framing from width and height; Fit kept explicit; cameras not reset | measured zoom on each page | **closed** (887518d5, 1ae8aa28): Research 100% / 96%, Inspect 85% / 71% (the whole tall panel), Decide 100% / 83%; Fit workspace 92% / 77% / 31%; a readable saved camera is kept, a moved camera is never reset |
+| L5 | Native Rive interaction visible and tied to real status | a recording of a real run's state change | **closed with a FAKE model**: RiveStatus reuses the scanner's CardScanner state machine (isScanning bound to the run); a Card Lab run against a labelled FAKE loopback vision endpoint went idle → active ("Working · predict") → held ("Needs attention") after its refusal; recorded |
+| L6 | Glacier consistency, accessible tables | host theme; table roles | **closed**: the host's Glacier reaches the frame (theme bridge unchanged); the pricing table has table/row/cell roles |
+| L7 | Hosted captures at desktop and phone sizes | 1440×900, 1280×800, 390×844 | **in this container** (Linux Chromium, tldraw unlicensed here: the key is on the Mac only). The licensed Mac run waits for the Mac folder link |
+
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
 Each was found during this pass. None is needed for an acceptance criterion above.
