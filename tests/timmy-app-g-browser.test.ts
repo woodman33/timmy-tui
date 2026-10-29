@@ -279,6 +279,21 @@ describe.skipIf(!browserPath)('the 05:03 order\'s G1–G3: one outcome, one setu
     await expect.poll(() => body.getAttribute('data-theme')).toBe('amber');
     await frame.locator(`[data-fake-run="${run}"]`).waitFor(); // the same page: not reloaded
     expect(await body.getAttribute('data-initial-theme')).toBe('glacier');
+    // the frame contract: Card Lab's frame may use the camera (its scanner), and the app's own full-screen moment covers Timmy's
+    // chrome only on its word from the frame's exact origin, until it says it is done
+    const iframe = page.locator('iframe[data-miniapp-frame="card-lab"]');
+    expect(await iframe.getAttribute('allow')).toBe('camera');
+    const fake = (await (await page.$('iframe[data-miniapp-frame="card-lab"]'))!.contentFrame())!;
+    await page.evaluate((o) => window.postMessage({ type: 'timmy:immersive', version: 1, on: true }, o), origin); // not the frame: ignored
+    await page.waitForTimeout(300);
+    expect(await page.locator('.ta-miniapp').getAttribute('data-immersive')).toBe('false');
+    await fake.evaluate(() => (window as unknown as { fakeImmersive: (on: boolean) => void }).fakeImmersive(true));
+    await expect.poll(() => page.locator('.ta-miniapp').getAttribute('data-immersive')).toBe('true');
+    expect(await iframe.boundingBox()).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+    await shot(page, 'g3-card-lab-immersive');
+    await fake.evaluate(() => (window as unknown as { fakeImmersive: (on: boolean) => void }).fakeImmersive(false));
+    await expect.poll(() => page.locator('.ta-miniapp').getAttribute('data-immersive')).toBe('false');
+    expect((await iframe.boundingBox())!.width).toBeLessThan(1440);
     // the bar names the Timmy project apart from the app's own documents, and says the app is open (not that a job runs)
     expect(await page.locator('.ta-miniapp-bar').innerText()).toMatch(/app open[\s\S]*Timmy project: project/);
     // the 08:10 word: any app sends its work to an agent — the Control Room's run form opens aimed at that app's outputs

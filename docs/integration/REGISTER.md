@@ -670,3 +670,25 @@ phone header back to two rows). The R18 layout and owners are kept.
 - **Package for the licensed Mac run:** `timmy-review-b074e91.tar.gz` (host b074e91e, Card Lab f13930e9), sha256
   `6f1fa2f7cf9db0acae6ca2c129d477e0187ab545b9520a955be34c8d1517d0b9`, 49,086,418 bytes; copied to the Mac's review folder
   and verified there (`shasum -c`: OK). Not yet extracted or run on the Mac.
+
+## The scanner order (2026-10-29, 15:23 PT): full screen, and the frame directs the photo
+
+- **Card Lab 09dc202e** (branch `claude/canvas-correction`, the owner's own branch untouched): the scanner's capture column is a
+  full-screen camera surface. A 63 × 88 mm frame (or a square) is fitted from the space the control bands leave, the picture is
+  dimmed around it, and the scanner's native Rive guide is mapped onto it. A capture is the frame plus a 4% margin.
+- **The framing checks** (`src/capture-quality.js`, pure; `capture-quality.test.mjs` 11 tests on synthetic pixel buffers): light,
+  glare, focus (Laplacian variance), steadiness (frame difference) and the card's straight edges searched across each side of
+  the frame, about five times a second on a small copy of the framed area, in the browser only. One directive at a time; the
+  edge marks light per side; the shutter shows ready; optional auto capture; the camera light where the camera offers one. They
+  guide; they do not block a capture, grade, identify or authenticate. Thresholds are fixed guides, not calibrated on real cards.
+- **The host's frame contract** (this branch): the registry's `frame` (`allow: ['camera']`, `immersive: true`, Card Lab only).
+  Timmy's frame gets `allow="camera"`; Card Lab posts `{ type: 'timmy:immersive', version: 1, on }` to the server-configured
+  parent origin while its scanner is open; the host accepts it only from the frame's window and exact origin, makes the frame
+  fill the screen, and resets on `on: false`, a frame reload or the app closing. `timmy-app-g-browser.test.ts` checks both, and
+  that a message from another window is ignored.
+- **Checks run here** (Linux container, headless Chromium, synthetic camera feeds of a generated test card): Card Lab npm test
+  200 of 200; `scanner-surface-check.mjs` 38 of 38; the owner's `scanner-mobile-check` 42 of 42 and `capture-handoff-check` 23 of
+  23 (their licence wait removed and a macOS platform shim added for this container); `embedded-check` 16 of 16 on fresh servers
+  (it fails on a reused server once Card Lab's own 60-writes-a-minute limit is hit); hosted in Timmy 10 of 10 (phone and desktop:
+  camera allowed, full screen, live checks ready, screen handed back). Not run: a physical phone, Safari/WebKit, the licensed Mac.
+

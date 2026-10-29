@@ -35,3 +35,7 @@
 }
 /* a phone page scrolls as a column: the frame takes the window below the bars, never a fixed 70vh box */
 @media (max-width: 760px) { .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-frame { min-height: 0; height: calc(100dvh - var(--ta-phone-chrome, 150px)); } }
+
+/* An app's own full-screen moment (the registry's frame.immersive; Card Lab's scanner): the frame covers Timmy's chrome until
+   the app says it is done, its page reloads or it closes. The app keeps its own way out (the scanner's Close). */
+.ta-miniapp.is-immersive .ta-miniapp-frame { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-height: none; z-index: 2000; border: 0; border-radius: 0; }

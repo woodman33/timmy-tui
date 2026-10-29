@@ -18,7 +18,7 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     // (the owner's theme interface v1, as its app side reads it: ?theme= first, then timmy:theme messages from the parent)
     // like Card Lab 6f166d2d: the exact parent origin is the server's (CARDLAB_TIMMY_PARENT_ORIGIN), never the launch query's
-    const probe = "<script>const HOST=" + JSON.stringify(process.env.CARDLAB_TIMMY_PARENT_ORIGIN || '') + ";const q=new URLSearchParams(location.search),b=document.body;b.dataset.initialTheme=q.get('theme')||'';b.dataset.hostOrigin=HOST;addEventListener('message',e=>{const d=e.data;if(e.source!==parent||e.origin!==HOST||!d||d.type!=='timmy:theme'||d.version!==1)return;b.dataset.theme=d.theme;b.dataset.themeFrom=e.origin;b.dataset.themeCount=String(Number(b.dataset.themeCount||0)+1)})</script>";
+    const probe = "<script>const HOST=" + JSON.stringify(process.env.CARDLAB_TIMMY_PARENT_ORIGIN || '') + ";const q=new URLSearchParams(location.search),b=document.body;b.dataset.initialTheme=q.get('theme')||'';b.dataset.hostOrigin=HOST;addEventListener('message',e=>{const d=e.data;if(e.source!==parent||e.origin!==HOST||!d||d.type!=='timmy:theme'||d.version!==1)return;b.dataset.theme=d.theme;b.dataset.themeFrom=e.origin;b.dataset.themeCount=String(Number(b.dataset.themeCount||0)+1)});window.fakeImmersive=on=>parent.postMessage({type:'timmy:immersive',version:1,on},HOST)</script>";
     res.end(`<!doctype html><title>FAKE Card Lab</title><body><p>A LABELLED FAKE of Card Lab.</p><p data-fake-run="${/^card_[a-f0-9-]{36}$/.test(run) ? run : ''}">${/^card_[a-f0-9-]{36}$/.test(run) ? `Inspection ${run}` : 'No run asked for'}</p>${probe}</body>`);
     return undefined;
   }

@@ -131,6 +131,21 @@ export function MiniAppPage({ appId }) {
     window.addEventListener('message', ready);
     return () => window.removeEventListener('message', ready);
   }, [open, a, frameOrigin, sendTheme]);
+  // the frame contract (registry `frame`): the app's own full-screen moment (Card Lab's scanner), from the frame's exact origin
+  const [immersive, setImmersive] = useState(false);
+  useEffect(() => {
+    setImmersive(false);
+    if (!open || !a || !a.frame || !a.frame.immersive) return undefined;
+    const ask = (e) => {
+      const w = frame.current && frame.current.contentWindow;
+      if (!w || e.source !== w || e.origin !== frameOrigin) return;
+      const d = e.data;
+      if (d && typeof d === 'object' && d.type === 'timmy:immersive' && d.version === 1 && typeof d.on === 'boolean') setImmersive(d.on);
+    };
+    window.addEventListener('message', ask);
+    return () => window.removeEventListener('message', ask);
+  }, [open, a, frameOrigin]);
+  const frameLoaded = () => { setImmersive(false); sendTheme(); };
   const hostableNow = !!(a && a.hostable);
   useEffect(() => { if (hostableNow) { const to = takeAppTarget(appId); if (to !== null && to !== undefined) start(to); } }, [hostableNow, appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -140,7 +155,7 @@ export function MiniAppPage({ appId }) {
   if (open) {
     return (
       <Page id={appId} fill head={false}>
-        <div className="ta-miniapp" data-miniapp={appId} data-miniapp-state="open">
+        <div className={`ta-miniapp${immersive ? ' is-immersive' : ''}`} data-miniapp={appId} data-miniapp-state="open" data-immersive={immersive ? 'true' : 'false'}>
           <div className="ta-miniapp-bar" role="toolbar" aria-label={`${a.title} controls`}>
             {/* the checklist's A1 and C8: the same way out of every app — back to the page the person came from (the app keeps
                 running for this project), its results in Files, or Stop */}
@@ -154,7 +169,8 @@ export function MiniAppPage({ appId }) {
             <Button onClick={() => aimAgent({ kind: 'app', app: appId })} data-action="send-to-agent" title={`Start an agent run in the Control Room on ${a.title}'s outputs in this project`}>Send to an agent</Button>
             <Button onClick={stop} disabled={busy === 'stop'} title={`Stop ${a.title} for this project`}>Stop</Button>
           </div>
-          <iframe ref={frame} className="ta-miniapp-frame" title={a.title} src={open.url} data-miniapp-frame={appId} onLoad={sendTheme} />
+          <iframe ref={frame} className="ta-miniapp-frame" title={a.title} src={open.url} data-miniapp-frame={appId} onLoad={frameLoaded}
+            allow={a.frame && a.frame.allow && a.frame.allow.length ? a.frame.allow.join('; ') : undefined} />
         </div>
       </Page>
     );

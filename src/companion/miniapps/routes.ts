@@ -92,6 +92,7 @@ export function mountMiniApps(app: express.Application, deps: MiniAppDeps): Mini
         id: a.id, title: a.title, kind: a.kind, lead: a.lead, availability: a.availability,
         hostable: a.availability === 'hostable' && problem === null, problem, running, observed: a.observed,
         theme: a.host?.theme ?? null,
+        frame: a.host?.frame ?? null,
         installed: a.availability === 'hostable' ? installedSource(a, deps.env) : null,
         receipts: p ? receiptsOf(a.id, req, p.root) : [],
         // the host's own routes for the app, and the Workspace's operations that dispatch to its jobs (src/companion/workflow-ops.ts)

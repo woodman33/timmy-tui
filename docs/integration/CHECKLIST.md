@@ -214,6 +214,21 @@ patches; their branch is not touched. Embedded mode only (framed, or `?embedded=
 | L7 | Hosted captures at desktop and phone sizes | 1440×900, 1280×800, 390×844 | **in this container** (Linux Chromium, tldraw unlicensed here: the key is on the Mac only). The licensed Mac run waits for the Mac folder link |
 | L8 | The R18 review's three corrections | phone dossier in More; live status text; chosen and saved cameras kept | **closed** in Card Lab 96a66114, f13930e9; `embedded-check.mjs` 16 of 16. Package b074e91 (sha256 `6f1fa2f7…d0b9`) on the Mac, verified, not yet run |
 
+## M. The scanner order (2026-10-29, 15:23 PT): full screen, and the frame directs the photo
+
+"Make sure the scanner page where you scan cards is full screen, especially on mobile, and has perfect framing … photos of
+cards should be directed by the framing itself and then lead the user and guide them to take perfect photos." Card Lab's
+scanner, on the same separate branch `claude/canvas-correction` (Card Lab 09dc202e); the host's frame contract is this pass's.
+
+| # | Item | Closes when | Status |
+|---|---|---|---|
+| M1 | Full screen, especially on phones | the camera surface is the whole first screen at 390×844, 844×390 and desktop; in Timmy too | **closed**: surface 390×844 on the phone; in Timmy the frame grows from 390×694 to 390×844 while the scanner is open (`timmy:immersive` v1) and is handed back on Close |
+| M2 | A true card frame, fitted from width and height | a 63 × 88 mm frame clear of every control band; the native Rive corners on it | **closed**: phone frame 327×457 before the camera starts and 356×497 live (it then holds still: the coach keeps one height); short landscape 217×303; desktop 472×659 (was a 357×500 stage); the Rive guide is mapped onto the frame (Fit.Fill) |
+| M3 | The photo is what the frame shows | the saved image is the frame plus a 4% margin | **closed**: measured on the captured JPEG's aspect |
+| M4 | The frame leads the person to a clear photo | measured light, glare, focus, steadiness and edges; one directive; steps front → back → detail → foil | **closed on synthetic feeds**: aligned → "Ready", small → "Move closer", off-centre → "move it left", glare → named, blur → focus fails; auto capture opt-in; the still is checked before use |
+| M5 | Camera inside Timmy's frame | the frame allows the camera to Card Lab only | **closed**: `allow="camera"` from the registry's `frame`; the live checks ran inside Timmy (container, synthetic feed) |
+| M6 | A physical phone camera, Safari | a real card on a real phone | **open**: not run here (no device; WebKit is not installed in this container). Thresholds are fixed guides, not calibrated on real cards |
+
 ## Backlog (found during this pass; not needed for the acceptance criteria)
 
 Each was found during this pass. None is needed for an acceptance criterion above.

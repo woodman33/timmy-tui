@@ -55,6 +55,12 @@ export interface MiniAppSpec {
      */
     theme?: { hostOriginParam?: string; ready?: boolean };
     /**
+     * What Timmy's frame grants the app: `allow`, the frame's permissions (the app's own origin only, the attribute's default),
+     * and `immersive`, the app's `{ type: 'timmy:immersive', version: 1, on }` from the frame's exact origin making the frame
+     * fill the screen until it says `on: false`, the frame reloads or the app closes (Card Lab's full-screen scanner).
+     */
+    frame?: { allow?: readonly ('camera')[]; immersive?: boolean };
+    /**
      * How Timmy reads the app's ended jobs for its canonical receipts (./receipts.ts, ./app-jobs.ts): from the app's own
      * HTTP state or its own job files in the data folder Timmy gave it, each with the files it made as paths the app serves.
      * Absent: the app's jobs are not sealed by Timmy.
@@ -113,6 +119,8 @@ export const MINI_APPS: readonly MiniAppSpec[] = Object.freeze([
       // the owner's theme completion (6f166d2d): ?theme= for the first paint; the exact loopback parent comes from the server
       // (CARDLAB_TIMMY_PARENT_ORIGIN, also its CSP frame-ancestors), which a launch URL's themeHostOrigin cannot broaden
       theme: {},
+      // its scanner: the rear camera in Timmy's frame (Card Lab's own Permissions-Policy is camera=(self)), and full screen
+      frame: { allow: ['camera'], immersive: true },
       // its provider call's bounded limit (10–600 s at the owner; default 90 s) when this computer's settings name one
       env: ({ port, dataDir, base, parentOrigin }) => envOf(base, ['CARDLAB_TLDRAW_LICENSE_FILE', 'CARDLAB_OLLAMA_ORIGIN', 'CARDLAB_OLLAMA_MODEL', 'CARDLAB_PROVIDER_TIMEOUT_MS', 'CARDLAB_TIMMY_VISION_TIMEOUT_MS'], {
         CARDLAB_PORT: String(port), CARDLAB_DATA_DIR: dataDir, CARDLAB_MODE: 'local', CARDLAB_BIND_HOST: '127.0.0.1', CARDLAB_TIMMY_PARENT_ORIGIN: parentOrigin,
