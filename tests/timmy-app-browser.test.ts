@@ -87,6 +87,8 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
 
   const go = async (page: Page, id: string): Promise<void> => {
     if (await page.locator('.ta-menu').isVisible()) { await page.click('.ta-menu'); await page.waitForSelector('.ta-rail.is-open'); }
+    // the WORKSPACES pages sit behind the rail's disclosure (the 07:37 pass): open it first when it is closed
+    if (await page.locator(`.ta-rail-more:not([open]) .ta-rail-item[data-nav="${id}"]`).count()) await page.click('.ta-rail-more > summary');
     await page.click(`.ta-rail-item[data-nav="${id}"]`);
     await page.waitForSelector(`.ta-page[data-page="${id}"]`, { timeout: 30_000 });
   };
@@ -97,8 +99,12 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     const page = await open(1440, 900);
     await page.waitForSelector('.ta-page[data-page="chat"] .ta-title', { timeout: 60_000 });
     expect(page.url()).toBe(`${origin}/app`);
-    expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['WORK', 'CREATE', 'CONNECT']);
-    expect(await page.locator('.ta-rail-item').count()).toBe(12);
+    // the 07:37 pass on the operator's 07:57 word: APPS (image, video, 3D, 2D animation), AGENTS, TOOLS on the rail, the Workspace canvas among TOOLS,
+    // five pages behind the WORKSPACES disclosure (closed while none of them is shown), Runs/Settings/Help at the foot: 20 pages
+    expect(await page.locator('.ta-rail-label').allInnerTexts()).toEqual(['APPS', 'AGENTS', 'TOOLS', 'WORKSPACES']);
+    expect(await page.locator('.ta-rail-item').count()).toBe(20);
+    expect(await page.locator('.ta-rail-item:visible').count()).toBe(15);
+    expect(await page.locator('.ta-rail-apps .ta-rail-title').allInnerTexts()).toEqual(['Image Analysis', 'Video Breakdown', '3D Model Studio', 'Stream Studio']);
     expect(await page.locator('.ta-rail-item[aria-current="page"]').innerText()).toContain('Chat');
     expect(await page.locator('.ta-page[data-page="chat"] .ta-band .ta-cell-k').allInnerTexts()).toEqual(['WORKSPACE', 'MODEL', 'AGENT', 'RECORDS']);
     // one Send (in the composer), and the chat's tools on its tools row
@@ -207,15 +213,15 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.waitForFunction(() => (document.querySelector('.ta-turnpanel')?.textContent ?? '').includes('receipt'), null, { timeout: 30_000 });
     await page.waitForSelector('.ta-desk-card[data-desk-card="receipt"] .ta-verified', { timeout: 30_000 });
     // the inspector is a layer on the stage: folded by default, opened, dragged by its header (kept where it was left)
-    expect(await page.locator('.ta-layer').getAttribute('class')).toContain('is-folded');
-    await page.click('.ta-layer-fold');
-    await page.waitForFunction(() => !document.querySelector('.ta-layer')?.classList.contains('is-folded'));
-    const head = await page.locator('.ta-layer-head').boundingBox();
+    expect(await page.locator('.ta-layer[aria-label="Inspector"]').getAttribute('class')).toContain('is-folded');
+    await page.click('.ta-layer[aria-label="Inspector"] .ta-layer-fold');
+    await page.waitForFunction(() => !document.querySelector('.ta-layer[aria-label="Inspector"]')?.classList.contains('is-folded'));
+    const head = await page.locator('.ta-layer[aria-label="Inspector"] .ta-layer-head').boundingBox();
     await page.mouse.move(head!.x + 40, head!.y + head!.height / 2);
     await page.mouse.down();
     await page.mouse.move(head!.x - 160, head!.y + 120, { steps: 8 });
     await page.mouse.up();
-    const moved = await page.locator('.ta-layer').boundingBox();
+    const moved = await page.locator('.ta-layer[aria-label="Inspector"]').boundingBox();
     expect(Math.round(moved!.x)).toBeLessThan(Math.round(head!.x) - 100);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('timmy-app:canvas-layer') || '{}').folded)).toBe(false);
     const count = async (): Promise<number> => page.evaluate(() => Number(/(\d+) shape/.exec(document.querySelector('.ta-toolsrow-note')?.textContent ?? '')?.[1] ?? -1));
@@ -278,7 +284,7 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('.ta-rail.is-open'));
     // every page: nothing wider than the screen inside the page's own scroller
-    for (const id of ['chat', 'models', 'canvas', 'files', 'workflows', 'runs', 'voxvision', 'motion', 'tools', 'control', 'help', 'settings']) {
+    for (const id of ['chat', 'models', 'canvas', 'files', 'workflows', 'runs', 'voxvision', 'motion', 'tools', 'mcp-cli', 'timmy-mcp', 'openhands', 'control', 'help', 'settings']) {
       await go(page, id);
       await page.waitForTimeout(400);
       const over = await page.evaluate(() => { const w = document.querySelector('.ta-pagewrap')!; return Math.max(w.scrollWidth - w.clientWidth, document.documentElement.scrollWidth - document.documentElement.clientWidth); });
@@ -349,6 +355,9 @@ describe.skipIf(!browserPath)('the Timmy app: Timmy\'s shell, the Chat, Models &
       await or.locator('.ta-cfg-go').click();
       await page.waitForSelector('#ta-aid.is-landed', { timeout: 20_000 });
       expect(await page.locator('.ta-page').getAttribute('data-page')).toBe('models');
+      // the aid marks the page landed at once and moves the focus once its scroll has run (configure.jsx: 420 ms, at once under
+      // reduced motion): wait for the focus, not for a moment (R13: on an idle machine this line read the focus before it moved)
+      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Sign in with OpenRouter', null, { timeout: 5_000 }).catch(() => undefined);
       expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Sign in with OpenRouter');
       expect(await page.locator('.ta-aid-face').getAttribute('data-aid-state')).toBe('awaiting');
       await page.keyboard.press('Escape');

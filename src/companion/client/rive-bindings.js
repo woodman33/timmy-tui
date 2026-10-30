@@ -139,6 +139,9 @@
     preview: 'PREVIEW  /  NOT A LIVE JOB',
     activity: 'LIVE  /  THE TURN’S EVENTS',
     connection: 'LIVE  /  GET /api/connections',
+    // the Control Room's run faces (bound 'job:<run>'): fed by the run's own record, read while it runs, then its end
+    job: 'LIVE  /  THE RUN’S JOB',
+    jobEnded: 'ENDED  /  THE RUN’S RECORD',
   });
   /** The provider's own words on a card (the id → its name), unless the page gave them (mountProviderCard's providerName). */
   const PROVIDER_NAMES = Object.freeze({ openrouter: 'OpenRouter', 'ollama-local': 'Ollama · local', 'ollama-cloud': 'Ollama · cloud', cloudflare: 'Cloudflare' });
@@ -147,6 +150,7 @@
   function captionOf(handle) {
     if (!/^(AgentConsole|ProviderCard)/.test(handle.artboard || '')) return null;
     if (handle.stateSource === 'preview') return CAPTION.preview;
+    if (handle.binds.some((b) => b.startsWith('job:'))) return handle.stateSource === 'fed' ? (handle.jobEnded ? CAPTION.jobEnded : CAPTION.job) : CAPTION.preview;
     if (handle.stateSource === 'fed') return handle.binds.some((b) => b.startsWith('connection')) ? CAPTION.connection : CAPTION.activity;
     if (handle.caption) return handle.caption;
     return handle.binds.some((b) => b.startsWith('connection')) ? CAPTION.connection : handle.binds.includes('activity') ? CAPTION.activity : CAPTION.preview;
@@ -783,7 +787,9 @@
   function mountConsole(host, o = {}) {
     const handle = component({
       host, component: o.name || 'console', asset: NATIVE_ASSET, artboard: 'AgentConsole', stateMachine: TIMMY_UI.stateMachine, role: 'img', theme: o.theme,
-      label: o.label || 'Agent activity', heading: o.heading === undefined ? 'AGENT ACTIVITY' : o.heading, text: ARTBOARD.AgentConsole.text, binds: ['activity'], word: o.word || 'idle', size: o.size,
+      // binds: the Chat's console follows the turn's events ('activity'); a Control Room run's face follows that run alone
+      // ('job:<run>', fed by fromJob), so a chat turn never moves a run's face and a run never moves the Chat's
+      label: o.label || 'Agent activity', heading: o.heading === undefined ? 'AGENT ACTIVITY' : o.heading, text: ARTBOARD.AgentConsole.text, binds: Array.isArray(o.binds) && o.binds.length ? o.binds.slice() : ['activity'], word: o.word || 'idle', size: o.size,
       caption: typeof o.caption === 'string' ? o.caption : undefined, identity: o.identity,
     });
     finishMount(handle, o, o.place || 'chat');
@@ -1035,12 +1041,23 @@
     }));
   }
 
+  /**
+   * A Control Room run's face (mountConsole with binds ['job:<run>']): its state word from the run's record — running →
+   * working, stopping → stopping, stopped → stopped, failed / interrupted / refused → failed, succeeded → idle (no success pose
+   * is authored; the HTML word beside it says "succeeded"). `ended`: the record's end, captioned ENDED, never LIVE.
+   */
+  function fromJob(handle, word, source, ended) {
+    if (!handle || !handle.binds || !handle.binds.some((b) => b.startsWith('job:'))) return null;
+    handle.jobEnded = Boolean(ended);
+    return set(handle, 'activity', word, source);
+  }
+
   /** PREVIEW: moves the animation only (recorded with the source 'PREVIEW'); it writes no state anywhere, shows nothing else. */
   const preview = (handle, input, value) => set(handle, input, value, 'PREVIEW — not an execution, no progress, no receipt');
 
   W.TimmyRive = Object.freeze({
     VERSION: 'r11-r7', VOCAB, RUNTIME_PATH, WASM_PATH, FALLBACK_WORDS, TIMMY_UI, RUNS, CAPTION, nativeOf,
-    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, stopping, reconcile, retry, watchPage, connectionWordOf, activityWordOf, absentWords, providerNameOf, themeOf,
+    component, load, set, trigger, preview, inspect, fromProviderState, fromSse, fromJob, stopping, reconcile, retry, watchPage, connectionWordOf, activityWordOf, absentWords, providerNameOf, themeOf,
     feed: () => ({ ...feed }), served: () => (listingInfo ? JSON.parse(JSON.stringify(listingInfo)) : null),
     mountConsole, mountProviderCard, mountActionButton, NATIVE_ASSET, ARTBOARD,
     words: askWords, runtime, runtimeState: () => runtimeState, runtimeWhy: () => runtimeWhy, activityFed: () => activityFed, handles: () => handles.slice(), on: (fn) => { if (typeof fn !== 'function') return () => {}; listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },

@@ -85,6 +85,8 @@ Commands:
   sceneforge      Use the authenticated Cloudflare control plane via MCPorter
   events          Stream the TUI's event envelope as NDJSON (--follow, --human, --otlp)
   logs            Live web companion: event bus + receipt chain + verify, on 127.0.0.1 (prints and opens its address with its token; --port N)
+  video           Film Room through Timmy's mini-app host: status, assets, import <file>, render, jobs, job <id> (receipted)
+  animate         Timmy Animate through Timmy's mini-app host: doctor, render <scene.json> (Blender, receipted), scene authoring
   vision          Roboflow visual templates, inspections, evidence and review (--port N)
   geo score|bench|scale  Voxel bench: score truth vs prediction, run a public-set bench, solve metric scales (receipted; --key value)
   approve <hash>  Mint a single-use, 5-min approval token bound to a gated tool's plan hash
@@ -139,6 +141,13 @@ function printTable(rows: { label: string; value: string }[]) {
 }
 
 const args = process.argv.slice(2);
+
+// R13 (the operator's 15:31 order): the owners' video and animation apps through Timmy's mini-app host (C1), from the terminal
+// (src/miniapps/app-commands.ts): their own jobs, their own end states, Timmy's receipts. Their arguments are passed whole.
+if (args[0] === 'video' || args[0] === 'animate') {
+  const { runVideoCli, runAnimateCli } = await import('./miniapps/app-commands.js');
+  process.exit(await (args[0] === 'video' ? runVideoCli : runAnimateCli)(args.slice(1)));
+}
 
 // Filter out --json, --out <dir>
 const cleanArgs: string[] = [];

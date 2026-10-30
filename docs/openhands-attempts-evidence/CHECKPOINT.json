@@ -1,0 +1,48 @@
+{
+  "kind": "development-checkpoint",
+  "base_head": "08006fb9befb913e235b98da98f774ac1cda5eb7",
+  "source_state": "uncommitted working tree; not a release candidate or qualification seal",
+  "checks": {
+    "focused_typescript": {
+      "exit": 0,
+      "tests": 39
+    },
+    "final_changed_typescript": {
+      "exit": 0,
+      "tests": 21
+    },
+    "unique_typescript_tests": 43,
+    "python_bridge": {
+      "exit": 0,
+      "tests": 8
+    },
+    "repository_typecheck": {
+      "exit": 0
+    }
+  },
+  "execution": "SQLite and disposable Git/checker execution real; OpenHands model/process boundary mocked in regressions; installed SDK imports inspected",
+  "holds": [
+    "release",
+    "spending",
+    "no history rewrite"
+  ],
+  "elapsed_seconds": 790.28,
+  "source_sha256": {
+    "src/utils/openhands-attempts.ts": "7543fb3b7a382c18f1b0f288a76e6f5acb8e7e121319907db7b434e52439f21a",
+    "src/utils/openhands-adapter.ts": "dc101ee26f694bd66c5f42075e8dff570787de9ec9be25eecc6bc64e10e9f7d4",
+    "src/utils/dispatch.ts": "1f4c7d9c16a52e805674a8dc3f1a0e51a11da0099d9d6598e17933b19c9e81ad",
+    "src/mcp/server.ts": "eee999d125ba696b88cfff776090c45ee407d63ea331e151e466bc908a609a45",
+    "scripts/openhands-sdk-bridge.py": "8552895eebb352dd99489d47744540fa538c036ec98909d3ff0f13aa2d67782a",
+    "tests/openhands-attempts.test.ts": "3ca69906729725b316206681b4a330334ee40d495bc8b0f73ad3950bf343cbd1",
+    "tests/openhands-lifecycle.test.ts": "ff92fc8b251727b5f6294f2a40678d7bea64e782dbe1be42852076baaa45d45a",
+    "tests/openhands-dispatch.test.ts": "ba346abc916edddddbafb8b15fc45d652af9d2d7ea77abacd78d549ec584f49c",
+    "tests/openhands-mcp-boundary.test.ts": "5c16e5ba9059409657d2d003041a1a76bf4971c3e2c90d698dd479e348c03b3c",
+    "tests/test_openhands_sdk_bridge.py": "8f18abfa4f6c7ff7b76f3d53b29689c979667405081d657ab985ee264f061357"
+  },
+  "log_sha256": {
+    "focused-suite.log": "27f1d9342516fc3d458c09945fd00b849229b8cf15eddfa5a100801439e99053",
+    "final-changed-suite.log": "c60e32ac1dc2840672eaf7f1c5a01d3a67cae49d26eff7223b8c62617e0a329c",
+    "python-sdk-bridge.log": "ef8e605ae8a5a1aeb48e0a71bcd6fbc4848d3d9a45e7d8e87de3446f95ded4a4",
+    "typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

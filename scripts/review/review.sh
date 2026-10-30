@@ -55,6 +55,7 @@ need_node() {
 # process) and TIMMY_RERUN (the rerun program Timmy reads recordings with), TZ, and (R11 round 4) the companion's identity
 # provider: CLERK_PUBLISHABLE_KEY and CLERK_JWT_KEY (or CLERK_SECRET_KEY) — without them the companion runs as this computer's
 # (R11 round 6: and TLDRAW_LICENSE_KEY for the Studio's tldraw license — passed through, never printed; the SDK checks it in the page)
+# (the 2026-10-27 integrator order: and TREG_CONFIG, the path of the Treg CLI's sign-in file — a path, never its contents)
 # operator and its account screen names them; no model key passes this way
 run() {
   mkdir -p "$H" "$WORK" "$BOX/tmp" "$BOX/tmux" "$BOX/mcp-home/.mcporter"
@@ -64,15 +65,47 @@ run() {
     TERM="${TERM:-xterm-256color}" COLORTERM="${COLORTERM:-}" LANG="${LANG:-C.UTF-8}" LC_ALL="${LC_ALL:-}" \
     TMPDIR="$BOX/tmp" TMUX_TMPDIR="$BOX/tmux" \
     TIMMY_HOME="$H/timmy" TIMMY_SETTINGS_DIR="$BOX/settings" TIMMY_MCP_HOME="$BOX/mcp-home" \
-    TIMMY_STUDIO_PORT="$STUDIO_PORT" TIMMY_LOGS_PORT="$LOGS_PORT" TIMMY_COMPANION_PORT="$COMPANION_PORT" TIMMY_LOGS_OPEN=0 \
+    TIMMY_STUDIO_PORT="$STUDIO_PORT" TIMMY_LOGS_PORT="$LOGS_PORT" TIMMY_COMPANION_PORT="$COMPANION_PORT" TIMMY_LOGS_OPEN="${REVIEW_OPENS_BROWSER:-0}" \
     TIMMY_REVIEW="$REV" FAKE_LANES_LOG="$BOX/fake-lanes.log" ${TIMMY_CHAT_FREE_ONLY:+TIMMY_CHAT_FREE_ONLY="$TIMMY_CHAT_FREE_ONLY"} \
     ${TIMMY_PALETTE:+TIMMY_PALETTE="$TIMMY_PALETTE"} \
     ${TIMMY_CLEF:+TIMMY_CLEF="$TIMMY_CLEF"} ${TIMMY_RERUN:+TIMMY_RERUN="$TIMMY_RERUN"} \
     ${TZ:+TZ="$TZ"} \
     ${CLERK_PUBLISHABLE_KEY:+CLERK_PUBLISHABLE_KEY="$CLERK_PUBLISHABLE_KEY"} ${CLERK_JWT_KEY:+CLERK_JWT_KEY="$CLERK_JWT_KEY"} \
     ${CLERK_SECRET_KEY:+CLERK_SECRET_KEY="$CLERK_SECRET_KEY"} \
-    ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} \
+    ${TLDRAW_LICENSE_KEY:+TLDRAW_LICENSE_KEY="$TLDRAW_LICENSE_KEY"} ${TREG_CONFIG:+TREG_CONFIG="$TREG_CONFIG"} \
+    ${CARDLAB_VISION_ENDPOINT:+CARDLAB_VISION_ENDPOINT="$CARDLAB_VISION_ENDPOINT"} ${CARDLAB_VISION_MODEL:+CARDLAB_VISION_MODEL="$CARDLAB_VISION_MODEL"} \
+    ${CARDLAB_OLLAMA_MODEL:+CARDLAB_OLLAMA_MODEL="$CARDLAB_OLLAMA_MODEL"} \
+    ${TIMMY_MODEL_STUDIO_DIR:+TIMMY_MODEL_STUDIO_DIR="$TIMMY_MODEL_STUDIO_DIR"} ${TIMMY_CARD_LAB_DIR:+TIMMY_CARD_LAB_DIR="$TIMMY_CARD_LAB_DIR"} \
+    ${TIMMY_FILM_ROOM_DIR:+TIMMY_FILM_ROOM_DIR="$TIMMY_FILM_ROOM_DIR"} ${TIMMY_ANIMATE_DIR:+TIMMY_ANIMATE_DIR="$TIMMY_ANIMATE_DIR"} \
+    ${TIMMY_STREAM_STUDIO_DIR:+TIMMY_STREAM_STUDIO_DIR="$TIMMY_STREAM_STUDIO_DIR"} \
+    ${ANIMATE_BLENDER:+ANIMATE_BLENDER="$ANIMATE_BLENDER"} ${FILMROOM_FFMPEG:+FILMROOM_FFMPEG="$FILMROOM_FFMPEG"} ${FILMROOM_PYTHON:+FILMROOM_PYTHON="$FILMROOM_PYTHON"} \
+    ${STUDIO_BLENDER:+STUDIO_BLENDER="$STUDIO_BLENDER"} ${STUDIO_OPENSCAD:+STUDIO_OPENSCAD="$STUDIO_OPENSCAD"} \
+    ${STUDIO_FREECAD:+STUDIO_FREECAD="$STUDIO_FREECAD"} ${STUDIO_CAD_PYTHON:+STUDIO_CAD_PYTHON="$STUDIO_CAD_PYTHON"} \
+    ${STUDIO_BUILD123D_PYTHON:+STUDIO_BUILD123D_PYTHON="$STUDIO_BUILD123D_PYTHON"} \
     "$@"
+}
+
+# R13 (the 2026-10-26 integration order): the mini-apps this package carries (apps/<app>/, each its owner's source at the
+# revision its .timmy-source.json names), installed and built inside the package on first use (npm ci --ignore-scripts: no
+# install script runs), then named to Timmy, which hosts them (src/companion/miniapps/). Model Studio's native engines are
+# the ones on this computer: STUDIO_BLENDER, STUDIO_OPENSCAD, STUDIO_FREECAD, STUDIO_CAD_PYTHON and STUDIO_BUILD123D_PYTHON
+# pass from your shell when you set them (its own defaults find the /Applications installs).
+mini_apps() {
+  # each app the package carries: installed from its lockfile (npm ci) and built inside the package on first use, then named
+  build_app() { # <folder> <built file> <commands...>
+    local d=$1 built=$2; shift 2
+    [ -f "$d/$built" ] && return 0
+    echo "Installing and building $(basename "$d") inside the package (npm ci from its lockfile; nothing global)..."
+    ( cd "$d" && "$@" ) || { echo "$(basename "$d") did not build (above): Timmy shows it as not built."; return 1; }
+  }
+  local a="$HERE/apps"
+  # (Model Studio's build copies public/, an empty folder git does not keep, before its owner's a5264eb5 fix)
+  if [ -f "$a/model-studio/server.mjs" ] && build_app "$a/model-studio" dist/index.html sh -c 'mkdir -p public && npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_MODEL_STUDIO_DIR="$a/model-studio"; fi
+  if [ -f "$a/card-lab/bin/timmy-card-lab.mjs" ] && build_app "$a/card-lab" frontend/dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && (cd frontend && npm ci --ignore-scripts --no-audit --no-fund) && npm run build'; then export TIMMY_CARD_LAB_DIR="$a/card-lab"; fi
+  if [ -f "$a/film-room/server.mjs" ] && build_app "$a/film-room" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_FILM_ROOM_DIR="$a/film-room"; fi
+  if [ -f "$a/animate/server.mjs" ] && build_app "$a/animate" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_ANIMATE_DIR="$a/animate"; fi
+  if [ -f "$a/stream-studio/server.mjs" ] && build_app "$a/stream-studio" dist/index.html sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build'; then export TIMMY_STREAM_STUDIO_DIR="$a/stream-studio"; fi
+  return 0
 }
 
 # the active project's folder, as Timmy records it (<Timmy home>/state/active-project.json), when it is still there
@@ -103,8 +136,22 @@ license_key() {
   if [ -n "$k" ]; then TLDRAW_LICENSE_KEY="$k"; export TLDRAW_LICENSE_KEY; say "tldraw licence key: read from $f (not printed)"; else say "tldraw licence key: no key line in $f: the Canvas will say unlicensed"; fi
 }
 
+# The 2026-10-27 integrator order: the Treg sign-in for Tools & integrations, never read from the review's own sandbox home
+# unless you name it: TREG_CONFIG when it is set (the absolute path of the file `treg login` wrote), else the path on the one
+# line of treg-config.path beside this script (a path you write there yourself; ~ is your home). The file's contents are never
+# read here or printed; Timmy's bridge reads it for each Treg request. Without one, Treg says "not signed in".
+treg_config() {
+  local f="${TREG_CONFIG:-}"
+  if [ -z "$f" ] && [ -f "$HERE/treg-config.path" ]; then f="$(head -n 1 "$HERE/treg-config.path")"; f="${f/#\~/$HOME}"; fi
+  [ -n "$f" ] || { say "Treg sign-in: none named (Tools & integrations will say not signed in; see README.md)"; return 0; }
+  case "$f" in /*) ;; *) say "Treg sign-in: the path named is not absolute: not used"; return 0 ;; esac
+  [ -r "$f" ] || say "Treg sign-in: the file named cannot be read: Tools & integrations will say so"
+  TREG_CONFIG="$f"; export TREG_CONFIG; say "Treg sign-in: the file you named (its contents are not read here)"
+}
+
 need_install() { [ -x "$PREFIX/node_modules/.bin/timmy" ] || die "not installed yet: run ./review.sh install first" 2; need_node; }
 
+REVIEW_OPENS_BROWSER=   # (only the app case below sets it; never taken from the caller)
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
@@ -145,8 +192,18 @@ HELP
     command -v npm >/dev/null 2>&1 || die "npm is not on PATH" 3
     [ -f "$TGZ" ] || die "the package file is missing: $TGZ" 3
     mkdir -p "$PREFIX"
-    say "Installing $(basename "$TGZ") into $PREFIX (npm fetches its dependencies; --ignore-scripts: no install script runs)..."
-    npm install --prefix "$PREFIX" --no-audit --no-fund --ignore-scripts --loglevel=error "$TGZ" || die "npm install failed (above)" 1
+    if [ -f "$HERE/install-lock/package-lock.json" ]; then
+      # R13: the exact tree resolved when this package was built (install-lock/), installed with npm ci: the same versions and
+      # integrity hashes, or a refusal; the node and npm used here are recorded beside the build's
+      say "Installing $(basename "$TGZ") into $PREFIX from the package's lock (npm ci: the exact dependency tree it was built with; --ignore-scripts: no install script runs)..."
+      cp "$HERE/install-lock/package.json" "$HERE/install-lock/package-lock.json" "$PREFIX/"
+      ( cd "$PREFIX" && npm ci --no-audit --no-fund --ignore-scripts --loglevel=error ) || die "npm ci failed (above): the lock and this computer's npm disagree, or a locked package could not be fetched" 1
+      printf '{"node":"%s","npm":"%s","installedAt":"%s","via":"npm ci"}\n' "$(node --version)" "$(npm --version)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BOX/installed-with.json"
+      say "Installed with $(cat "$BOX/installed-with.json"); the lock was resolved with $(cat "$HERE/install-lock/resolved-with.json")"
+    else
+      say "Installing $(basename "$TGZ") into $PREFIX (npm fetches its dependencies; --ignore-scripts: no install script runs)..."
+      npm install --prefix "$PREFIX" --no-audit --no-fund --ignore-scripts --loglevel=error "$TGZ" || die "npm install failed (above)" 1
+    fi
     # the node itself (its real file, not a version manager's shim): every later command runs Timmy on it
     node -p 'process.execPath' > "$NODE_FILE" || die "could not record the node in use ($NODE_FILE)" 1
     say "Timmy runs on $(cat "$NODE_FILE") ($(node --version)) in every ./review.sh command, whatever node a shell puts first."
@@ -215,20 +272,30 @@ HELP
     ;;
   app)
     need_install
-    license_key
-    ( cd "$(start_dir)" && run timmy app "$@" )
+    license_key; treg_config
+    mini_apps
+    # (R13: the one command that opens a browser: the app's page, through Timmy's private launch page; every other command
+    # keeps TIMMY_LOGS_OPEN=0, so the Workbench, logs and watch never open one)
+    ( cd "$(start_dir)" && REVIEW_OPENS_BROWSER=1 && run timmy app "$@" )
     ;;
   workbench|repl|watch)
     need_install
+    license_key; treg_config
+    mini_apps
     DIR="$(start_dir)"
     if [ "$cmd" = repl ]; then ( cd "$DIR" && run timmy "$@" ); else ( cd "$DIR" && run timmy "$cmd" "$@" ); fi
     ;;
   timmy)
     need_install
+    # (the owners' apps the package carries, for timmy video, timmy animate and the agent's and MCP's Animate tools)
+    license_key; treg_config
+    mini_apps
     ( cd "$(start_dir)" && run timmy "$@" )
     ;;
   shell)
     need_install
+    license_key; treg_config
+    mini_apps
     say "A shell in the review's environment (Timmy $REV). Type timmy ...; exit to leave."
     ( cd "$(start_dir)" && run bash --norc --noprofile -i )
     ;;

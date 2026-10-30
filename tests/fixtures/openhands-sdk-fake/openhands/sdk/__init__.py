@@ -26,9 +26,11 @@ class LocalWorkspace(object):
 
 
 class LocalConversation(object):
-    def __init__(self, agent=None, workspace=None):
+    def __init__(self, agent=None, workspace=None, max_iteration_per_run=None):
         self.agent = agent
         self.workspace = workspace
+        # the iteration budget the bridge gives each run (b56c36f0), recorded for the test
+        self.max_iteration_per_run = max_iteration_per_run
         self.runs = 0
         self.policy = None
 

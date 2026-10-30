@@ -277,6 +277,10 @@ function childEnv(source: Env, passEnv: string[] = []): Record<string, string> {
     out.HOME = mcpHome;
     if (process.platform === 'win32' || 'USERPROFILE' in out) out.USERPROFILE = mcpHome;
   }
+  // The 2026-10-27 shared-integrator order: Timmy's Treg bridge (./treg-bridge.ts) reads the Treg CLI's sign-in file from the
+  // path TREG_CONFIG names (a path, never a token), so a route and the server it starts are given that name when it is set
+  const tregConfig = source.TREG_CONFIG?.trim();
+  if (tregConfig && isAbsolute(tregConfig)) out.TREG_CONFIG = tregConfig;
   // No keep-alive daemon: every server stays a child of this call, inside its time limit.
   out.MCPORTER_DISABLE_KEEPALIVE = '*';
   out.MCPORTER_NO_SPINNER = '1';

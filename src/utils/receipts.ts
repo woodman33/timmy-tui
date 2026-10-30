@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, appendFileSync, mkdirSync, rmdirSync, statSync, writeFileSync, renameSync, unlinkSync, rmSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
+import { homedir, userInfo } from 'os';
 import { spawnSync } from 'child_process';
 import crypto from 'crypto';
 import { publish as busPublish } from '../bus/index.js';
@@ -88,6 +89,46 @@ export interface Receipt {
   output_sha256?: string;
   manifest_sha256?: string;
   sources?: unknown[];
+  /** R13 (the integration order): a hosted mini-app's job (src/companion/miniapps/receipts.ts): the app, the revision it ran, the
+   *  sha256 of the app's own record of the job (the record is the app's, unsigned; this receipt is Timmy's), and who started it */
+  miniapp?: { app: string; title: string; revision: string | null; record_sha256: string; started_by: string; principal?: string };
+  /** The spatial tools order (2026-10-28): a file brought into the project from this computer (POST /api/files/import): its
+   *  name and, for a PLY, its own header facts (whether it is a Gaussian splat, its vertex count, a synthetic-fixture comment) */
+  imported?: { name: string; gaussian?: boolean; format?: string | null; vertices?: number | null; fixture?: boolean; why?: string | null };
+  /** The spatial tools order (2026-10-28): a Workspace spatial operation Timmy ran as its own job (src/spatial/jobs.ts):
+   *  the tool and its version, the run and its attempt, the input's hash, the value checks that passed, and the raw
+   *  result's and log's hashes. A Gaussian splat stays an appearance reconstruction (not measured geometry). */
+  spatial?: {
+    tool: string; name: string; version: string; operation: string; run: string; job: string; attempt: number; principal: string;
+    fixture: boolean; input: { path: string; sha256: string } | null; word: string;
+    checks: Array<{ stage: string; rows: unknown; rtol: unknown; atol: unknown; max_abs_difference: unknown }>;
+    blender: string | null; result_sha256: string | null; log_sha256: string | null; worker_sha256: string | null;
+    not_delivered?: string[]; appearance_only: string;
+  };
+  /** the integrated candidate's checklist A11: a project file handed to another app (src/companion/miniapps/routes.ts):
+   *  the source file, the receipt that named it, and the run the target app made from it */
+  handoff?: {
+    from: { path: string; sha256: string; receipt: string | null; app: string | null; job: string | null };
+    to: { app: string; run: string; image_sha256: string; revision: string | null };
+    principal: string;
+  };
+  /** the integrated candidate's checklist B1–B8: a code-agent run the Control Room started on a copy of the project
+   *  (src/companion/control-runs.ts): its harness and local model, act's end, the agent's run and its receipt in the copy's store */
+  control_run?: {
+    run: string; harness: string; model: string; endpoint: 'local'; principal: string; state: string;
+    act: { operation: string | null; outcome: string; exit_code: number } | null;
+    agent: { run: string; outcome: string | null; receipt: string | null; deleted: number } | null;
+    plan_sha256: string; task_sha256: string; stopped_by?: string;
+  };
+  /** The 2026-10-27 shared-integrator order: a connector operation the companion ran (src/companion/connector-ops.ts): Treg's
+   *  tool, the route, whether it may charge, the approved quote and what Treg's answer says it charged (null: not stated),
+   *  the /mcp call it made and that call's own mcp.call receipt. Arguments are bound by their hash; no credential is here. */
+  connector?: {
+    connector: string; op: string; tool: string; route: string; paid: boolean; state: string; principal: string;
+    endpoint_id: string | null; args_sha256: string;
+    proposal?: string; price_op?: string; quote_usd?: number; quote_type?: string | null; request_sha256?: string; idempotency_key?: string;
+    charged_usd: number | null; charged_from?: string; mcp_call: string | null; mcp_receipt: string | null; stopped_in_flight?: boolean;
+  };
   /** Round R4 (lead): a fleet plan's prediction (sealed before it runs) or its run (src/fleet/**): the plan, the backend as it
    *  labels itself (FAKE for the offline backend), the isolation it gives, the counts kept apart (a delivery is never a
    *  verification), and whether this was a simulation. Upstream allocation, session and request ids stay in the plan's
@@ -181,14 +222,27 @@ export function rootStoreDir(dir: string = process.cwd()): string | undefined {
     if (p === d) break;
     d = p;
   }
-  // Pass 2: legacy fallback — nearest package.json's store.
+  // Pass 2: legacy fallback — nearest package.json's store. R13 (found on the Mac qualifying 7bf70af): never a home
+  // folder's package.json — a stray ~/package.json made every Timmy project below the home folder that has no pin (the
+  // review package's demo projects among them) seal into ~/.timmy/receipts. A home folder is not a project: past it the
+  // search goes on, and with nothing else the project's own .timmy/receipts is the store (the legacy cwd rule).
+  const homes = homeFolders();
   d = dir;
   for (;;) {
-    if (existsSync(join(d, 'package.json'))) return join(d, '.timmy', 'receipts');
+    if (!homes.has(resolve(d)) && existsSync(join(d, 'package.json'))) return join(d, '.timmy', 'receipts');
     const p = dirname(d);
     if (p === d) return undefined;
     d = p;
   }
+}
+
+/** The folders that are a person's home here: HOME's (os.homedir) and the account's own (os.userInfo), which differ when a
+ * sandbox sets HOME (the review package does). Never a store root through a package.json (rootStoreDir, Pass 2). */
+export function homeFolders(): Set<string> {
+  const out = new Set<string>();
+  try { out.add(resolve(homedir())); } catch { /* none */ }
+  try { const h = userInfo().homedir; if (h) out.add(resolve(h)); } catch { /* no account entry */ }
+  return out;
 }
 
 export function receiptsDir(dir: string = process.cwd()): string {

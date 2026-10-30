@@ -36,6 +36,15 @@ export interface PromptDeps {
    * itself where a cooked terminal is wanted (before a slash command, which may hand the terminal to another program).
    */
   keepRaw?: boolean;
+  /**
+   * R13 (classified from the 030d0942 full suite: tests/chat-one-conversation-pty.test.ts timed out with "› hello" and an empty
+   * second row): the terminal was cooked until the REPL began, so keys typed before then (a message typed as `timmy repl`
+   * starts) went through its line discipline, which hands them over as one line and turns their Enter into a line feed; read
+   * as Ctrl+J, that Enter made a new line and the message was never sent. The REPL takes raw mode as it begins and sets this
+   * on its first prompt only: the first chunk that prompt reads, when it ends in a line feed and holds no carriage return
+   * and no paste, is that line, and its last line feed is its Enter. Later keys, Ctrl+J among them, keep their meaning.
+   */
+  typedAhead?: boolean;
 }
 
 export function readPrompt(d: PromptDeps): Promise<PromptResult> {
@@ -72,6 +81,10 @@ const DOUBLE_CTRL_C_MS = 2000;
 
 export function readBlockPrompt(d: PromptDeps): Promise<PromptResult> {
   const { stdin, stdout, region, session, editor, theme } = d;
+  // R13 (classified from the 030d0942 full suite): see PromptDeps.typedAhead. The first chunk this prompt reads is that line.
+  let ahead: string | null = null;
+  const onFirstData = (chunk: Buffer | string): void => { ahead = String(chunk); setImmediate(() => { ahead = null; }); };
+  if (d.typedAhead) stdin.prependOnceListener('data', onFirstData);
   emitKeypressEvents(stdin);
   session.setRaw(true);
   session.enableBracketedPaste();
@@ -95,6 +108,7 @@ export function readBlockPrompt(d: PromptDeps): Promise<PromptResult> {
     const finish = (result: PromptResult, kept: string[] = []): void => {
       if (pending) clearImmediate(pending);
       pending = null;
+      stdin.off('data', onFirstData);
       stdin.off('keypress', onKey);
       stdout.off('resize', draw);
       region.set([]);
@@ -127,7 +141,9 @@ export function readBlockPrompt(d: PromptDeps): Promise<PromptResult> {
         editor.deleteForward();
         return draw();
       }
-      if (key.name === 'return' && !key.meta) {
+      // (the typed-ahead line's last line feed: the Enter it was typed with; see PromptDeps.typedAhead)
+      const aheadEnter = key.name === 'enter' && !key.meta && ahead !== null && ahead.endsWith('\n') && !ahead.includes('\r') && !ahead.includes('\x1b[200~');
+      if ((key.name === 'return' || aheadEnter) && !key.meta) {
         if (editor.text.endsWith('\\')) {
           editor.end();
           editor.backspace();

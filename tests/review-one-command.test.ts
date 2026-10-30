@@ -211,9 +211,12 @@ describe('the package carries the launcher and says it first (R10, H163)', () =>
     expect(build.indexOf('fill scripts/review/timmy-review')).toBeLessThan(build.indexOf('SHA256SUMS.$rev.tmp'));
     expect(build).toMatch(/-e "s\/__REVFULL__\/\$revfull\/g"/);
   });
-  it('the README\'s first words are the one command, and that `timmy` alone is the installed one', () => {
+  // R13 (the operator's 15:31 order, item 6): the browser app is the review's entry point; the terminal stays, named after it
+  it('the README\'s first words open the Timmy app (Timmy App.command, ./timmy-app); the terminal is still there; `timmy` alone is the installed one', () => {
     const body = readme.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
-    expect(body[0]).toMatch(/^\*\*One command:\*\* `\.\/timmy-review`/);
+    expect(body[0]).toMatch(/^\*\*Open the Timmy app:\*\* double-click \*\*`Timmy App\.command`\*\* \(macOS\), or run \*\*`\.\/timmy-app`\*\*/);
+    expect(readme).toMatch(/`\.\/timmy-review`/);
+    expect(readme).not.toMatch(/^\*\*One command:\*\* `\.\/timmy-review`/m);
     expect(readme.replace(/\n\s*/g, ' ')).toMatch(/`timmy` alone is your installed timmy, not this candidate/);
   });
 });

@@ -26,3 +26,60 @@
 @media (max-width: 760px) { .tx-tools-field select { min-width: 0; width: 100%; } .tx-tools-controls > * { flex: 1 1 100%; } .tx-tools-table th:nth-child(3), .tx-tools-table td:nth-child(3) { display: none; } }
 /* the selected capability or call stays in view while the inspector scrolls */
 @media (min-width: 901px) { .ta-page[data-page="tools"] .ta-context { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 160px); } }
+
+/* the 2026-10-27 integrator order: the Integrations cards (pages/integrations.jsx) */
+.tx-int-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+.tx-int-card { display: grid; gap: 10px; min-width: 0; padding: 12px 14px; border: 1px solid var(--ta-edge); border-radius: 12px; background: var(--ta-sunk); }
+.tx-int-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.tx-int-title { margin: 0; font-size: 15px; font-weight: 600; }
+.tx-int-ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tx-int-ladder li { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13px; }
+.tx-int-words { overflow-wrap: anywhere; color: var(--timmy-ui-text, #ECF1F5); }
+.tx-int-next { margin: 0; font-size: 13px; }
+.tx-int-next .ta-context-k { margin-right: 6px; }
+.tx-int-controls, .tx-int-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.tx-int-form .tx-tools-field { flex: 1 1 240px; }
+.tx-int-input { font: inherit; font-size: 13px; color: var(--timmy-ui-text, #ECF1F5); padding: 7px 10px; border-radius: 8px; border: 1px solid #536b835c; background: linear-gradient(145deg, #0e151e, #182431); min-height: 36px; box-sizing: border-box; width: 100%; }
+.tx-int-hits { margin: 0; padding-left: 1.1em; display: grid; gap: 3px; font-size: 12.5px; }
+.tx-int-propose, .tx-int-proposal, .tx-int-op { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ta-edge); }
+.tx-int-proposal { padding: 10px 12px; border: 1px solid var(--timmy-ui-focus, #FFB000); border-radius: 10px; }
+.tx-int-quote { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.tx-int-price { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tx-int-ops td:nth-child(4) { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .tx-int-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .tx-int-ladder li { grid-template-columns: minmax(0, 1fr); gap: 2px; } .tx-int-ops th:nth-child(1), .tx-int-ops td:nth-child(1) { display: none; } }
+/* I8: every other adapter in the five words, across both columns; the table scrolls inside its card on a phone */
+.tx-int-wide { grid-column: 1 / -1; }
+.tx-int-others { overflow-x: auto; }
+.tx-int-others td[data-rung] { text-align: center; width: 76px; }
+.tx-int-others td[data-ok="yes"] { color: var(--timmy-ui-verified, #00FF00); }
+.tx-int-others summary { cursor: pointer; }
+
+/* The unified Workspace order (2026-10-27): the one integration catalog (src/catalog.jsx) — Card Lab's Glacier composition:
+   compact rows on the dark surface, one hairline, the facts as six quiet marks, the blue accent only for callable now. */
+.tx-cat { display: grid; gap: 10px; min-width: 0; }
+.tx-cat-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tx-cat-bar input, .tx-cat-bar select { font: inherit; font-size: 13px; min-height: 34px; color: var(--timmy-ui-text, #ECF1F5); padding: 6px 10px; border-radius: 9px;
+  border: 1px solid var(--timmy-ui-border, #44586B); background: var(--ta-field, #0B1016); box-sizing: border-box; }
+.tx-cat-search { flex: 1 1 220px; min-width: 0; display: flex; }
+.tx-cat-search input { width: 100%; }
+.tx-cat-bar input:focus-visible, .tx-cat-bar select:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: 2px; }
+.tx-cat-legend { margin: 0; font-size: 12px; }
+.tx-cat-gap { color: var(--timmy-ui-warning, #E3C38A); }
+.tx-cat-rows { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--ta-edge); border-radius: 12px; overflow: hidden; }
+.tx-cat-row { padding: 9px 12px; display: grid; gap: 4px; min-width: 0; }
+.tx-cat-row + .tx-cat-row { border-top: 1px solid var(--ta-edge); }
+.tx-cat-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.tx-cat-name { font-weight: 600; font-size: 14px; color: var(--timmy-ui-text, #F1F3F5); min-width: 0; overflow-wrap: anywhere; }
+.tx-cat-kind, .tx-cat-src { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.tx-cat-marks { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 4px; font-family: var(--timmy-ui-font-mono, 'IBM Plex Mono', monospace); font-size: 13px; }
+.tx-cat-marks span { display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--ta-edge); color: var(--timmy-ui-text-muted, #A5A9B0); }
+.tx-cat-marks small { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.tx-cat-marks span[data-ok="yes"] { color: var(--timmy-ui-text, #F1F3F5); }
+.tx-cat-marks span[data-state="callable"][data-ok="yes"] { color: var(--timmy-ui-accent, #8ABBE3); border-color: color-mix(in srgb, var(--timmy-ui-accent, #8ABBE3) 45%, transparent); }
+.tx-cat-row[data-metadata="yes"] .tx-cat-name { color: var(--timmy-ui-text-secondary, #C9CDD2); }
+.tx-cat-setup { margin: 0; font-size: 12px; color: var(--timmy-ui-text-secondary, #C9CDD2); overflow-wrap: anywhere; }
+.tx-cat-facts { grid-template-columns: 1fr; }
+.tx-cat-ops { margin: 6px 0 0; padding-left: 18px; font-size: 12px; display: grid; gap: 3px; }
+.tx-cat-pick { min-height: 30px; padding: 0 12px; }
+@media (max-width: 640px) { .tx-cat-marks { margin-left: 0; width: 100%; } }

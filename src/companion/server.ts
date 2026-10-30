@@ -147,12 +147,19 @@ import { IDENTITY_NO_PROJECT, mountIdentity, type IdentityDeps } from './identit
 import { connectSrcFor } from './identity/config.js';
 // R11 round 4 (H171, the wiring): a user's own project and env for a request or a socket hello that carries a session
 // (src/companion/identity/scope.ts), the hello's verification (middleware.ts), H170's connections and H169's real turn
-import { isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
+import { baseHome, isOwnedRoot, userEnv, userProjectFor, type UserRef } from './identity/scope.js';
+import { mountMiniApps, projectFile } from './miniapps/routes.js';
+import { mountWorkflowOps } from './workflow-ops.js';
+import { SpatialExecutor } from '../spatial/jobs.js';
+import { ControlRuns, mountControlRuns, type ControlDeps } from './control-runs.js';
+import { mountCatalog } from './catalog-route.js';
+import { mountCanvasAgent } from './canvas-agent.js';
+import { ConnectorOps, mountConnectorOps, tregState, type ConnectorDeps } from './connector-ops.js';
 import { verifyHello } from './identity/middleware.js';
 import { SESSION_WORDS, sessionTokenOf } from './identity/session.js';
 import { mountConnections } from './connections.js';
 import { mountChatRun } from './chat-run.js';
-import { mountTimmyApp } from './timmy-app.js';
+import { boardDocsOf, mountTimmyApp } from './timmy-app.js';
 import { tildePath } from '../utils/home-scrub.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -233,6 +240,12 @@ export interface CompanionOptions {
    * process's environment, src/ops/workspace-frame.ts and src/workbench/settings.ts when absent.
    */
   workspace?: WorkspaceDeps;
+  /** the Control Room's runs (tests: a FAKE `timmy act` and a FAKE Ollama list); the real CLI and fetch when absent */
+  controlRuns?: ControlDeps;
+  /** test seams for the Treg connector's operations (the timmy command, a FAKE MCP server for the bridge) */
+  connectorOps?: ConnectorDeps;
+  /** the spatial tools' executor (a test's FAKE tools); a SpatialExecutor on the workspace's environment otherwise */
+  spatial?: SpatialExecutor;
   /**
    * R11 round 4 (H173): the identity routes' seams (a test's FAKE Clerk folder, origins, JWKS address or clock). The
    * configuration itself is read from `workspace.env` when given, else this process's environment (identityConfig).
@@ -886,6 +899,110 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       return p ? { name: p.name, root: p.root, ...(own ? { env: identity.envOf(req) } : {}) } : null;
     },
   });
+  // R13 (the 2026-10-26 integration order): the owners' mini-apps, each hosted unchanged as a worker per principal and
+  // project behind a gateway the app page frames (src/companion/miniapps/); stopped with the companion
+  const miniApps = mountMiniApps(app, {
+    withToken, withUser: withUserOrOperator, env: options.workspace?.env ?? process.env,
+    projectOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = u && !u.operator;
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p) return null;
+      const env = own ? identity.envOf(req) : { ...(options.workspace?.env ?? process.env) };
+      return { name: p.name, root: p.root, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+  });
+  // The integrated candidate's checklist B1–B8 (the order of 2026-10-27): the Control Room starts, follows, stops and inspects a
+  // code-agent run (OpenHands or Qwen Code, a local model) on a copy of the principal's project, through `timmy act "/agent …"`
+  // (src/companion/control-runs.ts); the runs it started are stopped with the companion, each through act's own stop
+  const controlRuns = new ControlRuns(options.controlRuns);
+  mountControlRuns(app, {
+    withToken, withUser: withUserOrOperator, json: express.json({ limit: '16kb' }), runs: controlRuns,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+  });
+  // The 2026-10-27 shared-integrator order: Treg through the host's job model (src/companion/connector-ops.ts) — discovery, a
+  // price preview, a paid call only from an approved proposal, its result, cost and receipt — for the operator only (the
+  // sign-in is the operator's Treg CLI login, read by Timmy's bridge and never sent to a page); stopped with the companion
+  const connectorOps = new ConnectorOps(options.connectorOps);
+  mountConnectorOps(app, {
+    withToken, withUser: withUserOrOperator, json: express.json({ limit: '32kb' }), ops: connectorOps,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', operator: !own, project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+  });
+  // The unified Workspace order (2026-10-27): the Workspace's executable operations (src/companion/workflow-ops.ts), each
+  // validated, then dispatched to the app's own durable job through the mini-app host above; followed, cancelled, recovered
+  const spatialExecutor = options.spatial ?? new SpatialExecutor({ env: options.workspace?.env ?? process.env });
+  const workflowRunner = mountWorkflowOps(app, {
+    withToken, withUser: withUserOrOperator,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...(options.workspace?.env ?? process.env) };
+      return { principal: own ? `user:${u.id}` : 'operator', home: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env), project: { name: p.name, root: p.root } };
+    },
+    appFor: (req, appId) => (miniApps.appFor ? miniApps.appFor(req, appId) : Promise.resolve({ error: 'The mini-app host is not running.', status: 503 })),
+    runningApp: (req, appId) => (miniApps.runningFor ? miniApps.runningFor(req, appId) : null),
+    readFile: (root, rel) => { const f = projectFile(root, rel); return f.ok ? f : { ok: false, error: f.error }; },
+    // the spatial tools order (2026-10-28): Brush and KIRI as Timmy's own process jobs (the operator's environment names the
+    // prepared tools folder: TIMMY_SPATIAL_TOOLS; KIRI's Blender: TIMMY_KIRI_BLENDER or the Applications folder)
+    spatial: spatialExecutor,
+  });
+  // The unified Workspace order (2026-10-27): the canvas agent (src/companion/canvas-agent.ts): plans in the board's own
+  // operations, asked of the project's chat model when it is a model in this computer's Ollama; the page applies them
+  mountCanvasAgent(app, {
+    withToken, withUser: withUserOrOperator,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', home: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env), project: { name: p.name, root: p.root }, env };
+    },
+    boardOf: (req, board) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p) return null;
+      const docs = boardDocsOf(p.root, own ? identity.envOf(req) : (options.workspace?.env ?? process.env), board);
+      if (!docs) return null;
+      const st = docs.load();
+      return { revision: st.revision, sourceRevision: st.sourceRevision, snapshot: st.snapshot };
+    },
+    apps: (req) => (miniApps.listing ? (miniApps.listing(req) as Array<{ id: string; title: string; hostable: boolean; problem: string | null }> | null) : null),
+    localRefusal: (op) => (op.tool ? spatialExecutor.refusal(op.tool) : 'not a spatial tool'),
+  });
+  // The unified Workspace order (2026-10-27): the one integration catalog (src/capabilities/catalog.ts) for the Integrations
+  // page, the Workspace's node picker and the Control Room: every registry's entries, each fact from its own source
+  mountCatalog(app, {
+    withToken, withUser: withUserOrOperator,
+    scopeOf: (req) => {
+      const u = (req as express.Request & { user?: Principal }).user;
+      const own = Boolean(u && !u.operator);
+      const p = own ? userProjectOf(req) : projectFor(req);
+      if (!p || !u) return null;
+      const env = own ? identity.envOf(req) : { ...chatEnv() };
+      return { principal: own ? `user:${u.id}` : 'operator', operator: !own, project: { name: p.name, root: p.root }, env: { ...env, TIMMY_HOME: env.TIMMY_HOME ?? baseHome(options.workspace?.env ?? process.env) } };
+    },
+    apps: (req) => (miniApps.listing ? miniApps.listing(req) : null),
+    treg: (scope) => tregState(scope, connectorOps.list(scope), connectorOps.bridge()),
+    ...(options.inventory ? { inventory: async (req: express.Request) => { const p = scopedProjectFor(req); return p ? (await options.inventory!(p)).inventory : null; } } : {}),
+  });
   app.get('/', (_req, res) => { sendPage(res); });
   // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
   // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
@@ -1080,6 +1197,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         // R4 (H84): a chat still streaming ends with the server
         httpServer.closeAllConnections();
       });
+      workflowRunner.stopAll();
+      await miniApps.stopAll();
+      await Promise.all([controlRuns.stopAll(), connectorOps.stopAll()]);
       await noteSelf('stopped');
     },
     setState: (state: string) => {

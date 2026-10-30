@@ -24,7 +24,13 @@
  *
  * What it reads and writes is the environment it is given (CompanionOptions.workspace, a test's), else this process's.
  */
-import type { Application, RequestHandler } from 'express';
+import express, { type Application, type RequestHandler } from 'express';
+import { createHash } from 'node:crypto';
+import { deliveredPath, deliverInto } from './miniapps/receipts.js';
+import { projectId } from '../project/index.js';
+import { gaussianPlyHeader } from '../spatial/tools.js';
+import { appendReceipt } from '../utils/receipts.js';
+import { randomBytes } from 'node:crypto';
 import { closeSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { basename, extname, isAbsolute, join, posix, resolve, sep } from 'node:path';
 import type { WorkspaceFrame } from '../contracts/workspace.js';
@@ -307,6 +313,27 @@ export function listProjectFolder(root: string, rel: string): { entries: FileEnt
   return { entries: rows.slice(0, FILES_LIMIT), truncated: rows.length > FILES_LIMIT };
 }
 
+/** The media the Workspace canvas may draw from an app's delivered files (GET /api/files/media). */
+export const MEDIA_TYPES: Readonly<Record<string, string>> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  // the unified Workspace order: a 3D model (GLB) and a Rive file, read as bytes by the page's own viewers (never run by the browser)
+  '.glb': 'model/gltf-binary', '.riv': 'application/octet-stream',
+  // the spatial tools order (2026-10-28): a Gaussian splat (PLY), read as bytes by the Workspace's splat viewer (Spark)
+  '.ply': 'application/octet-stream' };
+/** The unified Workspace order: an app's HTML export, shown only in an isolated preview (a sandboxed frame of its own origin). */
+export const PREVIEW_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8' };
+export const PREVIEW_MAX = 20 * 1024 * 1024;
+/** What POST /api/files/import takes (the spatial tools order): a splat, a posed dataset, a model, an image; at most 200 MB. */
+export const IMPORT_TYPES: readonly string[] = ['.ply', '.zip', '.glb', '.png', '.jpg', '.jpeg', '.webp'];
+export const IMPORT_MAX = 200 * 1024 * 1024;
+export const PREVIEW_MS = 5 * 60_000;
+/**
+ * The policy an HTML preview is sent with: a sandbox WITHOUT allow-same-origin (its origin is opaque: it cannot read Timmy's
+ * page, storage or token, and it sends no request back to Timmy), its own inline script and style, images and media only from
+ * itself (data:, blob:), no network, framed only by Timmy's own page.
+ */
+export const PREVIEW_POLICY = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-ancestors 'self'";
+export const MEDIA_MAX = 200 * 1024 * 1024;
+
 /** A text file's contents (the first FILE_TEXT_MAX bytes) or an image's bytes, or why not. */
 export function readProjectFile(root: string, rel: string): { kind: 'text'; name: string; path: string; size: number; mtime: string; text: string; truncated: boolean } | { kind: 'image'; name: string; path: string; size: number; mtime: string; type: string; bytes: Buffer } | { error: string; status: 400 | 404 | 415 } {
   const at = resolveProjectPath(root, rel);
@@ -361,6 +388,83 @@ export function mountFiles(app: Application, deps: FilesDeps): void {
     const body: FilesListing = { ok: true, project: { id: project.id, name: project.name }, where: { root: tildePath(project.root), home: homeOf(deps.envOf(req)) }, path: at.rel, parent, entries: listed.entries, count: listed.entries.length, truncated: listed.truncated, words };
     res.json(body);
   });
+  // The spatial tools order (2026-10-28): a file from this computer brought into the project for the Workspace (a splat to
+  // edit, a posed dataset for Brush, a model or an image): written at from-apps/import/<id>/<its name> (never over other
+  // bytes) and sealed with ONE receipt (kind import: its name, hash and size; a PLY's own header facts), so it is a project
+  // file with provenance like an app's result, and the canvas and the operations take it the same way. Nothing is run.
+  app.post('/api/files/import', deps.withToken, deps.withUser, express.raw({ type: () => true, limit: IMPORT_MAX }), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const name = basename(String(req.get('x-file-name') ?? '')).replace(/[^A-Za-z0-9._ +()-]/g, '_').slice(0, 120);
+    const ext = extname(name).toLowerCase();
+    if (!name || !IMPORT_TYPES.includes(ext)) { failRequest(res, 415, `Imports take ${IMPORT_TYPES.join(', ')}.`); return; }
+    const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!bytes.length) { failRequest(res, 400, 'The file is empty.'); return; }
+    const ply = ext === '.ply' ? gaussianPlyHeader(bytes) : null;
+    const id = `i${randomBytes(5).toString('hex')}`;
+    const rel = deliveredPath('import', id, name);
+    if (!rel || !deliverInto(project.root)(rel, bytes)) { failRequest(res, 500, 'The file could not be written into the project.'); return; }
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const receipt = appendReceipt('runs', {
+      kind: 'import', subject: 'workspace.import', policy: 'person-started', status: 'ok', project: project.name, project_id: projectId(project.root),
+      job: { id, kind: 'import', label: name, state: 'completed' }, outputs: [{ path: rel, sha256, bytes: bytes.length }],
+      ...(ply ? { imported: { name, gaussian: ply.ok, format: ply.format, vertices: ply.vertices, fixture: ply.fixture, ...(ply.ok ? {} : { why: ply.why ?? null }) } } : { imported: { name } }),
+    }, project.root);
+    res.json({ ok: true, result: { receipt: receipt.hash.slice(7, 15), app: 'import', title: 'Imported from this computer', job: id, label: name, status: 'ok', at: receipt.ts, files: [{ path: rel, name, sha256, bytes: bytes.length, image: /\.(png|jpe?g|webp)$/i.test(name), sent: [] }] }, ...(ply ? { ply } : {}) });
+  });
+  // The 07:37 pass (the Mac pass of 1c5da0a): the Workspace canvas draws an app's delivered image, SVG or video from its
+  // bytes. Only files under from-apps/ (what the apps delivered, each with its receipt), only these media types, up to
+  // MEDIA_MAX; an SVG is sent with a sandboxing CSP (an <img> runs no script anyway). Everything else stays /api/files/file's.
+  app.get('/api/files/media', deps.withToken, deps.withUser, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const rel = typeof req.query.path === 'string' ? req.query.path : '';
+    const at = resolveProjectPath(project.root, rel);
+    if ('error' in at) { failRequest(res, at.status, at.error); return; }
+    if (!/^from-apps\//.test(at.rel)) { failRequest(res, 403, 'Only what an app delivered (from-apps/) is served as media.'); return; }
+    const type = MEDIA_TYPES[extname(at.real).toLowerCase()];
+    if (!type) { failRequest(res, 415, 'Not an image, SVG, video, GLB model, Rive file or splat (PLY).'); return; }
+    let st; try { st = statSync(at.real); } catch { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (!st.isFile()) { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (st.size > MEDIA_MAX) { failRequest(res, 413, 'Larger than 200 MB: open it in its app.'); return; }
+    res.set('X-Content-Type-Options', 'nosniff').set('Content-Disposition', 'inline');
+    if (type === 'image/svg+xml') res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
+    res.type(type).sendFile(at.real);
+  });
+
+  // The unified Workspace order: an app's HTML export (an animation's player, a page) in an ISOLATED preview. The page asks for a
+  // grant (POST, with its token: only from-apps/ HTML up to PREVIEW_MAX); the grant is an unguessable address of that one file,
+  // good for PREVIEW_MS, that a sandboxed frame loads without the token (a frame cannot send one). The bytes are read when the
+  // frame loads them and sent with PREVIEW_POLICY (an opaque origin: nothing in the file can reach Timmy).
+  const grants = new Map<string, { real: string; until: number }>();
+  app.post('/api/files/preview', deps.withToken, deps.withUser, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = deps.projectFor(req);
+    if (!project) { failRequest(res, 404, FILES_WORDS.noProject); return; }
+    const rel = typeof req.query.path === 'string' ? req.query.path : '';
+    const at = resolveProjectPath(project.root, rel);
+    if ('error' in at) { failRequest(res, at.status, at.error); return; }
+    if (!/^from-apps\//.test(at.rel)) { failRequest(res, 403, 'Only what an app delivered (from-apps/) is previewed.'); return; }
+    if (!PREVIEW_TYPES[extname(at.real).toLowerCase()]) { failRequest(res, 415, 'Not an HTML file.'); return; }
+    let st; try { st = statSync(at.real); } catch { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (!st.isFile()) { failRequest(res, 404, FILES_WORDS.outside); return; }
+    if (st.size > PREVIEW_MAX) { failRequest(res, 413, 'Larger than 20 MB: open it in its app.'); return; }
+    const now = Date.now();
+    for (const [k, g] of grants) if (g.until < now) grants.delete(k);
+    const id = randomBytes(24).toString('hex');
+    grants.set(id, { real: at.real, until: now + PREVIEW_MS });
+    res.json({ ok: true, url: `/files-preview/${id}`, until: new Date(now + PREVIEW_MS).toISOString(), policy: PREVIEW_POLICY });
+  });
+  app.get('/files-preview/:id', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const g = grants.get(String(req.params.id));
+    if (!g || g.until < Date.now()) { res.status(404).type('text/plain').send('This preview has ended: open it again from the Workspace.'); return; }
+    res.set('Content-Security-Policy', PREVIEW_POLICY).set('X-Frame-Options', 'SAMEORIGIN').set('X-Content-Type-Options', 'nosniff').set('Referrer-Policy', 'no-referrer').set('Cross-Origin-Resource-Policy', 'same-origin');
+    res.type(PREVIEW_TYPES[extname(g.real).toLowerCase()] ?? 'text/plain').sendFile(g.real);
+  });
+
   app.get('/api/files/file', deps.withToken, deps.withUser, (req, res) => {
     res.set('Cache-Control', 'no-store');
     const project = deps.projectFor(req);

@@ -124,3 +124,55 @@ describe('the terminal between a prompt, a turn and the next prompt (R4 lead)', 
     expect(raw).toEqual([true, true, false]);
   });
 });
+
+// R13 (classified from the 030d0942 full suite's one failure): a message typed before the REPL's first prompt arrives as one
+// line through the cooked terminal (its Enter a line feed); keys typed during a turn were dropped by the Ctrl+C watcher.
+describe('typed ahead: at the REPL\'s start and during a turn (R13)', () => {
+  it('the first prompt, marked typedAhead: the typed-ahead line\'s final line feed sends it; a later line feed is still a new line', async () => {
+    const a = prompt({ typedAhead: true } as Partial<PromptDeps>);
+    a.stdin.write('hello\n');
+    await expect(a.result).resolves.toEqual({ kind: 'submit', text: 'hello' });
+    const b = prompt({ typedAhead: true } as Partial<PromptDeps>);
+    let settled = false;
+    void b.result.then(() => { settled = true; });
+    b.stdin.write('one');
+    await tick();
+    b.stdin.write('\n');
+    await tick();
+    await tick();
+    expect(settled).toBe(false);
+    b.stdin.write('two\r');
+    await expect(b.result).resolves.toEqual({ kind: 'submit', text: 'one\ntwo' });
+  });
+  it('the turn\'s watcher keeps what is typed during the turn (Ctrl+C aside) and hands it to the next prompt', async () => {
+    const { watchCtrlC } = await import('../src/repl/main.js');
+    const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => stdin }) as unknown as NodeJS.ReadStream;
+    let ctrlC = 0;
+    const stop = watchCtrlC(stdin, { setRaw: () => undefined }, () => { ctrlC++; });
+    (stdin as unknown as PassThrough).write('/ex');
+    (stdin as unknown as PassThrough).write('\x03it\r');
+    await tick();
+    stop({ keepRaw: true });
+    expect(ctrlC).toBe(1);
+    const chunks: string[] = [];
+    stdin.on('data', (c: Buffer) => chunks.push(c.toString()));
+    stdin.resume();
+    await tick();
+    expect(chunks.join('')).toBe('/exit\r');
+  });
+  it('an approval answered during the turn discards what the turn kept: nothing meant for a question reaches the next prompt', async () => {
+    const { watchCtrlC } = await import('../src/repl/main.js');
+    const { discardTurnKeys } = await import('../src/repl/turn-keys.js');
+    const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => stdin }) as unknown as NodeJS.ReadStream;
+    const stop = watchCtrlC(stdin, { setRaw: () => undefined }, () => undefined);
+    (stdin as unknown as PassThrough).write('y');
+    await tick();
+    discardTurnKeys(stdin);
+    stop({ keepRaw: true });
+    const chunks: string[] = [];
+    stdin.on('data', (c: Buffer) => chunks.push(c.toString()));
+    stdin.resume();
+    await tick();
+    expect(chunks).toEqual([]);
+  });
+});

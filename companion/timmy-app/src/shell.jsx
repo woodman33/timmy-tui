@@ -102,15 +102,25 @@ export function Rail() {
       {GROUPS.map((g) => {
         const pages = PAGES.filter((p) => p.group === g.id);
         if (!pages.length) return null;
+        const items = pages.map((p) => (
+          <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id} title={p.title}>
+            <span className="ta-rail-glyph" aria-hidden="true">{p.glyph}</span>
+            <span className="ta-rail-title">{p.title}</span>
+          </button>
+        ));
+        // the WORKSPACES pages behind one disclosure: open while one of them is the page shown
+        if (g.disclosure) {
+          return (
+            <details key={g.id} className={`ta-rail-group ta-rail-${g.id} ta-rail-more`} open={pages.some((p) => p.id === page) || undefined}>
+              <summary className="ta-rail-label ta-rail-summary">{g.label}</summary>
+              <div role="group" aria-label={g.label}>{items}</div>
+            </details>
+          );
+        }
         return (
           <div key={g.id} className={`ta-rail-group ta-rail-${g.id}`} role="group" aria-label={g.label || (g.id === 'start' ? 'Start' : 'More')}>
             {g.label ? <p className="ta-rail-label">{g.label}</p> : null}
-            {pages.map((p) => (
-              <button key={p.id} type="button" className="ta-rail-item" aria-current={page === p.id ? 'page' : undefined} onClick={() => goTo(p.id)} data-nav={p.id} title={p.title}>
-                <span className="ta-rail-glyph" aria-hidden="true">{p.glyph}</span>
-                <span className="ta-rail-title">{p.title}</span>
-              </button>
-            ))}
+            {items}
           </div>
         );
       })}
@@ -230,8 +240,10 @@ export function Dock() {
     <section className={`ta-dock${open ? ' is-open' : ''}`} aria-label="Records">
       <button type="button" className="ta-dock-bar" aria-expanded={open} onClick={() => setDock(!open)}>
         <span className="ta-dock-k">RECORDS</span>
-        <span className="ta-dock-sum">{lines.length} request{lines.length === 1 ? '' : 's'} to the companion{failed ? ` · ${failed} not ok` : ''}</span>
-        {last ? <span className="ta-dock-last"><code>{last.method} {last.path.split('?')[0]}</code> {last.status || 'no answer'} · {last.ms} ms · {clock(last.at)}</span> : null}
+        {/* G4: diagnostics are secondary: the bar says only what needs a look (a request not ok); the count is in the records */}
+        {failed ? <span className="ta-dock-sum ta-dock-bad">{failed} request{failed === 1 ? '' : 's'} not ok</span> : null}
+        {/* the checklist's C7: which route answered is a technical detail, read in the opened records, not on the bar */}
+        {last ? <span className="ta-dock-last">last {clock(last.at)}{last.status === 0 || last.status >= 400 ? ' · not ok' : ''}</span> : null}
         <span className="ta-dock-caret" aria-hidden="true">{open ? '▾' : '▴'}</span>
       </button>
       {open ? (
@@ -241,7 +253,7 @@ export function Dock() {
               <button type="button" aria-pressed={source === 'local'} onClick={() => setSource('local')}>Local</button>
               <button type="button" aria-pressed={source === 'cloudflare'} onClick={() => setSource('cloudflare')}>Cloudflare</button>
             </div>
-            <p className="ta-muted">{source === 'local' ? 'This page’s own requests to the companion on this computer, newest last. The token rides in a header, never in these paths.' : 'Not connected here: this build reads no Cloudflare logs. Nothing below is from Cloudflare.'}</p>
+            <p className="ta-muted">{source === 'local' ? `${lines.length} request${lines.length === 1 ? '' : 's'}: this page’s own, to the companion on this computer, newest last. The token rides in a header, never in these paths.` : 'Not connected here: this build reads no Cloudflare logs. Nothing below is from Cloudflare.'}</p>
           </div>
           {source === 'local' ? (
             <ol className="ta-dock-lines">

@@ -48,6 +48,17 @@ export interface AppLaunchDeps {
   root?: string;
 }
 
+/**
+ * R13 (the operator's 15:31 order, item 6): what opening did, in words. 'asked' is the only outcome that says the browser was
+ * given the page; 'off' (TIMMY_LOGS_OPEN=0, which the review's launcher set for every command until R13) opened nothing and says
+ * so — it used to print "Opened in your browser." while nothing had opened.
+ */
+export function openWords(r: unknown): string {
+  if (r === 'asked') return 'Opened in your browser.';
+  if (r === 'off') return 'Not opened: opening a browser is off here (TIMMY_LOGS_OPEN=0). Run `timmy app` without it, or open the companion from `timmy watch`.';
+  return 'Your browser did not open here: press o to try again, or open the companion from `timmy watch`.';
+}
+
 export async function runApp(argv: readonly string[], deps: AppLaunchDeps = {}): Promise<number> {
   const out = deps.out ?? ((l: string) => process.stdout.write(`${l}\n`));
   if (argv.includes('--help') || argv.includes('-h')) { out(APP_USAGE); return 0; }
@@ -79,28 +90,35 @@ export async function runApp(argv: readonly string[], deps: AppLaunchDeps = {}):
   const open = deps.open ?? openBrowser;
   out(`Timmy app: ${bare}${note ? `  (${note})` : ''}`);
   if (!argv.includes('--no-open')) {
-    const r = await open(appUrl);
-    out(r === 'failed' ? 'Your browser did not open here: press o to try again, or open the companion from `timmy watch`.' : 'Opened in your browser.');
+    out(openWords(await open(appUrl)));
   }
   out('o  open the app again    q  stop');
   const keys = deps.keys === undefined ? (process.stdin.isTTY ? process.stdin : null) : deps.keys;
+  let onSignal = (): void => {};
+  const signal = (): void => onSignal();
   await new Promise<void>((resolve) => {
     let done = false;
     const finish = (): void => { if (done) return; done = true; if (keys && keys.isTTY) { try { keys.setRawMode(false); } catch { /* the terminal is gone */ } } keys?.pause(); resolve(); };
-    process.once('SIGINT', finish);
-    process.once('SIGTERM', finish);
+    // (on, not once: a second signal while the companion shuts down — the bin wrapper forwards the SIGTERM a `pkill -f` also
+    // sent this process — would otherwise kill it by default before its runs, apps and grants are stopped; seen on the Mac,
+    // 2026-10-27: no "Timmy app stopped." line)
+    onSignal = finish;
+    process.on('SIGINT', signal);
+    process.on('SIGTERM', signal);
     if (deps.until) deps.until.then(finish, finish);
     if (keys) {
       if (keys.isTTY) { try { keys.setRawMode(true); } catch { /* not a terminal after all */ } }
       keys.setEncoding('utf8');
       keys.on('data', (k: string) => {
         if (k === 'q' || k === '\u0003' || k === '\u0004') finish();
-        else if (k === 'o') { void open(appUrl).then((r) => out(r === 'failed' ? 'The browser did not open.' : 'Opened again.')); }
+        else if (k === 'o') { void open(appUrl).then((r) => out(r === 'asked' ? 'Opened again.' : openWords(r))); }
       });
       keys.resume();
     }
   });
   await server.shutdown();
+  process.off('SIGINT', signal);
+  process.off('SIGTERM', signal);
   out('Timmy app stopped.');
   return 0;
 }

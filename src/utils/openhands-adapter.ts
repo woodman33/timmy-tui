@@ -4,7 +4,7 @@
 // docker-backed; we additionally verify the daemon up front and fail closed.
 // PTY/tmux is watch/attach/recovery only — structured spawn here.
 import { existsSync, mkdirSync, writeFileSync, readFileSync, mkdtempSync, readdirSync, rmSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { tmpdir, homedir } from 'os';
 import { spawnSync, spawn } from 'child_process';
 import crypto from 'crypto';
@@ -14,6 +14,7 @@ import { planHashOf, consumeApproval } from './approvals.js';
 // R11 (H169, Phase 0 item 3): the run's model call goes through the route policy like every other (free-only, local-only)
 import { checkRoute, routePolicyNow, type RoutePolicy } from '../agent/route-policy.js';
 import type { PolicyRoute, RouteCheck } from '../agent/route-check.js';
+import { OpenHandsAttemptStore, type AttemptScope, type AttemptToken, type PublicationStatus } from './openhands-attempts.js';
 
 const sha = (s: string): string => crypto.createHash('sha256').update(s).digest('hex');
 
@@ -50,10 +51,27 @@ export interface OpenHandsResult {
   host_canary?: boolean;
   duration_ms?: number;
   receipt?: string;
+  attempt?: AttemptToken;
+  publication?: PublicationStatus;
+}
+
+/** Trusted supervisor context, deliberately separate from MCP/tool arguments. */
+export interface OpenHandsLifecycle {
+  scope?: Omit<AttemptScope, 'sourceRevision'> & { sourceRevision?: string };
+  signal?: AbortSignal;
+  onAttempt?: (attempt: AttemptToken) => void;
+}
+
+export const openHandsAttemptPath = (dir: string): string => join(resolve(dir), '.timmy', 'openhands', 'attempts.sqlite');
+
+/** Revokes publication authority even if the process cannot be stopped. */
+export function cancelOpenHandsAttempt(dir: string, attempt: AttemptToken): boolean {
+  const store = new OpenHandsAttemptStore(openHandsAttemptPath(dir));
+  try { return store.cancel(attempt); } finally { store.close(); }
 }
 
 export const openHandsPlanHash = (o: OpenHandsOpts): string =>
-  planHashOf({ tool: 'timmy_openhands_run', task: o.task, acceptance: o.acceptance, ref: o.ref ?? null, wall_ms: o.wall_ms ?? 300000, max_iterations: o.max_iterations ?? 4, llm: o.llm ?? 'local', local_model: o.local_model ?? DEFAULT_LOCAL_MODEL, no_activity_ms: o.no_activity_ms ?? 90000, max_spend: o.max_spend ?? 0, engine: o.engine ?? 'docker' });
+  planHashOf({ tool: 'timmy_openhands_run', task: o.task, acceptance: o.acceptance, fixture_repo: o.fixture_repo ?? null, ref: o.ref ?? null, wall_ms: o.wall_ms ?? 300000, max_iterations: o.max_iterations ?? 4, llm: o.llm ?? 'local', local_model: o.local_model ?? DEFAULT_LOCAL_MODEL, no_activity_ms: o.no_activity_ms ?? 90000, max_spend: o.max_spend ?? 0, engine: o.engine ?? 'docker' });
 
 /** The local model a run asks unless one is named (OpenHands' `ollama/<name>` form). */
 export const DEFAULT_LOCAL_MODEL = 'ollama/qwen3.8:27b-mlx';
@@ -82,7 +100,9 @@ export function checkOpenHandsRoute(o: Pick<OpenHandsOpts, 'llm' | 'local_model'
 
 // Pinned runner image (scripts/oh-runner.Dockerfile); versions mirror the host
 // uv tool environment so local and containerized runs are comparable.
-export const OH_RUNNER_IMAGE = 'timmy-oh-runner:1.21.0';
+// b56c36f0 (the OpenHands attempts checkpoint): the bridge changed, so the tag changed with it; an older image built from
+// the previous bridge is never taken for this one
+export const OH_RUNNER_IMAGE = 'timmy-oh-runner:1.21.0-attempts-1';
 /** R11 (H170; Phase 0 item 4): the build is the operator's, run once in the repository root; Timmy never builds or pulls it. */
 export const OH_RUNNER_BUILD = `docker build -f scripts/oh-runner.Dockerfile -t ${OH_RUNNER_IMAGE} .`;
 export const OH_RUNNER_NOT_BUILT = `the image ${OH_RUNNER_IMAGE} is not built; build it yourself, in the repository root: ${OH_RUNNER_BUILD} (Timmy never builds or pulls it by itself; nothing was started)`;
@@ -103,7 +123,7 @@ const scaffoldFixture = (work: string) => {
   writeFileSync(join(work, 'test.js'), `const { add } = require('./add.js');\nif (add(1, 2) !== 3) { console.error('RED: add(1,2) !== 3'); process.exit(1); }\nconsole.log('GREEN');\n`);
 };
 
-export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResult> {
+export async function runOpenHandsTask(o: OpenHandsOpts, lifecycle: OpenHandsLifecycle = {}): Promise<OpenHandsResult> {
   const dir = o.dir ?? process.cwd();
   const planHash = openHandsPlanHash(o);
   // paid/remote work default-deny: operator token bound to the complete task
@@ -140,6 +160,10 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
     return { ok: false, state: 'not_configured', note: words, plan_hash: planHash, receipt: rec.hash };
   }
   const engine = o.engine ?? 'docker';
+  if (lifecycle.signal?.aborted) return { ok: false, state: 'blocked', note: 'cancelled before execution', plan_hash: planHash };
+  if (engine === 'sdk' && !existsSync(join(homedir(), '.local', 'share', 'uv', 'tools', 'openhands', 'bin', 'python'))) {
+    return { ok: false, state: 'not_configured', note: 'requested OpenHands SDK Python is unavailable; no CLI fallback', plan_hash: planHash };
+  }
   if (engine === 'docker') {
     // REAL SANDBOX OR NOTHING: no daemon → fail closed, never fall back to host
     const d = spawnSync('docker', ['info'], { encoding: 'utf8', timeout: 15000 });
@@ -178,6 +202,45 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
     spawnSync('git', ['add', '-A'], { cwd: work });
     spawnSync('git', ['-c', 'user.email=timmy@local', '-c', 'user.name=timmy', 'commit', '-q', '-m', 'red fixture'], { cwd: work });
   }
+  const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: work, encoding: 'utf8', timeout: 5000 });
+  const sourceRevision = revision.stdout?.trim();
+  if (revision.status !== 0 || !sourceRevision || (lifecycle.scope?.sourceRevision && lifecycle.scope.sourceRevision !== sourceRevision)) {
+    return { ok: false, state: 'blocked', note: 'workspace source revision could not be verified against requested attempt', plan_hash: planHash, workdir: work };
+  }
+  const store = new OpenHandsAttemptStore(openHandsAttemptPath(dir));
+  try {
+    const attempt = store.begin({ ...(lifecycle.scope ?? {
+      principal: 'local-operator', project: resolve(dir), operation: crypto.randomUUID(),
+    }), sourceRevision });
+    let result: OpenHandsResult;
+    try {
+      store.stage(attempt, { workdir: work, planHash });
+      lifecycle.onAttempt?.(attempt);
+      result = await executeOpenHandsTask(o, work, planHash, attempt, lifecycle.signal, () => store.cancel(attempt), { local: llmLocal, apiKey });
+    } catch (error) {
+      result = { ok: false, note: `OpenHands execution failed: ${String(error)}`, workdir: work, plan_hash: planHash };
+    }
+    const publication = store.complete(attempt, {
+      ok: result.ok, patch: result.patch ?? '', workdir: work, planHash, ...(result.note ? { note: result.note } : {}),
+    });
+    appendEvent('openhands.publication', { ...attempt, status: publication.status, artifact_hash: publication.artifactHash, execution_receipt: result.receipt ?? null }, dir);
+    return { ...result, attempt, publication: publication.status,
+      ok: result.ok && publication.status === 'committed',
+      ...(publication.status === 'superseded' || publication.status === 'cancelled'
+        ? { note: `${publication.status}: output retained; current artifact was not changed` } : {}),
+    };
+  } finally { store.close(); }
+}
+
+// R11 (H169) and b56c36f0, reconciled: the route was checked and the key read before the attempt began (runOpenHandsTask);
+// the execution takes them as they were decided there
+async function executeOpenHandsTask(o: OpenHandsOpts, work: string, planHash: string, attempt: AttemptToken, signal: AbortSignal | undefined, revoke: () => boolean, model: { local: boolean; apiKey: string }): Promise<OpenHandsResult> {
+  const llmLocal = model.local;
+  const apiKey = model.apiKey;
+  const dir = o.dir ?? process.cwd();
+  const engine = o.engine ?? 'docker';
+  const identity = { operation_id: attempt.operation, attempt_id: attempt.attemptId, generation: attempt.generation, source_revision: attempt.sourceRevision };
+  if (signal?.aborted) { revoke(); return { ok: false, note: 'cancelled before execution' }; }
   const t0 = Date.now();
   // A1: seeded disposable workspace — never shared/live. C: the docker engine
   // moves the whole runner (agent loop + tools) into an ephemeral container
@@ -207,7 +270,8 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
       '-v', `${work}:/work`,
       '--env-file', envFile,
       OH_RUNNER_IMAGE], { cwd: work, env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', CI: '1' } });
-    child.stdin?.write(JSON.stringify({ task: o.task, workspace: '/work', acceptance: o.acceptance, pristine_dir: '/pristine' }));
+    child.stdin?.on('error', () => { /* worker failure is handled on close/error */ });
+    child.stdin?.write(JSON.stringify({ task: o.task, workspace: '/work', acceptance: o.acceptance, pristine_dir: '/pristine', max_iterations: o.max_iterations ?? 4 }));
     child.stdin?.end();
     canaryAuthoritative = true;
   } else {
@@ -220,13 +284,24 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
     });
     if (useSdk) {
       const pristineHost = mkdtempSync(join(tmpdir(), 'timmy-oh-pristine-'));
-      child.stdin?.write(JSON.stringify({ task: o.task, workspace: work, acceptance: o.acceptance, pristine_dir: pristineHost }));
+      child.stdin?.on('error', () => { /* worker failure is handled on close/error */ });
+      child.stdin?.write(JSON.stringify({ task: o.task, workspace: work, acceptance: o.acceptance, pristine_dir: pristineHost, max_iterations: o.max_iterations ?? 4 }));
       child.stdin?.end();
     }
   }
   let tail = '';
   let fullOut = '';
   let killed: string | null = null;
+  let spawnError: string | undefined;
+  const stop = (reason: string) => {
+    if (killed) return;
+    revoke(); // authority is revoked before requesting process termination
+    killed = reason;
+    child.kill(); // best effort: does not claim to stop all descendants
+  };
+  const abort = () => stop('cancelled');
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
   const snap = (): string => {
     try { return readdirSync(work).map(f => { try { return String(statSync(join(work, f)).mtimeMs); } catch { return 'x'; } }).join(','); } catch { return ''; }
   };
@@ -245,43 +320,54 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
     const m = snap();
     if (m !== lastMtime.v) { lastMtime.v = m; lastActivity.v = Date.now(); }
     const now = Date.now();
-    if (now - t0 > wall) { killed = 'wall_time'; child.kill(); }
-    else if (now - lastActivity.v > noAct) { killed = 'no_tool_activity'; child.kill(); }
+    if (now - t0 > wall) stop('wall_time');
+    else if (now - lastActivity.v > noAct) stop('no_tool_activity');
   }, 5000);
-  await new Promise<void>(resolve => child.on('exit', () => resolve()));
+  await new Promise<void>(resolve => {
+    child.once('error', error => { spawnError = error.message; resolve(); });
+    child.once('close', () => resolve()); // wait for final stdout envelope
+  });
   clearInterval(watcher);
   if (envFileDir) { try { rmSync(envFileDir, { recursive: true, force: true }); } catch { /* the folder is this process's own, in the OS temp folder */ } }
-  const run = { status: killed ? null : (child.exitCode ?? 0), stdout: tail, stderr: tail };
+  signal?.removeEventListener('abort', abort);
+  const run = { status: killed || spawnError ? null : child.exitCode, stdout: tail, stderr: tail };
   const duration_ms = Date.now() - t0;
-  const acceptance = (o.acceptance ?? []).map(cmd => ({
-    cmd,
-    code: spawnSync('bash', ['-c', cmd], { cwd: work, encoding: 'utf8', timeout: 60000 }).status ?? 1
-  }));
-  const patch = spawnSync('git', ['diff', 'HEAD'], { cwd: work, encoding: 'utf8' }).stdout ?? '';
-  const allGreen = acceptance.length > 0 && acceptance.every(a => a.code === 0);
+  const diff = spawnSync('git', ['diff', '--binary', attempt.sourceRevision], { cwd: work, encoding: 'utf8', timeout: 15000, maxBuffer: 8 * 1024 * 1024 });
+  const patch = diff.stdout ?? '';
   // A4 host-path scan at seal — isolation violations never seal clean
   const hostLeak = HOST_PATH_RE.test(patch);
   // bridge envelope (last JSON line with host_canary): isolation + patch lifecycle
-  let envelope: { host_canary?: boolean; patch?: string; pristine_acceptance?: { cmd: string; code: number }[]; patch_applied?: boolean; note?: string } = {};
+  let envelope: { ok?: boolean; host_canary?: boolean; patch?: string; work_acceptance?: { cmd: string; code: number }[]; pristine_acceptance?: { cmd: string; code: number }[]; patch_applied?: boolean; note?: string } = {};
   for (const line of fullOut.split('\n').reverse()) {
     const t = line.trim();
     if (!t.startsWith('{') || !t.includes('host_canary')) continue;
     try { envelope = JSON.parse(t); break; } catch { continue; }
   }
+  // Docker/SDK acceptance stays in the same execution boundary as the tools.
+  // Only the explicitly selected host CLI engine runs checks on the host.
+  const acceptance = engine === 'cli' && run.status === 0 ? (o.acceptance ?? []).map(cmd => ({
+    cmd, code: spawnSync('bash', ['-c', cmd], { cwd: work, encoding: 'utf8', timeout: 60000 }).status ?? 1,
+  })) : (envelope.work_acceptance ?? []);
+  const checksGreen = (checks: { cmd: string; code: number }[]) => Array.isArray(checks)
+    && checks.length > 0 && checks.length === o.acceptance.length
+    && checks.every((check, i) => check.cmd === o.acceptance[i] && check.code === 0);
+  const allGreen = checksGreen(acceptance);
   const pristine = envelope.pristine_acceptance ?? [];
-  const pristineGreen = pristine.length > 0 && pristine.every(a => a.code === 0);
+  const pristineGreen = checksGreen(pristine);
   const canaryTripped = canaryAuthoritative && envelope.host_canary === true;
   // A4: host-path scan at seal — isolation violations never seal clean.
   // C: container runs must also prove the patch ports to a pristine clone.
   const errClass = killed
-    ?? (canaryTripped || hostLeak ? 'isolation_violation'
+    ?? (run.status !== 0 || diff.status !== 0 ? 'worker_failed'
+      : engine !== 'cli' && (envelope.ok !== true || typeof envelope.host_canary !== 'boolean') ? 'bridge_failed'
+      : (canaryTripped || hostLeak ? 'isolation_violation'
       : (!allGreen ? 'acceptance_red'
-        : (engine === 'docker' && !pristineGreen ? 'patch_not_portable' : undefined)));
+        : (engine !== 'cli' && (!pristineGreen || envelope.patch_applied !== true || envelope.patch !== patch) ? 'patch_not_portable' : undefined))));
   const childRec = appendReceipt('runs', {
     kind: 'run', subject: `openhands ${engine} · ${killed ?? (canaryTripped || hostLeak ? 'ISOLATION VIOLATION' : (allGreen ? 'green' : 'red'))}`, policy: 'human-gated',
     status: !errClass ? 'ok' : 'failed',
     ...(errClass ? { error_class: errClass as string } : {}),
-    plan_hash: planHash, ms: duration_ms,
+    plan_hash: planHash, ms: duration_ms, ...identity,
     ...(o.preApproved ? { authority: 'dispatch-armed', dispatch_plan_hash: o.preApproved.plan_hash } : {}),
     ...(engine === 'docker' ? { container_image: OH_RUNNER_IMAGE, host_canary: envelope.host_canary ?? null } : {}),
     spans: [{ name: `openhands ${engine} (seeded disposable workspace)`, kind: 'invoke_agent' }],
@@ -299,16 +385,16 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
       if (e && typeof e === 'object') {
         evCost += Number(e.cost ?? e.usage?.cost ?? 0) || 0;
         evTokens += Number(e.usage?.total_tokens ?? e.tokens ?? 0) || 0;
-        appendEvent('openhands.event', { plan_hash: planHash, kind: e.kind ?? e.type ?? 'event', ...e }, dir);
+        appendEvent('openhands.event', { ...e, plan_hash: planHash, kind: e.kind ?? e.type ?? 'event', ...identity }, dir);
       }
     } catch { /* non-event json line */ }
   }
-  appendEvent('openhands.completed', { plan_hash: planHash, green: allGreen, duration_ms, killed }, dir);
+  appendEvent('openhands.completed', { plan_hash: planHash, green: !errClass, duration_ms, killed, ...identity }, dir);
   const parent = appendReceipt('runs', {
     kind: 'verify', subject: `openhands acceptance · ${acceptance.filter(a => a.code === 0).length}/${acceptance.length} green`,
     policy: 'human-gated', status: !errClass ? 'ok' : 'failed',
     ...(errClass ? { error_class: errClass as string } : {}),
-    plan_hash: planHash, output_sha256: sha(patch),
+    plan_hash: planHash, output_sha256: sha(patch), ...identity,
     ...(evCost > 0 ? { cost_usd: evCost } : {}),
     ...(evTokens > 0 ? { tokens: evTokens } : {}),
     ...(engine === 'docker' ? {
@@ -322,7 +408,7 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
     artifacts: []
   }, dir);
   // failure evidence rides on the result (work order: never swallow why)
-  const output_tail = !errClass ? undefined : (killed ? `killed: ${killed} · ` : '') + (envelope.note ? `bridge: ${envelope.note} · ` : '') + tail.slice(-600);
+  const output_tail = !errClass ? undefined : (spawnError ? `spawn: ${spawnError} · ` : '') + (killed ? `stop requested: ${killed} · ` : '') + (envelope.note ? `bridge: ${envelope.note} · ` : '') + tail.slice(-600);
   return { ok: !errClass, plan_hash: planHash, workdir: work, patch, patch_sha256: sha(patch), acceptance, pristine_acceptance: pristine, host_canary: envelope.host_canary, duration_ms, receipt: parent.hash, note: output_tail };
 }
 

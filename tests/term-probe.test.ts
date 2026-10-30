@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { parseColorReplies, probeTerminalColors, type ProbeStreams } from '../src/term/probe.js';
+import { notReplies, parseColorReplies, probeTerminalColors, type ProbeStreams } from '../src/term/probe.js';
 import { detectCapabilities } from '../src/term/capabilities.js';
 import { SLOT_NAMES, TERMINAL_CLEAR_DARK, type TerminalPalette } from '../src/term/palettes.js';
 import { buildTheme } from '../src/term/theme.js';
@@ -98,5 +98,29 @@ describe('probeTerminalColors', () => {
     const { stdout, io } = streams('\x1b]11;rgb:0000/0000/0000\x07');
     expect(await probeTerminalColors(io, { interactive: false })).toEqual({ background: null, slots: {} });
     expect(stdout.writes).toEqual([]);
+  });
+});
+
+// R13 (found classifying the 030d0942 full suite's REPL failure): keys the probe reads that are not the terminal's answer are
+// the person's: they go back to stdin for the prompt instead of being dropped.
+describe('the probe keeps what was typed', () => {
+  it('notReplies: removes the OSC and DA1 answers only', () => {
+    expect(notReplies('hello\n\x1b]11;rgb:0000/0000/0000\x07\x1b]4;7;rgb:d0d0/d0d0/d0d0\x1b\\\x1b[?62;22c')).toBe('hello\n');
+    expect(notReplies('\x1b]11;rgb:0000/0000/0000\x07\x1b[?1;2c')).toBe('');
+  });
+  it('a message typed before the answer goes back to stdin, the answer does not', async () => {
+    const { stdin, io } = streams('hi there\r\x1b]11;rgb:1010/1010/1010\x07\x1b[?62c');
+    const back: string[] = [];
+    (stdin as unknown as { unshift: (b: Buffer) => void }).unshift = (b: Buffer) => { back.push(b.toString()); };
+    const r = await probeTerminalColors(io, { interactive: true });
+    expect(r.background).toBe('#101010');
+    expect(back).toEqual(['hi there\r']);
+  });
+  it('with only the answer, nothing goes back', async () => {
+    const { stdin, io } = streams('\x1b[?62c');
+    const back: string[] = [];
+    (stdin as unknown as { unshift: (b: Buffer) => void }).unshift = (b: Buffer) => { back.push(b.toString()); };
+    await probeTerminalColors(io, { interactive: true });
+    expect(back).toEqual([]);
   });
 });

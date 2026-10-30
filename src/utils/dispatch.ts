@@ -34,7 +34,8 @@ export function laneCommand(template: string, objective: string): string {
 import { mcporterLaneServer, mcporterServerConfigured } from '../connectors/mcp-configured.js'; // R4 (H107; r25 D13)
 import { keySet } from './keys.js';
 import { selectFromCone, type ContextCone, type ConeSelection } from './context-cone.js';
-import { openHandsPreflight, runOpenHandsTask } from './openhands-adapter.js';
+import { openHandsPreflight, runOpenHandsTask, cancelOpenHandsAttempt } from './openhands-adapter.js';
+import type { AttemptToken } from './openhands-attempts.js';
 import { dockerReady } from './doctor.js';
 
 export type Lifecycle =
@@ -115,7 +116,11 @@ export interface StoredPlan {
   blocked?: { state: 'not_configured' | 'blocked'; note: string };
   /** R9 (H161): the temporary copy this dispatch made, and what became of it */
   copy?: DispatchCopy;
+  openhands_attempt?: AttemptToken;
 }
+
+const openHandsCancellations = new Map<string, AbortController>();
+const cancellationKey = (id: string, dir?: string) => `${resolve(dir ?? process.cwd())}:${id}`;
 
 const sha = (p: string): string => crypto.createHash('sha256').update(readFileSync(p)).digest('hex');
 const storeDir = (dir?: string) => join(dir ?? process.cwd(), '.timmy', 'dispatch');
@@ -128,7 +133,8 @@ const writeStored = (s: StoredPlan, dir?: string) => {
   writeFileSync(planPath(s.id, dir), JSON.stringify(s, null, 2));
 };
 const ev = (kind: string, s: StoredPlan, extra: Record<string, unknown> = {}, dir?: string) =>
-  appendEvent(kind, { plan_id: s.id, plan_hash: s.plan_hash, harness: s.plan.harnesses.join(','), status: s.lifecycle, ...extra }, dir);
+  appendEvent(kind, { plan_id: s.id, plan_hash: s.plan_hash, harness: s.plan.harnesses.join(','), status: s.lifecycle,
+    ...(s.openhands_attempt ? { attempt_id: s.openhands_attempt.attemptId, generation: s.openhands_attempt.generation, source_revision: s.openhands_attempt.sourceRevision } : {}), ...extra }, dir);
 
 // CUE validates structure (owner amendment: CUE only at v0.1, no Nickel).
 export function validatePlanCue(plan: unknown, dir?: string): { ok: boolean; note?: string; error_class?: string } {
@@ -715,6 +721,9 @@ export async function dispatchContainerized(id: string, dir?: string): Promise<{
   writeStored(s, dir);
   ev('dispatch.container_started', s, { engine: 'docker' }, dir);
   let lastLog = 0;
+  const cancellation = new AbortController();
+  const cancelKey = cancellationKey(id, dir);
+  openHandsCancellations.set(cancelKey, cancellation);
   void runOpenHandsTask({
     task: s.plan.objective,
     acceptance: s.plan.acceptance_tests,
@@ -730,13 +739,30 @@ export async function dispatchContainerized(id: string, dir?: string): Promise<{
       ev('dispatch.container_log', s, { line: chunk.replace(/\s+/g, ' ').slice(0, 240) }, dir);
     },
     dir,
+  }, {
+    scope: { principal: 'local-operator', project: resolve(dir ?? process.cwd()), operation: s.id },
+    signal: cancellation.signal,
+    onAttempt: attempt => {
+      const latest = readStored(id, dir);
+      if (!latest || latest.lifecycle === 'archived') { cancellation.abort(); return; }
+      latest.openhands_attempt = attempt;
+      writeStored(latest, dir);
+    },
   }).then(r => {
     const s2 = readStored(id, dir);
-    if (!s2) return;
+    if (openHandsCancellations.get(cancelKey) !== cancellation || !s2 || s2.lifecycle === 'archived' || (r.attempt && s2.openhands_attempt?.attemptId !== r.attempt.attemptId)) return;
     s2.lifecycle = r.ok ? 'judging' : 'failed';
     if (!r.ok) s2.blocked = { state: r.state ?? 'blocked', note: r.note ?? 'container run failed' };
     writeStored(s2, dir);
     ev(r.ok ? 'dispatch.container_done' : 'dispatch.container_failed', s2, { ok: r.ok, receipt: r.receipt ?? null, note: r.note ?? null }, dir);
+  }).catch(error => {
+    const latest = readStored(id, dir);
+    if (!latest || latest.lifecycle === 'archived' || openHandsCancellations.get(cancelKey) !== cancellation) return;
+    latest.lifecycle = 'failed';
+    latest.blocked = { state: 'blocked', note: `OpenHands controller failed: ${String(error)}` };
+    writeStored(latest, dir);
+  }).finally(() => {
+    if (openHandsCancellations.get(cancelKey) === cancellation) openHandsCancellations.delete(cancelKey);
   });
   return { ok: true, container: true };
 }
@@ -762,6 +788,10 @@ const copyAnswer = (s: StoredPlan, o: { sessionRuns?: boolean | null; why?: stri
 export function pauseOrCancelLane(id: string, action: 'hold' | 'cancel', dir?: string): { ok: boolean; note?: string; copy?: CopyAnswer } {
   const s = readStored(id, dir);
   if (!s) return { ok: false, note: 'unknown plan' };
+  // OpenHands has no safe suspend/resume primitive here. Hold revokes publication
+  // just like cancel; after a controller restart the persisted token still fences.
+  if (s.openhands_attempt) cancelOpenHandsAttempt(dir ?? process.cwd(), s.openhands_attempt);
+  openHandsCancellations.get(cancellationKey(id, dir))?.abort();
   if (action === 'hold') {
     // (exact: `=<name>:` is that session's own pane, never another session whose name begins with it)
     if (s.session) tmux(['send-keys', '-t', `=${s.session}:`, 'C-z']);

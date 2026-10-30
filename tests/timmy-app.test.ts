@@ -145,6 +145,15 @@ describe('timmy app (R12): the launcher', () => {
     expect(lines[0]).toContain('3999, the port asked for, was taken');
   });
 
+  it('says what opening did: only a browser that was asked says opened; opening off (TIMMY_LOGS_OPEN=0) says nothing opened (R13)', async () => {
+    for (const [outcome, said] of [['asked', 'Opened in your browser.'], ['off', 'Not opened: opening a browser is off here (TIMMY_LOGS_OPEN=0).'], ['failed', 'Your browser did not open here']] as const) {
+      const lines: string[] = [];
+      expect(await runApp(['--port', '3999'], { root: built, keys: null, until: Promise.resolve(), out: (l) => lines.push(l), env: {}, start: async (port) => fakeServer(port) as never, open: async () => outcome })).toBe(0);
+      expect(lines[1]).toContain(said);
+      if (outcome !== 'asked') expect(lines.join('\n')).not.toContain('Opened in your browser');
+    }
+  });
+
   it('a bad argument is 2, a missing build is 69, each with its words', async () => {
     const lines: string[] = [];
     expect(await runApp(['--bogus'], { root: built, out: (l) => lines.push(l) })).toBe(2);

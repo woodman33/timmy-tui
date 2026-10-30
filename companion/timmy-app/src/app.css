@@ -649,3 +649,208 @@ button.ta-cfg-pick:hover, button.ta-cfg-pick[aria-pressed="true"] { text-decorat
 .ta-aid-face .tr-component[data-artboard] .tr-face { width: 180px; height: 54px; }
 .ta-aid-raw p { margin: 0; font-size: 12.5px; color: var(--timmy-ui-text-secondary, #BDCADA); }
 @media (prefers-reduced-motion: reduce) { .ta-aid-ring-trace { animation: none; stroke-dashoffset: 0; } .ta-aid-ring-glow { animation: none !important; } .ta-aid { animation: none; } }
+
+/* G2: the one setup action opens the picker itself; on a phone, as a sheet from the bottom over the chat. */
+.ta-sheet { width: min(560px, 100vw); max-width: 100vw; max-height: 86vh; margin: auto auto 0; padding: 16px; box-sizing: border-box; overflow: auto;
+  border: 1px solid var(--ta-edge-lit); border-radius: 16px 16px 0 0; background-color: var(--timmy-ui-canvas, #0B1016); background-image: var(--timmy-ui-elev-raised, none); color: var(--timmy-ui-text, #ECF1F5); }
+.ta-sheet::backdrop { background: rgba(0, 0, 0, 0.72); }
+.ta-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.ta-sheet-title { margin: 0; font-size: 17px; font-weight: 600; }
+.ta-sheet-close { min-width: 44px; min-height: 44px; border: 1px solid var(--ta-edge); border-radius: 10px; background: none; color: inherit; font-size: 16px; cursor: pointer; }
+.ta-sheet-close:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+@media (min-width: 901px) { .ta-sheet { margin: auto; border-radius: 16px; } }
+@media (prefers-reduced-motion: no-preference) { .ta-sheet[open] { animation: ta-sheet-in 200ms cubic-bezier(0.16, 1, 0.3, 1); } }
+@keyframes ta-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ta-dock-bad { color: var(--timmy-ui-focus, #FFB000); }
+
+/* G5: a phone's Canvas — one bar of buttons under the stage: Overview, the card before and after, Undo, Redo, Tools. */
+.ta-phonebar { display: none; }
+@media (max-width: 900px) {
+  /* the stage keeps its height whatever opens under it (the inspector, the tools): the page scrolls instead */
+  .ta-page[data-page="canvas"] .ta-stage { height: auto; }
+  .ta-stage.is-page > .tl-container { flex: none; height: min(58dvh, 520px); }
+  .ta-phonebar { order: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; margin-top: 10px; padding: 6px; border: 1px solid var(--ta-edge); border-radius: 14px; background: var(--ta-sunk); }
+  .ta-phonebar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .ta-phonebar-row.is-cards { grid-column: 1 / -1; }
+  .ta-phonebtn { min-width: 44px; min-height: 44px; padding: 0 10px; border: 1px solid var(--ta-edge); border-radius: 10px; background: none; color: var(--timmy-ui-text, #ECF1F5); font: inherit; font-size: 15px; cursor: pointer; white-space: nowrap; }
+  .ta-phonebtn.is-primary { border-color: var(--timmy-ui-accent, #D6AA64); color: var(--timmy-ui-accent, #D6AA64); }
+  .ta-phonebtn:disabled { opacity: .45; cursor: not-allowed; }
+  .ta-phonebtn:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+  .ta-phonebar-at { flex: 1 1 auto; min-width: 0; text-align: center; font-size: 13px; color: var(--timmy-ui-text-secondary, #BDCADA); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ta-floatbar.ta-toolsrow.is-phone-folded { display: none; }
+  .ta-floatbar.ta-toolsrow { flex-wrap: wrap; overflow-x: visible; }
+}
+@media (max-width: 420px) { .ta-phonebtn { padding: 0 8px; } }
+
+/* the 07:37 completion pass: the rail's WORKSPACES disclosure (Canvas, Workflows, Motion & 3D, VoxVision, Animate, Models) */
+.ta-rail-more > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; min-height: 28px; border-radius: 8px; }
+.ta-rail-more > summary::-webkit-details-marker { display: none; }
+.ta-rail-more > summary::after { content: "▸"; font-size: 10px; transition: transform var(--timmy-ui-motion-fast, 180ms) var(--timmy-ui-ease, ease); }
+.ta-rail-more[open] > summary::after { transform: rotate(90deg); }
+.ta-rail-more > summary:focus-visible { outline: 2px solid var(--timmy-ui-accent, #D6AA64); outline-offset: 2px; }
+.ta-rail-more > div { display: grid; gap: 1px; }
+.ta-app.is-slim .ta-rail-more > summary { display: flex; justify-content: center; font-size: 0; }
+.ta-app.is-slim .ta-rail-more > summary::after { content: "⋯"; font-size: 16px; transform: none; }
+@media (prefers-reduced-motion: reduce) { .ta-rail-more > summary::after { transition: none; } }
+
+/* the Canvas's "Import from apps" menu (the 07:37 pass): grouped by app, scrolls within the stage */
+.ta-import { max-height: min(60vh, 420px); overflow: auto; min-width: 240px; }
+.ta-import-group + .ta-import-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--ta-edge); }
+.ta-import .ta-context-k { margin: 2px 8px 4px; }
+
+/* The 07:37 completion pass, I7: Card Lab's own shell under both families (docs/MAIN-TIMMY-UI-HANDOFF.md at 16a6ac71: shell
+   #050607, surface #111316, foreground #F1F3F5, muted #A5A9B0, edge #34373C — the same in Glacier and Amber). Only the
+   neutral roles change; the families’ accents, the exact focus amber and the earned green keep their meanings. Contrast
+   (measured, on the raised #1A1D21 / its gradient top #202328): #F1F3F5 15.2 / 14.2, #C9CDD2 10.6 / 9.9, #A5A9B0 7.2 / 6.7 : 1. */
+html:root {
+  --timmy-ui-canvas: #050607; --timmy-ui-surface: #111316; --timmy-ui-raised: #1A1D21;
+  --timmy-ui-border: #34373C; --timmy-ui-border-quiet: #1E2124;
+  --timmy-ui-text: #F1F3F5; --timmy-ui-text-secondary: #C9CDD2; --timmy-ui-text-muted: #A5A9B0;
+  --timmy-ui-elev-surface: linear-gradient(140deg, #15181B, #0E1012 60%, #111316);
+  --timmy-ui-elev-raised: linear-gradient(145deg, #202328, #16181C);
+  --timmy-ui-elev-rail: linear-gradient(160deg, #0F1113, #070809 70%);
+  --timmy-ui-elev-top: #0B0C0E;
+}
+
+/* The unified Workspace order (2026-10-27): the one dropdown (src/menu.jsx), drawn over the page at its own size — Card Lab's
+   Glacier: the dark surface, one hairline, a soft depth, the blue accent for the focused and the chosen item. */
+.ta-menu-list { position: fixed; z-index: 1000; min-width: 220px; max-width: min(360px, calc(100vw - 16px)); overflow: auto; box-sizing: border-box;
+  display: grid; gap: 2px; padding: 6px; border-radius: 12px; border: 1px solid var(--timmy-ui-border, #34373C);
+  background-color: var(--timmy-ui-canvas, #050607); background: var(--timmy-ui-elev-raised, #1A1D21); color: var(--timmy-ui-text, #F1F3F5);
+  box-shadow: 0 18px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05); font-size: 13px; isolation: isolate; }
+.ta-menu-list::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--timmy-ui-canvas, #050607); }
+.ta-menu-list.is-sheet { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); top: auto; max-width: none; max-height: 70vh; border-radius: 16px; padding: 8px; }
+.ta-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; min-height: 34px; padding: 6px 10px; border: 0; border-radius: 8px; background: none;
+  color: inherit; font: inherit; cursor: pointer; box-sizing: border-box; }
+.ta-menu-list.is-sheet .ta-menu-item { min-height: 44px; font-size: 15px; }
+.ta-menu-item:hover { background: var(--timmy-ui-highlight, rgba(255,255,255,.06)); }
+.ta-menu-item:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: -2px; background: color-mix(in srgb, var(--timmy-ui-accent, #8ABBE3) 12%, transparent); }
+.ta-menu-item[aria-checked="true"] { color: var(--timmy-ui-accent-soft, #BED9ED); }
+.ta-menu-item:disabled { opacity: .5; cursor: not-allowed; }
+.ta-menu-check { width: 14px; flex: none; color: var(--timmy-ui-accent, #8ABBE3); }
+.ta-menu-words { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.ta-menu-hint { font-size: 11px; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-menu-label { margin: 6px 10px 2px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-menu-group + .ta-menu-group { border-top: 1px solid var(--ta-edge); margin-top: 4px; padding-top: 2px; }
+.ta-menu-form { display: flex; gap: 6px; padding: 6px; }
+.ta-menu-form input { flex: 1; min-width: 0; font: inherit; font-size: 13px; min-height: 32px; padding: 4px 9px; border-radius: 8px; color: inherit;
+  border: 1px solid var(--timmy-ui-border, #44586B); background: var(--ta-field, #0B1016); }
+.ta-menu-form input:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: 1px; }
+.ta-menu-note { margin: 4px 10px; font-size: 12px; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-stage-guide { position: absolute; z-index: 3; left: 50%; top: 42%; transform: translate(-50%, -50%); max-width: min(440px, calc(100% - 32px)); margin: 0; padding: 14px 18px;
+  border-radius: 14px; border: 1px dashed var(--timmy-ui-border, #34373C); background: color-mix(in srgb, var(--timmy-ui-surface, #111316) 88%, transparent);
+  color: var(--timmy-ui-text-secondary, #C9CDD2); font-size: 14px; text-align: center; pointer-events: none; }
+
+/* The unified Workspace order (2026-10-27): the display node (src/pages/display-node.jsx) — Card Lab's Glacier composition:
+   the work on black, a compact silver-lit header (type, title, status, view, actions), one primary action in the foot. */
+.ta-node-shape { font-family: var(--timmy-ui-font, 'Outfit', system-ui, sans-serif); }
+.ta-node { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; border-radius: 14px;
+  border: 1px solid var(--timmy-ui-border, #34373C); background: var(--timmy-ui-surface, #111316); color: var(--timmy-ui-text, #F1F3F5);
+  box-shadow: 0 10px 28px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); }
+.ta-node-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 6px 4px 12px; cursor: grab;
+  background: linear-gradient(110deg, color-mix(in srgb, var(--timmy-ui-accent-soft, #BED9ED) 14%, transparent), transparent 70%); border-bottom: 1px solid var(--timmy-ui-border, #34373C); }
+.ta-node-kind { flex: none; font-size: 10px; letter-spacing: .12em; font-weight: 600; color: var(--timmy-ui-accent, #8ABBE3); }
+.ta-node-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ta-node-status { flex: none; font-size: 11px; color: var(--timmy-ui-text-muted, #A5A9B0); white-space: nowrap; }
+.ta-node-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--timmy-ui-border, #34373C);
+  background: var(--timmy-ui-canvas, #050607); color: var(--timmy-ui-text, #F1F3F5); font: inherit; font-size: 12px; cursor: pointer; }
+.ta-node-btn:focus-visible, .ta-node-toggle:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: 2px; }
+.ta-node-btn[aria-expanded="true"] { border-color: var(--timmy-ui-accent, #8ABBE3); }
+.ta-node-btn.is-icon .ta-tool-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ta-node-body { flex: 1; min-height: 0; position: relative; background: #000; display: flex; }
+.ta-node-media { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+.ta-node-interactive { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; cursor: auto; }
+.ta-node-3d { cursor: grab; }
+.ta-node-3d canvas { width: 100% !important; height: 100% !important; display: block; }
+/* the spatial tools order: a Gaussian splat (Spark in the Three.js viewport), its one-line note over the picture */
+.ta-node-splat { position: relative; background: var(--timmy-ui-shell, #050607); }
+.ta-node-splat-note { position: absolute; left: 8px; bottom: 6px; margin: 0; padding: 2px 8px; border-radius: 6px; font-size: 11px; color: var(--timmy-ui-text-muted, #A5A9B0); background: color-mix(in srgb, var(--timmy-ui-shell, #050607) 70%, transparent); pointer-events: none; }
+.ta-node-frame { flex: 1; border: 0; background: #fff; }
+.ta-node-source { flex: 1; margin: 0; padding: 10px 12px; overflow: auto; font-family: var(--timmy-ui-font-mono, 'IBM Plex Mono', monospace); font-size: 11px; color: var(--timmy-ui-text-secondary, #C9CDD2); background: var(--timmy-ui-canvas, #050607); white-space: pre-wrap; }
+.ta-node-rive { flex-direction: column; background: var(--timmy-ui-canvas, #050607); }
+.ta-node-rive-canvas { flex: 1; min-height: 120px; width: 100%; }
+.ta-node-rive-inputs { flex: none; display: grid; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--timmy-ui-border, #34373C); font-size: 12px; max-height: 40%; overflow: auto; }
+.ta-node-input { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ta-node-input input[type="number"] { width: 72px; font: inherit; color: inherit; background: var(--ta-field, #0B1016); border: 1px solid var(--timmy-ui-border, #34373C); border-radius: 6px; padding: 2px 6px; }
+.ta-node-wait { margin: auto; padding: 12px; font-size: 13px; color: var(--timmy-ui-text-muted, #A5A9B0); text-align: center; }
+.ta-node-ref { margin: auto; padding: 14px 16px; display: grid; gap: 6px; text-align: left; width: 100%; box-sizing: border-box; background: var(--timmy-ui-canvas, #050607); align-self: stretch; }
+.ta-node-ref-kind { margin: 0; font-size: 18px; font-weight: 600; color: var(--timmy-ui-text, #F1F3F5); }
+.ta-node-ref-path { margin: 0; font-size: 11px; overflow-wrap: anywhere; color: var(--timmy-ui-text-secondary, #C9CDD2); }
+.ta-node-fact { margin: 0; font-size: 12px; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-node-inspector { flex: none; max-height: 45%; overflow: auto; padding: 8px 12px; border-top: 1px solid var(--timmy-ui-border, #34373C); background: var(--timmy-ui-surface, #111316); font-size: 12px; cursor: auto; }
+.ta-node-inspector .ta-facts { font-size: 12px; gap: 3px 10px; }
+.ta-node-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--timmy-ui-border, #34373C); cursor: auto; }
+.ta-node-primary { min-height: 30px; padding: 0 12px; font-size: 12px; }
+.ta-node-toggle { border: 0; background: none; color: var(--timmy-ui-text-muted, #A5A9B0); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.ta-node-toggle:hover { color: var(--timmy-ui-text, #F1F3F5); }
+/* a drag that starts in a menu or the tools never selects the page's words */
+.ta-menu-list, .ta-floatbar, .ta-node-head, .ta-node-foot { -webkit-user-select: none; user-select: none; }
+.ta-menu-list input, .ta-menu-list textarea { -webkit-user-select: text; user-select: text; }
+
+/* The unified Workspace order: the operation node (src/pages/op-node.jsx) — the same node frame; its live state is the native
+   Rive console beside the run's own word, a bar only where the app reports progress, an indeterminate line otherwise. */
+.ta-op-body { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 8px; padding: 10px 12px; background: var(--timmy-ui-canvas, #050607); cursor: auto; }
+.ta-op-live { display: grid; gap: 6px; }
+/* the operation's Rive console, whole and compact (the chat console's own pattern: its height set, its artboard's aspect kept) */
+.ta-op-face { display: flex; justify-content: center; }
+.ta-op-face .tr-component .tr-face { width: auto; height: 112px; aspect-ratio: 640 / 380; }
+.ta-op-bar { height: 4px; border-radius: 4px; background: color-mix(in srgb, var(--timmy-ui-accent, #8ABBE3) 18%, transparent); overflow: hidden; }
+.ta-op-bar i { display: block; height: 100%; background: var(--timmy-ui-accent, #8ABBE3); transition: width .3s ease; }
+.ta-op-bar.is-unknown i { width: 30%; animation: ta-op-indeterminate 1.4s ease-in-out infinite; }
+@keyframes ta-op-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .ta-op-bar.is-unknown i { animation: none; width: 100%; opacity: .5; } }
+.ta-op-ports { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ta-op-port { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--timmy-ui-border, #34373C); }
+.ta-op-port[data-connected="yes"] { border-color: color-mix(in srgb, var(--timmy-ui-accent, #8ABBE3) 55%, transparent); }
+.ta-op-port-name { display: grid; font-size: 12px; font-weight: 600; }
+.ta-op-port-name small { font-weight: 400; font-size: 10px; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-op-params { display: grid; gap: 6px; }
+.ta-op-param { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.ta-op-param select, .ta-op-param input { font: inherit; font-size: 12px; min-height: 28px; color: inherit; background: var(--ta-field, #0B1016); border: 1px solid var(--timmy-ui-border, #34373C); border-radius: 7px; padding: 2px 8px; max-width: 60%; }
+.ta-op-param select:focus-visible, .ta-op-param input:focus-visible { outline: 2px solid var(--timmy-ui-accent, #8ABBE3); outline-offset: 1px; }
+.ta-op-off { margin: 0; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--timmy-ui-edge, #34373C); color: var(--timmy-ui-text-muted, #A5A9B0); font-size: 12px; }
+.ta-op-problems { margin: 0; padding: 6px 10px 6px 24px; border-radius: 8px; background: color-mix(in srgb, #E38A8A 12%, transparent); color: #F3C6C6; font-size: 12px; }
+.ta-op-facts { font-size: 12px; gap: 3px 10px; }
+.ta-op[data-op-state="running"] .ta-node-status, .ta-op[data-op-state="held"] .ta-node-status { color: var(--timmy-ui-accent, #8ABBE3); }
+.ta-op[data-op-state="failed"] .ta-node-status, .ta-op[data-op-state="interrupted"] .ta-node-status { color: #E38A8A; }
+.ta-op-output { display: inline-flex; align-items: center; min-height: 28px; margin: 0 6px 4px 0; padding: 2px 10px; border-radius: 8px; border: 1px solid var(--ta-edge, #34373C); background: transparent; color: var(--ta-hl-cool, #8ABBE3); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.ta-op-output:hover { background: color-mix(in srgb, var(--ta-hl-cool, #8ABBE3) 12%, transparent); }
+.ta-op-output:focus-visible { outline: 2px solid var(--ta-hl-cool, #8ABBE3); outline-offset: 2px; }
+/* the canvas agent's panel: a layer at the stage's left (the inspector keeps the right) */
+.ta-layer.ta-agent-layer { left: 14px; right: auto; width: 320px; }
+.ta-layer.ta-agent-layer.is-folded { width: 180px; }
+.ta-layer-head.is-static { cursor: default; }
+.ta-agent-harness { margin: 0 0 6px; font-size: 13px; color: var(--ta-hl-cool, #8ABBE3); }
+.ta-agent-harness.is-off { color: var(--timmy-ui-text-secondary, #BDCADA); }
+.ta-agent-why { font-size: 12px; margin: 0 0 10px; }
+.ta-agent-target { margin: 2px 0 10px; font-size: 13px; }
+.ta-agent-goal { width: 100%; box-sizing: border-box; min-height: 64px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--ta-edge, #34373C); background: color-mix(in srgb, var(--timmy-ui-elev-surface, #111316) 70%, black); color: inherit; font: inherit; font-size: 14px; resize: vertical; }
+.ta-agent-goal:focus-visible { outline: 2px solid var(--ta-hl-cool, #8ABBE3); outline-offset: 2px; }
+.ta-agent-modes { display: flex; gap: 4px; margin: 10px 0; padding: 3px; border-radius: 10px; border: 1px solid var(--ta-edge, #34373C); }
+.ta-agent-mode { flex: 1 1 0; display: flex; align-items: center; justify-content: center; min-height: 32px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.ta-agent-mode input { position: absolute; opacity: 0; pointer-events: none; }
+.ta-agent-mode.is-on { background: color-mix(in srgb, var(--ta-hl-cool, #8ABBE3) 18%, transparent); color: var(--ta-hl-soft, #BED9ED); }
+.ta-agent-mode:focus-within { outline: 2px solid var(--ta-hl-cool, #8ABBE3); outline-offset: 1px; }
+.ta-agent-budget { display: flex; gap: 8px; margin-bottom: 10px; }
+.ta-agent-budget label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-agent-budget input { width: 64px; min-height: 30px; padding: 2px 6px; border-radius: 8px; border: 1px solid var(--ta-edge, #34373C); background: transparent; color: inherit; font: inherit; }
+.ta-agent-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ta-agent-words { margin: 10px 0 0; font-size: 13px; }
+.ta-agent-plan { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--ta-edge, #34373C); }
+.ta-agent-say { margin: 4px 0; font-size: 13px; }
+.ta-agent-steps, .ta-agent-log, .ta-agent-problems { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; }
+.ta-agent-steps li[data-applied="yes"] { color: var(--ta-hl-soft, #BED9ED); }
+.ta-agent-steps li[data-applied="yes"]::marker { content: "✓ "; }
+.ta-agent-problems li { color: var(--timmy-ui-text-secondary, #BDCADA); }
+.ta-agent-log { max-height: 140px; overflow: auto; color: var(--timmy-ui-text-muted, #A5A9B0); }
+.ta-agent-raw { font-size: 11.5px; margin: 6px 0 0; }
+.ta-node-by { font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ta-hl-cool, #8ABBE3) 50%, transparent); color: var(--ta-hl-cool, #8ABBE3); }
+
+/* the stage clips rather than hides its overflow: a focused or scrolled-to control inside a node (keyboard focus, a
+   page's scrollIntoView) can never scroll the stage itself sideways, which would shift every layer on it */
+.ta-stage { overflow: clip; }
+@media (max-width: 900px) { .ta-stage.is-page { overflow: visible; } .ta-stage.is-page > .tl-container { overflow: clip; } }
+/* a phone: the stage is a flex column, and a flex item's z-index applies even when it is static, so the layers' and the tool
+   bar's z-index (400, for the desktop's overlay) painted them over the rail's drawer (100) and took its taps. In the column
+   they are page content: no z-index of their own (found on the Mac at c0c9161) */
+@media (max-width: 900px) { .ta-stage.is-page > .ta-layer, .ta-stage.is-page > .ta-floatbar, .ta-stage.is-page > .ta-stage-note { z-index: auto; } }

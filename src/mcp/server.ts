@@ -22,6 +22,7 @@ import { runOpenHandsTask, openHandsPlanHash, type OpenHandsOpts } from '../util
 import { roboflowRun, type RoboflowReq } from '../utils/roboflow-adapter.js';
 import { oapiRun, type OapiReq } from '../utils/oapi-adapter.js';
 import { VISION_TOOLS, callVisionTool } from '../vision/mcp.js';
+import { ANIMATE_TOOLS, callAnimateTool } from '../agent/animate-tools.js';
 import { GEO_TOOLS, callGeoTool } from '../geo/mcp.js';
 import { FLEET_TOOLS, callFleetTool } from '../fleet/mcp.js';
 import { DECISION_TOOLS, callDecisionTool } from '../decision/mcp.js';
@@ -32,6 +33,8 @@ const sleepSync = (ms: number) => spawnSync('sleep', [String(ms / 1000)]);
 
 const TOOLS = [
   ...VISION_TOOLS,
+  // R13: Timmy Animate's authoring tools (candidates, no receipt) and its native export through the C1 host (receipted)
+  ...ANIMATE_TOOLS,
   ...GEO_TOOLS,
   ...FLEET_TOOLS,
   ...DECISION_TOOLS,
@@ -627,6 +630,7 @@ const forgeGuard = (tool: string, fn: () => unknown): unknown => {
 };
 
 const call = (name: string, args: any): unknown => {
+  if (name.startsWith('timmy_animate_')) return callAnimateTool(name, args ?? {});
   if (name.startsWith('timmy_vision_')) return callVisionTool(name, args);
   if (name.startsWith('timmy_geo_')) return callGeoTool(name, args ?? {});
   if (name.startsWith('timmy_fleet_')) return callFleetTool(name, args ?? {});
@@ -645,7 +649,20 @@ const call = (name: string, args: any): unknown => {
     case 'timmy_apify_run': return apifyRun(args ?? { tool: '' });
     case 'timmy_3minapi_run': return threeminapiRun(args ?? { tool: '' });
     case 'timmy_judge_loop': return judgeLoop(args ?? { prompt: '' });
-    case 'timmy_openhands_run': return runOpenHandsTask((args ?? {}) as OpenHandsOpts);
+    case 'timmy_openhands_run': {
+      // MCP arguments are model-controlled. Select public options explicitly;
+      // dispatch authority and lifecycle hooks can only arrive from trusted code.
+      const a = args ?? {};
+      const options: OpenHandsOpts = {
+        task: a.task, acceptance: a.acceptance,
+        fixture_repo: a.fixture_repo, ref: a.ref,
+        wall_ms: a.wall_ms, no_activity_ms: a.no_activity_ms,
+        max_iterations: a.max_iterations, max_spend: a.max_spend,
+        llm: a.llm, local_model: a.local_model, engine: a.engine,
+        approval: a.approval, dir: a.dir,
+      };
+      return runOpenHandsTask(options);
+    }
     case 'timmy_roboflow_run': return roboflowRun((args ?? {}) as RoboflowReq);
     case 'timmy_oapi_run': return oapiRun((args ?? {}) as OapiReq);
     case 'timmy_list_lanes': return { ok: true, lanes: listLanes() };
@@ -714,3 +731,6 @@ const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(process.ar
 if (isMain) startMcpServer();
 
 export { llmCall, judgeLoop, redact, call as dispatchMcpTool };
+
+/** What `timmy mcp serve` declares on tools/list (name and description only): the app's Timmy MCP page reads this. */
+export const TIMMY_MCP_TOOLS: ReadonlyArray<{ name: string; description: string }> = TOOLS.map((t) => ({ name: t.name, description: t.description }));

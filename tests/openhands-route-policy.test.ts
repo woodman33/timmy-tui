@@ -43,7 +43,8 @@ case "$1" in
     for a in "$@"; do if [ "$prev" = "--env-file" ]; then envfile="$a"; fi; prev="$a"; done
     if [ -n "$envfile" ]; then cp -p "$envfile" "${join(dir, 'env-file-copy.txt')}"; echo "$envfile" > "${join(dir, 'env-file-path.txt')}"; fi
     cat > "${join(dir, 'stdin.txt')}"
-    echo '{"host_canary":false,"patch_applied":true,"pristine_acceptance":[{"cmd":"true","code":0}]}'
+    # b56c36f0: the checks run inside the runner, so the FAKE envelope carries the workspace checks too
+    echo '{"ok":true,"patch":"","host_canary":false,"patch_applied":true,"work_acceptance":[{"cmd":"true","code":0}],"pristine_acceptance":[{"cmd":"true","code":0}]}'
     exit 0 ;;
   *) echo "FAKE docker: $1 must not run" >&2; exit 97 ;;
 esac
@@ -128,7 +129,7 @@ describe('timmy_openhands_run under the route policy (a FAKE docker on the PATH)
     const r = await runOpenHandsTask(task({ llm: 'auto', max_spend: 1 }));
     expect(r, JSON.stringify(r)).toMatchObject({ ok: true, host_canary: false, acceptance: [{ cmd: 'true', code: 0 }], pristine_acceptance: [{ cmd: 'true', code: 0 }] });
     const run = calls()[2];
-    expect(run).toMatch(/^run --rm -i --cap-drop=ALL --security-opt no-new-privileges --pids-limit 256 --memory 2g --cpus 2 --add-host host\.docker\.internal:host-gateway -v \S+:\/work --env-file \S+ timmy-oh-runner:1\.21\.0$/);
+    expect(run).toMatch(/^run --rm -i --cap-drop=ALL --security-opt no-new-privileges --pids-limit 256 --memory 2g --cpus 2 --add-host host\.docker\.internal:host-gateway -v \S+:\/work --env-file \S+ timmy-oh-runner:1\.21\.0-attempts-1$/);
     expect(run).not.toContain(KEY);
     expect(run).not.toMatch(/LLM_API_KEY|-e /);
     // what the env file held while the runner ran: the three variables, the key among them; 0600; a folder of its own, not

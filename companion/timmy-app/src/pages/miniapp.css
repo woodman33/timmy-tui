@@ -1,0 +1,41 @@
+/* R13: a hosted mini-app inside the page: a thin bar (its name, state, Stop) over the app's own frame, which takes the rest. */
+.ta-miniapp { display: flex; flex-direction: column; min-height: 0; height: 100%; flex: 1 1 auto; }
+.ta-miniapp-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--ta-line, rgba(255, 255, 255, .08)); }
+.ta-miniapp-name { font-weight: 600; font-size: 14px; }
+.ta-miniapp-gap { flex: 1 1 auto; }
+.ta-miniapp-frame { flex: 1 1 auto; width: 100%; min-height: 480px; border: 0; background: #0a0e12; display: block; }
+.ta-miniapp-lead { font-size: 15px; margin: 0 0 12px; }
+@media (max-width: 640px) { .ta-miniapp-frame { min-height: 70vh; } }
+/* the checklist's A1 / C8: the frame's bar on a phone — the way back and Stop stay in reach, the project word folds away */
+@media (max-width: 760px) {
+  .ta-miniapp-bar { flex-wrap: wrap; gap: 8px; padding: 8px; }
+  .ta-miniapp-where { display: none; }
+  .ta-miniapp-bar .ta-btn { min-height: 40px; }
+}
+/* The operator's canvas correction (2026-10-28): an open app's work fills the window. One shared sizing rule for every hosted
+   app: no page padding around the frame, a 40px bar (the project word folds away; it is in the breadcrumb), no minimum height
+   that forces the frame past the window, and the host footer folded away while an app is open (the records strip stays). */
+.ta-page.is-fill:has(> .ta-miniapp[data-miniapp-state="open"]), .ta-page.is-fill:has(.ta-miniapp[data-miniapp-state="open"]) { padding: 0; gap: 0; min-height: 0; }
+.ta-page.is-fill:has(.ta-miniapp[data-miniapp-state="open"]) .ta-body { min-height: 0; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { height: 40px; box-sizing: border-box; gap: 8px; padding: 0 10px; flex: none; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { min-height: 30px; padding-block: 0; font-size: 12px; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-name { font-size: 13px; }
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-where { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* read aloud, not drawn */
+.ta-miniapp[data-miniapp-state="open"] .ta-miniapp-frame { min-height: 0; }
+.ta-main:has(.ta-miniapp[data-miniapp-state="open"]) .ta-footer { display: none; }
+@media (max-width: 760px), (pointer: coarse) {
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { height: auto; min-height: 52px; padding: 4px 8px; flex-wrap: nowrap; overflow-x: auto; }
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { min-height: 44px; white-space: nowrap; }
+}
+/* on a phone the app's name and its state word are in the breadcrumb and the page: the bar keeps its four actions */
+@media (max-width: 760px) {
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-name, .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar > .ta-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar { gap: 6px; }
+  .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-bar .ta-btn { padding-inline: 10px; }
+}
+/* a phone page scrolls as a column: the frame takes the window below the bars, never a fixed 70vh box */
+@media (max-width: 760px) { .ta-miniapp[data-miniapp-state="open"] .ta-miniapp-frame { min-height: 0; height: calc(100dvh - var(--ta-phone-chrome, 150px)); } }
+
+/* An app's own full-screen moment (the registry's frame.immersive; Card Lab's scanner): the frame covers Timmy's chrome until
+   the app says it is done, its page reloads or it closes. The app keeps its own way out (the scanner's Close). */
+.ta-miniapp.is-immersive .ta-miniapp-frame { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-height: none; z-index: 2000; border: 0; border-radius: 0; }

@@ -26,3 +26,19 @@
   .tx-files-filter { width: 130px; }
   .tx-files-text, .tx-files-md { max-height: 50vh; }
 }
+.tx-files-prov { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ta-edge); } .tx-files-prov p { margin: 0; overflow-wrap: anywhere; }
+
+/* G3: who made the file, then what was done with it; paths and hashes under Details. */
+.tx-files-made { margin: 0; color: var(--timmy-ui-text-secondary, #c9c9c9); }
+.tx-files-sent { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--timmy-ui-verified-dim, #00D700); border-radius: 10px; background: var(--ta-sunk); }
+.tx-files-sent-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--timmy-ui-verified, #28FE14); }
+.tx-files-results { display: grid; gap: 8px; margin-bottom: 14px; }
+.tx-files-results-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.tx-files-result { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--ta-edge); border-radius: 10px; }
+.tx-files-result-thumb { padding: 0; border: 0; background: none; cursor: pointer; border-radius: 8px; }
+.tx-files-result-thumb:focus-visible { outline: 2px solid var(--timmy-ui-focus, #FFB000); outline-offset: 2px; }
+.tx-files-thumb { display: block; width: 72px; height: 54px; object-fit: cover; border-radius: 8px; background: var(--ta-sunk); }
+.tx-files-result-words { display: grid; gap: 6px; min-width: 0; }
+.tx-files-result-title { margin: 0; }
+.tx-files-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tx-files-open-name { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }

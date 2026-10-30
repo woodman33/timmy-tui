@@ -20,8 +20,14 @@ import { timmyThemes } from '../../../studio-canvas/src/theme.js';
 import { chosenOf, providerName, whereOf } from '../models-parts.jsx';
 import { Page, Tool } from '../shell.jsx';
 import { getJson, postJson } from '../api.js';
-import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setLicense, stop, useApp } from '../store.js';
+import { activityOf, answerNeedsYou, checkProvider, getState, goTo, projectQuery, say, send, setCanvasIo, setCanvasSelection, setLicense, stop, takeCanvasNote, takeCanvasOperation, useApp } from '../store.js';
 import { ActionFace } from '../rive.jsx';
+import { ASSET_STORE, ImportMenu, placeOnBoard } from './canvas-import.jsx';
+import { DISPLAY_SHAPE, createDisplayUtil } from './display-node.jsx';
+import { OP_SHAPE, addOperationNode, connectPort, createOpUtil, operations } from './op-node.jsx';
+import { AgentLayer } from './agent-panel.jsx';
+import { useCatalog } from '../catalog.jsx';
+import { MenuButton, MenuGroup, MenuItem } from '../menu.jsx';
 import { Button, Facts, StateWord, clock, keepKeys, keepPointer, useIsolated } from '../ui.jsx';
 
 // ── the desk ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -57,14 +63,35 @@ export function deskBounds(editor) {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 /** The camera held on the desk (tldraw's own constraints: contain, fit at most 100 %, the wheel pans). */
+/** A phone's stage (the page stacks at 900 px): there Fit is the Overview, the whole desk in view. */
+export const phoneStage = (editor) => editor.getViewportScreenBounds().w < 650;
 export function holdDesk(editor) {
   const vp = editor.getViewportScreenBounds();
-  const padding = { x: vp.w < 650 ? 12 : 24, y: 24 };
+  const phone = vp.w < 650;
+  const padding = { x: phone ? 12 : 24, y: phone ? 12 : 24 };
   editor.setCameraOptions({
-    isLocked: false, panSpeed: 1, zoomSpeed: 0.8, wheelBehavior: 'pan', zoomSteps: [...ZOOM_STEPS],
-    // fit the rows' height (never closer than 100 %), start at the rows' left end; the rows run on to the right
-    constraints: { bounds: deskBounds(editor), padding, origin: { x: 0, y: 0.5 }, initialZoom: 'fit-y-100', baseZoom: 'fit-y-100', behavior: 'contain' },
+    isLocked: false, panSpeed: 1, zoomSpeed: 0.8, wheelBehavior: 'pan', zoomSteps: phone ? [0.1, 0.25, ...ZOOM_STEPS.slice(1)] : [...ZOOM_STEPS],
+    // wide: fit the rows' height (never closer than 100 %), start at the rows' left end; the rows run on to the right. A phone
+    // (G5): the whole desk in view first, its Overview, so no card or tool starts out of reach; a card is read by focusing it
+    constraints: phone
+      ? { bounds: deskBounds(editor), padding, origin: { x: 0.5, y: 0.5 }, initialZoom: 'fit-max', baseZoom: 'fit-max', behavior: 'contain' }
+      : { bounds: deskBounds(editor), padding, origin: { x: 0, y: 0.5 }, initialZoom: 'fit-y-100', baseZoom: 'fit-y-100', behavior: 'contain' },
   });
+}
+
+/** The desk's cards and Rive components, in reading order (the rows, then left to right): what "Next card" steps through. */
+export function deskCards(editor) {
+  return editor.getCurrentPageShapes().filter((x) => x.type === CARD_SHAPE || x.type === RIVE_SHAPE)
+    .sort((a, b) => (Math.abs(a.y - b.y) > 120 ? a.y - b.y : a.x - b.x));
+}
+/** A card brought to the front of the view: selected and zoomed to (its words readable), the inspector showing it. */
+export function focusShape(editor, id) {
+  editor.select(id);
+  const b = editor.getShapePageBounds(id);
+  if (!b) return;
+  // after the inspector has opened under the stage (a resize re-holds the camera), the whole card fits the stage, clear of its floating tools and note (80 px above and below)
+  const go = () => { const vp = editor.getViewportScreenBounds(); editor.zoomToBounds(b, { inset: 16, targetZoom: Math.min(2, Math.max(0.25, Math.min((vp.w - 32) / b.w, (vp.h - 160) / b.h))), animation: { duration: quick() } }); };
+  requestAnimationFrame(() => requestAnimationFrame(go));
 }
 export function fitDesk(editor, animate = true) {
   holdDesk(editor);
@@ -91,7 +118,7 @@ export const DESK_CARDS = Object.freeze({
 });
 
 function LiveLine({ at }) {
-  return at ? <p className="ta-desk-live">read on this page at {clock(at)} · GET /api/chat/view</p>
+  return at ? <p className="ta-desk-live" title="read from the companion's Chat view (the records below list the request)">read on this page at {clock(at)}</p>
     : <p className="ta-desk-live is-not">not live: nothing was read on this page yet (as saved with the desk)</p>;
 }
 
@@ -142,7 +169,10 @@ class DeskCardUtil extends BaseBoxShapeUtil {
 let current = null;
 const rive = createRiveShape({ React, BaseBoxShapeUtil, HTMLContainer, T, useValue, resizeBox, createShapeId, editor: () => current });
 const license = createLicenseReadout({ react });
-const SHAPE_UTILS = [rive.util, DeskCardUtil];
+const DisplayUtil = createDisplayUtil(() => current);
+let currentBoard = 'desk';
+const OpUtil = createOpUtil(() => current, () => currentBoard, (editor, id) => focusShape(editor, id));
+const SHAPE_UTILS = [rive.util, DeskCardUtil, DisplayUtil, OpUtil];
 const OVERRIDES = { actions: (_e, actions) => { const { 'toggle-dark-mode': _d, ...kept } = actions; return kept; } };
 const cssVar = (name, fallback) => { try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; } catch { return fallback; } };
 
@@ -155,7 +185,8 @@ function DeskEdge() {
   const d = useValue('timmy desk: bounds', () => deskBounds(editor), [editor]);
   return (
     <div className="ta-desk" aria-hidden="true" style={{ left: d.x, top: d.y, width: d.w, height: d.h }}>
-      {SECTIONS.map((x) => (
+      {/* the desk's sections are the first board's own; a board made later is blank (only its edge is drawn) */}
+      {(currentBoard === FIRST_BOARD ? SECTIONS : []).map((x) => (
         <div key={x.id} className={`ta-desk-section is-${x.id}`} style={{ left: x.x - d.x - 12, top: x.y - d.y - 8, width: x.w + 24, height: x.h + 16 }}>
           {x.row ? <span className="ta-desk-section-k">{x.row}</span> : null}<span className={`ta-desk-section-label${x.row ? '' : ' is-alone'}`}>{x.label}</span>
         </div>
@@ -167,7 +198,7 @@ function DeskEdge() {
 /** tldraw's style panel only while the person draws (a card or a Rive shape has no style of its own). */
 function StylePanel(props) {
   const editor = useEditor();
-  const shown = useValue('timmy desk: style panel', () => !['select', 'hand'].includes(editor.getCurrentToolId()) || editor.getSelectedShapes().some((x) => x.type !== CARD_SHAPE && x.type !== RIVE_SHAPE), [editor]);
+  const shown = useValue('timmy desk: style panel', () => !['select', 'hand'].includes(editor.getCurrentToolId()) || editor.getSelectedShapes().some((x) => x.type !== CARD_SHAPE && x.type !== RIVE_SHAPE && x.type !== DISPLAY_SHAPE && x.type !== OP_SHAPE), [editor]);
   return shown ? <DefaultStylePanel {...props} /> : null;
 }
 const COMPONENTS = {
@@ -232,6 +263,26 @@ export function addNode(editor, node) {
   return id;
 }
 
+/** A note with text on the desk where there is room (a host operation's result: its words, operation and receipt). */
+export function placeNote(editor, text) {
+  const id = createShapeId();
+  // in the Notes section where it is free (a note at 0.8 is 160 units wide, about 250 tall with these lines), else where
+  // the desk has room for it whole
+  const W = 168; const H = 250;
+  const sec = SECTIONS.find((x) => x.id === 'notes');
+  const taken = editor.getCurrentPageShapes().map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
+  const free = (x, y) => !taken.some((b) => x < b.x + b.w + 12 && x + W + 12 > b.x && y < b.y + b.h + 12 && y + H + 12 > b.y);
+  let at = null;
+  for (let y = sec.y + 24; !at && y + H <= sec.y + sec.h + 4; y += 10) for (let x = sec.x + 8; !at && x + W <= sec.x + sec.w; x += 10) if (free(x, y)) at = { x, y };
+  editor.run(() => {
+    const p = at || placeFor(editor, W, H);
+    editor.createShape({ id, type: 'note', x: p.x, y: p.y, props: { richText: toRichText(String(text || '')), size: 's', scale: 0.8 } });
+    editor.select(id);
+  });
+  focusShape(editor, id);
+  return id;
+}
+
 /** A new action button's words and the request it sends (the person changes both in the context column). */
 export const ACTION = Object.freeze({ label: 'Ask Timmy', request: 'List the files in this project and say in one line what each is for.' });
 /** The request an action button sends: its own (the shape's meta), else its label. */
@@ -283,6 +334,19 @@ function firstDesk(editor) {
 
 // ── the desk kept in the project (the companion's /api/app/desk) ─────────────────────────────────────────────────────────
 
+/** The project's first board (its desk); the unified Workspace order (2026-10-27) adds more boards beside it. */
+export const FIRST_BOARD = 'desk';
+/** The query of a board's desk route: the page's project and, for a board other than the desk, ?board=<id>. */
+export function deskQuery(board) {
+  const q = projectQuery();
+  const b = board && board !== FIRST_BOARD ? `board=${encodeURIComponent(board)}` : '';
+  return q ? (b ? `${q}&${b}` : q) : (b ? `?${b}` : '');
+}
+/** The board this browser last had open for a principal's project (a per-viewer convenience; the boards are the project's). */
+const BOARD_KEPT = (deskKey) => `timmy-app:board:${deskKey}`;
+function boardKept(deskKey) { try { return localStorage.getItem(BOARD_KEPT(deskKey)) || FIRST_BOARD; } catch { return FIRST_BOARD; } }
+function keepBoard(deskKey, id) { try { localStorage.setItem(BOARD_KEPT(deskKey), id); } catch { /* not kept */ } }
+
 /** The desk's document as the project keeps it: without the records of whoever had it open (tldraw's `user` records are per viewer). */
 export function deskDocument(editor) {
   const doc = getSnapshot(editor.store).document;
@@ -306,8 +370,8 @@ export const SAVE_AFTER_MS = 700;
  * desk another window saved since is never written over (the companion keeps this page's version beside it as a copy, and
  * saving stops until the desk is opened again). The project is the one this page showed when the desk opened.
  */
-export function keepDesk(editor, start, onState) {
-  const q = projectQuery();
+export function keepDesk(editor, start, onState, board = FIRST_BOARD) {
+  const q = deskQuery(board);
   let rev = start && Number.isInteger(start.revision) ? start.revision : 0;
   let timer = 0;
   let pending = false;
@@ -343,6 +407,8 @@ export function keepDesk(editor, start, onState) {
   document.addEventListener('visibilitychange', hidden);
   return {
     now: save,
+    /** the desk saved now and every save in flight finished: the revision the companion holds (for the agent's plan) */
+    settled: async () => { await save(); for (let i = 0; i < 200 && (saving || pending); i++) await new Promise((r) => setTimeout(r, 50)); return rev; },
     stop: () => { if (pending) save(); stopped = true; clearTimeout(timer); off(); document.removeEventListener('visibilitychange', hidden); },
   };
 }
@@ -404,11 +470,12 @@ function importDesk(editor) {
 
 // ── the board ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
+const Board = memo(function Board({ licenseKey, start, onKept, onEditor, board = FIRST_BOARD }) {
   return (
     <Tldraw
       licenseKey={licenseKey || undefined}
       shapeUtils={SHAPE_UTILS}
+      assets={ASSET_STORE}
       assetUrls={assetUrls || (assetUrls = getAssetUrls({ baseUrl: `${location.origin}/app/dist/assets/` }))}
       themes={themes || (themes = timmyThemes(DEFAULT_THEME, cssVar))}
       colorScheme="dark"
@@ -426,18 +493,25 @@ const Board = memo(function Board({ licenseKey, start, onKept, onEditor }) {
           }
         }
         holdDesk(editor);
-        firstDesk(editor);
+        // the desk starts with Timmy's sections; a board made later starts blank (the page says how to begin)
+        if (board === FIRST_BOARD) firstDesk(editor);
         fitDesk(editor, false);
-        keeper = start && start.ok && opened ? keepDesk(editor, start, onKept) : null;
+        keeper = start && start.ok && opened ? keepDesk(editor, start, onKept, board) : null;
         if (keeper && !start.revision && editor.getCurrentPageShapeIds().size) keeper.now();
         if (start && !start.ok) onKept({ phase: 'failed', words: start.error || 'the companion did not answer.' });
         else if (!opened) onKept({ phase: 'failed', words: 'the saved desk could not be opened here.' });
         const onResize = () => holdDesk(editor);
         editor.on('resize', onResize);
+        // a node made anywhere (an operation, its results, an agent's edit) grows the desk the camera is held on, once a frame
+        let growing = 0;
+        const stopGrow = editor.sideEffects.registerAfterCreateHandler('shape', () => { if (!growing) growing = requestAnimationFrame(() => { growing = 0; holdDesk(editor); }); });
         const stopLicense = license.watch(editor, (r) => setLicense(r));
         onEditor(editor);
+        // a host operation's result sent here from Tools & integrations: a note on the desk (kept with it), selected
+        const pending = keeper ? takeCanvasNote() : null;
+        if (pending) placeNote(editor, pending.text);
         const mine = keeper;
-        return () => { editor.off('resize', onResize); stopLicense(); if (mine) mine.stop(); if (keeper === mine) keeper = null; if (current === editor) current = null; onEditor(null); };
+        return () => { editor.off('resize', onResize); stopGrow(); if (growing) cancelAnimationFrame(growing); stopLicense(); if (mine) mine.stop(); if (keeper === mine) keeper = null; if (current === editor) current = null; onEditor(null); };
       }}
     />
   );
@@ -475,6 +549,87 @@ function NodesMenu({ editor }) {
   );
 }
 
+/**
+ * The boards of this project (the unified Workspace order): which is open, open another, make a new one (blank), rename the one
+ * open. The list is the project's (GET /api/app/boards); a board's work is saved in the project as the desk's is.
+ */
+function BoardMenu({ boards, board, onOpen, onChanged }) {
+  const [name, setName] = useState('');
+  const [mode, setMode] = useState(null);
+  const [words, setWords] = useState('');
+  const list = boards && boards.ok ? boards.boards : [];
+  const here = list.find((b) => b.id === board);
+  const submit = async (close) => {
+    const n = name.trim();
+    if (!n) { setWords('A board needs a name.'); return; }
+    const r = mode === 'rename' ? await postJson(`/api/app/boards/${encodeURIComponent(board)}/rename${projectQuery()}`, { name: n }) : await postJson(`/api/app/boards${projectQuery()}`, { name: n });
+    if (!r.ok) { setWords(r.error || `The companion answered ${r.status}.`); return; }
+    await onChanged();
+    setName(''); setMode(null); setWords('');
+    if (mode !== 'rename') onOpen(r.board.id);
+    say(mode === 'rename' ? `Board renamed: ${r.board.name}.` : `Board made: ${r.board.name} (blank, kept in the project).`);
+    close(true);
+  };
+  return (
+    <MenuButton label={here ? here.name : 'Desk'} glyph="▦" title="Boards of this project" menuLabel="Boards of this project" data={{ 'data-menu': 'boards', 'data-board': board }} onOpen={() => { setMode(null); setWords(''); }}>
+      {(close) => (
+        <>
+          <MenuGroup label="Boards">
+            {list.length ? list.map((b) => (
+              <MenuItem key={b.id} checked={b.id === board} close={close} onSelect={() => onOpen(b.id)} data={{ 'data-board-item': b.id }}
+                hint={b.revision ? `revision ${b.revision}${b.savedAt ? ` · ${clock(b.savedAt)}` : ''}` : 'not saved yet'}>{b.name}</MenuItem>
+            )) : <p className="ta-menu-note">{boards && !boards.ok ? boards.error : 'Reading the boards…'}</p>}
+          </MenuGroup>
+          <MenuGroup label="Change">
+            <MenuItem keepOpen close={close} onSelect={() => { setMode('new'); setName(''); setWords(''); }} data={{ 'data-action': 'board-new' }}>New board…</MenuItem>
+            <MenuItem keepOpen close={close} onSelect={() => { setMode('rename'); setName(here ? here.name : ''); setWords(''); }} data={{ 'data-action': 'board-rename' }}>Rename this board…</MenuItem>
+          </MenuGroup>
+          {mode ? (
+            <form className="ta-menu-form" onSubmit={(e) => { e.preventDefault(); submit(close); }}>
+              <label className="tr-visually-hidden" htmlFor="ta-board-name">{mode === 'rename' ? 'New name of this board' : 'Name of the new board'}</label>
+              <input id="ta-board-name" autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={mode === 'rename' ? 'New name' : 'Board name'} data-board-name />
+              <button type="submit" className="ta-btn ta-btn-primary" data-action={mode === 'rename' ? 'board-rename-save' : 'board-create'}>{mode === 'rename' ? 'Rename' : 'Make'}</button>
+            </form>
+          ) : null}
+          {words ? <p className="ta-menu-note" role="status">{words}</p> : null}
+        </>
+      )}
+    </MenuButton>
+  );
+}
+
+/**
+ * The operations a node can run, from the ONE integration catalog (GET /api/catalog): each hosted app's Workspace
+ * operations, callable or not — one that cannot run here is listed with its precise reason, never as a working button.
+ */
+function OpPicker({ editor }) {
+  const { answer } = useCatalog();
+  const [specs, setSpecs] = useState([]);
+  useEffect(() => { operations().then(setSpecs); }, []);
+  // each hosted app's canvas operations, and (the spatial tools order) the spatial tools' for 3D Model Studio: those listed
+  // even where they cannot run here (gsplat awaits an NVIDIA worker), with the reason
+  const spatial = (e) => e.id.startsWith('spatial:');
+  const entries = answer && answer.ok ? answer.catalog.entries.filter((e) => (e.kind === 'app' && e.operations.some((o) => o.where.includes('canvas'))) || spatial(e)) : [];
+  return (
+    <MenuButton label="Operations" glyph="⚙" title="Add an operation node" menuLabel="Add an operation node" buttonClass="ta-tool" disabled={!editor} data={{ 'data-menu': 'operations', 'data-tool': 'Operations' }}>
+      {(close) => (
+        <>
+          {!answer ? <p className="ta-menu-note">Reading the catalog…</p> : !entries.length ? <p className="ta-menu-note">No hosted app offers a Workspace operation here.</p> : entries.map((e) => (
+            <MenuGroup key={e.id} label={spatial(e) ? `3D Model Studio · ${e.name}` : e.name}>
+              {e.operations.filter((o) => o.where.includes('canvas') || spatial(e)).map((o) => {
+                const spec = specs.find((x) => x.id === o.id);
+                const why = !spec ? 'not offered by this companion' : spec.available && spec.available.ok === false ? spec.available.why : !spatial(e) && e.states.installed.ok !== true ? e.states.installed.words : null;
+                return <MenuItem key={o.id} close={close} disabled={Boolean(why)} hint={why || (spec && spec.heavy ? `It ${spec.heavy}.` : spec ? spec.lead : '')} data={{ 'data-op-pick': o.id, 'data-op-available': why ? 'no' : 'yes' }} onSelect={() => { const id = addOperationNode(editor, spec); focusShape(editor, id); }}>{o.label}</MenuItem>;
+              })}
+            </MenuGroup>
+          ))}
+          <MenuGroup label="Everything"><MenuItem close={close} onSelect={() => goTo('tools')} data={{ 'data-act': 'catalog' }} hint="every integration, in six facts">The integration catalog…</MenuItem></MenuGroup>
+        </>
+      )}
+    </MenuButton>
+  );
+}
+
 function DeskTools({ editor }) {
   const tool = useValue('timmy desk: tool', () => (editor ? editor.getCurrentToolId() : 'select'), [editor]);
   const zoom = useValue('timmy desk: zoom', () => (editor ? editor.getZoomLevel() : 1), [editor]);
@@ -488,6 +643,8 @@ function DeskTools({ editor }) {
       <Tool glyph="⌖" label="Arrange" pressed={tool === 'select'} onClick={off ? null : () => set('select')} />
       <Tool glyph="✋" label="Hand" pressed={tool === 'hand'} onClick={off ? null : () => set('hand')} />
       <NodesMenu editor={editor} />
+      <OpPicker editor={editor} />
+      <ImportMenu editor={editor} place={editor ? (w, h) => placeFor(editor, w, h) : null} focus={focusShape} hold={holdDesk} />
       <Tool glyph="✎" label="Draw" pressed={tool === 'draw'} onClick={off ? null : () => set('draw')} />
       <Tool glyph="↗" label="Connect" pressed={tool === 'arrow'} onClick={off ? null : () => set('arrow')} />
       <Tool glyph="T" label="Text" pressed={tool === 'text'} onClick={off ? null : () => set('text')} />
@@ -503,10 +660,48 @@ function DeskTools({ editor }) {
   );
 }
 
-const PROVIDERS = ['ollama-local', 'openrouter', 'ollama-cloud', 'cloudflare'];
+/** The page stacks at 900 px (app.css): there the Canvas gives its controls as buttons in one bar under the stage. */
+function usePhone() {
+  const q = '(max-width: 900px)';
+  const [on, setOn] = useState(() => typeof matchMedia === 'function' && matchMedia(q).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return undefined;
+    const m = matchMedia(q); const f = () => setOn(m.matches);
+    m.addEventListener('change', f); return () => m.removeEventListener('change', f);
+  }, []);
+  return on;
+}
 
-/** Sends an action button's request as a real turn of this project (the Chat's own POST /api/chat/turn), when none runs. */
-export function runAction(shape) {
+/**
+ * G5: a phone's Canvas, every action a button (no gesture to guess): Overview (the whole desk), the card before and after
+ * (each focused: zoomed to and shown in the inspector), Undo and Redo, and the rest of the tools behind "Tools". Pinch and
+ * drag still pan and zoom; nothing here takes them away.
+ */
+function PhoneBar({ editor, toolsOpen, onTools }) {
+  const cards = useValue('timmy desk: cards', () => (editor ? deskCards(editor).map((x) => x.id) : []), [editor]);
+  const sel = useValue('timmy desk: one', () => (editor && editor.getSelectedShapeIds().length === 1 ? editor.getSelectedShapeIds()[0] : null), [editor]);
+  const canUndo = useValue('timmy desk: undo', () => (editor ? editor.getCanUndo() : false), [editor]);
+  const canRedo = useValue('timmy desk: redo', () => (editor ? editor.getCanRedo() : false), [editor]);
+  const at = sel ? cards.indexOf(sel) : -1;
+  const step = (d) => { if (!editor || !cards.length) return; const i = at < 0 ? (d > 0 ? 0 : cards.length - 1) : (at + d + cards.length) % cards.length; focusShape(editor, cards[i]); };
+  const off = !editor;
+  return (
+    <div className="ta-phonebar" role="toolbar" aria-label="Canvas controls">
+      <button type="button" className="ta-phonebtn is-primary" disabled={off} onClick={() => { editor.selectNone(); fitDesk(editor); }} data-phone="overview"><span aria-hidden="true">⛶</span> Overview</button>
+      <span />
+      <button type="button" className="ta-phonebtn" aria-expanded={toolsOpen} onClick={onTools} data-phone="tools">Tools {toolsOpen ? '▾' : '▸'}</button>
+      <div className="ta-phonebar-row is-cards">
+        <button type="button" className="ta-phonebtn" disabled={off || !cards.length} onClick={() => step(-1)} aria-label="The card before" data-phone="prev">◀</button>
+        <span className="ta-phonebar-at" aria-live="polite">{at >= 0 ? `Card ${at + 1} of ${cards.length}` : `${cards.length} cards`}</span>
+        <button type="button" className="ta-phonebtn" disabled={off || !cards.length} onClick={() => step(1)} aria-label="The next card" data-phone="next">▶</button>
+        <button type="button" className="ta-phonebtn" disabled={off || !canUndo} onClick={() => editor.undo()} aria-label="Undo" data-phone="undo">↶</button>
+        <button type="button" className="ta-phonebtn" disabled={off || !canRedo} onClick={() => editor.redo()} aria-label="Redo" data-phone="redo">↷</button>
+      </div>
+    </div>
+  );
+}
+
+function runAction(shape) {
   const request = requestOf(shape);
   const t = getState().turn;
   if (!request) { say('This action button has no request yet: write one in the context column.'); return false; }
@@ -652,8 +847,11 @@ const keepLayer = (v) => { try { localStorage.setItem(LAYER_KEY, JSON.stringify(
  * movable): dragged by its header within the stage (arrow keys on the header move it too), folded to its header and opened
  * again; where it was left is kept in this browser. On a phone it sits under the stage, unfolded.
  */
-function DeskLayer({ editor, kept }) {
+function DeskLayer({ editor, kept, phone }) {
   const [at, setAt] = useState(() => ({ folded: true, ...readLayer() }));
+  const chosen = useValue('timmy desk: chosen', () => (editor ? editor.getSelectedShapeIds().join(',') : ''), [editor]);
+  // a phone: choosing a card opens the inspector under the stage (its parameters readable at the phone's size)
+  useEffect(() => { if (phone && chosen) setAt((a) => (a.folded ? { ...a, folded: false } : a)); }, [phone, chosen]);
   const turn = useApp((s) => s.turn);
   // a tool waiting on the person opens the layer, whatever its fold (its answers are in it)
   const box = useRef(null);
@@ -710,20 +908,30 @@ export default function CanvasPage() {
   const [opening, setOpening] = useState(0);
   const deskKey = deskKeyOf(config);
   const ready = Boolean(config && config.ok);
+  // the project's boards (the desk first) and the one open here
+  const [boards, setBoards] = useState(null);
+  const [board, setBoard] = useState(FIRST_BOARD);
+  useEffect(() => { if (ready) setBoard(boardKept(deskKey)); }, [ready, deskKey]);
+  const readBoards = async () => { const r = await getJson(`/api/app/boards${projectQuery()}`); setBoards(r); return r; };
+  useEffect(() => { if (ready) readBoards(); }, [ready, deskKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a board kept in this browser that the project no longer has (another principal's, a removed one): the desk
+  useEffect(() => { if (boards && boards.ok && !boards.boards.some((b) => b.id === board)) setBoard(FIRST_BOARD); }, [boards, board]);
+  const openBoard = (id) => { if (keeper) keeper.now(); keepBoard(deskKey, id); setBoard(id); };
+  currentBoard = board;
   // the project's desk, read before the board opens (again after Reload, when another window saved it first)
   useEffect(() => {
     if (!ready) return undefined;
     let live = true;
     setDesk(null);
     setKept({ phase: 'loading' });
-    getJson(`/api/app/desk${projectQuery()}`).then((d) => {
+    getJson(`/api/app/desk${deskQuery(board)}`).then((d) => {
       if (!live) return;
       setDesk(d);
       if (d.ok) setKept({ phase: d.revision ? 'saved' : 'new', revision: d.revision, savedAt: d.savedAt });
       if (d.notice) say(d.notice);
     });
     return () => { live = false; };
-  }, [ready, opening]);
+  }, [ready, opening, board]);
   useEffect(() => {
     if (!editor) { setCanvasIo(null); return undefined; }
     setCanvasIo({ export: () => exportDesk(editor, config && config.project), import: () => importDesk(editor) });
@@ -741,17 +949,71 @@ export default function CanvasPage() {
       if (shape && shape.type === RIVE_SHAPE) runAction(shape);
     });
   }, [editor]);
+  // G6: a Rive face on the desk is drawn for the zoom it is seen at (tldraw scales the shape with a transform, which a canvas
+  // drawn at 100 % blurs): its drawing surface follows the camera's zoom, settled 150 ms after the zoom stops
+  useEffect(() => {
+    const R = typeof window !== 'undefined' ? window.TimmyRive : null;
+    if (!R || !editor || typeof R.handles !== 'function') return undefined;
+    let t = null;
+    const sharpen = () => {
+      const z = editor.getZoomLevel();
+      const ratio = Math.min(4, (window.devicePixelRatio || 1) * Math.max(1, z));
+      for (const h of R.handles()) {
+        if (!h.rive || !h.hostEl || !h.hostEl.closest || !h.hostEl.closest('.ta-stage')) continue;
+        try { h.rive.resizeDrawingSurfaceToCanvas(ratio); } catch { /* drawn as it was */ }
+      }
+    };
+    const stop = react('timmy desk: rive sharpness', () => { editor.getZoomLevel(); clearTimeout(t); t = setTimeout(sharpen, 150); });
+    return () => { clearTimeout(t); stop(); };
+  }, [editor]);
+  // the spatial tools order: an operation node asked for elsewhere — a splat node's "Crop with KIRI…" (beside it, its input
+  // connected) or 3D Model Studio's splat menu (where the board has room) — added through the board's own functions
+  useEffect(() => {
+    if (!editor) return undefined;
+    const add = async ({ op, port = null, from = null }) => {
+      const spec = (await operations()).find((o) => o.id === op);
+      if (!spec) { say(`This companion does not offer ${op}.`); return; }
+      const src = from ? editor.getShapePageBounds(from) : null;
+      const at = src ? placeOnBoard(editor, 380, 420, null, null, { x: src.x + src.w + 80, y: src.y }) : null;
+      const id = addOperationNode(editor, spec, at);
+      if (port && from) { const r = connectPort(editor, id, port, from); if (!r.ok) say(`Not connected: ${r.why}.`); }
+      focusShape(editor, id);
+      if (spec.available && spec.available.ok === false) say(`${spec.label}: ${spec.available.why}`);
+    };
+    const pending = takeCanvasOperation();
+    if (pending) void add(pending);
+    const on = (e) => { void add(e.detail || {}); };
+    window.addEventListener('timmy:operation-for', on);
+    return () => window.removeEventListener('timmy:operation-for', on);
+  }, [editor]);
+  // the selection kept for the Control Room's "canvas selection" target: the board, its files and operation nodes
+  useEffect(() => {
+    if (!editor) return undefined;
+    let t = null;
+    const stopSel = react('timmy desk: selection kept', () => {
+      const nodes = editor.getSelectedShapes().filter((x) => x.type === DISPLAY_SHAPE || x.type === OP_SHAPE).map((x) => ({ id: x.id, kind: x.type === OP_SHAPE ? 'operation' : 'file', title: String(x.props.title || x.props.path || x.props.op || '').slice(0, 80), path: x.props.path || null, op: x.props.op || null }));
+      clearTimeout(t); t = setTimeout(() => setCanvasSelection({ board: currentBoard, nodes }), 120);
+    });
+    return () => { clearTimeout(t); stopSel(); };
+  }, [editor]);
   const shapes = useValue('timmy desk: count', () => (editor ? editor.getCurrentPageShapeIds().size : 0), [editor]);
+  const phone = usePhone();
+  const [toolsOpen, setToolsOpen] = useState(false);
   // the Canvas is the page: no head, no band, no column beside it; the inspector and the tools are layers on the stage
   return (
     <Page id="canvas" fill head={false}>
       <div className="ta-stage is-page" aria-label="The desk">
-        {ready && desk ? <Board key={`${deskKey}:${opening}`} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
+        {ready && desk ? <Board key={`${deskKey}:${board}:${opening}`} board={board} licenseKey={config.licenseKey} start={desk} onKept={setKept} onEditor={setEditor} />
           : ready ? <p className="ta-empty ta-pad">Reading the project’s desk…</p>
           : <p className="ta-empty ta-pad">{config ? config.error || 'The companion did not answer.' : 'Opening the desk…'}</p>}
         {note ? <p className="ta-stage-note" role="status">{note}</p> : null}
-        <DeskLayer editor={editor} kept={kept} />
-        <div className="ta-floatbar ta-toolsrow" role="toolbar" aria-label="Canvas tools">
+        {editor && board !== FIRST_BOARD && shapes === 0 && desk && desk.ok ? <p className="ta-stage-guide" data-board-empty>This board is empty. Import an app’s result, add a node, or draw: everything on it is kept in the project.</p> : null}
+        {phone ? <PhoneBar editor={editor} toolsOpen={toolsOpen} onTools={() => setToolsOpen(!toolsOpen)} /> : null}
+        <DeskLayer editor={editor} kept={kept} phone={phone} />
+        <AgentLayer editor={editor} board={board} settle={() => (keeper ? keeper.settled() : Promise.resolve(null))} />
+        <div className={`ta-floatbar ta-toolsrow${phone && !toolsOpen ? ' is-phone-folded' : ''}`} role="toolbar" aria-label="Canvas tools">
+          <BoardMenu boards={boards} board={board} onOpen={openBoard} onChanged={readBoards} />
+          <span className="ta-toolsrow-sep" aria-hidden="true" />
           <DeskTools editor={editor} />
           {kept.phase === 'conflict' ? <Button kind="primary" onClick={() => setOpening(opening + 1)}>Open the saved desk</Button> : null}
           <span className="ta-toolsrow-note" data-kept={kept.phase} title={keptWords(kept, config && config.project)}>{editor ? `${shapes} shape${shapes === 1 ? '' : 's'} · ` : ''}{deskWord(kept)}</span>

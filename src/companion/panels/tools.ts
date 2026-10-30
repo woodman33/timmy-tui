@@ -101,6 +101,15 @@ export function mountToolsPanel(app: express.Express, ctx: PanelContext): void {
     } catch (e) { failed(res, e); }
   });
 
+  // the 07:37 completion pass: the Timmy MCP page — what `timmy mcp serve` declares (read from this Timmy's own code; a
+  // declaration, not a listing of a running server: listing one through a route is the MCP → CLI page's)
+  app.get(`${base}/timmy-mcp`, ctx.withToken, async (_req, res) => {
+    try {
+      const { TIMMY_MCP_TOOLS } = await import('../../mcp/server.js');
+      res.json({ ok: true, serve: 'timmy mcp serve', transport: 'stdio', read: 'declared by this Timmy\'s code (tools/list answers the same list); nothing started', tools: TIMMY_MCP_TOOLS });
+    } catch (e) { failed(res, e); }
+  });
+
   app.get(`${base}/inventory`, ctx.withToken, async (req, res) => {
     const p = ctx.projectFor(req);
     if (!p) { res.status(404).json({ ok: false, error: ctx.projectUnknown }); return; }

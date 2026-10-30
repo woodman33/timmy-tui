@@ -23,6 +23,27 @@ export function ConsoleFace({ size = 'wide', theme }) {
   return <div ref={ref} className="ta-face ta-face-console" data-face="console" />;
 }
 
+/** A Control Room run's face: AgentConsole bound to that run alone ('job:<id>'), fed its record's state (TimmyRive.fromJob). */
+const JOB_WORD = { running: 'working', stopping: 'stopping', stopped: 'stopped', failed: 'failed', interrupted: 'failed', refused: 'failed', succeeded: 'idle' };
+export function RunFace({ id, state, live, size = 'card', theme }) {
+  const ref = useRef(null);
+  const handle = useRef(null);
+  useEffect(() => {
+    const rive = R();
+    const host = ref.current;
+    if (!rive || !host) return undefined;
+    host.replaceChildren();
+    const h = rive.mountConsole(host, { name: `run:${id}`, binds: [`job:${id}`], size, place: 'app', heading: null, word: JOB_WORD[state] || 'idle', words: 'spoken', theme, label: `Run ${id}` });
+    handle.current = h;
+    return () => { handle.current = null; try { h.unmount(); } catch { /* gone */ } };
+  }, [id, size, theme]);
+  useEffect(() => {
+    const rive = R();
+    if (rive && rive.fromJob && handle.current) try { rive.fromJob(handle.current, JOB_WORD[state] || 'idle', `GET /api/control/runs/${id} (the run's ${live ? 'job' : 'end'}: ${state})`, !live); } catch { /* the face keeps its word */ }
+  }, [id, state, live]);
+  return <div ref={ref} className="ta-face ta-face-console ta-face-run" data-face="run" data-run={id} data-state={state} />;
+}
+
 /** A provider's connection (ProviderCard): fed with the provider's state word through TimmyRive.fromProviderState. */
 /**
  * `fed`: the state is this page's own observation (a check it made): the face is fed it and says LIVE. Otherwise the state is
