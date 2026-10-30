@@ -692,3 +692,16 @@ phone header back to two rows). The R18 layout and owners are kept.
   (it fails on a reused server once Card Lab's own 60-writes-a-minute limit is hit); hosted in Timmy 10 of 10 (phone and desktop:
   camera allowed, full screen, live checks ready, screen handed back). Not run: a physical phone, Safari/WebKit, the licensed Mac.
 
+### The 18:35 PT follow-up: a larger card, the full height, native Rive framing
+
+- **Card Lab cb8bd9ce:** the frame is edge to edge on a phone (364×508 at 390×844, was 327×457) and the full height on landscape
+  screens and desktops, the controls in side columns (624×872 at 1440×900, was 472×659); the capture set, evidence and help follow
+  below the surface. A framed still lays its card exactly on the frame.
+- **Native Rive:** the four scanner assets regenerated from `generate.mjs` and compiled with the official Rive CLI 1.1.1 on the
+  operator's Mac (in a scratch folder; 0 errors, 0 warnings). The portrait guide is now 320×447 (a 63×88 card) on a 400×527 artboard.
+  The view model gains `ready` and `edgeTop/Right/Bottom/Left`; five more state machine layers draw the ready rim and each side's
+  found or missing mark. The scanner runs the ScannerStudio state machine with that view model bound to the task phase and the live
+  measurements; under reduced motion it scrubs the same timelines.
+- **Checks here:** Card Lab npm test 200/200; `scanner-surface-check` 48/48; the owner's `scanner-mobile-check` 42/42 (harness
+  adjusted as before; it caught the coach hiding the camera-denied alert's text, fixed before the commit); `embedded-check` 16/16.
+
