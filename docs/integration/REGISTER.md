@@ -704,4 +704,13 @@ phone header back to two rows). The R18 layout and owners are kept.
   measurements; under reduced motion it scrubs the same timelines.
 - **Checks here:** Card Lab npm test 200/200; `scanner-surface-check` 48/48; the owner's `scanner-mobile-check` 42/42 (harness
   adjusted as before; it caught the coach hiding the camera-denied alert's text, fixed before the commit); `embedded-check` 16/16.
+- **Card Lab 13f61947:** cb8bd9ce called `stop()` before playing the state machine; with no names that drops the bound instance,
+  and the one `play()` then creates is not bound, so the values were set but never seen (found in a bare-page test of the same
+  `.riv` and runtime, where the binding works). Fixed; `scanner-surface-check` now reads the Rive canvas: mint found marks on every
+  side for an aligned card, amber missing marks for a small one (50/50). npm test 200/200; owner checks 42/42 and 23/23;
+  `embedded-check` 16/16.
+- **Licensed run on the Mac** (built-in browser pane; Card Lab 13f61947 on 127.0.0.1:4655 from a scratch folder, the operator's
+  tldraw key read from its file and never printed): `license: licensed`, no watermark, the ScannerStudio state machine running with
+  its view model bound (the Complete preview drew its review-ready ring), frame 364×508 at 390×844 and 624×872 at 1440×900. The
+  Mac's own camera was not opened.
 
